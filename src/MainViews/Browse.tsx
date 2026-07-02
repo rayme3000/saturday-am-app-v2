@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useSeriesData } from './userSeriesData';
-import { supabase } from './supabase';
+import { useSeriesData } from '../userSeriesData';
+import { supabase } from '../supabase';
 import { Search, Library, BookOpen } from 'lucide-react';
 
 const Browse = ({ onNavigate }: any) => {

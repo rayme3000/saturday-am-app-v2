@@ -10,11 +10,16 @@ export const useSeriesData = () => {
       try {
         const { data, error } = await supabase
           .from('series')
-          .select('*')
-          .order('display_order', { ascending: true }); // THIS is the magic sorting line
+          // --- THE FIX IS RIGHT HERE ---
+          // This tells Supabase to join the creators table and grab the is_visible flag!
+          .select('*, creators:series_creators(*)') 
+          .order('display_order', { ascending: true }); 
 
         if (error) throw error;
-        if (data) setSeriesList(data);
+        if (data) {
+          console.log("🚨 RAW SUPABASE DATA:", data); 
+          setSeriesList(data);
+        }
       } catch (error) {
         console.error("Error fetching series data:", error);
       } finally {

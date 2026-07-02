@@ -3,23 +3,13 @@ import Cropper from 'react-easy-crop';
 import { Upload, Check, Image as ImageIcon, Trash2, Star, Calendar, Menu, Home, Heart, Plus, Search, ShoppingBag, User, BookOpen, Play, ArrowLeft, Bookmark, X, MoveHorizontal, MoveVertical, RotateCcw, MessageCircle, MessageCircleOff, ChevronLeft, ChevronRight, Award, Crop, Flame, ArrowUp, SkipBack, SkipForward, Settings, Shield, CreditCard, Maximize2, Save, Scissors, RefreshCw } from 'lucide-react';
 import { supabase } from './supabase';
 import { useSeriesData } from './userSeriesData';
-import LoginModal from './LoginModal';
-import Favorites from './MyFaves';
-import Browse from './Browse';
-
+import LoginModal from './Auth/LoginModal.tsx';
+import Favorites from './MainViews/MyFaves.tsx';
+import Browse from './MainViews/Browse.tsx';
+import SettingsPage from './MainViews/Settings.tsx';
+import BingoBook from './VirtualProfile/BingoBook';
 // --- Cloudflare Base URL ---
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
-
-// --- Data Sections ---
-const MOCK_COMMENTS = [
-  { id: 1, pageIndex: 0, user: 'SanoFan99', avatar: 'https://i.pravatar.cc/150?u=1', text: 'This cover is pure fire 🔥' },
-  { id: 2, pageIndex: 0, user: 'MangaArtist', avatar: 'https://i.pravatar.cc/150?u=2', text: 'Whyt Manga always delivers on the art style. Look at those details!' },
-  { id: 3, pageIndex: 1, user: 'ClockStrikerMain', avatar: 'https://i.pravatar.cc/150?u=3', text: 'Here we go! The journey begins.' },
-  { id: 4, pageIndex: 3, user: 'ShonenKing', avatar: 'https://i.pravatar.cc/150?u=4', text: 'Wait, did anyone else notice the easter egg in the background?!' },
-  { id: 5, pageIndex: 3, user: 'AM_Reader', avatar: 'https://i.pravatar.cc/150?u=5', text: 'Good catch! I totally missed that.' },
-  { id: 6, pageIndex: 8, user: 'SaturdayVault', avatar: 'https://i.pravatar.cc/150?u=6', text: 'The pacing in this sequence is incredible.' },
-  { id: 7, pageIndex: 8, user: 'ArtCritique', avatar: 'https://i.pravatar.cc/150?u=7', text: 'Love the heavy inking on this panel!' },
-];
 
 const MagazineHomeSection = ({ magazines, onMagazineClick }: any) => {
   const scrollRef = useRef(null);
@@ -157,13 +147,14 @@ const FooterNav = ({ onNavigate }: any) => {
     { name: 'AM Shop', icon: ShoppingBag, action: null },
     { name: 'Profile', icon: User, action: () => onNavigate({ action: 'profile' }) },
   ];
-const HamburgerMenu = ({ isOpen, onClose, onNavigate }: any) => {
+const HamburgerMenu = ({ isOpen, onClose, onNavigate, onOpenFlexCard }: any) => {
   if (!isOpen) return null;
 
   const menuItems = [
     { name: 'Browse Library', action: 'browse' },
     { name: 'Edit Profile', action: 'profile' },
     { name: 'My Favorites', action: 'faves' },
+    { name: 'Bingo Book', action: 'bingobook' },
     { name: 'Subscription', action: 'sub' },
     { name: 'Settings', action: 'settings' }
   ];
@@ -174,7 +165,16 @@ const HamburgerMenu = ({ isOpen, onClose, onNavigate }: any) => {
         <span className="text-[#fe9a00] font-black uppercase tracking-widest text-xs">Menu</span>
         <button onClick={onClose} className="p-2 text-white hover:text-[#fe9a00]"><X className="w-8 h-8" /></button>
       </div>
-      <div className="flex-1 flex flex-col justify-center px-12 gap-8">
+      <div className="flex-1 flex flex-col justify-center px-12 gap-6">
+        
+        {/* NEW: Dedicated Card Flex Button inside the menu */}
+        <button 
+          onClick={() => { onClose(); onOpenFlexCard(); }}
+          className="flex items-center gap-4 bg-[#fe9a00] text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all mb-8 shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
+        >
+          <CreditCard className="w-6 h-6" /> Flex AM Crew Card
+        </button>
+
         {menuItems.map((item) => (
           <button 
             key={item.action} 
@@ -184,6 +184,211 @@ const HamburgerMenu = ({ isOpen, onClose, onNavigate }: any) => {
             {item.name}
           </button>
         ))}
+      </div>
+    </div>
+  );
+};
+
+// --- NEW: GLOBAL FLEX CARD COMPONENT ---
+// --- NEW: GLOBAL FLEX CARD COMPONENT ---
+const GlobalFlexCard = ({ isOpen, onClose }: any) => {
+  const { seriesList = [] } = useSeriesData();
+  const [profileStats, setProfileStats] = useState({ total_hypes: 0, quick_reacts: 0, chapters_read: 0 });
+  const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', frameId: 'none', cardSkin: '', topFive: [null, null, null, null, null] });
+  const [isFlipped, setIsFlipped] = useState(false);
+  
+  // NEW: Subscription State (Defaulted to false so you can see the locked state!)
+  // In production, tie this to your actual user tier logic.
+  const [isSubscriber, setIsSubscriber] = useState(false); 
+
+  const BASIC_FRAMES = [
+    { id: 'none', name: 'Original', style: 'border-2 border-zinc-800' },
+    { id: 'red', name: 'Solid Red', style: 'border-2 border-red-600' },
+    { id: 'yellow', name: 'Solid Yellow', style: 'border-2 border-yellow-500' },
+    { id: 'cyan', name: 'Solid Cyan', style: 'border-2 border-cyan-500' },
+  ];
+  
+  const PREMIUM_FRAMES = [
+    { id: 'gold', name: 'Ultra Gold', style: 'border-2 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.5)]', orbit: 'border-t-yellow-400 border-r-yellow-400 animate-[spin_3s_linear_infinite]' },
+    { id: 'appleblack', name: 'Apple Black', style: 'border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]', orbit: 'border-t-red-500 border-l-red-500 animate-[spin_2.5s_linear_infinite]' },
+    { id: 'clockstriker', name: 'Clock Striker', style: 'border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]', orbit: 'border-b-cyan-400 border-r-cyan-400 animate-[spin_3s_linear_infinite_reverse]' },
+  ];
+
+  const getFrameStyle = (id: string) => [...BASIC_FRAMES, ...PREMIUM_FRAMES].find(f => f.id === id)?.style || 'border-2 border-zinc-800';
+  const getOrbitStyle = (id: string) => PREMIUM_FRAMES.find(f => f.id === id)?.orbit || '';
+
+  useEffect(() => {
+    if (!isOpen) { setIsFlipped(false); return; }
+    const fetchStats = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+        if (data) {
+          setProfileStats({ total_hypes: data.total_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0 });
+          setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', frameId: data.frame_id || 'none', cardSkin: data.card_skin || '', topFive: data.top_five || [null, null, null, null, null] });
+        }
+      }
+    };
+    fetchStats();
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 animate-fade-in" onClick={onClose}>
+      <button onClick={onClose} className="absolute top-6 right-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-[350] shadow-2xl">
+        <X className="w-6 h-6" />
+      </button>
+
+      <div className="w-[100vw] h-[100vh] flex flex-col items-center justify-center card-perspective p-4 md:p-12">
+        <div 
+          className={`relative w-full max-w-4xl aspect-[1.58] cursor-pointer card-flipper ${isFlipped ? 'is-flipped' : ''}`}
+          onClick={(e) => { 
+            e.stopPropagation(); 
+            // ONLY allow the flip if they are a subscriber
+            if (isSubscriber) setIsFlipped(!isFlipped); 
+          }}
+        >
+          {/* === FRONT OF CARD === */}
+          <div className="absolute inset-0 w-full h-full bg-zinc-900 rounded-2xl md:rounded-[2rem] border-2 border-zinc-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden card-face flex flex-col justify-end">
+            <img src={userProfile.cardSkin || "https://zcadkovymrnjpjaxvnao.supabase.co/storage/v1/object/public/card-skins/skins/1781908112888_8ozh4h.jpg"} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
+            <div className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }} />
+            
+            <div className="absolute top-4 right-4 md:top-8 md:right-8 z-20 pointer-events-none">
+              <img 
+                src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" 
+                alt="Saturday AM" 
+                className="h-8 md:h-14 object-contain drop-shadow-md" 
+              />
+            </div>
+
+            {/* NEW: LOCKED OVERLAY FOR NON-SUBSCRIBERS */}
+            {!isSubscriber && (
+              <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50 rounded-2xl md:rounded-[2rem]">
+                  <CreditCard className="w-10 h-10 md:w-16 md:h-16 text-zinc-500 mb-4" />
+                  <p className="text-white font-black tracking-widest text-sm md:text-xl mb-6 uppercase text-center px-4 drop-shadow-md">
+                    Premium Member Exclusive
+                  </p>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); onClose(); /* Trigger your subscribe router here */ }} 
+                    className="bg-[#fe9a00] text-black px-8 py-4 rounded-full font-black uppercase tracking-widest text-xs md:text-sm hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)]"
+                  >
+                    Join the AM Crew
+                  </button>
+              </div>
+            )}
+          </div>
+
+          {/* === BACK OF CARD === */}
+          <div className="absolute inset-0 w-full h-full bg-zinc-900 rounded-2xl md:rounded-[2rem] border-2 border-zinc-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col justify-between p-4 md:p-10 card-face card-back">
+            <div className="absolute inset-0 pointer-events-none z-0" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }} />
+            
+            <div className="relative z-10 flex flex-col h-full justify-between">
+              
+              {/* Top Left: Avatar & Username */}
+              <div className="flex items-center gap-4 border-b border-zinc-800 pb-4 md:pb-6">
+                <div className="relative w-16 h-16 md:w-24 md:h-24 flex items-center justify-center flex-shrink-0">
+                  <div className={`w-14 h-14 md:w-20 md:h-20 rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(userProfile.frameId)}`}>
+                    {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="w-8 h-8 md:w-10 md:h-10 text-zinc-600" />}
+                  </div>
+                  {getOrbitStyle(userProfile.frameId) && <div className={`absolute w-full h-full rounded-full border-2 border-transparent ${getOrbitStyle(userProfile.frameId)}`} />}
+                </div>
+                <div className="flex flex-col truncate pt-1">
+                  <p className="font-black text-2xl md:text-5xl italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none">{userProfile.username}</p>
+                  <p className="text-[8px] md:text-[12px] text-[#fe9a00] font-black uppercase tracking-widest mt-2 flex flex-wrap gap-x-2 leading-tight">
+                    <span>MEMBER SINCE OCT 2023</span>
+                    <span className="text-zinc-600 hidden sm:inline">|</span>
+                    <span className="text-zinc-400">STORE DISCOUNT CODE: AMCLUB26</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Stats Row */}
+              <div className="flex justify-around items-center bg-black/40 rounded-xl border border-zinc-800/50 shadow-inner p-4 md:p-8 mt-4 mb-4">
+                <div className="text-center w-1/3 border-r border-zinc-800/50">
+                  <p className="text-zinc-500 uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-2">Total Hypes</p>
+                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-3 text-xl md:text-4xl">
+                    <Flame className="w-5 h-5 md:w-10 md:h-10" /> {profileStats.total_hypes.toLocaleString()}
+                  </p>
+                </div>
+                <div className="text-center w-1/3 border-r border-zinc-800/50">
+                  <p className="text-zinc-500 uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-2">Quick Reacts</p>
+                  <p className="font-black text-cyan-400 flex items-center justify-center gap-1 md:gap-3 text-xl md:text-4xl">
+                    <MessageCircle className="w-5 h-5 md:w-10 md:h-10" /> {profileStats.quick_reacts.toLocaleString()}
+                  </p>
+                </div>
+                <div className="text-center w-1/3">
+                  <p className="text-zinc-500 uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-2">Chapters Read</p>
+                  <p className="font-black text-cyan-400 flex items-center justify-center gap-1 md:gap-3 text-xl md:text-4xl">
+                    <BookOpen className="w-5 h-5 md:w-10 md:h-10" /> {profileStats.chapters_read.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              {/* My Favorite Series */}
+              <div className="flex flex-col justify-center w-full flex-1">
+                <p className="text-[10px] md:text-sm text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-2 mb-2 md:mb-4">
+                  <Star className="w-4 h-4 md:w-5 md:h-5 text-[#fe9a00]" /> Top 5 Stickers
+                </p>
+                <div className="flex gap-2 md:gap-6 w-full justify-between items-start px-2 md:px-8">
+                  {[0, 1, 2, 3, 4].map((i) => {
+                    const slug = userProfile.topFive[i];
+                    const series = seriesList.find((s:any) => s.slug === slug);
+                    
+                    if (!series) {
+                       return (
+                         <div key={i} className="flex flex-col items-center w-[18%] gap-2">
+                           <div className="w-16 h-16 md:w-32 md:h-32 rounded-full border-2 border-dashed border-zinc-700/50 bg-black/20 transition-all duration-300" />
+                         </div>
+                       );
+                    }
+                    
+                    const stickerImage = series.sticker_url || series.character_url || series.cover_url;
+
+                    return (
+                      <div key={i} className="flex flex-col items-center w-[18%] gap-2">
+                        <div 
+                          className={`relative rounded-full overflow-hidden bg-[#f4f4f5] border-[#f4f4f5]
+                            w-16 h-16 md:w-32 md:h-32 border-[3px] md:border-[6px]
+                            shadow-[2px_4px_8px_rgba(0,0,0,0.7)] md:shadow-[4px_8px_16px_rgba(0,0,0,0.7)]
+                            transform hover:scale-110 transition-all duration-300 flex-shrink-0
+                            ${i % 2 === 0 ? '-rotate-3' : 'rotate-2'} 
+                            ${i === 2 ? '-translate-y-2 md:-translate-y-4' : ''}
+                          `}
+                        >
+                          <img src={stickerImage} className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
+                          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
+                        </div>
+                        <span className="text-[8px] md:text-[12px] font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight mt-1 transition-all">
+                          {series.title}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Promo Text */}
+              <div className="text-center pt-4 md:pt-6 mt-auto">
+                <p className="text-[8px] md:text-[10px] text-zinc-500 uppercase tracking-widest leading-relaxed">
+                  Present this digital pass at live events for discounts.<br/>
+                  Use code <span className="text-white font-black">AMCLUB26</span> in the Shopify store.
+                </p>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        {/* DYNAMIC HELPER TEXT */}
+        <p className="text-zinc-500 text-[10px] md:text-[12px] font-bold uppercase tracking-widest mt-12 animate-pulse flex items-center gap-2 pointer-events-none">
+          {isSubscriber ? (
+            <><RotateCcw className="w-4 h-4 md:w-5 md:h-5" /> Tap anywhere on card to flip</>
+          ) : (
+            <><CreditCard className="w-4 h-4 md:w-5 md:h-5" /> Subscribe to unlock Digital ID</>
+          )}
+        </p>
+
       </div>
     </div>
   );
@@ -411,7 +616,24 @@ const handleReactSubmit = async () => {
   }, [visibleComments.length, isTickerEnabled, currentPage]);
 
   useEffect(() => { setActiveCommentIndex(visibleComments.length > 0 ? visibleComments.length - 1 : 0); }, [currentPage, mode, localComments.length]);
-
+// Groups pages into 2-page spreads and shifts them based on the toggle
+  const generateBookSpreads = (pages: string[], startSide: 'left' | 'right') => {
+    const spreads = [];
+    let i = 0;
+    
+    // If it starts on the right, force a blank page on the left!
+    if (startSide === 'right' && pages.length > 0) {
+      spreads.push([null, pages[0]]);
+      i = 1;
+    }
+    
+    // Group the rest two at a time
+    while (i < pages.length) {
+      spreads.push([pages[i], pages[i + 1] || null]);
+      i += 2;
+    }
+    return spreads;
+  };
   return (
     <div className="fixed inset-0 z-[100] bg-[#0a0a0a] overflow-hidden flex flex-col">
       <style>{`
@@ -487,26 +709,43 @@ const handleReactSubmit = async () => {
 
         {mode === 'book' && (
           <div className="h-full w-full flex items-center justify-center relative select-none bg-black">
+            
             <div className="absolute top-1/4 left-1/2 -translate-x-1/2 z-40 bg-zinc-800/95 text-[#fe9a00] px-6 py-3 rounded-full text-xs font-bold tracking-widest flex items-center gap-3 portrait:flex landscape:hidden pointer-events-none shadow-2xl animate-pulse whitespace-nowrap border border-zinc-700"><RotateCcw className="w-4 h-4" /> Rotate device</div>
+            
             <div className="h-full flex justify-center items-center w-full max-w-7xl mx-auto">
-              {isSpread(currentPage) ? (
-                <img src={pages[currentPage]} onLoad={(e) => handleImageLoad(pages[currentPage], e)} className="h-full max-w-full object-contain" alt="Full Spread" />
-              ) : (
-                <>
-                  <div className="flex-1 h-full flex justify-end">
-                    {pages[currentPage] ? (
-                      <img src={pages[currentPage]} onLoad={(e) => handleImageLoad(pages[currentPage], e)} className="h-full object-contain object-right" alt="Left Page" />
+              
+              {/* Notice we pass your 'firstPageSide' state into the math function here! */}
+              {generateBookSpreads(pages, 'right').map((spread: any, index: number) => (
+                
+                // This line handles the LTR vs RTL reading direction toggle!
+                <div 
+                  key={index} 
+                  className={`flex w-full h-full max-w-5xl justify-center items-center gap-0 ${
+                    'ltr' === 'rtl' ? 'flex-row-reverse' : 'flex-row'
+                  }`}
+                  style={{ display: Math.floor(currentPage / 2) === index ? 'flex' : 'none' }} // Only show the current spread
+                >
+                  
+                  {/* Left Side Container */}
+                  <div className="w-1/2 h-full flex justify-end">
+                    {spread[0] ? (
+                      <img src={spread[0]} className="h-full object-contain object-right shadow-2xl" alt="Page" />
                     ) : (
-                      <div className="h-full w-full flex items-center justify-center"><div className="w-8 h-8 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div></div>
+                      <div className="w-full h-full bg-black flex items-center justify-center"><span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">Turn page for spread</span></div>
                     )}
                   </div>
-                  <div className="flex-1 h-full flex justify-start">
-                    {currentPage + 1 < pages.length ? (
-                      isSpread(currentPage + 1) ? (<div className="h-full w-full bg-black flex items-center justify-center"><span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">Turn page for spread</span></div>) : (<img src={pages[currentPage + 1]} onLoad={(e) => handleImageLoad(pages[currentPage + 1], e)} className="h-full object-contain object-left" alt="Right Page" />)
-                    ) : (<div className="h-full w-full bg-black" />)}
+
+                  {/* Right Side Container */}
+                  <div className="w-1/2 h-full flex justify-start">
+                    {spread[1] ? (
+                      <img src={spread[1]} className="h-full object-contain object-left shadow-2xl" alt="Page" />
+                    ) : (
+                      <div className="w-full h-full bg-black" />
+                    )}
                   </div>
-                </>
-              )}
+
+                </div>
+              ))}
             </div>
             
             <div className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer" onClick={goPrev} />
@@ -768,6 +1007,7 @@ const handleReactSubmit = async () => {
 
 const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) => {
   const [isReaderOpen, setIsReaderOpen] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null); 
   const [otherMagazines, setOtherMagazines] = useState<any[]>([]);
   const scrollRef = useRef(null);
 
@@ -786,7 +1026,10 @@ const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) => {
   const isPM = magazine.brand === 'PM';
   const primaryColor = isPM ? '#ff000b' : '#fe9a00';
   const brutalistShadow = isPM ? '20px 20px 0px rgba(255,0,11,0.2)' : '20px 20px 0px rgba(254,154,0,0.2)';
-  const previewPages = (magazine.preview_pages && magazine.preview_pages.length > 0) ? magazine.preview_pages.slice(0, 4) : (magazine.pages ? magazine.pages.slice(0, 4) : []);
+  
+  const previewPages = (magazine.preview_pages && magazine.preview_pages.length > 0) 
+    ? magazine.preview_pages 
+    : (magazine.pages ? magazine.pages.slice(0, 10) : []);
 
   const scroll = (direction: string) => {
     if (scrollRef.current) {
@@ -798,6 +1041,8 @@ const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) => {
 
   return (
     <div className="relative min-h-screen bg-black text-white pb-12 overflow-hidden">
+      
+      {/* Full Issue Reader */}
       {isReaderOpen && (
         <MangaReader 
           pages={magazine.pages || []} 
@@ -807,7 +1052,32 @@ const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) => {
           onHome={() => { setIsReaderOpen(false); onBack(); }}
         />
       )}
+
+      {/* Fullscreen Lightbox Carousel for Preview Gallery */}
+      {previewIndex !== null && (
+        <div 
+          className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-8 animate-fade-in" 
+          onClick={() => setPreviewIndex(null)}
+        >
+          <button onClick={() => setPreviewIndex(null)} className="absolute top-6 right-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-50 shadow-2xl">
+            <X className="w-6 h-6" />
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); setPreviewIndex(prev => prev === 0 ? previewPages.length - 1 : prev! - 1); }} className="absolute left-2 md:left-8 p-3 bg-zinc-900/80 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-50 shadow-2xl">
+            <ChevronLeft className="w-6 h-6 md:w-8 md:h-8" />
+          </button>
+          <div className="relative max-w-full max-h-full w-full h-full flex items-center justify-center pointer-events-none">
+            <img src={previewPages[previewIndex]} className="max-w-full max-h-full object-contain drop-shadow-2xl pointer-events-auto" alt={`Preview ${previewIndex + 1}`} onClick={(e) => e.stopPropagation()} />
+          </div>
+          <button onClick={(e) => { e.stopPropagation(); setPreviewIndex(prev => prev === previewPages.length - 1 ? 0 : prev! + 1); }} className="absolute right-2 md:right-8 p-3 bg-zinc-900/80 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-50 shadow-2xl">
+            <ChevronRight className="w-6 h-6 md:w-8 md:h-8" />
+          </button>
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-zinc-900/90 border border-zinc-700 px-6 py-2 rounded-full text-[10px] md:text-xs font-black uppercase tracking-widest text-white shadow-2xl">
+            {previewIndex + 1} <span className="text-zinc-500 mx-1">OF</span> {previewPages.length}
+          </div>
+        </div>
+      )}
       
+      {/* Top Left Back Button */}
       <button onClick={onBack} className="fixed top-6 left-6 p-3 bg-zinc-900/90 rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors z-50 transform -skew-x-12">
         <div className="transform skew-x-12 flex items-center gap-2">
           <ArrowLeft className="w-5 h-5" />
@@ -815,14 +1085,34 @@ const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) => {
         </div>
       </button>
 
+      {/* Background Watermark */}
       <div className="absolute top-32 left-[-10vw] whitespace-nowrap z-0 pointer-events-none select-none opacity-5">
         <h1 className="text-[25vw] font-black italic leading-none tracking-tighter" style={{ color: primaryColor }}>{isPM ? 'SATURDAY PM' : 'SATURDAY AM'}</h1>
       </div>
 
       <div className="relative z-10 w-full max-w-7xl mx-auto px-6 pt-32 pb-24 flex flex-col md:flex-row items-center md:items-start gap-12 lg:gap-24">
-        <div className="w-full md:w-1/2 flex justify-center md:justify-end perspective-1000">
-          <img src={magazine.cover_url} className="w-[85%] md:w-[90%] max-w-md object-contain transition-transform duration-700 hover:-translate-y-2 hover:-translate-x-2 border border-zinc-800" style={{ boxShadow: brutalistShadow }} alt={magazine.title} />
+        
+        {/* CHANGED: Cover Image is now the Gallery Trigger */}
+        <div className="w-full md:w-1/2 flex flex-col items-center md:items-end perspective-1000">
+          <div 
+            className={`relative w-[85%] md:w-[90%] max-w-md group ${previewPages.length > 0 ? 'cursor-pointer' : ''}`}
+            onClick={() => { if (previewPages.length > 0) setPreviewIndex(0); }}
+          >
+            <img 
+              src={magazine.cover_url} 
+              className="w-full object-contain transition-transform duration-700 group-hover:-translate-y-2 group-hover:-translate-x-2 border border-zinc-800" 
+              style={{ boxShadow: brutalistShadow }} 
+              alt={magazine.title} 
+            />
+            {/* NEW: Look Inside Text under the cover */}
+            {previewPages.length > 0 && (
+              <div className="mt-8 flex items-center justify-center md:justify-end gap-3 text-white group-hover:text-[#fe9a00] transition-colors w-full md:pr-4">
+                <span className="text-xl md:text-3xl font-black uppercase italic tracking-tighter drop-shadow-md">Click to Look Inside</span>
+              </div>
+            )}
+          </div>
         </div>
+
         <div className="w-full md:w-1/2 flex flex-col items-start pt-8 md:pt-16">
           <div className="flex items-center gap-4 mb-6">
             {isPM ? (<img src={`${CLOUDFLARE_BASE_URL}/homepage-graphic-assets/logos/small%20saturday%20pm%20logo.png`} className="h-8 object-contain" alt="Saturday PM" />) : (<img src={`${CLOUDFLARE_BASE_URL}/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png`} className="h-8 object-contain" alt="Saturday AM" />)}
@@ -831,47 +1121,10 @@ const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) => {
           <h1 className="text-5xl md:text-7xl font-black uppercase italic leading-none mb-6 tracking-tighter" style={{ color: primaryColor }}>{magazine.title}</h1>
           <p className="text-sm md:text-base text-zinc-300 leading-relaxed max-w-md mb-12 border-l border-zinc-800 pl-4">{magazine.synopsis || "No synopsis provided for this issue."}</p>
           <button onClick={() => { if (magazine.pages && magazine.pages.length > 0) { setIsReaderOpen(true); } else { alert("This issue doesn't have any pages uploaded yet!"); } }} className="bg-zinc-900 text-white border border-zinc-700 font-black uppercase tracking-widest px-12 py-5 hover:bg-white hover:text-black hover:border-white transition-all transform -skew-x-12 group">
-            <span className="block transform skew-x-12 flex items-center gap-3">Read Issue <ArrowLeft className="w-4 h-4 rotate-180 group-hover:translate-x-2 transition-transform" /></span>
+            <span className="block transform skew-x-12 flex items-center gap-3">Read Full Issue <ArrowLeft className="w-4 h-4 rotate-180 group-hover:translate-x-2 transition-transform" /></span>
           </button>
         </div>
       </div>
-
-      {previewPages.length > 0 && (
-        <div className="relative z-10 w-full max-w-4xl mx-auto px-6 mb-32">
-          <div className="flex items-end gap-4 mb-8 border-b border-zinc-800 pb-4">
-            <h3 className="text-3xl font-black uppercase italic tracking-tighter text-white">Inside Look</h3>
-            <span className="text-[10px] text-[#fe9a00] font-black uppercase tracking-widest mb-1">Gallery</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {previewPages[0] && (
-              <div onClick={() => setIsReaderOpen(true)} className="md:col-span-2 group/preview bg-zinc-900 overflow-hidden cursor-pointer relative border border-zinc-800 rounded-sm min-h-[400px] md:min-h-[500px]">
-                <img src={previewPages[0]} className="absolute inset-0 w-full h-full object-cover opacity-60 grayscale-[50%] group-hover/preview:grayscale-0 group-hover/preview:opacity-100 transition-all duration-700 group-hover/preview:scale-105" alt="Preview 1" />
-                <div className="absolute top-4 left-4 bg-black px-4 py-2 text-[10px] font-black tracking-widest uppercase z-10" style={{ color: primaryColor }}>PG. 01</div>
-              </div>
-            )}
-            <div className="flex flex-col gap-3 h-full">
-              {previewPages[1] && (
-                <div onClick={() => setIsReaderOpen(true)} className="group/preview flex-1 min-h-[150px] bg-zinc-900 overflow-hidden cursor-pointer relative border border-zinc-800 rounded-sm">
-                  <img src={previewPages[1]} className="absolute inset-0 w-full h-full object-cover opacity-60 grayscale-[50%] group-hover/preview:grayscale-0 group-hover/preview:opacity-100 transition-all duration-700 group-hover/preview:scale-105" alt="Preview 2" />
-                  <div className="absolute top-3 left-3 bg-black px-3 py-1.5 text-[9px] font-black tracking-widest uppercase z-10" style={{ color: primaryColor }}>PG. 02</div>
-                </div>
-              )}
-              {previewPages[2] && (
-                <div onClick={() => setIsReaderOpen(true)} className="group/preview flex-1 min-h-[150px] bg-zinc-900 overflow-hidden cursor-pointer relative border border-zinc-800 rounded-sm">
-                  <img src={previewPages[2]} className="absolute inset-0 w-full h-full object-cover opacity-60 grayscale-[50%] group-hover/preview:grayscale-0 group-hover/preview:opacity-100 transition-all duration-700 group-hover/preview:scale-105" alt="Preview 3" />
-                  <div className="absolute top-3 left-3 bg-black px-3 py-1.5 text-[9px] font-black tracking-widest uppercase z-10" style={{ color: primaryColor }}>PG. 03</div>
-                </div>
-              )}
-              {previewPages[3] && (
-                <div onClick={() => setIsReaderOpen(true)} className="group/preview flex-1 min-h-[150px] bg-zinc-900 overflow-hidden cursor-pointer relative border border-zinc-800 rounded-sm">
-                  <img src={previewPages[3]} className="absolute inset-0 w-full h-full object-cover object-top opacity-60 grayscale-[50%] group-hover/preview:grayscale-0 group-hover/preview:opacity-100 transition-all duration-700 group-hover/preview:scale-105" alt="Preview 4" />
-                  <div className="absolute top-3 left-3 bg-black px-3 py-1.5 text-[9px] font-black tracking-widest uppercase z-10" style={{ color: primaryColor }}>PG. 04</div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {otherMagazines.length > 0 && (
         <div className="relative z-10 w-full max-w-7xl mx-auto px-6">
@@ -995,6 +1248,26 @@ const SeriesDetailPage = ({ series, onBack }: any) => {
   const [showAwards, setShowAwards] = useState(false);
   const awardTimeoutRef = useRef<any>(null);
 
+  // --- NEW: FAVES STATE & FETCH LOGIC ---
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const checkFavoriteStatus = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && localSeries) {
+        setCurrentUserId(user.id);
+        const { data } = await supabase.from('profiles').select('favorites').eq('id', user.id).single();
+        
+        if (data?.favorites && data.favorites.includes(localSeries.slug)) {
+          setIsFavorited(true);
+        }
+      }
+    };
+    checkFavoriteStatus();
+  }, [localSeries]);
+  // --------------------------------------
+
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
@@ -1031,6 +1304,38 @@ const SeriesDetailPage = ({ series, onBack }: any) => {
     if (awardTimeoutRef.current) clearTimeout(awardTimeoutRef.current);
     awardTimeoutRef.current = setTimeout(() => { setShowAwards(false); }, 3000);
   };
+
+  // --- NEW: TOGGLE FAVORITE FUNCTION ---
+  const handleToggleFavorite = async () => {
+    if (!currentUserId) {
+      alert("Please log in to add series to your faves!");
+      return;
+    }
+
+    const newFavoriteStatus = !isFavorited;
+    setIsFavorited(newFavoriteStatus);
+
+    try {
+      const { data } = await supabase.from('profiles').select('favorites').eq('id', currentUserId).single();
+      let currentFaves = data?.favorites || [];
+
+      if (newFavoriteStatus) {
+        if (!currentFaves.includes(localSeries.slug)) currentFaves.push(localSeries.slug);
+      } else {
+        currentFaves = currentFaves.filter((slug: string) => slug !== localSeries.slug);
+      }
+
+      const { error } = await supabase.from('profiles').update({ favorites: currentFaves }).eq('id', currentUserId);
+      if (error) throw error;
+      
+    } catch (err) {
+      console.error("Failed to update favorites:", err);
+      setIsFavorited(!newFavoriteStatus);
+    }
+  };
+  // -------------------------------------
+
+  if (!localSeries) return null;
 
   if (!localSeries) return null;
   const safeSynopsis = localSeries.synopsis || '';
@@ -1100,8 +1405,16 @@ const SeriesDetailPage = ({ series, onBack }: any) => {
             <button className="flex items-center gap-2 border border-zinc-800 bg-zinc-900/80 px-6 py-3 rounded-full text-[#fe9a00] font-black uppercase tracking-widest hover:bg-zinc-800 hover:border-[#fe9a00] transition-all group">
               <Flame className="w-5 h-5 group-hover:fill-[#fe9a00] transition-colors" /><span>{formattedHype} HYPE</span> 
             </button>
-            <button className="flex items-center gap-2 bg-[#fe9a00] text-black px-8 py-3 rounded-full font-black uppercase tracking-widest hover:bg-white hover:shadow-[0_0_20px_rgba(254,154,0,0.4)] transition-all">
-              <Bookmark className="w-5 h-5" /><span>ADD TO FAVES</span>
+            <button 
+              onClick={handleToggleFavorite}
+              className={`flex items-center gap-2 px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all ${
+                isFavorited 
+                  ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00] hover:bg-zinc-900' 
+                  : 'bg-[#fe9a00] text-black hover:bg-white hover:shadow-[0_0_20px_rgba(254,154,0,0.4)]'
+              }`}
+            >
+              <Bookmark className={`w-5 h-5 ${isFavorited ? 'fill-[#fe9a00]' : ''}`} />
+              <span>{isFavorited ? 'FAVORITED' : 'ADD TO FAVES'}</span>
             </button>
           </div>
         </div>
@@ -1254,17 +1567,24 @@ const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle }: any
   return (
     <div className="bg-black min-h-screen text-white p-6 pb-24">
       {/* TOP NAVIGATION BAR */}
-        {/* TOP NAVIGATION BAR */}
         <nav className="w-full z-50 p-4 sm:p-6 flex justify-between items-center bg-black border-b border-zinc-900">
+          
           <button onClick={onMenuToggle} className="p-2 hover:bg-zinc-900 rounded-full transition-colors">
+             <Menu className="w-6 h-6 text-white" />
           </button>
           
-          <img src={`${CLOUDFLARE_BASE_URL}/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png`} className="h-6 sm:h-8 object-contain" alt="Saturday AM Logo" />
-          
-          <div className="flex items-center gap-4">
-            <span onClick={onLoginClick} className="text-white text-[10px] sm:text-xs font-bold hidden sm:block cursor-pointer hover:text-[#fe9a00] transition-colors">Login</span>
-            <button className="bg-[#fe9a00] text-black px-4 py-1.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest hover:bg-white transition-colors">Subscribe</button>
+          <div className="flex items-center gap-4 cursor-pointer" onClick={() => onNavigate({ action: 'home' })}>
+            <img 
+              src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png" 
+              alt="Saturday AM" 
+              className="h-8 md:h-10 object-contain drop-shadow-md hover:scale-105 transition-transform" 
+            />
           </div>
+          
+          <button onClick={onLoginClick} className="bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-sm hover:bg-white hover:shadow-[0_0_15px_rgba(254,154,0,0.4)] transition-all">
+            Login
+          </button>
+          
         </nav>
 
       <div className="mb-8 w-full flex flex-col items-center">
@@ -1632,19 +1952,45 @@ const SeriesEditor = () => {
   const [targetSeries, setTargetSeries] = useState('new');
   const { seriesList = [] } = useSeriesData();
   const [isSaving, setIsSaving] = useState(false);
+  const [firstPageSide, setFirstPageSide] = useState<'left' | 'right'>('left');
+  // --- DRAG AND DROP STATES ---
+  const [selectedPages, setSelectedPages] = useState<number[]>([]);
+  const [draggedItem, setDraggedItem] = useState<number | null>(null);
+  const [dragOverItem, setDragOverItem] = useState<number | null>(null);
+const [readingDirection, setReadingDirection] = useState<'ltr' | 'rtl'>('ltr');
   const [formData, setFormData] = useState({ seriesTitle: '', bannerUrl: '', logoUrl: '', characterUrl: '', synopsis: '', awards: '', hasAwards: false, creators: [{ role: 'Creator', name: '', bio: '', flagCode: '', avatar: '', instagram: '', twitter: '', youtube: '', facebook: '', twitch: '', patreon: '', tiktok: '', supportLink: '' }] });
 
-  useEffect(() => {
+ useEffect(() => {
     const fetchSeriesData = async () => {
       if (targetSeries === 'new') {
-        setFormData({ seriesTitle: '', bannerUrl: '', logoUrl: '', characterUrl: '', synopsis: '', awards: '', hasAwards: false, creators: [{ role: 'Creator', name: '', flagCode: '', avatar: '', bio: '', instagram: '', twitter: '', youtube: '', facebook: '', twitch: '', patreon: '', tiktok: '', supportLink: '' }] });
+        setFormData({ seriesTitle: '', bannerUrl: '', logoUrl: '', characterUrl: '', synopsis: '', awards: '', hasAwards: false, creators: [{ role: 'Creator', name: '', flagCode: '', avatar: '', bio: '', instagram: '', twitter: '', youtube: '', facebook: '', twitch: '', patreon: '', tiktok: '', supportLink: '', is_visible: true }] });
       } else {
         const selectedSeries = seriesList.find(s => s.slug === targetSeries);
         if (selectedSeries) {
           const { data: creatorData } = await supabase.from('series_creators').select('*').eq('series_slug', targetSeries);
+          
+          // 🕵️ THE SPYGLASS: This will print the raw database row to your browser console
+          console.log("🚨 RAW CREATOR DATA FROM DB:", creatorData);
+
           let loadedCreators = [];
-          if (creatorData && creatorData.length > 0) { loadedCreators = creatorData.map(c => ({ role: c.role || 'Creator', name: c.name || '', flagCode: c.flag_code || '', avatar: c.avatar_url || '', bio: c.bio || '', twitter: c.twitter_url || '', instagram: c.instagram_url || '', supportLink: c.support_url || '', youtube: '', facebook: '', twitch: '', patreon: '', tiktok: '' })); } 
-          else { loadedCreators = [{ role: 'Creator', name: selectedSeries.creator_name || '', flagCode: selectedSeries.flag_code || '', avatar: selectedSeries.creator_avatar || '', bio: selectedSeries.creator_bio || '', twitter: selectedSeries.creator_twitter || '', instagram: selectedSeries.creator_instagram || '', supportLink: selectedSeries.creator_support_link || '', youtube: '', facebook: '', twitch: '', patreon: '', tiktok: '' }]; }
+          if (creatorData && creatorData.length > 0) { 
+            loadedCreators = creatorData.map(c => ({ 
+              role: c.role || 'Creator', 
+              name: c.name || '', 
+              flagCode: c.flag_code || '', 
+              avatar: c.avatar || c.avatar_url || '', 
+              bio: c.bio || '', 
+              twitter: c.twitter || c.twitter_url || '', 
+              instagram: c.instagram || c.instagram_url || '', 
+              supportLink: c.support_link || c.support_url || '', 
+              youtube: '', facebook: '', twitch: '', patreon: '', tiktok: '', 
+              // FORCE strict boolean: if it's explicitly false in DB, make it false. Otherwise true.
+              is_visible: c.is_visible === false ? false : true 
+            })); 
+          } 
+          else { 
+            loadedCreators = [{ role: 'Creator', name: selectedSeries.creator_name || '', flagCode: selectedSeries.flag_code || '', avatar: selectedSeries.creator_avatar || '', bio: selectedSeries.creator_bio || '', twitter: selectedSeries.creator_twitter || '', instagram: selectedSeries.creator_instagram || '', supportLink: selectedSeries.creator_support_link || '', youtube: '', facebook: '', twitch: '', patreon: '', tiktok: '', is_visible: true }]; 
+          }
           setFormData({ seriesTitle: selectedSeries.title || '', bannerUrl: selectedSeries.cover_url || '', logoUrl: selectedSeries.logo_url || '', characterUrl: selectedSeries.character_url || '', synopsis: selectedSeries.synopsis || '', awards: selectedSeries.awards || '', hasAwards: selectedSeries.has_awards || false, creators: loadedCreators });
         }
       }
@@ -1662,7 +2008,20 @@ const SeriesEditor = () => {
       const primaryCreator = formData.creators[0]; 
       await supabase.from('series').upsert({ slug: activeSlug, title: formData.seriesTitle, synopsis: formData.synopsis, cover_url: formData.bannerUrl, logo_url: formData.logoUrl, character_url: formData.characterUrl, awards: formData.hasAwards ? formData.awards : null, has_awards: formData.hasAwards, creator_name: primaryCreator.name, flag_code: primaryCreator.flagCode, creator_avatar: primaryCreator.avatar, creator_bio: primaryCreator.bio, creator_twitter: primaryCreator.twitter, creator_instagram: primaryCreator.instagram, creator_support_link: primaryCreator.supportLink, updated_at: new Date().toISOString() }, { onConflict: 'slug' });
       await supabase.from('series_creators').delete().eq('series_slug', activeSlug);
-      await supabase.from('series_creators').insert(formData.creators.map(c => ({ series_slug: activeSlug, role: c.role || 'Creator', name: c.name, flag_code: c.flagCode, avatar_url: c.avatar, bio: c.bio, twitter_url: c.twitter, instagram_url: c.instagram, support_url: c.supportLink })));
+      await supabase.from('series_creators').insert(formData.creators.map(c => ({ 
+      series_slug: activeSlug, 
+      role: c.role || 'Creator', 
+      name: c.name, 
+      flag_code: c.flagCode, 
+      bio: c.bio, 
+      // 👇 THESE ARE THE FIXES: Matching the exact database column names
+      avatar_url: c.avatar, 
+      twitter_url: c.twitter, 
+      instagram_url: c.instagram, 
+      support_url: c.supportLink, 
+      is_visible: c.is_visible === false ? false : true 
+    })));
+  
       alert(`SUCCESS! Saved.`);
     } catch (error: any) { alert("Failed: " + error.message); } finally { setIsSaving(false); }
   };
@@ -1705,23 +2064,63 @@ const SeriesEditor = () => {
            <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-[#fe9a00] uppercase text-xs">Creators</h3><button onClick={() => { const nc = formData.creators.length > 1 ? [formData.creators[0]] : [...formData.creators, { role: 'Co-creator', name: '', bio: '', flagCode: '', avatar: '', instagram: '', twitter: '', youtube: '', facebook: '', twitch: '', patreon: '', tiktok: '', supportLink: '' }]; handleInputChange('creators', nc); }} className="text-[10px] bg-zinc-800 px-3 py-1 rounded hover:bg-[#fe9a00] hover:text-black transition-colors">{formData.creators.length > 1 ? '- Remove Co-creator' : '+ Add Co-creator'}</button></div>
            <div className={`grid ${formData.creators.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-6`}>
              {formData.creators.map((c, i) => (
-               <div key={i} className="bg-black p-4 rounded border border-zinc-800 space-y-4 relative">
-                 <div className="grid grid-cols-3 gap-2">
-                   <input type="text" placeholder="Role (e.g., Creator)" value={c.role} onChange={(e) => { const nc = [...formData.creators]; nc[i].role = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-xs" />
-                   <input type="text" placeholder="Full Name" value={c.name} onChange={(e) => { const nc = [...formData.creators]; nc[i].name = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-xs" />
-                   <input type="text" placeholder="Flag Code (e.g., US)" value={c.flagCode} onChange={(e) => { const nc = [...formData.creators]; nc[i].flagCode = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-xs" />
-                 </div>
-                 <div className="flex gap-4 items-center">
-                   {c.avatar ? (<img src={c.avatar} className="w-16 h-16 rounded-full object-cover" />) : (<div className="w-24"><Dropzone label="+ Avatar" height="p-4" folderPath="creator-avatars" onUploadComplete={(url: any) => { const nc = [...formData.creators]; nc[i].avatar = url; handleInputChange('creators', nc); }} /></div>)}
-                   <textarea placeholder="Creator Bio..." value={c.bio} onChange={(e) => { const nc = [...formData.creators]; nc[i].bio = e.target.value; handleInputChange('creators', nc); }} className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-xs h-16" rows={2} />
-                 </div>
-                 <div className="grid grid-cols-3 gap-2">
-                   <input type="text" placeholder="Twitter URL" value={c.twitter} onChange={(e) => { const nc = [...formData.creators]; nc[i].twitter = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-[10px]" />
-                   <input type="text" placeholder="Instagram URL" value={c.instagram} onChange={(e) => { const nc = [...formData.creators]; nc[i].instagram = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-[10px]" />
-                   <input type="text" placeholder="Support URL (Optional)" value={c.supportLink} onChange={(e) => { const nc = [...formData.creators]; nc[i].supportLink = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-[10px]" />
-                 </div>
-               </div>
-             ))}
+  <div key={i} className="bg-black p-4 rounded border border-zinc-800 space-y-4 relative">
+    {/* --- NEW: VISIBILITY TOGGLE --- */}
+    <div className="flex items-center justify-between bg-zinc-900 p-2 rounded border border-zinc-700 mb-2">
+      <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Bingo Visibility</span>
+      <button 
+        type="button"
+        onClick={() => { 
+          const nc = [...formData.creators]; 
+          // If it's explicitly false, make it true. Otherwise, make it false.
+          nc[i].is_visible = nc[i].is_visible === false ? true : false; 
+          handleInputChange('creators', nc); 
+        }}
+        className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded ${c.is_visible !== false ? 'bg-green-900/30 text-green-500' : 'bg-zinc-800 text-zinc-500'}`}
+      >
+        {c.is_visible !== false ? 'Visible' : 'Hidden'}
+      </button>
+    </div>
+
+    <div className="grid grid-cols-3 gap-2">
+      <input type="text" placeholder="Role (e.g., Creator)" value={c.role} onChange={(e) => { const nc = [...formData.creators]; nc[i].role = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+      <input type="text" placeholder="Full Name" value={c.name} onChange={(e) => { const nc = [...formData.creators]; nc[i].name = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+      <input type="text" placeholder="Flag Code (e.g., US)" value={c.flagCode} onChange={(e) => { const nc = [...formData.creators]; nc[i].flagCode = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+    </div>
+    
+    <div className="flex gap-4 items-center">
+      {/* Updated Avatar Section with Remove Button */}
+      {c.avatar ? (
+        <div className="relative group/avatar w-16 h-16 flex-shrink-0 cursor-pointer">
+          <img src={c.avatar} className="w-16 h-16 rounded-full object-cover border border-zinc-700" alt="Creator Avatar" />
+          <button 
+            type="button"
+            onClick={() => { const nc = [...formData.creators]; nc[i].avatar = ''; handleInputChange('creators', nc); }} 
+            className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-full opacity-0 group-hover/avatar:opacity-100 transition-opacity"
+            title="Remove Avatar"
+          >
+            <X className="w-6 h-6 text-red-500" />
+          </button>
+        </div>
+      ) : (
+        <div className="w-24 flex-shrink-0">
+          <Dropzone 
+            label="+ Avatar" 
+            folderPath="avatars" 
+            onUploadComplete={(url: any) => { const nc = [...formData.creators]; nc[i].avatar = url; handleInputChange('creators', nc); }} 
+          />
+        </div>
+      )}
+      <textarea placeholder="Creator Bio..." value={c.bio} onChange={(e) => { const nc = [...formData.creators]; nc[i].bio = e.target.value; handleInputChange('creators', nc); }} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs h-20" />
+    </div>
+
+    <div className="grid grid-cols-3 gap-2">
+      <input type="text" placeholder="Twitter URL" value={c.twitter} onChange={(e) => { const nc = [...formData.creators]; nc[i].twitter = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+      <input type="text" placeholder="Instagram URL" value={c.instagram} onChange={(e) => { const nc = [...formData.creators]; nc[i].instagram = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+      <input type="text" placeholder="Support URL (Optional)" value={c.supportLink} onChange={(e) => { const nc = [...formData.creators]; nc[i].supportLink = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+    </div>
+  </div>
+))}
            </div>
         </div>
         <button onClick={handleSaveSeries} disabled={isSaving} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded mt-4 hover:bg-white transition-colors">{isSaving ? 'SAVING...' : 'Save Series'}</button>
@@ -1734,16 +2133,19 @@ const MagazineUploader = ({ onDirty, onClean }: any) => {
   const [magazines, setMagazines] = useState<any[]>([]);
   const [targetMagazine, setTargetMagazine] = useState('new');
   const [isSaving, setIsSaving] = useState(false);
+  const [firstPageSide, setFirstPageSide] = useState<'left' | 'right'>('left');
 
   const [formData, setFormData] = useState({
     title: '', 
     coverUrl: '', 
     synopsis: '', 
-    publishDate: new Date().toISOString().split('T')[0],
     pages: [] as string[],
     previewPages: [] as string[],
     brand: 'AM',
-    isPublished: false // NEW: Tracks live/draft status
+    isPublished: false,
+    isScheduled: false,
+    publishDate: new Date().toISOString().split('T')[0],
+    publishTime: '12:00'
   });
 
   useEffect(() => {
@@ -1793,11 +2195,18 @@ const MagazineUploader = ({ onDirty, onClean }: any) => {
     try {
       if (!formData.title || formData.title.trim() === '') throw new Error("Please enter an Issue Title.");
 
+      let publishTimestamp = null;
+      if (publishStatus || formData.isScheduled) {
+         publishTimestamp = formData.isScheduled 
+            ? new Date(`${formData.publishDate}T${formData.publishTime}`).toISOString() 
+            : new Date().toISOString();
+      }
+
       const payload = {
         title: formData.title, cover_url: formData.coverUrl, synopsis: formData.synopsis,
-        publish_date: formData.publishDate, pages: formData.pages, 
-        preview_pages: formData.previewPages, brand: formData.brand,
-        is_published: publishStatus // Push state to database
+        pages: formData.pages, preview_pages: formData.previewPages, brand: formData.brand,
+        is_published: publishStatus, 
+        publish_at: publishTimestamp // NEW: Scheduled Timestamp
       };
 
       if (targetMagazine === 'new') {
@@ -1824,7 +2233,68 @@ const MagazineUploader = ({ onDirty, onClean }: any) => {
     } 
     catch (error: any) { alert('Failed: ' + error.message); }
   };
+// --- PAGE SELECTION LOGIC ---
+  const handlePageClick = (index: number, e: React.MouseEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      // Add/Remove single page on Ctrl/Cmd click
+      setSelectedPages(prev => prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index].sort((a, b) => a - b));
+    } else if (e.shiftKey && selectedPages.length > 0) {
+      // Select a range on Shift click
+      const lastSelected = selectedPages[selectedPages.length - 1];
+      const start = Math.min(lastSelected, index);
+      const end = Math.max(lastSelected, index);
+      const range = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+      setSelectedPages(Array.from(new Set([...selectedPages, ...range])).sort((a, b) => a - b));
+    } else {
+      // Single select on normal click
+      setSelectedPages([index]);
+    }
+  };
 
+  // --- DRAG AND DROP LOGIC ---
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    // If dragging an unselected item, select it exclusively first
+    if (!selectedPages.includes(index)) setSelectedPages([index]);
+    setDraggedItem(index);
+    e.dataTransfer.effectAllowed = "move";
+    
+    // NEW: Firefox and Safari REQUIRE this line to allow dragging!
+    e.dataTransfer.setData("text/plain", index.toString()); 
+  };
+
+  const handleDragEnter = (index: number) => setDragOverItem(index);
+  
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+    setDragOverItem(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (selectedPages.length === 0) return;
+
+    const currentPages = [...formData.pages];
+    
+    // 1. Isolate the pages being moved
+    const pagesToMove = selectedPages.map(i => currentPages[i]);
+    
+    // 2. Remove them from the original array
+    const remainingPages = currentPages.filter((_, i) => !selectedPages.includes(i));
+    
+    // 3. Calculate the new index offset (adjusting for items removed before the drop point)
+    let insertIndex = dropIndex;
+    const itemsBeforeDrop = selectedPages.filter(i => i < dropIndex).length;
+    insertIndex -= itemsBeforeDrop;
+    if (insertIndex < 0) insertIndex = 0;
+
+    // 4. Insert the pages at the new location
+    remainingPages.splice(insertIndex, 0, ...pagesToMove);
+
+    setFormData({ ...formData, pages: remainingPages });
+    setSelectedPages([]); // Clear selection after successful move
+    setDraggedItem(null);
+    setDragOverItem(null);
+  };
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl flex items-end gap-4 shadow-md">
@@ -1886,7 +2356,44 @@ const MagazineUploader = ({ onDirty, onClean }: any) => {
           <label className="block text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mb-2">Synopsis / Issue Description</label>
           <textarea rows={4} value={formData.synopsis} onChange={(e) => { setFormData({...formData, synopsis: e.target.value}); if(onDirty) onDirty(); }} className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-sm focus:border-[#fe9a00]" />
         </div>
-        
+        {/* --- NEW: FIRST PAGE POSITION TOGGLE --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-6 border-b border-zinc-800">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col justify-center shadow-md">
+            <div className="mb-3">
+              <h4 className="font-black text-xs text-white uppercase tracking-widest flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-[#fe9a00]" /> First Page Placement
+              </h4>
+              <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mt-1">
+                (Book Mode) Where should Page 1 sit?
+              </p>
+            </div>
+            
+            <div className="flex bg-black rounded-lg p-1 border border-zinc-800 shadow-inner">
+              <button
+                type="button"
+                onClick={() => setFirstPageSide('left')}
+                className={`flex-1 px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${
+                  firstPageSide === 'left' 
+                    ? 'bg-[#fe9a00] text-black shadow-[0_0_10px_rgba(254,154,0,0.4)]' 
+                    : 'text-zinc-600 hover:text-white'
+                }`}
+              >
+                Left Side
+              </button>
+              <button
+                type="button"
+                onClick={() => setFirstPageSide('right')}
+                className={`flex-1 px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${
+                  firstPageSide === 'right' 
+                    ? 'bg-[#fe9a00] text-black shadow-[0_0_10px_rgba(254,154,0,0.4)]' 
+                    : 'text-zinc-600 hover:text-white'
+                }`}
+              >
+                Right Side
+              </button>
+            </div>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <h3 className="font-bold text-[#fe9a00] mb-2 uppercase tracking-widest text-xs">High-Res Cover</h3>
@@ -1914,16 +2421,82 @@ const MagazineUploader = ({ onDirty, onClean }: any) => {
             {formData.pages.length > 0 && (
               <div className="bg-black border border-zinc-800 p-2 rounded mb-4 max-h-48 overflow-y-auto">
                 <p className="text-xs text-zinc-400 mb-2">{formData.pages.length} Pages Uploaded</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {formData.pages.map((url, i) => (<img key={i} src={url} alt={`Pg ${i+1}`} className="w-full aspect-[2/3] object-cover rounded border border-zinc-700" />))}
-                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 pt-4">
+  {formData.pages.map((pageUrl, index) => (
+    <div 
+      key={index}
+      draggable={true}
+      
+      // NEW: Changed from onClick to onMouseDown. This makes selection instant!
+      onMouseDown={(e) => handlePageClick(index, e)} 
+      
+      onDragStart={(e) => handleDragStart(e, index)}
+      onDragEnter={() => handleDragEnter(index)}
+      onDragEnd={handleDragEnd}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }} 
+      onDrop={(e) => handleDrop(e, index)}
+      className={`relative aspect-[2/3] rounded-lg overflow-hidden cursor-grab active:cursor-grabbing border-2 transition-all select-none ${
+        selectedPages.includes(index) 
+          ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-95 z-10' 
+          : dragOverItem === index 
+            ? 'border-white border-dashed scale-105 opacity-80'
+            : 'border-zinc-800 hover:border-zinc-600'
+      }`}
+    >
+      <div className="absolute top-2 left-2 z-20 bg-black/90 text-white text-[10px] font-black px-2 py-1 rounded shadow-md border border-zinc-700 pointer-events-none">
+        PAGE {index + 1}
+      </div>
+
+      <img 
+        src={pageUrl} 
+        alt={`Page ${index + 1}`} 
+        draggable={false}
+        className="w-full h-full object-cover pointer-events-none select-none" 
+      />
+    </div>
+  ))}
+</div>
                 <button onClick={() => { setFormData({...formData, pages: []}); if(onDirty) onDirty(); }} className="w-full mt-2 text-[10px] text-red-500 font-bold uppercase tracking-widest hover:text-red-400">Clear Full Issue</button>
               </div>
             )}
             <Dropzone label="+ Batch Upload Issue" multiple={true} height="p-4" folderPath="magazine-pages" onUploadComplete={(urls: any) => { setFormData({...formData, pages: [...formData.pages, ...urls]}); if(onDirty) onDirty(); }} />
           </div>
         </div>
+{/* --- NEW: PUBLISHING SCHEDULE --- */}
+            <div className="bg-black border border-zinc-800 p-5 rounded-xl shadow-inner mt-8">
+               <div className="flex items-center justify-between mb-4">
+                 <div>
+                   <h4 className="font-black text-xs text-white uppercase tracking-widest flex items-center gap-2">
+                     <Calendar className="w-4 h-4 text-[#fe9a00]" /> Release Schedule
+                   </h4>
+                   <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mt-1">
+                     Publish instantly, or set a future auto-release date.
+                   </p>
+                 </div>
+                 <label className="flex items-center gap-2 cursor-pointer bg-zinc-900 px-3 py-2 rounded-lg border border-zinc-700 hover:border-[#fe9a00] transition-colors">
+                   <input 
+                     type="checkbox" 
+                     checked={formData.isScheduled} 
+                     onChange={(e) => setFormData({...formData, isScheduled: e.target.checked})}
+                     className="accent-[#fe9a00] w-4 h-4"
+                   />
+                   <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">Schedule</span>
+                 </label>
+               </div>
 
+               {formData.isScheduled && (
+                 <div className="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800 animate-fade-in">
+                   <div>
+                     <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Release Date</label>
+                     <input type="date" value={formData.publishDate} onChange={(e) => setFormData({...formData, publishDate: e.target.value})} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]" />
+                   </div>
+                   <div>
+                     <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Release Time</label>
+                     <input type="time" value={formData.publishTime} onChange={(e) => setFormData({...formData, publishTime: e.target.value})} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]" />
+                   </div>
+                 </div>
+               )}
+            </div>
         {/* NEW: Dual Button Layout */}
         <div className="flex gap-4 mt-8 pt-6 border-t border-zinc-800">
           <button 
@@ -1939,7 +2512,7 @@ const MagazineUploader = ({ onDirty, onClean }: any) => {
             disabled={isSaving} 
             className={`w-1/2 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded transition-all ${isSaving ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white hover:shadow-[0_0_20px_rgba(254,154,0,0.3)]'}`}
           >
-            {isSaving ? 'PUBLISHING...' : (formData.isPublished ? 'Update Live Issue' : 'Publish Issue')}
+            {isSaving ? 'PROCESSING...' : formData.isScheduled ? 'SCHEDULE ISSUE' : (formData.isPublished ? 'UPDATE LIVE' : 'PUBLISH NOW')}
           </button>
         </div>
 
@@ -2041,6 +2614,8 @@ const ChapterUploader = ({ onDirty, onClean }: any) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [firstPageSide, setFirstPageSide] = useState<'left' | 'right'>('left');
+  const [readingDirection, setReadingDirection] = useState<'ltr' | 'rtl'>('ltr');
   const [cropSourceImage, setCropSourceImage] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
@@ -2122,14 +2697,20 @@ const ChapterUploader = ({ onDirty, onClean }: any) => {
 
     setIsSaving(true);
     try {
-      let currentChapterId = targetChapter;
-      
+      let publishTimestamp = null;
+      if (publishStatus || formData.isScheduled) {
+         publishTimestamp = formData.isScheduled 
+            ? new Date(`${formData.publishDate}T${formData.publishTime}`).toISOString() 
+            : new Date().toISOString();
+      }
+
       const chapterPayload = {
         series_slug: targetSeries,
         chapter_number: Number(formData.chapterNumber),
         title: formData.title || `Chapter ${formData.chapterNumber}`,
         thumbnail_url: formData.thumbnailUrl || formData.pages[0],
-        is_published: publishStatus // Push state to database
+        is_published: publishStatus, 
+        publish_at: publishTimestamp // NEW: Sends the scheduled time to Supabase!
       };
 
       if (targetChapter === 'new') {
@@ -2231,6 +2812,84 @@ const ChapterUploader = ({ onDirty, onClean }: any) => {
               </div>
             </div>
 
+            {/* --- NEW: READING & LAYOUT PREFERENCES --- */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-6">
+              
+              {/* FIRST PAGE POSITION TOGGLE */}
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col justify-center shadow-md">
+                <div className="mb-3">
+                  <h4 className="font-black text-xs text-white uppercase tracking-widest flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-[#fe9a00]" /> First Page Placement
+                  </h4>
+                  <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mt-1">
+                    (Book Mode) Where should Page 1 sit?
+                  </p>
+                </div>
+                
+                <div className="flex bg-black rounded-lg p-1 border border-zinc-800 shadow-inner">
+                  <button
+                    type="button"
+                    onClick={() => setFirstPageSide('left')}
+                    className={`flex-1 px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${
+                      firstPageSide === 'left' 
+                        ? 'bg-[#fe9a00] text-black shadow-[0_0_10px_rgba(254,154,0,0.4)]' 
+                        : 'text-zinc-600 hover:text-white'
+                    }`}
+                  >
+                    Left Side
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFirstPageSide('right')}
+                    className={`flex-1 px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${
+                      firstPageSide === 'right' 
+                        ? 'bg-[#fe9a00] text-black shadow-[0_0_10px_rgba(254,154,0,0.4)]' 
+                        : 'text-zinc-600 hover:text-white'
+                    }`}
+                  >
+                    Right Side
+                  </button>
+                </div>
+              </div>
+
+              {/* READING DIRECTION TOGGLE */}
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col justify-center shadow-md">
+                <div className="mb-3">
+                  <h4 className="font-black text-xs text-white uppercase tracking-widest flex items-center gap-2">
+                    <MoveHorizontal className="w-4 h-4 text-[#fe9a00]" /> Reading Direction
+                  </h4>
+                  <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mt-1">
+                    How should users swipe/click through?
+                  </p>
+                </div>
+                
+                <div className="flex bg-black rounded-lg p-1 border border-zinc-800 shadow-inner">
+                  <button
+                    type="button"
+                    onClick={() => setReadingDirection('ltr')}
+                    className={`flex-1 px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${
+                      readingDirection === 'ltr' 
+                        ? 'bg-[#fe9a00] text-black shadow-[0_0_10px_rgba(254,154,0,0.4)]' 
+                        : 'text-zinc-600 hover:text-white'
+                    }`}
+                  >
+                    Left-to-Right
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReadingDirection('rtl')}
+                    className={`flex-1 px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${
+                      readingDirection === 'rtl' 
+                        ? 'bg-[#fe9a00] text-black shadow-[0_0_10px_rgba(254,154,0,0.4)]' 
+                        : 'text-zinc-600 hover:text-white'
+                    }`}
+                  >
+                    Right-to-Left
+                  </button>
+                </div>
+              </div>
+              
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
               <div>
                 <h3 className="font-bold text-[#fe9a00] mb-2 uppercase tracking-widest text-xs">Custom Thumbnail</h3>
@@ -2238,7 +2897,7 @@ const ChapterUploader = ({ onDirty, onClean }: any) => {
                 {formData.thumbnailUrl && (
                   <div className="relative group/thumb mb-4">
                     <img src={formData.thumbnailUrl} className="w-full aspect-square object-cover rounded-lg border border-zinc-700" />
-                    <div className="absolute inset-0 bg-black/70 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-2 pointer-events-none">
                       <button onClick={() => setCropSourceImage(formData.thumbnailUrl)} className="p-3 bg-black border border-zinc-700 hover:border-[#fe9a00] hover:text-[#fe9a00] text-zinc-300 rounded-full transition-all" title="Crop Image">
                         <Crop className="w-5 h-5" />
                       </button>
@@ -2298,7 +2957,41 @@ const ChapterUploader = ({ onDirty, onClean }: any) => {
                 <Dropzone label="+ Add Pages" multiple={true} height="p-8" folderPath="manga-pages" onUploadComplete={(urls: any) => { setFormData({...formData, pages: [...formData.pages, ...urls]}); if (onDirty) onDirty(); }} />
               </div>
             </div>
+{/* --- NEW: PUBLISHING SCHEDULE --- */}
+            <div className="bg-black border border-zinc-800 p-5 rounded-xl shadow-inner mt-8">
+               <div className="flex items-center justify-between mb-4">
+                 <div>
+                   <h4 className="font-black text-xs text-white uppercase tracking-widest flex items-center gap-2">
+                     <Calendar className="w-4 h-4 text-[#fe9a00]" /> Release Schedule
+                   </h4>
+                   <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mt-1">
+                     Publish instantly, or set a future auto-release date.
+                   </p>
+                 </div>
+                 <label className="flex items-center gap-2 cursor-pointer bg-zinc-900 px-3 py-2 rounded-lg border border-zinc-700 hover:border-[#fe9a00] transition-colors">
+                   <input 
+                     type="checkbox" 
+                     checked={formData.isScheduled} 
+                     onChange={(e) => setFormData({...formData, isScheduled: e.target.checked})}
+                     className="accent-[#fe9a00] w-4 h-4"
+                   />
+                   <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">Schedule</span>
+                 </label>
+               </div>
 
+               {formData.isScheduled && (
+                 <div className="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800 animate-fade-in">
+                   <div>
+                     <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Release Date</label>
+                     <input type="date" value={formData.publishDate} onChange={(e) => setFormData({...formData, publishDate: e.target.value})} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]" />
+                   </div>
+                   <div>
+                     <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Release Time</label>
+                     <input type="time" value={formData.publishTime} onChange={(e) => setFormData({...formData, publishTime: e.target.value})} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]" />
+                   </div>
+                 </div>
+               )}
+            </div>
             {/* NEW: Dual Button Layout */}
             <div className="flex gap-4 mt-8 pt-6 border-t border-zinc-800">
               <button 
@@ -2306,7 +2999,7 @@ const ChapterUploader = ({ onDirty, onClean }: any) => {
                 disabled={isSaving || !formData.chapterNumber || formData.pages.length === 0} 
                 className={`w-1/2 bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded transition-all border border-zinc-700 ${(isSaving || !formData.chapterNumber || formData.pages.length === 0) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-zinc-700'}`}
               >
-                {isSaving ? 'SAVING...' : (formData.isPublished ? 'Revert to Draft' : 'Save Draft')}
+                {isSaving ? 'PROCESSING...' : formData.isScheduled ? 'SCHEDULE RELEASE' : (formData.isPublished ? 'UPDATE LIVE' : 'PUBLISH NOW')}
               </button>
               
               <button 
@@ -2485,9 +3178,9 @@ const AvatarMaker = () => {
             {formData.imageUrl ? (
               <div className="relative group/avatar w-full aspect-square max-w-[200px] mx-auto">
                 <img src={formData.imageUrl} className="w-full h-full object-cover rounded-full border-4 border-zinc-700" alt="Avatar Preview" />
-                <button onClick={() => setFormData({...formData, imageUrl: ''})} className="absolute top-0 right-0 p-2 bg-red-600 text-white rounded-full opacity-0 group-hover/avatar:opacity-100 transition-opacity">
-                  <X className="w-4 h-4" />
-                </button>
+                <button onClick={() => setFormData({...formData, creators: [...formData.creators, { name: '', role: '', is_visible: true }]})}>
+  + Add Creator
+</button>
               </div>
             ) : (
               <div className="w-full aspect-square max-w-[200px] mx-auto">
@@ -3140,10 +3833,10 @@ const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, memberS
 
   // The inner contents of the card, extracted so we can reuse it in normal and fullscreen modes
   const CardContent = () => (
-    <div className={`relative w-full h-full transition-transform duration-700 [transform-style:preserve-3d] shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-xl border border-zinc-700 ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
-      
+    <div className={`relative w-full h-full transition-transform duration-700 [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
+
       {/* === FRONT OF CARD === */}
-      <div className="absolute inset-0 [backface-visibility:hidden] rounded-xl overflow-hidden bg-zinc-900 flex flex-col justify-end">
+      <div className="absolute inset-0 [backface-visibility:hidden] rounded-xl overflow-hidden bg-zinc-900 flex flex-col justify-end shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700">
         {/* Artwork Skin Only */}
         <img 
   src={skinUrl || "https://zcadkovymrnjpjaxvnao.supabase.co/storage/v1/object/public/card-skins/skins/1781908112888_8ozh4h.jpg"} 
@@ -3187,7 +3880,7 @@ const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, memberS
       </div>
 
       {/* === BACK OF CARD === */}
-      <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-xl bg-zinc-900 overflow-hidden flex flex-col justify-between p-3 sm:p-4">
+      <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-xl bg-zinc-900 overflow-hidden flex flex-col justify-between p-3 sm:p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700">
         {/* Foil Card Sheen Overlay */}
 <div 
   className="absolute inset-0 pointer-events-none z-0"
@@ -3327,10 +4020,12 @@ const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, memberS
           </div>
         </div>
         
-        {/* The Card Container */}
-        <div className="relative w-full max-w-sm mx-auto aspect-[1.58] perspective-[1000px] mb-8 group cursor-pointer" onClick={() => setIsFlipped(!isFlipped)}>
+        {/* The CLEANED Inline Card Container */}
+        <div className="relative w-full max-w-sm mx-auto aspect-[1.58] card-perspective mb-8 group cursor-pointer" onClick={() => setIsFlipped(!isFlipped)}>
           {isSubscriber && <div className={`absolute -inset-4 bg-gradient-to-r from-[#fe9a00]/30 to-purple-600/30 blur-2xl opacity-50 rounded-[3rem] transition-opacity duration-1000`} />}
-          <CardContent />
+          
+          {/* We removed the broken nested div here! */}
+          {CardContent()}
         </div>
         
         {isSubscriber && !isFlipped && (
@@ -3344,8 +4039,8 @@ const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, memberS
       {isFullscreen && (
         <div className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 animate-fade-in" onClick={() => setIsFullscreen(false)}>
           {/* Card stretches to 2xl when fullscreen! */}
-          <div className="w-full max-w-2xl aspect-[1.58] perspective-[1000px] cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}>
-            <CardContent />
+          <div className="w-full max-w-2xl aspect-[1.58] [perspective:1000px] cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}>
+            {CardContent()}
           </div>
           
           <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mt-12 animate-pulse flex items-center gap-2">
@@ -3361,9 +4056,10 @@ const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, memberS
 // --- 2. MAIN USER PROFILE COMPONENT ---
 const UserProfile = ({ onBack, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
-  
+  const [showFlexCard, setShowFlexCard] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('card');
+  const [isCardFlipped, setIsCardFlipped] = useState(false);
   const [vaultAvatars, setVaultAvatars] = useState<any[]>([]);
   const [cardSkins, setCardSkins] = useState<any[]>([]); 
   const [selectingSlot, setSelectingSlot] = useState<number | null>(null);
@@ -3603,6 +4299,14 @@ const renderMiniCard = (seriesSlug: string, isEditingMode: boolean, onClick: () 
           </div>
 
           <div className="text-center sm:text-left pb-2">
+            {/* NEW: Repositioned Orange Edit Loadout Button */}
+          <button 
+            onClick={() => openEditor('faves')} 
+            className="flex items-center gap-2 bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-white hover:scale-105 transition-all mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]"
+          >
+            <Settings className="w-3 h-3" /> Edit Profile
+          </button>
+          
             <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter">{userProfile.username}</h1>
             <p className={`text-xs font-black uppercase tracking-widest mt-1 italic ${isSubscriber ? 'text-purple-400' : 'text-zinc-500'}`}>
                {isSubscriber ? 'Premium Saturday AM+ Member' : 'Standard Member'}
@@ -3610,9 +4314,8 @@ const renderMiniCard = (seriesSlug: string, isEditingMode: boolean, onClick: () 
           </div>
           
           <div className="sm:ml-auto flex items-center gap-3 mt-4 sm:mt-0">
-            <button onClick={() => onNavigate({ action: 'account' })} className="bg-zinc-900 border border-zinc-700 p-3 rounded-full hover:border-white transition-colors group"><Settings className="w-5 h-5 text-zinc-400 group-hover:text-white" /></button>
-            <button onClick={() => openEditor('art')} className="bg-zinc-900 border border-zinc-700 hover:border-[#fe9a00] hover:text-[#fe9a00] px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors">Edit Profile</button>
-          </div>
+            <button onClick={() => onNavigate({ action: 'settings' })} className="bg-zinc-900 border border-zinc-700 p-3 rounded-full hover:border-white transition-colors group"><Settings className="w-5 h-5 text-zinc-400 group-hover:text-white" /></button>
+                      </div>
         </div>
 
         {/* --- STATS & LOADOUT --- */}
@@ -3641,11 +4344,42 @@ const renderMiniCard = (seriesSlug: string, isEditingMode: boolean, onClick: () 
             </div>
           </div>
           
-          
+          {/* --- NEW: BINGO BOOK PROGRESS SECTION --- */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 md:p-6 mb-2 mt-8 flex flex-col sm:flex-row items-center gap-6 shadow-lg">
+            <div className="flex-1 w-full">
+              <div className="flex justify-between items-end mb-3">
+                <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
+                  <Check className="w-4 h-4 text-[#fe9a00]" /> Bingo Book Hunts
+                </h3>
+                <span className="text-[10px] font-bold text-zinc-400 tracking-widest uppercase">
+                  <span className="text-[#fe9a00]">3</span> / 10 Completed
+                </span>
+              </div>
+              
+              {/* Progress Bar Container */}
+              <div className="w-full h-2.5 bg-black border border-zinc-800 rounded-full overflow-hidden shadow-inner">
+                {/* 
+                  NOTE: The width here is hardcoded to 30% for now (3/10). 
+                  When you hook this up to your backend, you'll change this to dynamically load!
+                */}
+                <div 
+                  className="h-full bg-gradient-to-r from-[#fe9a00] to-yellow-500 rounded-full transition-all duration-1000 w-[30%]" 
+                />
+              </div>
+            </div>
+            
+            {/* Navigation Button */}
+            <button 
+              onClick={() => onNavigate({ action: 'bingobook' })} 
+              className="w-full sm:w-auto bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-6 py-3 sm:py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-[0_0_10px_rgba(0,0,0,0.3)] hover:shadow-[0_0_20px_rgba(254,154,0,0.4)]"
+            >
+              Open Bingo Book
+            </button>
+          </div>
+          {/* --- END BINGO BOOK SECTION --- */}
           <div className="flex justify-between items-end mb-4 mt-12">
             <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Star className="w-4 h-4 text-[#fe9a00]" /> Top 5 Fave Series</h3>
-            <button onClick={() => openEditor('faves')} className="text-[10px] text-zinc-400 font-black uppercase tracking-widest hover:text-white transition-colors border border-zinc-800 hover:border-zinc-500 px-4 py-1.5 rounded-full bg-zinc-900">Edit Loadout</button>
-          </div>
+                      </div>
           
           <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
             {[0, 1, 2, 3, 4].map((index) => {
@@ -3655,24 +4389,21 @@ const renderMiniCard = (seriesSlug: string, isEditingMode: boolean, onClick: () 
           </div>
         </div>
 
-        {/* --- MOUNT THE VIRTUAL MEMBERSHIP CARD --- */}
-        <VirtualMemberCard 
-           isSubscriber={isSubscriber}
-           username={userProfile.username}
-           avatarUrl={userProfile.avatarUrl}
-           frameId={userProfile.frameId}
-           memberSince="OCT 2023"
-           hypes={profileStats.total_hypes.toLocaleString()}
-reacts={profileStats.quick_reacts.toLocaleString()}
-chaptersRead={profileStats.chapters_read.toLocaleString()}
-           
-           skinUrl={userProfile.cardSkin}
-           topFive={userProfile.topFive}
-           seriesList={displaySeriesList}
-           onRenew={() => alert('Navigate to Stripe/Subscription page!')}
-           onChangeSkin={() => openEditor('card')}
-           getFrameStyle={getFrameStyle}
-           getOrbitStyle={getOrbitStyle}
+        
+        {/* --- MOUNT THE FLEX AM CREW CARD BUTTON --- */}
+        <div className="flex justify-center w-full mt-12 mb-8">
+          <button 
+            onClick={() => setShowFlexCard(true)}
+            className="flex items-center gap-4 bg-[#fe9a00] text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
+          >
+            <CreditCard className="w-6 h-6" /> Flex AM Crew Card
+          </button>
+        </div>
+
+        {/* This is the invisible modal that waits for the button click! */}
+        <GlobalFlexCard 
+          isOpen={showFlexCard} 
+          onClose={() => setShowFlexCard(false)} 
         />
       </div>
 
@@ -3831,89 +4562,358 @@ chaptersRead={profileStats.chapters_read.toLocaleString()}
     </div>
   );
 };
+// --- NEW: HAMBURGER MENU WITH FLEX BUTTON ---
+const HamburgerMenu = ({ isOpen, onClose, onNavigate, onOpenFlexCard }: any) => {
+  if (!isOpen) return null;
+
+  const menuItems = [
+    { name: 'Browse Library', action: 'browse' },
+    { name: 'Edit Profile', action: 'profile' },
+    { name: 'My Favorites', action: 'faves' },
+    { name: 'Bingo Book', action: 'bingobook' },
+    { name: 'Subscription', action: 'sub' },
+    { name: 'Settings', action: 'settings' }
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black animate-fade-in flex flex-col">
+      <div className="p-6 flex justify-between items-center border-b border-zinc-900">
+        <span className="text-[#fe9a00] font-black uppercase tracking-widest text-xs">Menu</span>
+        <button onClick={onClose} className="p-2 text-white hover:text-[#fe9a00]"><X className="w-8 h-8" /></button>
+      </div>
+      <div className="flex-1 flex flex-col justify-center px-12 gap-6">
+        
+        {/* NEW: Dedicated Card Flex Button inside the menu */}
+        <button 
+          onClick={() => { onClose(); onOpenFlexCard(); }}
+          className="flex items-center gap-4 bg-[#fe9a00] text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all mb-8 shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
+        >
+          <CreditCard className="w-6 h-6" /> Flex AM Crew Card
+        </button>
+
+        {menuItems.map((item) => (
+          <button 
+            key={item.action} 
+            onClick={() => { onNavigate({ action: item.action }); onClose(); }}
+            className="text-4xl font-black uppercase italic tracking-tighter text-white hover:text-[#fe9a00] text-left transition-colors"
+          >
+            {item.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// --- NEW: GLOBAL FLEX CARD COMPONENT ---
+// --- NEW: GLOBAL FLEX CARD COMPONENT ---
+const GlobalFlexCard = ({ isOpen, onClose }: any) => {
+  const { seriesList = [] } = useSeriesData();
+  const [profileStats, setProfileStats] = useState({ total_hypes: 0, quick_reacts: 0, chapters_read: 0 });
+  const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', frameId: 'none', cardSkin: '', topFive: [null, null, null, null, null] });
+  const [isFlipped, setIsFlipped] = useState(false);
+
+  const BASIC_FRAMES = [
+    { id: 'none', name: 'Original', style: 'border-2 border-zinc-800' },
+    { id: 'red', name: 'Solid Red', style: 'border-2 border-red-600' },
+    { id: 'yellow', name: 'Solid Yellow', style: 'border-2 border-yellow-500' },
+    { id: 'cyan', name: 'Solid Cyan', style: 'border-2 border-cyan-500' },
+  ];
+  
+  const PREMIUM_FRAMES = [
+    { id: 'gold', name: 'Ultra Gold', style: 'border-2 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.5)]', orbit: 'border-t-yellow-400 border-r-yellow-400 animate-[spin_3s_linear_infinite]' },
+    { id: 'appleblack', name: 'Apple Black', style: 'border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]', orbit: 'border-t-red-500 border-l-red-500 animate-[spin_2.5s_linear_infinite]' },
+    { id: 'clockstriker', name: 'Clock Striker', style: 'border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]', orbit: 'border-b-cyan-400 border-r-cyan-400 animate-[spin_3s_linear_infinite_reverse]' },
+  ];
+
+  const getFrameStyle = (id: string) => [...BASIC_FRAMES, ...PREMIUM_FRAMES].find(f => f.id === id)?.style || 'border-2 border-zinc-800';
+  const getOrbitStyle = (id: string) => PREMIUM_FRAMES.find(f => f.id === id)?.orbit || '';
+
+  useEffect(() => {
+    if (!isOpen) { setIsFlipped(false); return; }
+    const fetchStats = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+        if (data) {
+          setProfileStats({ total_hypes: data.total_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0 });
+          setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', frameId: data.frame_id || 'none', cardSkin: data.card_skin || '', topFive: data.top_five || [null, null, null, null, null] });
+        }
+      }
+    };
+    fetchStats();
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 animate-fade-in" onClick={onClose}>
+      <button onClick={onClose} className="absolute top-6 right-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-[350] shadow-2xl">
+        <X className="w-6 h-6" />
+      </button>
+
+      <div className="w-[100vw] h-[100vh] flex flex-col items-center justify-center card-perspective p-4 md:p-12">
+        <div 
+          className={`relative w-full max-w-4xl aspect-[1.58] cursor-pointer card-flipper ${isFlipped ? 'is-flipped' : ''}`}
+          onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}
+        >
+          {/* === FRONT OF CARD === */}
+          <div className="absolute inset-0 w-full h-full bg-zinc-900 rounded-2xl md:rounded-[2rem] border-2 border-zinc-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden card-face flex flex-col justify-end">
+            <img src={userProfile.cardSkin || "https://zcadkovymrnjpjaxvnao.supabase.co/storage/v1/object/public/card-skins/skins/1781908112888_8ozh4h.jpg"} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
+            <div className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }} />
+            <div className="absolute top-4 right-4 md:top-8 md:right-8 z-20 pointer-events-none">
+              <img 
+                src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" 
+                alt="Saturday AM" 
+                className="h-8 md:h-14 object-contain drop-shadow-xl" 
+              />
+            </div>
+          </div>
+
+          {/* === BACK OF CARD (RESTORED) === */}
+          <div className="absolute inset-0 w-full h-full bg-zinc-900 rounded-2xl md:rounded-[2rem] border-2 border-zinc-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col justify-between p-4 md:p-10 card-face card-back">
+            <div className="absolute inset-0 pointer-events-none z-0" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }} />
+            
+            <div className="relative z-10 flex flex-col h-full justify-between">
+              
+              {/* Top Left: Avatar & Username */}
+              <div className="flex items-center gap-4 border-b border-zinc-800 pb-4 md:pb-6">
+                <div className="relative w-16 h-16 md:w-24 md:h-24 flex items-center justify-center flex-shrink-0">
+                  <div className={`w-14 h-14 md:w-20 md:h-20 rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(userProfile.frameId)}`}>
+                    {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="w-8 h-8 md:w-10 md:h-10 text-zinc-600" />}
+                  </div>
+                  {getOrbitStyle(userProfile.frameId) && <div className={`absolute w-full h-full rounded-full border-2 border-transparent ${getOrbitStyle(userProfile.frameId)}`} />}
+                </div>
+                <div className="flex flex-col truncate pt-1">
+                  <p className="font-black text-2xl md:text-5xl italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none">{userProfile.username}</p>
+                  <p className="text-[8px] md:text-[12px] text-[#fe9a00] font-black uppercase tracking-widest mt-2 flex flex-wrap gap-x-2 leading-tight">
+                    <span>MEMBER SINCE OCT 2023</span>
+                    <span className="text-zinc-600 hidden sm:inline">|</span>
+                    <span className="text-zinc-400">STORE DISCOUNT CODE: AMCLUB26</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Stats Row */}
+              <div className="flex justify-around items-center bg-black/40 rounded-xl border border-zinc-800/50 shadow-inner p-4 md:p-8 mt-4 mb-4">
+                <div className="text-center w-1/3 border-r border-zinc-800/50">
+                  <p className="text-zinc-500 uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-2">Total Hypes</p>
+                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-3 text-xl md:text-4xl">
+                    <Flame className="w-5 h-5 md:w-10 md:h-10" /> {profileStats.total_hypes.toLocaleString()}
+                  </p>
+                </div>
+                <div className="text-center w-1/3 border-r border-zinc-800/50">
+                  <p className="text-zinc-500 uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-2">Quick Reacts</p>
+                  <p className="font-black text-cyan-400 flex items-center justify-center gap-1 md:gap-3 text-xl md:text-4xl">
+                    <MessageCircle className="w-5 h-5 md:w-10 md:h-10" /> {profileStats.quick_reacts.toLocaleString()}
+                  </p>
+                </div>
+                <div className="text-center w-1/3">
+                  <p className="text-zinc-500 uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-2">Chapters Read</p>
+                  <p className="font-black text-cyan-400 flex items-center justify-center gap-1 md:gap-3 text-xl md:text-4xl">
+                    <BookOpen className="w-5 h-5 md:w-10 md:h-10" /> {profileStats.chapters_read.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              {/* My Favorite Series (Peel-and-Stick Aesthetic) */}
+              <div className="flex flex-col justify-center w-full flex-1">
+                <p className="text-[10px] md:text-sm text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-2 mb-2 md:mb-4">
+                  <Star className="w-4 h-4 md:w-5 md:h-5 text-[#fe9a00]" /> Top 5 Stickers
+                </p>
+                <div className="flex gap-2 md:gap-6 w-full justify-between items-start px-2 md:px-8">
+                  {[0, 1, 2, 3, 4].map((i) => {
+                    const slug = userProfile.topFive[i];
+                    const series = seriesList.find((s:any) => s.slug === slug);
+                    
+                    if (!series) {
+                       return (
+                         <div key={i} className="flex flex-col items-center w-[18%] gap-2">
+                           <div className="w-16 h-16 md:w-32 md:h-32 rounded-full border-2 border-dashed border-zinc-700/50 bg-black/20 transition-all duration-300" />
+                         </div>
+                       );
+                    }
+                    
+                    const stickerImage = series.sticker_url || series.character_url || series.cover_url;
+
+                    return (
+                      <div key={i} className="flex flex-col items-center w-[18%] gap-2">
+                        <div 
+                          className={`relative rounded-full overflow-hidden bg-[#f4f4f5] border-[#f4f4f5]
+                            w-16 h-16 md:w-32 md:h-32 border-[3px] md:border-[6px]
+                            shadow-[2px_4px_8px_rgba(0,0,0,0.7)] md:shadow-[4px_8px_16px_rgba(0,0,0,0.7)]
+                            transform hover:scale-110 transition-all duration-300 flex-shrink-0
+                            ${i % 2 === 0 ? '-rotate-3' : 'rotate-2'} 
+                            ${i === 2 ? '-translate-y-2 md:-translate-y-4' : ''}
+                          `}
+                        >
+                          <img src={stickerImage} className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
+                          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
+                        </div>
+                        <span className="text-[8px] md:text-[12px] font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight mt-1 transition-all">
+                          {series.title}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Promo Text */}
+              <div className="text-center pt-4 md:pt-6 mt-auto">
+                <p className="text-[8px] md:text-[10px] text-zinc-500 uppercase tracking-widest leading-relaxed">
+                  Present this digital pass at live events for discounts.<br/>
+                  Use code <span className="text-white font-black">AMCLUB26</span> in the Shopify store.
+                </p>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <p className="text-zinc-500 text-[10px] md:text-[12px] font-bold uppercase tracking-widest mt-12 animate-pulse flex items-center gap-2 pointer-events-none">
+          <RotateCcw className="w-4 h-4 md:w-5 md:h-5" /> Tap anywhere on card to flip
+        </p>
+      </div>
+    </div>
+  );
+};
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
-  const [currentView, setCurrentView] = useState('home'); 
-  const [selectedSeries, setSelectedSeries] = useState(null); 
+  const [currentView, setCurrentView] = useState('home');
+  const [selectedSeries, setSelectedSeries] = useState(null);
   const [selectedMagazine, setSelectedMagazine] = useState(null);
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false); 
-  
-  // NEW: State to control the Login Modal
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+
+  // System Overlays
   const [showLogin, setShowLogin] = useState(false);
-const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isFlexCardOpen, setIsFlexCardOpen] = useState(false);
+
   useEffect(() => { 
     const timer = setTimeout(() => setShowSplash(false), 3000); 
     return () => clearTimeout(timer); 
   }, []);
-
   const handleNavigate = (data: any) => {
     if (data.action === 'home') { setCurrentView('home'); return; }
     if (data.action === 'faves') { setCurrentView('faves'); return; }
-    if (data.action === 'browse') { setCurrentView('browse'); return; } // <--- CATCHES BROWSE
+    if (data.action === 'browse') { setCurrentView('browse'); return; }
     if (data.action === 'profile') { setCurrentView('profile'); return; }
     if (data.action === 'account') { setCurrentView('account'); return; }
-    
-    if (data.publish_date) { 
-      setSelectedMagazine(data); 
-      setCurrentView('magazine'); 
-    } else { 
-      setSelectedSeries(data); 
-      setCurrentView('series'); 
+if (data.action === 'settings') { setCurrentView('settings'); return; }
+if (data.action === 'bingobook') { setCurrentView('bingobook'); return; }    
+if (data.publish_date) {
+      setSelectedMagazine(data);
+      setCurrentView('magazine');
+    } else {
+      setSelectedSeries(data);
+      setCurrentView('series');
     }
   };
-  
+
   return (
     <>
+      {/* THIS IS THE SPLASH SCREEN BLOCK */}
+      {showSplash && (
+  <div className="fixed inset-0 z-[1000] bg-white flex items-center justify-center animate-fade-out">
+    <img 
+      src={`${CLOUDFLARE_BASE_URL}/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png`} 
+      className="w-64" 
+      alt="Logo" 
+    />
+  </div>
+)}
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Unbounded:wght@700;800;900&display=swap');
+          @keyframes fade-out {
+      0% { opacity: 1; }
+      80% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    .animate-fade-out {
+      animation: fade-out 3s forwards;
+    }
           body { font-family: 'Plus Jakarta Sans', sans-serif; }
           h1, h2, h3, h4, h5, h6, .font-black { font-family: 'Unbounded', sans-serif !important; font-style: italic !important; letter-spacing: -0.03em !important; }
           .tracking-widest { letter-spacing: 0.15em !important; font-style: normal !important; font-family: 'Plus Jakarta Sans', sans-serif !important; font-weight: 800; }
-          .no-scrollbar::-webkit-scrollbar { display: none; } 
+          .no-scrollbar::-webkit-scrollbar { display: none; }
           .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+          
+          /* NEW: Bulletproof 3D Flip Animation */
+          .card-perspective { perspective: 1000px; }
+          .card-flipper { transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform-style: preserve-3d; }
+          .card-flipper.is-flipped { transform: rotateY(180deg); }
+          .card-face { -webkit-backface-visibility: hidden; backface-visibility: hidden; }
+          .card-back { transform: rotateY(180deg); }
         `}
       </style>
-      
-      {/* NEW: Render the Login Modal if showLogin is true */}
+
+      {/* 1. Login Modal */}
       {showLogin && (
-        <LoginModal 
-          onClose={() => setShowLogin(false)} 
+        <LoginModal
+          onClose={() => setShowLogin(false)}
           onSuccess={() => {
             setShowLogin(false);
-            window.location.reload(); // Refresh to apply logged-in state
-          }} 
+            window.location.reload();
+          }}
         />
       )}
 
+      {/* 2. Global Hamburger Menu */}
+      <HamburgerMenu
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        onNavigate={handleNavigate}
+        onOpenFlexCard={() => setIsFlexCardOpen(true)}
+      />
 
+      {/* 3. Global Flex Card Overlay */}
+      <GlobalFlexCard
+        isOpen={isFlexCardOpen}
+        onClose={() => setIsFlexCardOpen(false)}
+      />
+
+      {/* 4. Main Views */}
       {currentView === 'home' && (
-        <HomePage 
-          onNavigate={handleNavigate} 
-          onAdminAccess={() => setCurrentView('admin')} 
-          onLoginClick={() => setShowLogin(true)} 
+        <HomePage
+          onNavigate={handleNavigate}
+          onAdminAccess={() => setCurrentView('admin')}
+          onLoginClick={() => setShowLogin(true)}
+          onMenuToggle={() => setIsMenuOpen(true)}
         />
       )}
-      
+
       {currentView === 'series' && (<SeriesDetailPage series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} />)}
-      
+
       {currentView === 'magazine' && (<MagazineDetailPage magazine={selectedMagazine} onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} />)}
-      
+
       {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
-      
+
       {currentView === 'profile' && (<UserProfile onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
-      
-      {currentView === 'account' && (<AccountSettings onBack={() => setCurrentView('profile')} />)}
-      
+
+      {currentView === 'settings' && (
+  <SettingsPage 
+    onBack={() => setCurrentView('home')} 
+    onSignOut={() => {
+      // Add your actual logout logic here
+      setCurrentView('home'); 
+    }} 
+  />
+)}
+{currentView === 'bingobook' && (
+        <BingoBook onBack={() => setCurrentView('home')} />
+      )}
+
       {currentView === 'faves' && (<Favorites setActiveTab={setCurrentView} />)}
-      
+
       {currentView === 'browse' && (<Browse onNavigate={handleNavigate} />)}
-      
-            {/* GLOBAL FOOTER */}
+
+      {/* 5. Global Footer */}
       {['home', 'faves', 'browse', 'profile'].includes(currentView) && (
         <FooterNav onNavigate={handleNavigate} />
       )}
-      
+
       <ScrollToTopButton />
     </>
   );

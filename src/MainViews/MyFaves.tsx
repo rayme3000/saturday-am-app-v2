@@ -1,5 +1,5 @@
 import { Heart, Search, ChevronRight } from 'lucide-react';
-import { useSeriesData } from './userSeriesData';
+import { useSeriesData } from '../userSeriesData';
 
 // Added onNavigate here so we can optionally make the cards clickable
 const Favorites = ({ setActiveTab, onNavigate }: any) => {
