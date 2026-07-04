@@ -753,15 +753,15 @@ const handleReactSubmit = async () => {
 
             <div className={`h-[85vh] flex justify-center items-center w-full max-w-7xl mx-auto ${isLandscape ? 'flex-row' : 'flex-col'}`}>
               
-              {/* Notice we pass your 'firstPageSide' state into the math function here! */}
-              {generateBookSpreads(pages, 'right').map((spread: any, index: number) => (
+              // Replace the hardcoded 'right' with a dynamic check
+{generateBookSpreads(pages, readingDirection === 'rtl' ? 'left' : 'right').map((spread: any, index: number) => (
                 
                 // This line handles the LTR vs RTL reading direction toggle!
                 <div 
                   key={index} 
                   className={`flex w-full h-full max-w-5xl justify-center items-center gap-0 ${
-                    'ltr' === 'rtl' ? 'flex-row-reverse' : 'flex-row' 
-                  }`}
+  readingDirection === 'rtl' ? 'flex-row-reverse' : 'flex-row' 
+}`}
                   style={{ display: Math.floor(currentPage / 2) === index ? 'flex' : 'none' }} // Only show the current spread
                 >
                   
