@@ -651,7 +651,7 @@ const handleReactSubmit = async () => {
         {mode === 'horizontal' && (
           <div className="h-full w-full flex items-center justify-center relative select-none">
             {pages[currentPage] ? (
-              <img src={pages[currentPage]} onLoad={(e) => handleImageLoad(pages[currentPage], e)} className="max-h-full max-w-full object-contain" alt={`Page ${currentPage + 1}`} />
+              <img src={pages[currentPage]} onLoad={(e) => handleImageLoad(pages[currentPage], e)} className="max-w-full max-h-[85vh] object-contain mx-auto" alt={`Page ${currentPage + 1}`} />
             ) : (
               <div className="animate-pulse flex flex-col items-center gap-4">
                 <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
