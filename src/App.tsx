@@ -410,7 +410,18 @@ const GlobalFlexCard = ({ isOpen, onClose }: any) => {
 const MangaReader = ({ pages, onClose, chapterId, onHypeUpdate, onHome, onNext, onPrev, hasNext, hasPrev, title, subtitle }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [mode, setMode] = useState('horizontal'); // Defaulting to horizontal per your preference
-  
+  // NEW: State to track if the phone is held sideways
+  const [isLandscape, setIsLandscape] = useState(false);
+
+  // NEW: The Window Listener for automatic layout flipping
+  useEffect(() => {
+    const handleResize = () => {
+      setIsLandscape(window.innerWidth > window.innerHeight);
+    };
+    handleResize(); // Check on load
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   // Immersive UI State
   const [isUIVisible, setIsUIVisible] = useState(true);
   const [showHideHint, setShowHideHint] = useState(false);
@@ -481,6 +492,20 @@ const MangaReader = ({ pages, onClose, chapterId, onHypeUpdate, onHome, onNext, 
   
   const [aspectRatios, setAspectRatios] = useState<Record<string, number>>({});
   const [showTutorial, setShowTutorial] = useState(true);
+  // NEW: The Spread Math (Keeps place seamless using your existing 'currentPage' state)
+  const getSpread = (index) => {
+    if (index === 0) return [0]; 
+    const leftPageIndex = index % 2 === 1 ? index : index - 1;
+    const rightPageIndex = leftPageIndex + 1;
+    
+    // Fallback if pages array is empty or index is out of bounds
+    if (!pages || rightPageIndex >= pages.length) return [leftPageIndex];
+    
+    // Defaulting to Right-to-Left manga reading layout [right, left]
+    return [rightPageIndex, leftPageIndex]; 
+  };
+
+  const currentPagesToDisplay = isLandscape ? getSpread(currentPage) : [currentPage];
   const [isTutorialFading, setIsTutorialFading] = useState(false);
   const [pendingHypes, setPendingHypes] = useState(0);
   const hypeRef = useRef(0);
@@ -648,41 +673,50 @@ const handleReactSubmit = async () => {
       {/* --- READER CONTENT AREA (Always 100% Full Screen) --- */}
       <div className="absolute inset-0 z-0 bg-[#0a0a0a]">
         
-        {mode === 'horizontal' && (
-          <div className="h-full w-full flex items-center justify-center relative select-none">
-            {pages[currentPage] ? (
-              <img src={pages[currentPage]} onLoad={(e) => handleImageLoad(pages[currentPage], e)} className="max-w-full max-h-[85vh] object-contain mx-auto" alt={`Page ${currentPage + 1}`} />
-            ) : (
-              <div className="animate-pulse flex flex-col items-center gap-4">
-                <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
-                <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px]">Loading Page...</span>
-              </div>
-            )}
-            
-            {/* Invisible Click Zones (Keeps immersive navigation active) */}
-            <div className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer" onClick={goPrev} />
-            <div className="absolute inset-y-0 left-1/4 right-1/4 z-10 cursor-pointer" onClick={toggleUI} />
-            <div className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer" onClick={goNext} />
+       {mode === 'horizontal' && (
+  <div className="h-full w-full flex items-center justify-center relative select-none overflow-hidden">
+    
+    {/* NEW: The strict centering wrapper copied from the magazine preview */}
+    <div className="relative max-w-full max-h-[85vh] w-full h-full flex items-center justify-center pointer-events-none z-0">
+      {pages[currentPage] ? (
+        <img 
+          src={pages[currentPage]} 
+          onLoad={(e) => handleImageLoad(pages[currentPage], e)} 
+          className="max-w-full max-h-full object-contain drop-shadow-2xl pointer-events-auto mx-auto" 
+          alt={`Page ${currentPage + 1}`} 
+        />
+      ) : (
+        <div className="animate-pulse flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
+          <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px]">Loading Page...</span>
+        </div>
+      )}
+    </div>
+    
+    {/* Invisible Click Zones (Keeps immersive navigation active) */}
+    <div className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer" onClick={goPrev} />
+    <div className="absolute inset-y-0 left-1/4 right-1/4 z-10 cursor-pointer" onClick={toggleUI} />
+    <div className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer" onClick={goNext} />
 
-            {/* NEW: Constrained Visible Navigation Arrows (Hugs the page, not the screen) */}
-            <div className={`absolute inset-0 flex items-center justify-center pointer-events-none z-20 transition-opacity duration-300 ${isUIVisible ? 'opacity-100' : 'opacity-0'}`}>
-               <div className="w-full max-w-4xl flex justify-between px-2 sm:px-6">
-                 {/* Left Arrow */}
-                 <div className={`pointer-events-auto transition-all ${currentPage === 0 ? 'opacity-0 scale-90' : 'opacity-100 scale-100 hover:-translate-x-2'}`}>
-                   <button onClick={goPrev} disabled={currentPage === 0} className="bg-black/60 backdrop-blur-md p-3 sm:p-4 rounded-full text-zinc-400 hover:text-[#fe9a00] border border-zinc-700 shadow-2xl">
-                     <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
-                   </button>
-                 </div>
-                 {/* Right Arrow */}
-                 <div className="pointer-events-auto transition-all opacity-100 scale-100 hover:translate-x-2">
-                   <button onClick={goNext} className="bg-black/60 backdrop-blur-md p-3 sm:p-4 rounded-full text-[#fe9a00] hover:text-white border border-[#fe9a00]/30 shadow-[0_0_20px_rgba(254,154,0,0.2)] hover:shadow-[0_0_25px_rgba(254,154,0,0.5)] transition-all">
-                     <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
-                   </button>
-                 </div>
-               </div>
-            </div>
-          </div>
-        )}
+    {/* Visible Navigation Arrows */}
+    <div className={`absolute inset-0 flex items-center justify-center pointer-events-none z-20 transition-opacity duration-300 ${isUIVisible ? 'opacity-100' : 'opacity-0'}`}>
+       <div className="w-full max-w-4xl flex justify-between px-2 sm:px-6">
+         {/* Left Arrow */}
+         <div className={`pointer-events-auto transition-all ${currentPage === 0 ? 'opacity-0 scale-90' : 'opacity-100 scale-100 hover:-translate-x-2'}`}>
+           <button onClick={goPrev} disabled={currentPage === 0} className="bg-black/60 backdrop-blur-md p-3 sm:p-4 rounded-full text-zinc-400 hover:text-[#fe9a00] border border-zinc-700 shadow-2xl">
+             <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
+           </button>
+         </div>
+         {/* Right Arrow */}
+         <div className="pointer-events-auto transition-all opacity-100 scale-100 hover:translate-x-2">
+           <button onClick={goNext} className="bg-black/60 backdrop-blur-md p-3 sm:p-4 rounded-full text-[#fe9a00] hover:text-white border border-[#fe9a00]/30 shadow-[0_0_20px_rgba(254,154,0,0.2)] hover:shadow-[0_0_25px_rgba(254,154,0,0.5)] transition-all">
+             <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
+           </button>
+         </div>
+       </div>
+    </div>
+  </div>
+)}
 
         {mode === 'vertical' && (
           <div className="h-full w-full overflow-y-auto flex flex-col items-center select-none" onClick={toggleUI}>
@@ -710,9 +744,14 @@ const handleReactSubmit = async () => {
         {mode === 'book' && (
           <div className="h-full w-full flex items-center justify-center relative select-none bg-black">
             
-            <div className="absolute top-1/4 left-1/2 -translate-x-1/2 z-40 bg-zinc-800/95 text-[#fe9a00] px-6 py-3 rounded-full text-xs font-bold tracking-widest flex items-center gap-3 portrait:flex landscape:hidden pointer-events-none shadow-2xl animate-pulse whitespace-nowrap border border-zinc-700"><RotateCcw className="w-4 h-4" /> Rotate device</div>
-            
-            <div className="h-full flex justify-center items-center w-full max-w-7xl mx-auto">
+            {/* THE UX FIX: The Watermark (Only shows in Portrait) */}
+            {!isLandscape && (
+              <div className="absolute top-1/4 left-1/2 -translate-x-1/2 z-40 text-white/30 uppercase tracking-widest text-sm pointer-events-none select-none">
+                Rotate device for spread
+              </div>
+            )}
+
+            <div className={`h-[85vh] flex justify-center items-center w-full max-w-7xl mx-auto ${isLandscape ? 'flex-row' : 'flex-col'}`}>
               
               {/* Notice we pass your 'firstPageSide' state into the math function here! */}
               {generateBookSpreads(pages, 'right').map((spread: any, index: number) => (
@@ -721,28 +760,32 @@ const handleReactSubmit = async () => {
                 <div 
                   key={index} 
                   className={`flex w-full h-full max-w-5xl justify-center items-center gap-0 ${
-                    'ltr' === 'rtl' ? 'flex-row-reverse' : 'flex-row'
+                    'ltr' === 'rtl' ? 'flex-row-reverse' : 'flex-row' 
                   }`}
                   style={{ display: Math.floor(currentPage / 2) === index ? 'flex' : 'none' }} // Only show the current spread
                 >
                   
-                  {/* Left Side Container */}
-                  <div className="w-1/2 h-full flex justify-end">
-                    {spread[0] ? (
-                      <img src={spread[0]} className="h-full object-contain object-right shadow-2xl" alt="Page" />
-                    ) : (
-                      <div className="w-full h-full bg-black flex items-center justify-center"><span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">Turn page for spread</span></div>
-                    )}
-                  </div>
+                  {/* Left Side Container (Always renders in landscape, only renders in portrait if there's no right image) */}
+                  {(isLandscape || (!isLandscape && !spread[1])) && (
+                    <div className={`${isLandscape ? 'w-1/2' : 'w-full'} h-full flex justify-end`}>
+                      {spread[0] ? (
+                        <img src={spread[0]} className="h-full object-contain object-right shadow-2xl" alt="Page" />
+                      ) : (
+                        <div className="w-full h-full bg-black flex items-center justify-center"><span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">End</span></div>
+                      )}
+                    </div>
+                  )}
 
-                  {/* Right Side Container */}
-                  <div className="w-1/2 h-full flex justify-start">
-                    {spread[1] ? (
-                      <img src={spread[1]} className="h-full object-contain object-left shadow-2xl" alt="Page" />
-                    ) : (
-                      <div className="w-full h-full bg-black" />
-                    )}
-                  </div>
+                  {/* Right Side Container (Only renders in landscape, or in portrait if there is a right image to show) */}
+                  {(isLandscape || (!isLandscape && spread[1])) && (
+                    <div className={`${isLandscape ? 'w-1/2' : 'w-full'} h-full flex justify-start`}>
+                      {spread[1] ? (
+                        <img src={spread[1]} className="h-full object-contain object-left shadow-2xl" alt="Page" />
+                      ) : (
+                        <div className="w-full h-full bg-black" />
+                      )}
+                    </div>
+                  )}
 
                 </div>
               ))}
