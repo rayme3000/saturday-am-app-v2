@@ -407,7 +407,7 @@ const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   );
 };
 
-const MangaReader = ({ pages, onClose, chapterId, onHypeUpdate, onHome, onNext, onPrev, hasNext, hasPrev, title, subtitle }: any) => {
+const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, onPrev, hasNext, hasPrev, title, subtitle, readingDirection = 'ltr' }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [mode, setMode] = useState('horizontal'); // Defaulting to horizontal per your preference
   // NEW: State to track if the phone is held sideways
@@ -742,8 +742,7 @@ const handleReactSubmit = async () => {
         )}
 
         {mode === 'book' && (
-          <div className="h-full w-full flex items-center justify-center relative select-none bg-black">
-            
+          <>
             {/* THE UX FIX: The Watermark (Only shows in Portrait) */}
             {!isLandscape && (
               <div className="absolute top-1/4 left-1/2 -translate-x-1/2 z-40 text-white/30 uppercase tracking-widest text-sm pointer-events-none select-none">
@@ -751,50 +750,63 @@ const handleReactSubmit = async () => {
               </div>
             )}
 
-            <div className={`h-[85vh] flex justify-center items-center w-full max-w-7xl mx-auto ${isLandscape ? 'flex-row' : 'flex-col'}`}>
-              
-              // Replace the hardcoded 'right' with a dynamic check
-{generateBookSpreads(pages, readingDirection === 'rtl' ? 'left' : 'right').map((spread: any, index: number) => (
-                
-                // This line handles the LTR vs RTL reading direction toggle!
-                <div 
-                  key={index} 
-                  className={`flex w-full h-full max-w-5xl justify-center items-center gap-0 ${
-  readingDirection === 'rtl' ? 'flex-row-reverse' : 'flex-row' 
-}`}
-                  style={{ display: Math.floor(currentPage / 2) === index ? 'flex' : 'none' }} // Only show the current spread
-                >
+            {/* --- Navigation Arrows: Bound strictly to page state --- */}
+            {currentPage > 0 && (
+              <div 
+                onClick={(e) => { e.stopPropagation(); setCurrentPage(currentPage - 1); }} 
+                className="absolute left-0 top-16 bottom-16 w-1/6 md:w-32 z-40 cursor-pointer flex items-center justify-start px-2 md:px-6 opacity-30 hover:opacity-100 transition-opacity"
+              >
+                <ChevronLeft className="text-white w-10 h-10 md:w-16 md:h-16 drop-shadow-2xl" />
+              </div>
+            )}
+
+            {currentPage < (pages?.length || 0) - 1 && (
+              <div 
+                onClick={(e) => { e.stopPropagation(); setCurrentPage(currentPage + 1); }} 
+                className="absolute right-0 top-16 bottom-16 w-1/6 md:w-32 z-40 cursor-pointer flex items-center justify-end px-2 md:px-6 opacity-100 hover:scale-110 transition-all"
+              >
+                <ChevronRight className="text-white w-10 h-10 md:w-16 md:h-16 drop-shadow-2xl" />
+              </div>
+            )}
+
+            {isLandscape ? (
+              <div className="h-[85vh] flex justify-center items-center w-full max-w-7xl mx-auto">
+                {(() => {
+                  const safePages = pages || [];
+                  // Logic: When in Book Mode, we jump by 2 pages per click
+                  const baseIndex = Math.floor(currentPage / 2) * 2;
                   
-                  {/* Left Side Container (Always renders in landscape, only renders in portrait if there's no right image) */}
-                  {(isLandscape || (!isLandscape && !spread[1])) && (
-                    <div className={`${isLandscape ? 'w-1/2' : 'w-full'} h-full flex justify-end`}>
-                      {spread[0] ? (
-                        <img src={spread[0]} className="h-full object-contain object-right shadow-2xl" alt="Page" />
+                  const leftPage = readingDirection === 'rtl' ? safePages[baseIndex + 1] : safePages[baseIndex];
+                  const rightPage = readingDirection === 'rtl' ? safePages[baseIndex] : safePages[baseIndex + 1];
+
+                  return (
+                    <div className="flex h-full w-full max-w-5xl justify-center items-center">
+                      {leftPage ? (
+                        <img src={leftPage} className="h-full w-auto max-w-[50%] object-contain shadow-2xl" alt="Left Page" />
                       ) : (
-                        <div className="w-full h-full bg-black flex items-center justify-center"><span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">End</span></div>
+                        <div className="h-full w-[40vw] max-w-[50%] bg-black flex items-center justify-center">
+                          {readingDirection === 'rtl' && <span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">End</span>}
+                        </div>
+                      )}
+                      {rightPage ? (
+                        <img src={rightPage} className="h-full w-auto max-w-[50%] object-contain shadow-2xl" alt="Right Page" />
+                      ) : (
+                        <div className="h-full w-[40vw] max-w-[50%] bg-black flex items-center justify-center">
+                          {readingDirection === 'ltr' && <span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">End</span>}
+                        </div>
                       )}
                     </div>
-                  )}
-
-                  {/* Right Side Container (Only renders in landscape, or in portrait if there is a right image to show) */}
-                  {(isLandscape || (!isLandscape && spread[1])) && (
-                    <div className={`${isLandscape ? 'w-1/2' : 'w-full'} h-full flex justify-start`}>
-                      {spread[1] ? (
-                        <img src={spread[1]} className="h-full object-contain object-left shadow-2xl" alt="Page" />
-                      ) : (
-                        <div className="w-full h-full bg-black" />
-                      )}
-                    </div>
-                  )}
-
-                </div>
-              ))}
-            </div>
-            
-            <div className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer" onClick={goPrev} />
-            <div className="absolute inset-y-0 left-1/4 right-1/4 z-10 cursor-pointer" onClick={toggleUI} />
-            <div className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer" onClick={goNext} />
-          </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="relative w-full h-[85vh] flex items-center justify-center bg-black">
+                {pages && pages.length > 0 && (
+                  <img src={pages[currentPage]} alt={`Page ${currentPage}`} className="w-full h-full object-contain mx-auto shadow-2xl" />
+                )}
+              </div>
+            )}
+          </>
         )}
 
         {/* FULL SCREEN END OF CHAPTER OVERLAY */}
@@ -1091,6 +1103,7 @@ const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) => {
           pages={magazine.pages || []} 
           title={magazine.title}
           subtitle="Issue Preview"
+          readingDirection="ltr"
           onClose={() => setIsReaderOpen(false)} 
           onHome={() => { setIsReaderOpen(false); onBack(); }}
         />
@@ -2796,7 +2809,7 @@ const ChapterUploader = ({ onDirty, onClean }: any) => {
 
   return (
     <div className="space-y-6 animate-fade-in-up">
-      {isPreviewOpen && <MangaReader pages={formData.pages} onClose={() => setIsPreviewOpen(false)} />}
+      {isPreviewOpen && <MangaReader pages={formData.pages} readingDirection={readingDirection} onClose={() => setIsPreviewOpen(false)} />}
 
       {cropSourceImage && (
         <ThumbnailCropperModal 
