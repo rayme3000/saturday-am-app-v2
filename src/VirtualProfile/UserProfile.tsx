@@ -141,7 +141,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                             ${i === 2 ? '-translate-y-2 md:-translate-y-4' : ''}
                           `}
                         >
-                          <img src={stickerImage} className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
+                          <img src={stickerImage} loading="lazy" className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
                           <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
                         </div>
                         <span className="text-[8px] md:text-[12px] font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight mt-1 transition-all">
@@ -323,13 +323,14 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
         <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-black z-0" />
         <img 
           src={series.character_url || series.cover_url} 
+          loading="lazy"
           alt={`${series.title} Character`} 
           className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4"
         />
         <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black via-black/90 to-transparent z-20" />
         <div className="absolute bottom-3 left-0 right-0 flex justify-center z-30 px-2 h-8 sm:h-10">
           {series.logo_url ? (
-            <img src={series.logo_url} alt={series.title} className="w-full max-h-full object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1" />
+            <img src={series.logo_url} loading="lazy" alt={series.title} className="w-full max-h-full object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1" />
           ) : (
             <span className="text-[7px] sm:text-[8px] font-black uppercase text-white text-center drop-shadow-md leading-tight line-clamp-2">
               {series.title}
@@ -519,7 +520,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
                           const isAlreadyEquipped = tempProfile.topFive.includes(s.slug);
                           return (
                             <div key={s.slug} onClick={() => { if (isAlreadyEquipped) return; const newLoadout = [...tempProfile.topFive]; newLoadout[selectingSlot] = s.slug; setTempProfile({...tempProfile, topFive: newLoadout}); setSelectingSlot(null); }} className={`relative rounded overflow-hidden cursor-pointer group border flex items-center gap-2 p-1.5 transition-all ${isAlreadyEquipped ? 'opacity-30 border-zinc-800 cursor-not-allowed' : 'border-zinc-800 hover:border-[#fe9a00] bg-black hover:bg-zinc-900'}`}>
-                              <img src={s.cover_url} className="w-8 h-12 object-cover rounded-sm border border-zinc-800" alt="cover" />
+                              <img src={s.cover_url} loading="lazy" className="w-8 h-12 object-cover rounded-sm border border-zinc-800" alt="cover" />
                               <span className="text-[9px] font-bold text-white uppercase leading-tight tracking-wider pr-1">{s.title}</span>
                               {isAlreadyEquipped && <span className="absolute inset-0 bg-black/60 flex items-center justify-center text-[8px] font-black text-red-500 uppercase tracking-widest backdrop-blur-[1px]">Equipped</span>}
                             </div>
@@ -543,14 +544,14 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
                     {displaySeriesList.map((s: any) => (
                       <div key={s.slug} onClick={() => setTempProfile({...tempProfile, cardSkin: s.cover_url})} className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === s.cover_url ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-zinc-500'}`}>
-                        <img src={s.cover_url} className="absolute inset-0 w-full h-full object-cover opacity-80" alt={s.title} />
+                        <img src={s.cover_url} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" alt={s.title} />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 hover:opacity-100 transition-opacity"><span className="text-[10px] font-black uppercase tracking-widest text-white">{s.title}</span></div>
                       </div>
                     ))}
 
                     {cardSkins.map((skin: any) => (
                       <div key={skin.id} onClick={() => setTempProfile({...tempProfile, cardSkin: skin.image_url})} className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === skin.image_url ? 'border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105' : 'border-zinc-800 hover:border-purple-500/50'}`}>
-                        <img src={skin.image_url} className="absolute inset-0 w-full h-full object-cover opacity-80" alt={skin.name} />
+                        <img src={skin.image_url} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" alt={skin.name} />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 hover:opacity-100 transition-opacity"><span className="text-[10px] font-black uppercase tracking-widest text-white text-center px-2">{skin.name}</span></div>
                       </div>
                     ))}
@@ -581,7 +582,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
                       </div>
                       {vaultAvatars.map(avatar => (
                         <div key={avatar.id} onClick={() => setTempProfile({...tempProfile, avatarUrl: avatar.image_url})} className={`relative cursor-pointer rounded-full p-1 transition-all ${tempProfile.avatarUrl === avatar.image_url ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
-                          <img src={avatar.image_url} alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" />
+                          <img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" /><img src={avatar.image_url} alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" /><img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" />
                         </div>
                       ))}
                     </div>

@@ -1,28 +1,26 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import Cropper from 'react-easy-crop';
 import { Upload, Check, Image as ImageIcon, Trash2, Star, Calendar, Menu, Home, Heart, Plus, Search, ShoppingBag, User, BookOpen, Play, ArrowLeft, Bookmark, X, MoveHorizontal, MoveVertical, RotateCcw, MessageCircle, MessageCircleOff, ChevronLeft, ChevronRight, Award, Crop, Flame, ArrowUp, SkipBack, SkipForward, Settings, Shield, CreditCard, Maximize2, Save, Scissors, RefreshCw } from 'lucide-react';
 import { supabase } from './supabase';
 import { useSeriesData } from './userSeriesData';
+
+// 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
-import Favorites from './MainViews/MyFaves.tsx';
-import Browse from './MainViews/Browse.tsx';
-import SettingsPage from './MainViews/Settings.tsx';
-import BingoBook from './VirtualProfile/BingoBook';
-import { MangaReader } from './MainViews/MangaReader';
-import { MagazineDetailPage } from './MainViews/MagazineDetailPage';
-import { MagazineHomeSection } from './MainViews/MagazineHomeSection';
-import { SeriesSection } from './MainViews/SeriesSection';
-import { SeriesDetailPage } from './MainViews/SeriesDetailPage';
-import { HomePage } from './MainViews/HomePage';
-import { MagazineUploader } from './AmCommandCenter/MagazineUploader';
-import { HomeEditor } from './AmCommandCenter/HomeEditor';
-import { SeriesEditor } from './AmCommandCenter/SeriesEditor';
-import { ChapterUploader } from './AmCommandCenter/ChapterUploader';
-import { AdminDashboard } from './AmCommandCenter/AdminDashboard';
 import { AdminLogin } from './Auth/AdminLogin';
-import { VirtualMemberCard } from './VirtualProfile/VirtualMemberCard';
-import { UserProfile, GlobalFlexCard } from './VirtualProfile/UserProfile';
-import { AvatarMaker } from './AmCommandCenter/AvatarMaker';
+import { GlobalFlexCard } from './VirtualProfile/UserProfile';
+
+// 2. Lazy Load the views that use Named Exports
+const HomePage = lazy(() => import('./MainViews/HomePage').then(mod => ({ default: mod.HomePage })));
+const SeriesDetailPage = lazy(() => import('./MainViews/SeriesDetailPage').then(mod => ({ default: mod.SeriesDetailPage })));
+const MagazineDetailPage = lazy(() => import('./MainViews/MagazineDetailPage').then(mod => ({ default: mod.MagazineDetailPage })));
+const AdminDashboard = lazy(() => import('./AmCommandCenter/AdminDashboard').then(mod => ({ default: mod.AdminDashboard })));
+const UserProfile = lazy(() => import('./VirtualProfile/UserProfile').then(mod => ({ default: mod.UserProfile })));
+
+// 3. Lazy Load the views that use Default Exports
+const SettingsPage = lazy(() => import('./MainViews/Settings.tsx'));
+const BingoBook = lazy(() => import('./VirtualProfile/BingoBook'));
+const Favorites = lazy(() => import('./MainViews/MyFaves.tsx'));
+const Browse = lazy(() => import('./MainViews/Browse.tsx'));
 // --- Cloudflare Base URL ---
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -130,7 +128,7 @@ const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) => {
       </div>
       <div className="flex gap-4 mb-10">
         {currentUser?.avatar ? (
-       <img src={currentUser.avatar} className="w-10 h-10 rounded-full border border-zinc-700 object-cover bg-zinc-900 flex-shrink-0" alt="Avatar" />
+       <img src={currentUser.avatar} loading="lazy" className="w-10 h-10 rounded-full border border-zinc-700 object-cover bg-zinc-900 flex-shrink-0" alt="Avatar" />
      ) : (
        <div className="w-10 h-10 rounded-full border border-zinc-700 bg-zinc-900 flex items-center justify-center flex-shrink-0">
          <User className="w-5 h-5 text-zinc-500" />
@@ -151,7 +149,7 @@ const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) => {
         {comments.map((comment) => (
           <div key={comment.id} className="flex gap-4 group animate-fade-in">
             {comment.avatar_url && !comment.avatar_url.includes('pravatar') ? (
-           <img src={comment.avatar_url} className="w-10 h-10 rounded-full border border-zinc-800 object-cover bg-zinc-900 flex-shrink-0" alt={comment.user_name} />
+           <img src={comment.avatar_url} loading="lazy" className="w-10 h-10 rounded-full border border-zinc-800 object-cover bg-zinc-900 flex-shrink-0" alt={comment.user_name} />
          ) : (
            <div className="w-10 h-10 rounded-full border border-zinc-800 bg-zinc-900 flex items-center justify-center flex-shrink-0">
              <User className="w-5 h-5 text-zinc-500" />
@@ -580,40 +578,43 @@ if (data.publish_date) {
         onClose={() => setIsFlexCardOpen(false)}
       />
 
-      {/* 4. Main Views */}
-      {currentView === 'home' && (
-        <HomePage
-          onNavigate={handleNavigate}
-          onAdminAccess={() => setCurrentView('admin')}
-          onLoginClick={() => setShowLogin(true)}
-          onMenuToggle={() => setIsMenuOpen(true)}
-        />
-      )}
+      {/* 4. Main Views (Code Split via Suspense) */}
+      <Suspense fallback={
+        <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4 pb-20">
+          <div className="w-8 h-8 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
+          <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px] animate-pulse">Loading Interface...</span>
+        </div>
+      }>
+        {currentView === 'home' && (
+          <HomePage
+            onNavigate={handleNavigate}
+            onAdminAccess={() => setCurrentView('admin')}
+            onLoginClick={() => setShowLogin(true)}
+            onMenuToggle={() => setIsMenuOpen(true)}
+          />
+        )}
 
-      {currentView === 'series' && (<SeriesDetailPage series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} />)}
+        {currentView === 'series' && (<SeriesDetailPage series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} />)}
 
-      {currentView === 'magazine' && (<MagazineDetailPage magazine={selectedMagazine} onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} />)}
+        {currentView === 'magazine' && (<MagazineDetailPage magazine={selectedMagazine} onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} />)}
 
-      {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
+        {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
 
-      {currentView === 'profile' && (<UserProfile onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+        {currentView === 'profile' && (<UserProfile onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
 
-      {currentView === 'settings' && (
-  <SettingsPage 
-    onBack={() => setCurrentView('home')} 
-    onSignOut={() => {
-      // Add your actual logout logic here
-      setCurrentView('home'); 
-    }} 
-  />
-)}
-{currentView === 'bingobook' && (
-        <BingoBook onBack={() => setCurrentView('home')} />
-      )}
+        {currentView === 'settings' && (
+          <SettingsPage 
+            onBack={() => setCurrentView('home')} 
+            onSignOut={() => { setCurrentView('home'); }} 
+          />
+        )}
+        
+        {currentView === 'bingobook' && (<BingoBook onBack={() => setCurrentView('home')} />)}
 
-      {currentView === 'faves' && (<Favorites setActiveTab={setCurrentView} />)}
+        {currentView === 'faves' && (<Favorites setActiveTab={setCurrentView} />)}
 
-      {currentView === 'browse' && (<Browse onNavigate={handleNavigate} />)}
+        {currentView === 'browse' && (<Browse onNavigate={handleNavigate} />)}
+      </Suspense>
 
       {/* 5. Global Footer */}
       {['home', 'faves', 'browse', 'profile'].includes(currentView) && (

@@ -144,11 +144,11 @@ export const HomeEditor = ({ Dropzone }: any) => {
               <h4 className="text-[10px] font-bold text-[#fe9a00] mb-4 uppercase tracking-widest">Slide {index + 1}</h4>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  {slide.desktop_url && <img src={slide.desktop_url} alt="Desktop Preview" className="w-full h-16 object-cover rounded mb-2 border border-zinc-700"/>}
+                  {slide.desktop_url && <img src={slide.desktop_url} loading="lazy" alt="Desktop Preview" className="w-full h-16 object-cover rounded mb-2 border border-zinc-700"/>}
                   <Dropzone label={slide.desktop_url ? "Replace Desktop" : "+ Desktop Image"} height="p-4" folderPath="hero-banners" onUploadComplete={(url: any) => updateSlide(slide.id, 'desktop_url', url)} />
                 </div>
                 <div>
-                  {slide.mobile_url && <img src={slide.mobile_url} alt="Mobile Preview" className="w-full h-16 object-cover rounded mb-2 border border-zinc-700"/>}
+                  {slide.mobile_url && <img src={slide.mobile_url} loading="lazy" alt="Mobile Preview" className="w-full h-16 object-cover rounded mb-2 border border-zinc-700"/>}
                   <Dropzone label={slide.mobile_url ? "Replace Mobile" : "+ Mobile Image"} height="p-4" folderPath="hero-banners" onUploadComplete={(url: any) => updateSlide(slide.id, 'mobile_url', url)} />
                 </div>
               </div>
@@ -181,7 +181,7 @@ export const HomeEditor = ({ Dropzone }: any) => {
           <div className="p-4 space-y-2">
             {featuredMagazines.map((m: any, mIndex: number) => (
               <div key={m.id} className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-2 rounded">
-                <div className="flex items-center gap-3"><img src={m.cover_url} alt="" className="w-6 h-8 object-cover rounded bg-zinc-800" /><span className="text-xs font-bold text-white uppercase">{m.title}</span></div>
+                <div className="flex items-center gap-3"><img src={m.cover_url} loading="lazy" className="w-6 h-8 object-cover rounded bg-zinc-800" /><span className="text-xs font-bold text-white uppercase">{m.title}</span></div>
                 <div className="flex gap-2">
                   <button onClick={() => moveMagazine(mIndex, 'up')} className="p-1 text-zinc-500 hover:text-white"><MoveVertical className="w-4 h-4" /></button>
                   <button onClick={() => moveMagazine(mIndex, 'down')} className="p-1 text-zinc-500 hover:text-white"><MoveVertical className="w-4 h-4 rotate-180" /></button>
@@ -216,7 +216,7 @@ export const HomeEditor = ({ Dropzone }: any) => {
               <div className="p-4 space-y-2">
                 {sectionSeries[sec.title]?.map((s: any, sIndex: number) => (
                   <div key={s.slug} className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-2 rounded">
-                    <div className="flex items-center gap-3"><img src={s.cover_url} alt="" className="w-8 h-8 object-cover rounded bg-zinc-800" /><span className="text-xs font-bold text-white uppercase">{s.title}</span></div>
+                    <div className="flex items-center gap-3"><img src={s.cover_url} loading="lazy" alt="" className="w-8 h-8 object-cover rounded bg-zinc-800" /><span className="text-xs font-bold text-white uppercase">{s.title}</span></div>
                     <div className="flex gap-2">
                       <button onClick={() => moveSeries(sec.title, sIndex, 'up')} className="p-1 text-zinc-500 hover:text-white"><MoveVertical className="w-4 h-4" /></button>
                       <button onClick={() => moveSeries(sec.title, sIndex, 'down')} className="p-1 text-zinc-500 hover:text-white"><MoveVertical className="w-4 h-4 rotate-180" /></button>
