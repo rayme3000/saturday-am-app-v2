@@ -6,35 +6,31 @@ import {
   BookOpen, Flame
 } from 'lucide-react';
 import { supabase } from '../supabase';
+import { Virtuoso } from 'react-virtuoso';
 
 export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, onPrev, hasNext, hasPrev, title, subtitle, readingDirection = 'ltr' }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
-  const [mode, setMode] = useState('horizontal'); // Defaulting to horizontal per your preference
+  const [mode, setMode] = useState('horizontal'); 
   
-  // NEW: State to track if the phone is held sideways
   const [isLandscape, setIsLandscape] = useState(false);
 
-  // NEW: The Window Listener for automatic layout flipping
   useEffect(() => {
     const handleResize = () => {
       setIsLandscape(window.innerWidth > window.innerHeight);
     };
-    handleResize(); // Check on load
+    handleResize(); 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Immersive UI State
   const [isUIVisible, setIsUIVisible] = useState(true);
   const [showHideHint, setShowHideHint] = useState(false);
 
-  // Ticker & Quick React State
   const [isTickerEnabled, setIsTickerEnabled] = useState(true);
   const [activeCommentIndex, setActiveCommentIndex] = useState(0);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [localComments, setLocalComments] = useState<any[]>([]); 
 
-  // 1. Fetch Current User Profile
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (user) {
@@ -44,7 +40,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     });
   }, []);
 
-  // 2. Fetch Reacts when Chapter Loads
   useEffect(() => {
     if (!chapterId) return;
     const fetchReacts = async () => {
@@ -60,13 +55,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const [reactText, setReactText] = useState('');
   const isSubscriber = true; 
 
-  // Quick React Panel State
   const [isReactPanelOpen, setIsReactPanelOpen] = useState(false);
   const [reactPage, setReactPage] = useState(0);
   const [showReactIndicator, setShowReactIndicator] = useState(true); 
   const reactsPerPage = 4;
   
-  // NEW: Auto-hide the react indicator after 4 seconds of turning to a new page
   useEffect(() => {
     setShowReactIndicator(true);
     const timer = setTimeout(() => {
@@ -75,7 +68,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     return () => clearTimeout(timer);
   }, [currentPage]);
   
-  // Strict page-matcher:
   const visibleReacts = localComments.filter(c => 
     mode === 'book' 
       ? (c.pageIndex === currentPage || c.pageIndex === currentPage + 1) 
@@ -84,19 +76,15 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const totalReactPages = Math.ceil(visibleReacts.length / reactsPerPage);
   const currentPaginatedReacts = visibleReacts.slice(reactPage * reactsPerPage, (reactPage + 1) * reactsPerPage);
 
-  // Reset panel when turning pages
   useEffect(() => {
     setIsReactPanelOpen(false);
     setReactPage(0);
   }, [currentPage]); 
   
-  // End of Chapter Overlay State
   const [showEndPrompt, setShowEndPrompt] = useState(false);
-  
   const [aspectRatios, setAspectRatios] = useState<Record<string, number>>({});
   const [showTutorial, setShowTutorial] = useState(true);
 
-  // NEW: The Spread Math
   const getSpread = (index: number) => {
     if (index === 0) return [0]; 
     const leftPageIndex = index % 2 === 1 ? index : index - 1;
@@ -156,7 +144,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       text: reactText.trim()
     };
     
-    // Optimistic UI Update
     const tempId = Date.now();
     setLocalComments([...localComments, { id: tempId, pageIndex: currentPage, user: currentUser.name, avatar: currentUser.avatar, text: reactText.trim() }]);
     setReactText('');
@@ -242,22 +229,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   useEffect(() => { setActiveCommentIndex(visibleComments.length > 0 ? visibleComments.length - 1 : 0); }, [currentPage, mode, localComments.length]);
 
-  const generateBookSpreads = (pages: string[], startSide: 'left' | 'right') => {
-    const spreads = [];
-    let i = 0;
-    
-    if (startSide === 'right' && pages.length > 0) {
-      spreads.push([null, pages[0]]);
-      i = 1;
-    }
-    
-    while (i < pages.length) {
-      spreads.push([pages[i], pages[i + 1] || null]);
-      i += 2;
-    }
-    return spreads;
-  };
-
   return (
     <div className="fixed inset-0 z-[100] bg-[#0a0a0a] overflow-hidden flex flex-col">
       <style>{`
@@ -272,66 +243,83 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       <div className="absolute inset-0 z-0 bg-[#0a0a0a]">
         
        {mode === 'horizontal' && (
-  <div className="h-full w-full flex items-center justify-center relative select-none overflow-hidden">
-    
-    <div className="relative max-w-full max-h-[85vh] w-full h-full flex items-center justify-center pointer-events-none z-0">
-      {pages[currentPage] ? (
-        <img 
-          src={pages[currentPage]} 
-          onLoad={(e) => handleImageLoad(pages[currentPage], e)} 
-          className="max-w-full max-h-full object-contain drop-shadow-2xl pointer-events-auto mx-auto" 
-          alt={`Page ${currentPage + 1}`} 
-          loading="lazy"
-        />
-      ) : (
-        <div className="animate-pulse flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
-          <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px]">Loading Page...</span>
-        </div>
-      )}
-    </div>
-    
-    <div className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer" onClick={goPrev} />
-    <div className="absolute inset-y-0 left-1/4 right-1/4 z-10 cursor-pointer" onClick={toggleUI} />
-    <div className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer" onClick={goNext} />
-
-    <div className={`absolute inset-0 flex items-center justify-center pointer-events-none z-20 transition-opacity duration-300 ${isUIVisible ? 'opacity-100' : 'opacity-0'}`}>
-       <div className="w-full max-w-4xl flex justify-between px-2 sm:px-6">
-         <div className={`pointer-events-auto transition-all ${currentPage === 0 ? 'opacity-0 scale-90' : 'opacity-100 scale-100 hover:-translate-x-2'}`}>
-           <button onClick={goPrev} disabled={currentPage === 0} className="bg-black/60 backdrop-blur-md p-3 sm:p-4 rounded-full text-zinc-400 hover:text-[#fe9a00] border border-zinc-700 shadow-2xl">
-             <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
-           </button>
-         </div>
-         <div className="pointer-events-auto transition-all opacity-100 scale-100 hover:translate-x-2">
-           <button onClick={goNext} className="bg-black/60 backdrop-blur-md p-3 sm:p-4 rounded-full text-[#fe9a00] hover:text-white border border-[#fe9a00]/30 shadow-[0_0_20px_rgba(254,154,0,0.2)] hover:shadow-[0_0_25px_rgba(254,154,0,0.5)] transition-all">
-             <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
-           </button>
-         </div>
-       </div>
-    </div>
-  </div>
-)}
-
-        {mode === 'vertical' && (
-          <div className="h-full w-full overflow-y-auto flex flex-col items-center select-none" onClick={toggleUI}>
-            {pages.map((pageUrl: any, index: number) => (
-              <img key={index} src={pageUrl} onLoad={(e) => handleImageLoad(pageUrl, e)} className="w-full max-w-3xl object-contain block" alt={`Page ${index + 1}`} loading="lazy" />
-            ))}
+          <div className="h-full w-full flex items-center justify-center relative select-none overflow-hidden">
             
-            <div className="py-24 flex flex-col items-center text-center w-full max-w-sm mx-auto border-t border-zinc-900 mt-12 mb-12" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-2">End of Chapter</h2>
-              <p className="text-zinc-500 font-bold tracking-widest uppercase text-[10px] mb-8">What would you like to do next?</p>
-              <div className="flex flex-col gap-4 w-full px-6">
-                {hasNext && (
-                  <button onClick={onNext} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.4)] flex items-center justify-center gap-2">
-                    Read Next <SkipForward className="w-5 h-5" />
-                  </button>
-                )}
-                <button onClick={onClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
-                  <ArrowLeft className="w-5 h-5" /> Back to {subtitle ? subtitle : 'Series'}
-                </button>
-              </div>
+            <div className="relative max-w-full max-h-[85vh] w-full h-full flex items-center justify-center pointer-events-none z-0">
+              {pages[currentPage] ? (
+                <img 
+                  src={pages[currentPage]} 
+                  onLoad={(e) => handleImageLoad(pages[currentPage], e)} 
+                  className="max-w-full max-h-full object-contain drop-shadow-2xl pointer-events-auto mx-auto" 
+                  alt={`Page ${currentPage + 1}`} 
+                  loading="lazy"
+                />
+              ) : (
+                <div className="animate-pulse flex flex-col items-center gap-4">
+                  <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
+                  <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px]">Loading Page...</span>
+                </div>
+              )}
             </div>
+            
+            <div className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer" onClick={goPrev} />
+            <div className="absolute inset-y-0 left-1/4 right-1/4 z-10 cursor-pointer" onClick={toggleUI} />
+            <div className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer" onClick={goNext} />
+
+            <div className={`absolute inset-0 flex items-center justify-center pointer-events-none z-20 transition-opacity duration-300 ${isUIVisible ? 'opacity-100' : 'opacity-0'}`}>
+               <div className="w-full max-w-4xl flex justify-between px-2 sm:px-6">
+                 <div className={`pointer-events-auto transition-all ${currentPage === 0 ? 'opacity-0 scale-90' : 'opacity-100 scale-100 hover:-translate-x-2'}`}>
+                   <button onClick={goPrev} disabled={currentPage === 0} className="bg-black/60 backdrop-blur-md p-3 sm:p-4 rounded-full text-zinc-400 hover:text-[#fe9a00] border border-zinc-700 shadow-2xl">
+                     <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
+                   </button>
+                 </div>
+                 <div className="pointer-events-auto transition-all opacity-100 scale-100 hover:translate-x-2">
+                   <button onClick={goNext} className="bg-black/60 backdrop-blur-md p-3 sm:p-4 rounded-full text-[#fe9a00] hover:text-white border border-[#fe9a00]/30 shadow-[0_0_20px_rgba(254,154,0,0.2)] hover:shadow-[0_0_25px_rgba(254,154,0,0.5)] transition-all">
+                     <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
+                   </button>
+                 </div>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- OPTIMIZED VIRTUAL VERTICAL READER --- */}
+        {mode === 'vertical' && (
+          <div className="h-full w-full select-none" onClick={toggleUI}>
+            <Virtuoso
+              style={{ height: '100%', width: '100%' }}
+              data={pages}
+              rangeChanged={(range) => setCurrentPage(Math.max(0, range.startIndex))}
+              itemContent={(index, pageUrl: string) => (
+                <div className="flex justify-center w-full">
+                  <img
+                    src={pageUrl}
+                    onLoad={(e) => handleImageLoad(pageUrl, e)}
+                    className="w-full max-w-3xl object-contain block"
+                    alt={`Page ${index + 1}`}
+                    loading="lazy"
+                  />
+                </div>
+              )}
+              components={{
+                Footer: () => (
+                  <div className="py-24 flex flex-col items-center text-center w-full max-w-sm mx-auto border-t border-zinc-900 mt-12 mb-12" onClick={(e) => e.stopPropagation()}>
+                    <h2 className="text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-2">End of Chapter</h2>
+                    <p className="text-zinc-500 font-bold tracking-widest uppercase text-[10px] mb-8">What would you like to do next?</p>
+                    <div className="flex flex-col gap-4 w-full px-6">
+                      {hasNext && (
+                        <button onClick={onNext} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.4)] flex items-center justify-center gap-2">
+                          Read Next <SkipForward className="w-5 h-5" />
+                        </button>
+                      )}
+                      <button onClick={onClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
+                        <ArrowLeft className="w-5 h-5" /> Back to {subtitle ? subtitle : 'Series'}
+                      </button>
+                    </div>
+                  </div>
+                )
+              }}
+            />
           </div>
         )}
 

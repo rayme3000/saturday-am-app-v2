@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense, lazy, memo } from 'react';
 import Cropper from 'react-easy-crop';
 import { Upload, Check, Image as ImageIcon, Trash2, Star, Calendar, Menu, Home, Heart, Plus, Search, ShoppingBag, User, BookOpen, Play, ArrowLeft, Bookmark, X, MoveHorizontal, MoveVertical, RotateCcw, MessageCircle, MessageCircleOff, ChevronLeft, ChevronRight, Award, Crop, Flame, ArrowUp, SkipBack, SkipForward, Settings, Shield, CreditCard, Maximize2, Save, Scissors, RefreshCw } from 'lucide-react';
 import { supabase } from './supabase';
@@ -24,60 +24,25 @@ const Browse = lazy(() => import('./MainViews/Browse.tsx'));
 // --- Cloudflare Base URL ---
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
-const FooterNav = ({ onNavigate }: any) => {
+const FooterNav = memo(({ onNavigate }: any) => {
   const navItems = [
-    { name: 'Home', icon: Home, action: () => onNavigate({ action: 'home' }) },
-    { name: 'My Faves', icon: Heart, action: () => onNavigate({ action: 'faves' }) },
-    { name: 'Browse', icon: Search, action: () => onNavigate({ action: 'browse' }) },
-    { name: 'AM Shop', icon: ShoppingBag, action: null },
-    { name: 'Profile', icon: User, action: () => onNavigate({ action: 'profile' }) },
+    { name: 'Home', icon: Home, action: () => onNavigate({ action: 'home' }), prefetch: () => import('./MainViews/HomePage').then(mod => mod.HomePage) },
+    { name: 'My Faves', icon: Heart, action: () => onNavigate({ action: 'faves' }), prefetch: () => import('./MainViews/MyFaves.tsx') },
+    { name: 'Browse', icon: Search, action: () => onNavigate({ action: 'browse' }), prefetch: () => import('./MainViews/Browse.tsx') },
+    { name: 'AM Shop', icon: ShoppingBag, action: null, prefetch: null },
+    { name: 'Profile', icon: User, action: () => onNavigate({ action: 'profile' }), prefetch: () => import('./VirtualProfile/UserProfile').then(mod => mod.UserProfile) },
   ];
-const HamburgerMenu = ({ isOpen, onClose, onNavigate, onOpenFlexCard }: any) => {
-  if (!isOpen) return null;
-
-  const menuItems = [
-    { name: 'Browse Library', action: 'browse' },
-    { name: 'Edit Profile', action: 'profile' },
-    { name: 'My Favorites', action: 'faves' },
-    { name: 'Bingo Book', action: 'bingobook' },
-    { name: 'Subscription', action: 'sub' },
-    { name: 'Settings', action: 'settings' }
-  ];
-
-  return (
-    <div className="fixed inset-0 z-[100] bg-black animate-fade-in flex flex-col">
-      <div className="p-6 flex justify-between items-center border-b border-zinc-900">
-        <span className="text-[#fe9a00] font-black uppercase tracking-widest text-xs">Menu</span>
-        <button onClick={onClose} className="p-2 text-white hover:text-[#fe9a00]"><X className="w-8 h-8" /></button>
-      </div>
-      <div className="flex-1 flex flex-col justify-center px-12 gap-6">
-        
-        {/* NEW: Dedicated Card Flex Button inside the menu */}
-        <button 
-          onClick={() => { onClose(); onOpenFlexCard(); }}
-          className="flex items-center gap-4 bg-[#fe9a00] text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all mb-8 shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
-        >
-          <CreditCard className="w-6 h-6" /> Flex AM Crew Card
-        </button>
-
-        {menuItems.map((item) => (
-          <button 
-            key={item.action} 
-            onClick={() => { onNavigate({ action: item.action }); onClose(); }}
-            className="text-4xl font-black uppercase italic tracking-tighter text-white hover:text-[#fe9a00] text-left transition-colors"
-          >
-            {item.name}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-};
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-[#323232] border-t border-zinc-700 p-2 flex justify-around items-center z-40">
       {navItems.map((item) => (
-        <button key={item.name} onClick={item.action} className="flex flex-col items-center gap-0.5 group">
+        <button 
+          key={item.name} 
+          onClick={item.action} 
+          onMouseEnter={item.prefetch ? () => item.prefetch!() : undefined}
+          onTouchStart={item.prefetch ? () => item.prefetch!() : undefined}
+          className="flex flex-col items-center gap-0.5 group"
+        >
           <item.icon className="w-5 h-5 text-[#fe9a00] group-hover:text-white transition-colors" />
           <span className="text-[9px] font-black text-[#fe9a00] tracking-tight group-hover:text-white transition-colors">
             {item.name}
@@ -86,13 +51,19 @@ const HamburgerMenu = ({ isOpen, onClose, onNavigate, onOpenFlexCard }: any) => 
       ))}
     </nav>
   );
-};
+});
 
 const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) => {
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Pagination State
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const COMMENTS_PER_PAGE = 10;
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -101,22 +72,57 @@ const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) => {
         setCurrentUser({ id: user.id, name: profile?.username || 'Reader', avatar: profile?.avatar_url || '' });
       }
     });
+  }, []);
 
+  // Fetch comments with range limits
+  const fetchComments = async (pageIndex: number, isInitialLoad = false) => {
+    if (!seriesSlug) return;
+    if (!isInitialLoad) setIsLoadingMore(true);
+
+    const from = pageIndex * COMMENTS_PER_PAGE;
+    const to = from + COMMENTS_PER_PAGE - 1;
+
+    const { data } = await supabase.from('series_comments')
+      .select('*')
+      .eq('series_slug', seriesSlug)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+
+    if (data) {
+      if (isInitialLoad) {
+        setComments(data);
+      } else {
+        setComments(prev => [...prev, ...data]);
+      }
+      // If we got fewer comments than the limit, there are no more left in the database
+      setHasMore(data.length === COMMENTS_PER_PAGE);
+    }
+    setIsLoadingMore(false);
+  };
+
+  useEffect(() => {
     if (seriesSlug) {
-      supabase.from('series_comments')
-        .select('*')
-        .eq('series_slug', seriesSlug)
-        .order('created_at', { ascending: false }) 
-        .then(({ data }) => { if (data) setComments(data); });
+      setPage(0);
+      setHasMore(true);
+      fetchComments(0, true);
     }
   }, [seriesSlug]);
+
+  const handleLoadMore = () => {
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchComments(nextPage);
+  };
 
   const handleCommentSubmit = async () => {
     if (!commentText.trim() || !currentUser || !seriesSlug) return;
     setIsSubmitting(true);
     const newComment = { series_slug: seriesSlug, user_id: currentUser.id, user_name: currentUser.name, avatar_url: currentUser.avatar, text: commentText.trim() };
     const { data, error } = await supabase.from('series_comments').insert([newComment]).select().single();
-    if (!error && data) { setComments([data, ...comments]); setCommentText(''); }
+    if (!error && data) { 
+      setComments([data, ...comments]); 
+      setCommentText(''); 
+    }
     setIsSubmitting(false);
   };
 
@@ -124,7 +130,6 @@ const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) => {
     <div className="w-full max-w-4xl mx-auto px-6 py-12 border-t border-zinc-900 mt-12">
       <div className="flex items-center justify-between mb-8">
         <h3 className="text-2xl font-black italic uppercase tracking-tighter text-white">Community <span className="text-[#fe9a00]">Discussion</span></h3>
-        <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{comments.length} Comments</span>
       </div>
       <div className="flex gap-4 mb-10">
         {currentUser?.avatar ? (
@@ -145,7 +150,8 @@ const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) => {
           </button>
         </div>
       </div>
-      <div className="flex flex-col gap-6">
+      
+      <div className="flex flex-col gap-6 mb-8">
         {comments.map((comment) => (
           <div key={comment.id} className="flex gap-4 group animate-fade-in">
             {comment.avatar_url && !comment.avatar_url.includes('pravatar') ? (
@@ -164,12 +170,29 @@ const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) => {
             </div>
           </div>
         ))}
+        
         {comments.length === 0 && (
           <div className="text-center py-12 border-2 border-dashed border-zinc-800 rounded-xl">
              <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs">No comments yet. Be the first!</p>
           </div>
         )}
       </div>
+
+      {hasMore && comments.length > 0 && (
+        <div className="flex justify-center mt-4">
+          <button 
+            onClick={handleLoadMore} 
+            disabled={isLoadingMore}
+            className="border border-zinc-700 text-zinc-400 px-8 py-3 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-zinc-800 hover:text-white transition-all disabled:opacity-50 flex items-center gap-2"
+          >
+            {isLoadingMore ? (
+               <><div className="w-3 h-3 border-2 border-zinc-500 border-t-white rounded-full animate-spin" /> Loading...</>
+            ) : (
+               'Load More Comments'
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -440,16 +463,16 @@ const AccountSettings = ({ onBack }: any) => {
 };
 
 // --- NEW: HAMBURGER MENU WITH FLEX BUTTON ---
-const HamburgerMenu = ({ isOpen, onClose, onNavigate, onOpenFlexCard }: any) => {
+const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard }: any) => {
   if (!isOpen) return null;
 
   const menuItems = [
-    { name: 'Browse Library', action: 'browse' },
-    { name: 'Edit Profile', action: 'profile' },
-    { name: 'My Favorites', action: 'faves' },
-    { name: 'Bingo Book', action: 'bingobook' },
-    { name: 'Subscription', action: 'sub' },
-    { name: 'Settings', action: 'settings' }
+    { name: 'Browse Library', action: 'browse', prefetch: () => import('./MainViews/Browse.tsx') },
+    { name: 'Edit Profile', action: 'profile', prefetch: () => import('./VirtualProfile/UserProfile').then(mod => mod.UserProfile) },
+    { name: 'My Favorites', action: 'faves', prefetch: () => import('./MainViews/MyFaves.tsx') },
+    { name: 'Bingo Book', action: 'bingobook', prefetch: () => import('./VirtualProfile/BingoBook') },
+    { name: 'Subscription', action: 'sub', prefetch: null },
+    { name: 'Settings', action: 'settings', prefetch: () => import('./MainViews/Settings.tsx') }
   ];
 
   return (
@@ -472,6 +495,8 @@ const HamburgerMenu = ({ isOpen, onClose, onNavigate, onOpenFlexCard }: any) => 
           <button 
             key={item.action} 
             onClick={() => { onNavigate({ action: item.action }); onClose(); }}
+            onMouseEnter={item.prefetch ? () => item.prefetch!() : undefined}
+            onTouchStart={item.prefetch ? () => item.prefetch!() : undefined}
             className="text-4xl font-black uppercase italic tracking-tighter text-white hover:text-[#fe9a00] text-left transition-colors"
           >
             {item.name}
@@ -480,7 +505,7 @@ const HamburgerMenu = ({ isOpen, onClose, onNavigate, onOpenFlexCard }: any) => 
       </div>
     </div>
   );
-};
+});
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -498,22 +523,23 @@ export default function App() {
     const timer = setTimeout(() => setShowSplash(false), 3000); 
     return () => clearTimeout(timer); 
   }, []);
-  const handleNavigate = (data: any) => {
+  // Cached with useCallback so it doesn't break our memoized components
+  const handleNavigate = useCallback((data: any) => {
     if (data.action === 'home') { setCurrentView('home'); return; }
     if (data.action === 'faves') { setCurrentView('faves'); return; }
     if (data.action === 'browse') { setCurrentView('browse'); return; }
     if (data.action === 'profile') { setCurrentView('profile'); return; }
     if (data.action === 'account') { setCurrentView('account'); return; }
-if (data.action === 'settings') { setCurrentView('settings'); return; }
-if (data.action === 'bingobook') { setCurrentView('bingobook'); return; }    
-if (data.publish_date) {
+    if (data.action === 'settings') { setCurrentView('settings'); return; }
+    if (data.action === 'bingobook') { setCurrentView('bingobook'); return; }    
+    if (data.publish_date) {
       setSelectedMagazine(data);
       setCurrentView('magazine');
     } else {
       setSelectedSeries(data);
       setCurrentView('series');
     }
-  };
+  }, []); // The empty array tells React to cache this forever
 
   return (
     <>

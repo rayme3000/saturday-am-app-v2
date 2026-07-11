@@ -101,6 +101,14 @@ const Browse = ({ onNavigate }: any) => {
               key={item.id} 
               className="flex-shrink-0 cursor-pointer group/card"
               onClick={() => onNavigate(item)}
+              onMouseEnter={() => {
+                if (activeTab === 'series') import('./SeriesDetailPage').then(mod => mod.SeriesDetailPage);
+                else import('./MagazineDetailPage').then(mod => mod.MagazineDetailPage);
+              }}
+              onTouchStart={() => {
+                if (activeTab === 'series') import('./SeriesDetailPage').then(mod => mod.SeriesDetailPage);
+                else import('./MagazineDetailPage').then(mod => mod.MagazineDetailPage);
+              }}
             >
               {activeTab === 'series' ? (
                 // --- SERIES CARD LAYOUT ---

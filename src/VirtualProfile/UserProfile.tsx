@@ -312,10 +312,18 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     const series = displaySeriesList.find((s: any) => s.slug === seriesSlug);
     if (!series) return null;
 
+    // The Magic Prefetch Function
+    const prefetchSeriesPage = () => {
+      // This silently downloads the code chunk in the background!
+      import('../MainViews/SeriesDetailPage'); 
+    };
+
     return (
       <div 
         key={seriesSlug} 
         onClick={onClick} 
+        onMouseEnter={prefetchSeriesPage} // Triggers when a mouse hovers (Desktop)
+        onTouchStart={prefetchSeriesPage} // Triggers the millisecond a finger touches the screen (Mobile)
         className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all ${
           isEditingMode ? 'border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.4)]' : 'border border-zinc-800 shadow-lg hover:border-[#fe9a00]/50'
         }`}
