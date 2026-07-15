@@ -1,97 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, User, MessageCircle, Heart } from 'lucide-react';
+import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, User, MessageCircle, Heart, Lock, X } from 'lucide-react';
 import { supabase } from '../supabase';
 import { MangaReader } from './MangaReader';
+import { SuperHypeButton } from '../Components/SuperHypeButton';
+import { HypeButton } from '../Components/HypeButton';
+import { SeriesCommentsSection } from '../Components/SeriesCommentsSection';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
-const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) => {
-  const [commentText, setCommentText] = useState('');
-  const [comments, setComments] = useState<any[]>([]);
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (user) {
-        const { data: profile } = await supabase.from('profiles').select('username, avatar_url').eq('id', user.id).single();
-        setCurrentUser({ id: user.id, name: profile?.username || 'Reader', avatar: profile?.avatar_url || '' });
-      }
-    });
-
-    if (seriesSlug) {
-      supabase.from('series_comments')
-        .select('*')
-        .eq('series_slug', seriesSlug)
-        .order('created_at', { ascending: false }) 
-        .then(({ data }) => { if (data) setComments(data); });
-    }
-  }, [seriesSlug]);
-
-  const handleCommentSubmit = async () => {
-    if (!commentText.trim() || !currentUser || !seriesSlug) return;
-    setIsSubmitting(true);
-    const newComment = { series_slug: seriesSlug, user_id: currentUser.id, user_name: currentUser.name, avatar_url: currentUser.avatar, text: commentText.trim() };
-    const { data, error } = await supabase.from('series_comments').insert([newComment]).select().single();
-    if (!error && data) { setComments([data, ...comments]); setCommentText(''); }
-    setIsSubmitting(false);
-  };
-
-  return (
-    <div className="w-full max-w-4xl mx-auto px-6 py-12 border-t border-zinc-900 mt-12">
-      <div className="flex items-center justify-between mb-8">
-        <h3 className="text-2xl font-black italic uppercase tracking-tighter text-white">Community <span className="text-[#fe9a00]">Discussion</span></h3>
-        <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{comments.length} Comments</span>
-      </div>
-      <div className="flex gap-4 mb-10">
-        {currentUser?.avatar ? (
-       <img src={currentUser.avatar} className="w-10 h-10 rounded-full border border-zinc-700 object-cover bg-zinc-900 flex-shrink-0" alt="Avatar" />
-     ) : (
-       <div className="w-10 h-10 rounded-full border border-zinc-700 bg-zinc-900 flex items-center justify-center flex-shrink-0">
-         <User className="w-5 h-5 text-zinc-500" />
-       </div>
-     )}
-        <div className="flex-1 flex flex-col items-end gap-2">
-          <textarea
-            value={commentText} onChange={(e) => setCommentText(e.target.value)} disabled={!currentUser}
-            placeholder={currentUser ? "What do you think of this series?" : "Please log in to join the discussion."}
-            className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm px-4 py-3 rounded-lg focus:outline-none focus:border-[#fe9a00] transition-colors resize-none h-20 disabled:opacity-50"
-          />
-          <button onClick={handleCommentSubmit} disabled={!commentText.trim() || !currentUser || isSubmitting} className="bg-zinc-800 text-white border border-zinc-700 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black hover:border-white disabled:opacity-50 disabled:cursor-not-allowed transition-all">
-            {isSubmitting ? 'Posting...' : 'Post Comment'}
-          </button>
-        </div>
-      </div>
-      <div className="flex flex-col gap-6">
-        {comments.map((comment) => (
-          <div key={comment.id} className="flex gap-4 group animate-fade-in">
-            {comment.avatar_url && !comment.avatar_url.includes('pravatar') ? (
-           <img src={comment.avatar_url} className="w-10 h-10 rounded-full border border-zinc-800 object-cover bg-zinc-900 flex-shrink-0" alt={comment.user_name} />
-         ) : (
-           <div className="w-10 h-10 rounded-full border border-zinc-800 bg-zinc-900 flex items-center justify-center flex-shrink-0">
-             <User className="w-5 h-5 text-zinc-500" />
-           </div>
-         )}
-            <div className="flex-1 flex flex-col">
-              <div className="flex items-baseline gap-2 mb-1">
-                <span className="text-[#fe9a00] font-black tracking-widest uppercase text-[10px]">{comment.user_name}</span>
-                <span className="text-zinc-600 text-[8px] font-bold tracking-widest uppercase">{new Date(comment.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-              </div>
-              <p className="text-zinc-300 text-xs leading-relaxed whitespace-pre-wrap">{comment.text}</p>
-            </div>
-          </div>
-        ))}
-        {comments.length === 0 && (
-          <div className="text-center py-12 border-2 border-dashed border-zinc-800 rounded-xl">
-             <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs">No comments yet. Be the first!</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-export const SeriesDetailPage = ({ series, onBack }: any) => {
+export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLoginClick }: any) => {
   const [localSeries, setLocalSeries] = useState(series);
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('chapters');
@@ -102,6 +19,10 @@ export const SeriesDetailPage = ({ series, onBack }: any) => {
   const [creators, setCreators] = useState([]);
   const [showAwards, setShowAwards] = useState(false);
   const awardTimeoutRef = useRef<any>(null);
+  const [isPremiumUser, setIsPremiumUser] = useState(false);
+
+  // --- UPSELL MODAL CONFIG ---
+  const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
 
   // FAVES STATE & FETCH LOGIC
   const [isFavorited, setIsFavorited] = useState(false);
@@ -112,10 +33,13 @@ export const SeriesDetailPage = ({ series, onBack }: any) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user && localSeries) {
         setCurrentUserId(user.id);
-        const { data } = await supabase.from('profiles').select('favorites').eq('id', user.id).single();
+        const { data } = await supabase.from('profiles').select('favorites, is_premium').eq('id', user.id).single();
         
         if (data?.favorites && data.favorites.includes(localSeries.slug)) {
           setIsFavorited(true);
+        }
+        if (data?.is_premium) {
+          setIsPremiumUser(true);
         }
       }
     };
@@ -145,12 +69,42 @@ export const SeriesDetailPage = ({ series, onBack }: any) => {
   }, [series]);
 
   const totalHype = chapters.reduce((sum: number, ch: any) => sum + (ch.hype_count || 0), 0) + (localSeries?.hype_count || 0);
-  const formattedHype = totalHype >= 1000 ? (totalHype / 1000).toFixed(1) + 'K' : totalHype.toString();
+  
+  // --- ACCESS TIER LOGIC ---
+  const checkIsLocked = (index: number) => {
+    if (userTier === 'premium') return false; 
+    if (userTier === 'free') {
+      return !(index < 3 || index === chapters.length - 1);
+    }
+    return index !== 0; 
+  };
 
-  const handleReadChapter = async (chapter: any) => {
-    const { data } = await supabase.from('pages').select('image_url').eq('chapter_id', chapter.id).order('page_order', { ascending: true });
-    if (data && data.length > 0) { setActivePages(data.map(p => p.image_url) as any); setActiveChapterId(chapter.id); setIsReaderOpen(true); } 
-    else { alert("No pages found for this chapter yet!"); }
+  const handleReadChapter = async (chapter: any, index: number) => {
+    // TRIGGER UPSELL IF LOCKED
+    if (checkIsLocked(index)) {
+      setUpsellConfig({
+        type: userTier === 'visitor' ? 'visitor' : 'premium',
+        message: userTier === 'visitor' 
+          ? "Create a Free Account to unlock Chapters 1-3 and read the newest release." 
+          : "This chapter is locked in the vault! Upgrade to a Premium Subscription for just $3.99/mo to get full access."
+      });
+      return;
+    }
+
+    const { data } = await supabase
+      .from('pages')
+      .select('id, image_url')
+      .eq('chapter_id', chapter.id)
+      .order('page_order', { ascending: true });
+      
+    if (data && data.length > 0) { 
+      setActivePages(data as any); 
+      setActiveChapterId(chapter.id); 
+      setIsReaderOpen(true); 
+    } 
+    else { 
+      alert("No pages found for this chapter yet!"); 
+    }
   };
 
   const triggerAwards = () => {
@@ -159,10 +113,13 @@ export const SeriesDetailPage = ({ series, onBack }: any) => {
     awardTimeoutRef.current = setTimeout(() => { setShowAwards(false); }, 3000);
   };
 
-  // TOGGLE FAVORITE FUNCTION
   const handleToggleFavorite = async () => {
-    if (!currentUserId) {
-      alert("Please log in to add series to your faves!");
+    // TRIGGER UPSELL IF NOT LOGGED IN
+    if (!currentUserId || userTier === 'visitor') {
+      setUpsellConfig({
+        type: 'visitor',
+        message: "Create a Free Account to save series to your favorites and get notified of new chapters!"
+      });
       return;
     }
 
@@ -195,6 +152,44 @@ export const SeriesDetailPage = ({ series, onBack }: any) => {
   return (
     <div className="relative min-h-screen bg-black text-white">
       
+      {/* --- UPSELL MODAL OVERLAY --- */}
+      {upsellConfig && (
+        <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
+            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <Lock className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+              {upsellConfig.type === 'visitor' ? 'Account Required' : 'Premium Feature'}
+            </h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
+              {upsellConfig.message}
+            </p>
+            {upsellConfig.type === 'visitor' ? (
+              <button 
+                onClick={() => { 
+                  setUpsellConfig(null); 
+                  if(onLoginClick) onLoginClick(); // This will open the Auth modal!
+                }} 
+                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors"
+              >
+                Log In / Sign Up
+              </button>
+            ) : (
+              <button 
+                onClick={() => setUpsellConfig(null)} 
+                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors"
+              >
+                Explore Premium
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {isReaderOpen && (() => {
         const activeChapterData = chapters.find(c => c.id === activeChapterId);
         const currentIndex = chapters.findIndex(c => c.id === activeChapterId);
@@ -205,12 +200,14 @@ export const SeriesDetailPage = ({ series, onBack }: any) => {
           <MangaReader 
             pages={activePages} 
             chapterId={activeChapterId}
+            userId={currentUserId}
+            isPremium={isPremiumUser}
             title={activeChapterData ? `Chapter ${activeChapterData.chapter_number} - ${activeChapterData.title || ''}` : ''}
             subtitle={localSeries.title}
             onClose={() => { setIsReaderOpen(false); setActiveChapterId(null); }} 
             onHome={() => { setIsReaderOpen(false); setActiveChapterId(null); onBack(); }}
-            onNext={() => { if (hasNext) handleReadChapter(chapters[currentIndex + 1]); }}
-            onPrev={() => { if (hasPrev) handleReadChapter(chapters[currentIndex - 1]); }}
+            onNext={() => { if (hasNext) handleReadChapter(chapters[currentIndex + 1], currentIndex + 1); }}
+            onPrev={() => { if (hasPrev) handleReadChapter(chapters[currentIndex - 1], currentIndex - 1); }}
             hasNext={hasNext}
             hasPrev={hasPrev}
             onHypeUpdate={(chId: any, newTotal: any) => { setChapters(chapters.map(ch => ch.id === chId ? { ...ch, hype_count: newTotal } : ch)); }}
@@ -253,17 +250,21 @@ export const SeriesDetailPage = ({ series, onBack }: any) => {
           </div>
 
           <div className="flex flex-wrap justify-center gap-4 mt-8 w-full">
-            <button className="flex items-center gap-2 border border-zinc-800 bg-zinc-900/80 px-6 py-3 rounded-full text-[#fe9a00] font-black uppercase tracking-widest hover:bg-zinc-800 hover:border-[#fe9a00] transition-all group">
-              <Flame className="w-5 h-5 group-hover:fill-[#fe9a00] transition-colors" /><span>{formattedHype} HYPE</span> 
-            </button>
-            <button 
-              onClick={handleToggleFavorite}
-              className={`flex items-center gap-2 px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all ${
-                isFavorited 
-                  ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00] hover:bg-zinc-900' 
-                  : 'bg-[#fe9a00] text-black hover:bg-white hover:shadow-[0_0_20px_rgba(254,154,0,0.4)]'
-              }`}
-            >
+            <HypeButton 
+              targetType="series" 
+              targetId={localSeries.slug} 
+              userId={currentUserId} 
+              initialCount={totalHype} 
+              onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to drop Hypes and support the creators!" })}
+            />
+            <SuperHypeButton 
+              seriesSlug={localSeries.slug} 
+              userId={currentUserId} 
+              isPremium={isPremiumUser} 
+              onRequirePremium={() => setUpsellConfig({ type: 'premium', message: "Super Hypes are a Premium feature! Upgrade to support creators with ultra-visible hype." })}
+              onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create an account and upgrade to Premium to drop Super Hypes!" })}
+            />
+            <button onClick={handleToggleFavorite} className={`flex items-center gap-2 px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all ${isFavorited ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00] hover:bg-zinc-900' : 'bg-[#fe9a00] text-black hover:bg-white hover:shadow-[0_0_20px_rgba(254,154,0,0.4)]'}`}>
               <Bookmark className={`w-5 h-5 ${isFavorited ? 'fill-[#fe9a00]' : ''}`} />
               <span>{isFavorited ? 'FAVORITED' : 'ADD TO FAVES'}</span>
             </button>
@@ -280,16 +281,22 @@ export const SeriesDetailPage = ({ series, onBack }: any) => {
           {chapters.map((ch: any, index: number) => {
             const mockProgress = ch.progress || (index === 0 ? 100 : index === 1 ? 50 : 0);
             const realReacts = ch.react_count || 0;
+            const isLocked = checkIsLocked(index);
 
             return (
-            <div key={ch.id} onClick={() => handleReadChapter(ch)} className="flex items-center gap-4 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
+            <div key={ch.id} onClick={() => handleReadChapter(ch, index)} className="flex items-center gap-4 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
               <div className="relative overflow-hidden rounded-lg min-w-[96px] sm:min-w-[128px]">
-                <img src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className="w-24 h-24 sm:w-32 sm:h-32 object-cover bg-zinc-800 transition-transform duration-500 group-hover:scale-110" alt="Thumbnail" />
+                <img src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className={`w-24 h-24 sm:w-32 sm:h-32 object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`} alt="Thumbnail" />
                 <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
+                {isLocked && (
+                  <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-md border border-zinc-700 p-1.5 rounded-md">
+                    <Lock className="w-3 h-3 text-zinc-400" />
+                  </div>
+                )}
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-1">
-                  <p className="text-[10px] text-[#fe9a00] font-black tracking-widest uppercase">CHAPTER {ch.chapter_number}</p>
+                  <p className={`text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
                   
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1 bg-zinc-900/80 border border-zinc-800 px-2 py-0.5 rounded-full">
@@ -303,32 +310,42 @@ export const SeriesDetailPage = ({ series, onBack }: any) => {
                   </div>
                 </div>
                 
-                <h3 className="font-bold text-base sm:text-lg text-white line-clamp-2 mb-2">{ch.title || `Chapter ${ch.chapter_number}`}</h3>
+                <h3 className={`font-bold text-base sm:text-lg line-clamp-2 mb-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
                 
                 <div className="flex flex-col gap-1 w-full max-w-[200px]">
                    <div className="flex items-center gap-2">
                      <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                        <div 
                          className="h-full bg-[#fe9a00] rounded-full transition-all duration-500" 
-                         style={{ width: `${mockProgress}%` }} 
+                         style={{ width: `${isLocked ? 0 : mockProgress}%` }} 
                        />
                      </div>
-                     <span className="text-[10px] font-black text-zinc-500">{mockProgress}%</span>
+                     <span className="text-[10px] font-black text-zinc-500">{isLocked ? 0 : mockProgress}%</span>
                    </div>
-                   {mockProgress === 100 && (
+                   {mockProgress === 100 && !isLocked && (
                      <span className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
                    )}
                 </div>
 
               </div>
-              <div className="hidden sm:flex items-center justify-center w-10 h-10 rounded-full bg-zinc-800 group-hover:bg-[#fe9a00] transition-colors ml-auto flex-shrink-0"><Play className="w-4 h-4 text-white group-hover:text-black transition-colors ml-1" /></div>
+              <div className={`hidden sm:flex items-center justify-center w-10 h-10 rounded-full transition-colors ml-auto flex-shrink-0 ${isLocked ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-800 group-hover:bg-[#fe9a00]'}`}>
+                {isLocked ? (
+                   <Lock className="w-4 h-4 text-zinc-600" />
+                ) : (
+                   <Play className="w-4 h-4 text-white group-hover:text-black transition-colors ml-1" />
+                )}
+              </div>
             </div>
           )})}
           {chapters.length === 0 && <div className="text-center py-16 text-zinc-500 font-bold tracking-widest text-xs uppercase">No chapters uploaded yet.</div>}
         </div>
-
-        <SeriesCommentsSection seriesSlug={localSeries?.slug} />
-        
+        <SeriesCommentsSection 
+  seriesSlug={localSeries?.slug} 
+  onRequireAuth={() => setUpsellConfig({ 
+    type: 'visitor', 
+    message: "Create a Free Account to join the community discussion and share your thoughts!" 
+  })} 
+/>        
         <div className="pb-24 px-6 w-full max-w-3xl mx-auto">
           <div className="border-t border-zinc-800 pt-12 flex flex-col items-center gap-16">
             {creators.map((c: any, index) => {

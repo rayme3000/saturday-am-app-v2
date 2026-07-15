@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { User } from 'lucide-react';
+import { User, Lock } from 'lucide-react';
 import { supabase } from '../supabase';
 
-export const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) => {
+export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlug: string, onRequireAuth: () => void }) => {
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -43,7 +43,6 @@ export const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) =>
       } else {
         setComments(prev => [...prev, ...data]);
       }
-      // If we got fewer comments than the limit, there are no more left in the database
       setHasMore(data.length === COMMENTS_PER_PAGE);
     }
     setIsLoadingMore(false);
@@ -64,9 +63,23 @@ export const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) =>
   };
 
   const handleCommentSubmit = async () => {
-    if (!commentText.trim() || !currentUser || !seriesSlug) return;
+    // If not logged in, trigger the upsell modal instead of posting!
+    if (!currentUser) {
+      onRequireAuth();
+      return;
+    }
+    
+    if (!commentText.trim()) return;
+    
     setIsSubmitting(true);
-    const newComment = { series_slug: seriesSlug, user_id: currentUser.id, user_name: currentUser.name, avatar_url: currentUser.avatar, text: commentText.trim() };
+    const newComment = { 
+      series_slug: seriesSlug, 
+      user_id: currentUser.id, 
+      user_name: currentUser.name, 
+      avatar_url: currentUser.avatar, 
+      text: commentText.trim() 
+    };
+    
     const { data, error } = await supabase.from('series_comments').insert([newComment]).select().single();
     if (!error && data) { 
       setComments([data, ...comments]); 
@@ -80,22 +93,31 @@ export const SeriesCommentsSection = ({ seriesSlug }: { seriesSlug: string }) =>
       <div className="flex items-center justify-between mb-8">
         <h3 className="text-2xl font-black italic uppercase tracking-tighter text-white">Community <span className="text-[#fe9a00]">Discussion</span></h3>
       </div>
+      
       <div className="flex gap-4 mb-10">
-        {currentUser?.avatar ? (
-       <img src={currentUser.avatar} loading="lazy" className="w-10 h-10 rounded-full border border-zinc-700 object-cover bg-zinc-900 flex-shrink-0" alt="Avatar" />
-     ) : (
-       <div className="w-10 h-10 rounded-full border border-zinc-700 bg-zinc-900 flex items-center justify-center flex-shrink-0">
-         <User className="w-5 h-5 text-zinc-500" />
-       </div>
-     )}
+        <div className="w-10 h-10 rounded-full border border-zinc-700 bg-zinc-900 flex items-center justify-center flex-shrink-0">
+          {currentUser?.avatar ? (
+            <img src={currentUser.avatar} loading="lazy" className="w-full h-full rounded-full object-cover" alt="Avatar" />
+          ) : (
+            <User className="w-5 h-5 text-zinc-500" />
+          )}
+        </div>
+        
         <div className="flex-1 flex flex-col items-end gap-2">
           <textarea
-            value={commentText} onChange={(e) => setCommentText(e.target.value)} disabled={!currentUser}
-            placeholder={currentUser ? "What do you think of this series?" : "Please log in to join the discussion."}
-            className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm px-4 py-3 rounded-lg focus:outline-none focus:border-[#fe9a00] transition-colors resize-none h-20 disabled:opacity-50"
+            value={commentText} 
+            onChange={(e) => setCommentText(e.target.value)} 
+            placeholder="What do you think of this series?"
+            className="w-full bg-zinc-900 border border-zinc-800 text-white text-sm px-4 py-3 rounded-lg focus:outline-none focus:border-[#fe9a00] transition-colors resize-none h-20"
           />
-          <button onClick={handleCommentSubmit} disabled={!commentText.trim() || !currentUser || isSubmitting} className="bg-zinc-800 text-white border border-zinc-700 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black hover:border-white disabled:opacity-50 disabled:cursor-not-allowed transition-all">
-            {isSubmitting ? 'Posting...' : 'Post Comment'}
+          
+          <button 
+            onClick={handleCommentSubmit} 
+            disabled={isSubmitting}
+            className="bg-zinc-800 text-white border border-zinc-700 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-white hover:text-black hover:border-white transition-all flex items-center gap-2"
+          >
+            {!currentUser && <Lock className="w-3 h-3" />}
+            {isSubmitting ? 'Posting...' : (currentUser ? 'Post Comment' : 'Log In to Post')}
           </button>
         </div>
       </div>

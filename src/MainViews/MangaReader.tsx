@@ -3,12 +3,13 @@ import {
   ChevronLeft, ChevronRight, ArrowLeft, ArrowRight, SkipForward,
   MessageCircle, MessageCircleOff, X, User, Shield, 
   RotateCcw, Home, Maximize2, MoveHorizontal, MoveVertical, 
-  BookOpen, Flame
+  BookOpen, Flame, Eye, EyeOff
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
+import { HypeButton } from '../Components/HypeButton';
 
-export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, onPrev, hasNext, hasPrev, title, subtitle, readingDirection = 'ltr' }: any) => {
+export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, onPrev, hasNext, hasPrev, title, subtitle, readingDirection = 'ltr', userId, isPremium }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [mode, setMode] = useState('horizontal'); 
   
@@ -158,14 +159,18 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     } catch (err) { console.error("Failed to save react:", err); }
   };
 
-  const handleImageLoad = (url: string, e: any) => {
+  const getUrl = (p: any) => p?.image_url || p;
+  const getId = (p: any) => p?.id || p;
+
+  const handleImageLoad = (pageData: any, e: any) => {
+    const url = getUrl(pageData);
     const { naturalWidth, naturalHeight } = e.target;
     setAspectRatios(prev => ({ ...prev, [url]: naturalWidth / naturalHeight }));
   };
 
   const isSpread = (pageIndex: number) => {
     if (pageIndex >= pages.length) return false;
-    const ratio = aspectRatios[pages[pageIndex]];
+    const ratio = aspectRatios[getUrl(pages[pageIndex])];
     return ratio ? ratio > 1.2 : false; 
   };
 
@@ -221,6 +226,28 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     return c.pageIndex === currentPage; 
   });
 
+  const touchStartX = useRef(0);
+
+  const handleTouchStart = (e: any) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: any) => {
+    const touchEndX = e.changedTouches[0].clientX;
+    const diff = touchStartX.current - touchEndX;
+    if (Math.abs(diff) > 50) {
+      if (diff > 0) goNext(); 
+      else goPrev();         
+    }
+  };
+
+  const handleTap = (e: any) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    if (x < rect.width / 2) goPrev();
+    else goNext();
+  };
+
   useEffect(() => {
     if (!isTickerEnabled || visibleComments.length <= 1) return;
     const interval = setInterval(() => { setActiveCommentIndex((prev) => (prev + 1) % visibleComments.length); }, 4000);
@@ -239,22 +266,34 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         @keyframes fade-in { 0% { opacity: 0; } 100% { opacity: 1; } }
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
       `}</style>
-
+{/* Persistent UI Toggle */}
+      <button 
+        onClick={() => setIsUIVisible(!isUIVisible)}
+        className="absolute top-4 right-4 z-[500] p-2 bg-black/50 backdrop-blur-sm border border-zinc-800 rounded-full text-[#fe9a00] hover:bg-zinc-800 transition-all shadow-xl"
+        title={isUIVisible ? "Hide UI" : "Show UI"}
+      >
+        {isUIVisible ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+      </button> 
       <div className="absolute inset-0 z-0 bg-[#0a0a0a]">
         
        {mode === 'horizontal' && (
           <div className="h-full w-full flex items-center justify-center relative select-none overflow-hidden">
             
-            <div className="relative max-w-full max-h-[85vh] w-full h-full flex items-center justify-center pointer-events-none z-0">
+            <div 
+              className="relative max-w-full max-h-[85vh] w-full h-full flex items-center justify-center pointer-events-auto z-0 cursor-pointer"
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+              onClick={handleTap}
+            >
               {pages[currentPage] ? (
                 <img 
-                  src={pages[currentPage]} 
-                  onLoad={(e) => handleImageLoad(pages[currentPage], e)} 
-                  className="max-w-full max-h-full object-contain drop-shadow-2xl pointer-events-auto mx-auto" 
-                  alt={`Page ${currentPage + 1}`} 
-                  loading="lazy"
-                />
-              ) : (
+    src={getUrl(pages[currentPage])} // Fixed: used getUrl
+    onLoad={(e) => handleImageLoad(pages[currentPage], e)} 
+    className="max-w-full max-h-full object-contain drop-shadow-2xl pointer-events-auto mx-auto" 
+    alt={`Page ${currentPage + 1}`} 
+    loading="lazy"
+  />
+) : (
                 <div className="animate-pulse flex flex-col items-center gap-4">
                   <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
                   <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px]">Loading Page...</span>
@@ -263,7 +302,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             </div>
             
             <div className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer" onClick={goPrev} />
-            <div className="absolute inset-y-0 left-1/4 right-1/4 z-10 cursor-pointer" onClick={toggleUI} />
+            
             <div className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer" onClick={goNext} />
 
             <div className={`absolute inset-0 flex items-center justify-center pointer-events-none z-20 transition-opacity duration-300 ${isUIVisible ? 'opacity-100' : 'opacity-0'}`}>
@@ -285,22 +324,22 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
         {/* --- OPTIMIZED VIRTUAL VERTICAL READER --- */}
         {mode === 'vertical' && (
-          <div className="h-full w-full select-none" onClick={toggleUI}>
+          <div className="h-full w-full select-none">
             <Virtuoso
               style={{ height: '100%', width: '100%' }}
               data={pages}
               rangeChanged={(range) => setCurrentPage(Math.max(0, range.startIndex))}
-              itemContent={(index, pageUrl: string) => (
-                <div className="flex justify-center w-full">
-                  <img
-                    src={pageUrl}
-                    onLoad={(e) => handleImageLoad(pageUrl, e)}
-                    className="w-full max-w-3xl object-contain block"
-                    alt={`Page ${index + 1}`}
-                    loading="lazy"
-                  />
-                </div>
-              )}
+              itemContent={(index, pageData: any) => ( // Renamed pageUrl to pageData
+  <div className="flex justify-center w-full">
+    <img
+      src={getUrl(pageData)} // Fixed: used getUrl
+      onLoad={(e) => handleImageLoad(pageData, e)}
+      className="w-full max-w-3xl object-contain block"
+      alt={`Page ${index + 1}`}
+      loading="lazy"
+    />
+  </div>
+)}
               components={{
                 Footer: () => (
                   <div className="py-24 flex flex-col items-center text-center w-full max-w-sm mx-auto border-t border-zinc-900 mt-12 mb-12" onClick={(e) => e.stopPropagation()}>
@@ -325,12 +364,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
         {mode === 'book' && (
           <>
-            {!isLandscape && (
-              <div className="absolute top-1/4 left-1/2 -translate-x-1/2 z-40 text-white/30 uppercase tracking-widest text-sm pointer-events-none select-none">
-                Rotate device for spread
-              </div>
-            )}
-
+            {/* --- BOOK MODE: ALWAYS SIDE-BY-SIDE --- */}
             {currentPage > 0 && (
               <div 
                 onClick={(e) => { e.stopPropagation(); setCurrentPage(currentPage - 1); }} 
@@ -349,42 +383,53 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               </div>
             )}
 
-            {isLandscape ? (
-              <div className="h-[85vh] flex justify-center items-center w-full max-w-7xl mx-auto">
-                {(() => {
-                  const safePages = pages || [];
-                  const baseIndex = Math.floor(currentPage / 2) * 2;
-                  
-                  const leftPage = readingDirection === 'rtl' ? safePages[baseIndex + 1] : safePages[baseIndex];
-                  const rightPage = readingDirection === 'rtl' ? safePages[baseIndex] : safePages[baseIndex + 1];
+            {/* ALWAYS RENDER THE SIDE-BY-SIDE VIEW */}
+            <div 
+              className="h-[85vh] flex justify-center items-center w-full max-w-7xl mx-auto cursor-pointer"
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+              onClick={handleTap}
+            >
+              {(() => {
+                const safePages = pages || [];
+                const currentPg = safePages[currentPage];
+                const currentUrl = getUrl(currentPg);
+                const isCurrentSpread = aspectRatios[currentUrl] > 1.2;
 
+                // 1. If it's a single image spread, show it full screen
+                if (isCurrentSpread) {
                   return (
-                    <div className="flex h-full w-full max-w-5xl justify-center items-center">
-                      {leftPage ? (
-                        <img src={leftPage} className="h-full w-auto max-w-[50%] object-contain shadow-2xl" alt="Left Page" loading="lazy" />
-                      ) : (
-                        <div className="h-full w-[40vw] max-w-[50%] bg-black flex items-center justify-center">
-                          {readingDirection === 'rtl' && <span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">End</span>}
-                        </div>
-                      )}
-                      {rightPage ? (
-                        <img src={rightPage} className="h-full w-auto max-w-[50%] object-contain shadow-2xl" alt="Right Page" loading="lazy" />
-                      ) : (
-                        <div className="h-full w-[40vw] max-w-[50%] bg-black flex items-center justify-center">
-                          {readingDirection === 'ltr' && <span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">End</span>}
-                        </div>
-                      )}
+                    <div className="flex h-full w-full justify-center items-center">
+                      <img src={currentUrl} className="h-full w-auto max-w-full object-contain" alt="Spread Page" loading="lazy" />
                     </div>
                   );
-                })()}
-              </div>
-            ) : (
-              <div className="relative w-full h-[85vh] flex items-center justify-center bg-black">
-                {pages && pages.length > 0 && (
-                  <img src={pages[currentPage]} alt={`Page ${currentPage}`} className="w-full h-full object-contain mx-auto shadow-2xl" loading="lazy" />
-                )}
-              </div>
-            )}
+                }
+
+                // 2. Otherwise, calculate left/right and force them to 50%
+                const baseIndex = Math.floor(currentPage / 2) * 2;
+                const leftPage = readingDirection === 'rtl' ? safePages[baseIndex + 1] : safePages[baseIndex];
+                const rightPage = readingDirection === 'rtl' ? safePages[baseIndex] : safePages[baseIndex + 1];
+
+                return (
+                  <div className="flex h-full w-full max-w-5xl justify-center items-center">
+                    {leftPage ? (
+                      <img src={getUrl(leftPage)} className="h-full w-auto max-w-[50%] object-contain" alt="Left Page" loading="lazy" />
+                    ) : (
+                      <div className="h-full w-[40vw] max-w-[50%] bg-black flex items-center justify-center">
+                        {readingDirection === 'rtl' && <span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">End</span>}
+                      </div>
+                    )}
+                    {rightPage ? (
+                      <img src={getUrl(rightPage)} className="h-full w-auto max-w-[50%] object-contain" alt="Right Page" loading="lazy" />
+                    ) : (
+                      <div className="h-full w-[40vw] max-w-[50%] bg-black flex items-center justify-center">
+                        {readingDirection === 'ltr' && <span className="text-zinc-800 text-[10px] uppercase font-black tracking-widest">End</span>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
           </>
         )}
 
@@ -439,10 +484,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         </div>
 
         <div className="w-1/4 sm:w-1/3 flex justify-end items-center gap-2 sm:gap-4 pr-2">
-          <button onClick={toggleUI} className="p-1.5 sm:px-3 sm:py-2 bg-zinc-900/80 rounded-full flex items-center gap-2 text-[#fe9a00] hover:text-black hover:bg-[#fe9a00] transition-colors shadow-[0_0_15px_rgba(254,154,0,0.2)] border border-[#fe9a00]/30" title="Hide UI">
-             <Maximize2 className="w-4 h-4" />
-             <span className="hidden sm:block text-[9px] font-black uppercase tracking-widest">Hide UI</span>
-          </button>
+          
         </div>
       </div>
 
@@ -525,7 +567,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         {isReactInputOpen && isUIVisible && (
            <div className="animate-slide-up w-[90vw] bg-zinc-900 border border-zinc-700 p-2 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] pointer-events-auto">
               
-              {isSubscriber ? (
+              {isPremium ? (
                 <div className="flex items-center gap-2">
                   <input
                     autoFocus
@@ -589,10 +631,15 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
              
              <div className="w-px h-5 bg-zinc-700 mx-1"></div>
              
-             <button onClick={handleHypeClick} className="p-2 rounded-full transition-colors text-[#fe9a00] hover:bg-black relative flex items-center justify-center" title="Hype Panel">
-               <Flame className={`w-4 h-4 sm:w-5 sm:h-5 transition-transform ${pendingHypes > 0 ? 'scale-125 fill-[#fe9a00]' : ''}`} />
-               {pendingHypes > 0 && (<span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full animate-bounce">+{pendingHypes}</span>)}
-             </button>
+             {userId && pages[currentPage] && (
+               <HypeButton 
+                 targetType="page" 
+                 targetId={getId(pages[currentPage])} 
+                 userId={userId} 
+                 variant="icon" 
+               />
+             )}
+
              <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2 rounded-full transition-colors ${isReactInputOpen ? 'bg-zinc-800 text-white' : 'text-[#fe9a00] hover:bg-black'}`} title="Quick React">
                <MessageCircle className="w-4 h-4 sm:w-5 sm:h-5" />
              </button>

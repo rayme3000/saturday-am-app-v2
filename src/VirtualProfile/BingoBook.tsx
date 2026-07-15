@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { ArrowLeft, Target, Lock, Unlock, Eraser, CheckCircle } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
+import { supabase } from '../supabase';
 
 const BingoBook = ({ onBack }: any) => {
   const { seriesList = [] } = useSeriesData();
@@ -86,6 +87,7 @@ const BingoBook = ({ onBack }: any) => {
   const [selectedTarget, setSelectedTarget] = useState<any | null>(null);
   const [signatures, setSignatures] = useState<Record<number, string>>({});
   const [hasDrawn, setHasDrawn] = useState(false);
+  const [viewingAutograph, setViewingAutograph] = useState<string | null>(null);
   
   // Auth & Drawing States
   const [pinInput, setPinInput] = useState('');
@@ -140,28 +142,17 @@ const BingoBook = ({ onBack }: any) => {
   };
 
   const startDrawing = (e: any) => {
-    e.preventDefault();
-    const { x, y } = getCoordinates(e);
-    const ctx = canvasRef.current?.getContext('2d');
-    if (ctx) {
-        const startDrawing = (e: any) => {
-    e.preventDefault();
-    const { x, y } = getCoordinates(e);
-    const ctx = canvasRef.current?.getContext('2d');
-    if (ctx) {
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.strokeStyle = penColor;
-      setIsDrawing(true);
-      setHasDrawn(true); // Marks that the canvas is no longer empty
-    }
-  };
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.strokeStyle = penColor;
-      setIsDrawing(true);
-    }
-  };
+  e.preventDefault();
+  const { x, y } = getCoordinates(e);
+  const ctx = canvasRef.current?.getContext('2d');
+  if (ctx) {
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.strokeStyle = penColor;
+    setIsDrawing(true);
+    setHasDrawn(true); 
+  }
+};
 
   const draw = (e: any) => {
     e.preventDefault();
@@ -189,14 +180,40 @@ const BingoBook = ({ onBack }: any) => {
     }
   };
 
-  // --- MOCK AUTH LOGIC ---
-  const handlePinSubmit = (e: React.FormEvent) => {
+  // --- DATABASE AUTH LOGIC ---
+  const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pinInput === '1234') { // Mock PIN for testing
-      setIsUnlocked(true);
-    } else {
-      alert("Incorrect Creator PIN. Please try again.");
+    
+    try {
+      // 1. Ask Supabase for the live PIN and Expiration
+      const { data, error } = await supabase
+        .from('bingo_settings')
+        .select('*')
+        .eq('id', 1)
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        const now = new Date();
+        const expiresAt = new Date(data.expires_at);
+
+        // 2. Check if it matches and isn't expired
+        if (pinInput === data.current_pin) {
+          if (now < expiresAt) {
+            setIsUnlocked(true);
+          } else {
+            alert("This convention PIN has expired! Ask the AM team for the new one.");
+          }
+        } else {
+          alert("Incorrect Creator PIN. Please try again.");
+        }
+      }
+    } catch (err: any) {
+      console.error("Error verifying PIN:", err);
+      alert("Error connecting to database. Please check your connection.");
     }
+    
     setPinInput('');
   };
 
@@ -273,25 +290,51 @@ const BingoBook = ({ onBack }: any) => {
               <button 
                 key={target.id}
                 onClick={() => { setSelectedTarget(target); setIsUnlocked(isCaught); }}
-                className={`relative group aspect-[3/4] rounded-xl overflow-hidden border-2 transition-all duration-300 ${isCaught ? 'border-[#fe9a00]' : 'border-zinc-800 hover:border-zinc-600 grayscale hover:grayscale-0'}`}
+                className={`relative group aspect-[3/4] rounded-xl overflow-hidden border-2 transition-all duration-300 ${
+                  isCaught 
+                    ? 'border-zinc-700 grayscale opacity-90' 
+                    : 'border-zinc-800 hover:border-red-600 hover:shadow-[0_0_20px_rgba(220,38,38,0.3)]'
+                }`}
               >
-                <img src={target.avatar} alt={target.name} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
+                {/* 1. Image: Full color when uncaught, faded when caught */}
+                <img 
+                  src={target.avatar} 
+                  alt={target.name} 
+                  className={`w-full h-full object-cover transition-all duration-500 ${
+                    isCaught ? 'opacity-30' : 'opacity-100 group-hover:scale-105'
+                  }`} 
+                />
                 
-                {/* Overlay details */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent flex flex-col justify-end p-4 text-left">
-                  <p className="text-[9px] text-red-500 font-black uppercase tracking-widest mb-1">{isCaught ? 'Captured' : 'Wanted'}</p>
-                  <h3 className="text-sm font-black text-white uppercase italic tracking-wider leading-tight">{target.name}</h3>
+                {/* 2. Base Overlay details */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-4 text-left">
+                  
+                  {/* Bolder, larger WANTED text only shows when uncaught */}
+                  {!isCaught && (
+                    <p className="text-xs sm:text-sm text-red-500 font-black uppercase tracking-[0.3em] mb-1 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
+                      Wanted
+                    </p>
+                  )}
+                  
+                  <h3 className={`font-black uppercase italic tracking-wider leading-tight ${isCaught ? 'text-zinc-500 text-xs' : 'text-white text-sm'}`}>
+                    {target.name}
+                  </h3>
+                  
                   {target.series?.length > 0 && (
-                    <p className="text-[9px] text-zinc-400 font-bold uppercase mt-1 line-clamp-2 leading-tight">
+                    <p className={`text-[9px] font-bold uppercase mt-1 line-clamp-2 leading-tight ${isCaught ? 'text-zinc-600' : 'text-zinc-400'}`}>
                       {target.series.join(' • ')}
                     </p>
                   )}
                 </div>
 
-                {/* Caught Stamp */}
+                {/* 3. Caught Stamp & View Button Overlay */}
                 {isCaught && (
-                  <div className="absolute top-3 right-3 text-[#fe9a00] bg-black/50 rounded-full p-1 backdrop-blur-md">
-                    <CheckCircle className="w-6 h-6" />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[2px] transition-all">
+                    <span className="text-2xl sm:text-3xl font-black italic uppercase text-[#fe9a00] drop-shadow-[0_0_15px_rgba(254,154,0,0.6)] transform -rotate-12 mb-6 border-y-4 border-[#fe9a00] py-2 px-4 bg-black/50">
+                      Collected
+                    </span>
+                    <div className="bg-zinc-900 border border-zinc-700 text-white px-5 py-2.5 rounded-full text-[9px] font-black uppercase tracking-widest group-hover:bg-[#fe9a00] group-hover:text-black group-hover:border-[#fe9a00] transition-colors shadow-2xl">
+                      View Autograph
+                    </div>
                   </div>
                 )}
               </button>
@@ -302,7 +345,8 @@ const BingoBook = ({ onBack }: any) => {
           )}
         </div>
 
-      </div>
+                
+</div>
 
       {/* TARGET MODAL (Auth & Canvas) */}
       {selectedTarget && (
@@ -345,7 +389,7 @@ const BingoBook = ({ onBack }: any) => {
                       Unlock
                     </button>
                   </form>
-                  <p className="text-[9px] text-zinc-600 uppercase tracking-widest">(Hint: use 1234 for testing)</p>
+                  <p className="text-[9px] text-zinc-600 uppercase tracking-widest">(Check workplace for PIN)</p>
                 </div>
               ) : (
                 /* CANVAS SCREEN */
@@ -379,7 +423,35 @@ const BingoBook = ({ onBack }: any) => {
           </div>
         </div>
       )}
-
+{/* FULLSCREEN AUTOGRAPH VIEWER */}
+      {viewingAutograph && (
+        <div 
+          className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-8 animate-fade-in" 
+          onClick={() => setViewingAutograph(null)}
+        >
+          {/* Close Button */}
+          <button 
+            onClick={() => setViewingAutograph(null)} 
+            className="absolute top-6 right-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-50 shadow-2xl"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          
+          <div className="relative max-w-full max-h-full w-full h-full flex flex-col items-center justify-center pointer-events-none">
+            {/* The Autograph Image */}
+            <img 
+              src={viewingAutograph} 
+              className="max-w-full max-h-full object-contain drop-shadow-[0_0_30px_rgba(254,154,0,0.5)] pointer-events-auto bg-black border border-zinc-800 rounded-2xl" 
+              alt="Creator Autograph" 
+              onClick={(e) => e.stopPropagation()} 
+            />
+            
+            <p className="mt-8 text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">
+              Official Saturday AM Autograph
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

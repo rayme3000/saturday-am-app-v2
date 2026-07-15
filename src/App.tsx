@@ -18,12 +18,15 @@ const SeriesDetailPage = lazy(() => import('./MainViews/SeriesDetailPage').then(
 const MagazineDetailPage = lazy(() => import('./MainViews/MagazineDetailPage').then(mod => ({ default: mod.MagazineDetailPage })));
 const AdminDashboard = lazy(() => import('./AmCommandCenter/AdminDashboard').then(mod => ({ default: mod.AdminDashboard })));
 const UserProfile = lazy(() => import('./VirtualProfile/UserProfile').then(mod => ({ default: mod.UserProfile })));
+const SubscriptionPage = lazy(() => import('./MainViews/Subscription.tsx').then(mod => ({ default: mod.Subscription })));
+
 
 // 3. Lazy Load the views that use Default Exports
 const SettingsPage = lazy(() => import('./MainViews/Settings.tsx'));
 const BingoBook = lazy(() => import('./VirtualProfile/BingoBook'));
 const Favorites = lazy(() => import('./MainViews/MyFaves.tsx'));
 const Browse = lazy(() => import('./MainViews/Browse.tsx'));
+
 // --- Cloudflare Base URL ---
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -80,8 +83,7 @@ const ScrollToTopButton = () => {
   );
 };
 
-
-// --- NEW: HAMBURGER MENU WITH FLEX BUTTON ---
+// --- HAMBURGER MENU WITH FLEX BUTTON ---
 const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard }: any) => {
   if (!isOpen) return null;
 
@@ -102,7 +104,7 @@ const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard }: any
       </div>
       <div className="flex-1 flex flex-col justify-center px-12 gap-6">
         
-        {/* NEW: Dedicated Card Flex Button inside the menu */}
+        {/* Dedicated Card Flex Button inside the menu */}
         <button 
           onClick={() => { onClose(); onOpenFlexCard(); }}
           className="flex items-center gap-4 bg-[#fe9a00] text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all mb-8 shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
@@ -138,10 +140,48 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isFlexCardOpen, setIsFlexCardOpen] = useState(false);
 
+  // --- NEW: GLOBAL USER STATE ---
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userTier, setUserTier] = useState<'visitor' | 'free' | 'premium'>('visitor');
+
   useEffect(() => { 
     const timer = setTimeout(() => setShowSplash(false), 3000); 
     return () => clearTimeout(timer); 
   }, []);
+
+  // --- NEW: SUPABASE AUTH LISTENER ---
+  useEffect(() => {
+    const fetchUserProfile = async (userId: string) => {
+      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+      if (data) {
+        setCurrentUser(data);
+        // Map the database text to our app state
+        setUserTier(data.subscription_tier === 'premium' ? 'premium' : 'free');
+      }
+    };
+
+    // 1. Check active session on initial load
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      } else {
+        setUserTier('visitor');
+      }
+    });
+
+    // 2. Listen for login/logout events in real-time
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      } else {
+        setCurrentUser(null);
+        setUserTier('visitor');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Cached with useCallback so it doesn't break our memoized components
   const handleNavigate = useCallback((data: any) => {
     if (data.action === 'home') { setCurrentView('home'); return; }
@@ -150,7 +190,8 @@ export default function App() {
     if (data.action === 'profile') { setCurrentView('profile'); return; }
     if (data.action === 'account') { setCurrentView('account'); return; }
     if (data.action === 'settings') { setCurrentView('settings'); return; }
-    if (data.action === 'bingobook') { setCurrentView('bingobook'); return; }    
+    if (data.action === 'bingobook') { setCurrentView('bingobook'); return; }
+    if (data.action === 'sub') { setCurrentView('sub'); return; }    
     if (data.publish_date) {
       setSelectedMagazine(data);
       setCurrentView('magazine');
@@ -158,38 +199,44 @@ export default function App() {
       setSelectedSeries(data);
       setCurrentView('series');
     }
-  }, []); // The empty array tells React to cache this forever
+  }, []); 
 
   return (
     <>
       {/* THIS IS THE SPLASH SCREEN BLOCK */}
       {showSplash && (
-  <div className="fixed inset-0 z-[1000] bg-white flex items-center justify-center animate-fade-out">
-    <img 
-      src={`${CLOUDFLARE_BASE_URL}/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png`} 
-      className="w-64" 
-      alt="Logo" 
-    />
-  </div>
-)}
+        <div className="fixed inset-0 z-[1000] bg-white flex items-center justify-center animate-fade-out">
+          <img 
+            src={`${CLOUDFLARE_BASE_URL}/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png`} 
+            className="w-64" 
+            alt="Logo" 
+          />
+        </div>
+      )}
+      
+      {/* GLOBAL STYLES (WITH SCROLLBAR HIDING RESTORED) */}
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Unbounded:wght@700;800;900&display=swap');
+          
           @keyframes fade-out {
-      0% { opacity: 1; }
-      80% { opacity: 1; }
-      100% { opacity: 0; }
-    }
-    .animate-fade-out {
-      animation: fade-out 3s forwards;
-    }
+            0% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { opacity: 0; }
+          }
+          .animate-fade-out {
+            animation: fade-out 3s forwards;
+          }
+          
           body { font-family: 'Plus Jakarta Sans', sans-serif; }
           h1, h2, h3, h4, h5, h6, .font-black { font-family: 'Unbounded', sans-serif !important; font-style: italic !important; letter-spacing: -0.03em !important; }
           .tracking-widest { letter-spacing: 0.15em !important; font-style: normal !important; font-family: 'Plus Jakarta Sans', sans-serif !important; font-weight: 800; }
+          
+          /* HIDES THE UGLY GREY SCROLLBARS */
           .no-scrollbar::-webkit-scrollbar { display: none; }
           .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
           
-          /* NEW: Bulletproof 3D Flip Animation */
+          /* Bulletproof 3D Flip Animation */
           .card-perspective { perspective: 1000px; }
           .card-flipper { transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform-style: preserve-3d; }
           .card-flipper.is-flipped { transform: rotateY(180deg); }
@@ -204,7 +251,7 @@ export default function App() {
           onClose={() => setShowLogin(false)}
           onSuccess={() => {
             setShowLogin(false);
-            window.location.reload();
+            // Re-render handled automatically by the auth listener!
           }}
         />
       )}
@@ -223,7 +270,7 @@ export default function App() {
         onClose={() => setIsFlexCardOpen(false)}
       />
 
-      {/* 4. Main Views (Code Split via Suspense) */}
+      {/* 4. Main Views (Code Split via Suspense) - passing down userTier */}
       <Suspense fallback={
         <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4 pb-20">
           <div className="w-8 h-8 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
@@ -232,6 +279,7 @@ export default function App() {
       }>
         {currentView === 'home' && (
           <HomePage
+            userTier={userTier}
             onNavigate={handleNavigate}
             onAdminAccess={() => setCurrentView('admin')}
             onLoginClick={() => setShowLogin(true)}
@@ -239,26 +287,41 @@ export default function App() {
           />
         )}
 
-        {currentView === 'series' && (<SeriesDetailPage series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} />)}
+        {currentView === 'series' && (
+  <SeriesDetailPage 
+    userTier={userTier} 
+    series={selectedSeries} 
+    onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} 
+    onLoginClick={() => setShowLogin(true)} 
+  />
+)}
 
-        {currentView === 'magazine' && (<MagazineDetailPage magazine={selectedMagazine} onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} />)}
+        {currentView === 'magazine' && (<MagazineDetailPage userTier={userTier} magazine={selectedMagazine} onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} />)}
 
         {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
 
-        {currentView === 'profile' && (<UserProfile onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+        {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
 
+{currentView === 'sub' && (
+  <SubscriptionPage 
+    userTier={userTier} 
+    onBack={() => setCurrentView('home')} 
+  />
+)}
+        
         {currentView === 'settings' && (
           <SettingsPage 
+            userTier={userTier}
             onBack={() => setCurrentView('home')} 
             onSignOut={() => { setCurrentView('home'); }} 
           />
         )}
         
-        {currentView === 'bingobook' && (<BingoBook onBack={() => setCurrentView('home')} />)}
+        {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} />)}
 
-        {currentView === 'faves' && (<Favorites setActiveTab={setCurrentView} />)}
+        {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} />)}
 
-        {currentView === 'browse' && (<Browse onNavigate={handleNavigate} />)}
+        {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
       </Suspense>
 
       {/* 5. Global Footer */}
