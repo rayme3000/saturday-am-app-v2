@@ -12,7 +12,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // --- NEW: In-app success message state ---
   const [successMsg, setSuccessMsg] = useState('');
 
   const checkProfanity = async (text: string) => {
@@ -29,9 +28,16 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-    setSuccessMsg(''); // Clear any previous success messages
+    setSuccessMsg('');
 
     if (isSignUp) {
+      // Basic client-side check for password length
+      if (password.length < 10) {
+        setError("Password must be at least 10 characters long.");
+        setLoading(false);
+        return;
+      }
+
       const isVulgar = await checkProfanity(username);
       if (isVulgar) {
         setError("That username is not allowed. Please choose another one.");
@@ -70,9 +76,8 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           setError(signUpError.message);
         }
       } else {
-        // --- NEW: Set in-app success message instead of browser alert ---
         setSuccessMsg("Account created! Please check your email inbox to confirm your registration.");
-        setIsSignUp(false); // Flips them to the login view so they can log in after clicking the email link
+        setIsSignUp(false); 
         setPassword('');
       }
       setLoading(false);
@@ -120,7 +125,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           {isSignUp ? 'Join the Squad' : 'Login'}
         </h2>
 
-        {/* --- NEW: In-app Success Banner --- */}
         {successMsg && (
           <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/50 rounded-xl flex items-start gap-3">
             <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
@@ -128,7 +132,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           </div>
         )}
 
-        {/* GOOGLE AUTH BUTTON */}
         <button 
           onClick={handleGoogleLogin}
           disabled={loading}
@@ -210,6 +213,12 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
+
+          {isSignUp && (
+            <p className="text-zinc-500 text-[10px] font-bold tracking-wider px-1">
+              * Password must be at least 10 characters.
+            </p>
+          )}
 
           {error && <p className="text-red-500 text-[10px] font-bold">{error}</p>}
           
