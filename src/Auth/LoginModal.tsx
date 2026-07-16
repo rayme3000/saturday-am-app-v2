@@ -1,18 +1,19 @@
 import { useState } from 'react';
 import { supabase } from '../supabase';
-import { X, Eye, EyeOff } from 'lucide-react';
+import { X, Eye, EyeOff, CheckCircle } from 'lucide-react';
 
 const LoginModal = ({ onClose, onSuccess }: any) => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
-  // --- NEW: Country and Referral States ---
   const [country, setCountry] = useState('');
   const [referral, setReferral] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // --- NEW: In-app success message state ---
+  const [successMsg, setSuccessMsg] = useState('');
 
   const checkProfanity = async (text: string) => {
     try {
@@ -28,6 +29,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setSuccessMsg(''); // Clear any previous success messages
 
     if (isSignUp) {
       const isVulgar = await checkProfanity(username);
@@ -37,7 +39,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         return;
       }
 
-      // Check if username is already taken BEFORE attempting signup
       const { data: existingUser } = await supabase
         .from('profiles')
         .select('username')
@@ -56,7 +57,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         options: {
           data: {
             username: username.trim(),
-            // --- NEW: Save extra fields to DB metadata ---
             country: country,
             referral_source: referral
           }
@@ -70,8 +70,9 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           setError(signUpError.message);
         }
       } else {
-        alert("Account created! Please check your email inbox to confirm your registration.");
-        setIsSignUp(false);
+        // --- NEW: Set in-app success message instead of browser alert ---
+        setSuccessMsg("Account created! Please check your email inbox to confirm your registration.");
+        setIsSignUp(false); // Flips them to the login view so they can log in after clicking the email link
         setPassword('');
       }
       setLoading(false);
@@ -119,6 +120,14 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           {isSignUp ? 'Join the Squad' : 'Login'}
         </h2>
 
+        {/* --- NEW: In-app Success Banner --- */}
+        {successMsg && (
+          <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/50 rounded-xl flex items-start gap-3">
+            <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            <p className="text-emerald-400 text-xs font-bold leading-relaxed">{successMsg}</p>
+          </div>
+        )}
+
         {/* GOOGLE AUTH BUTTON */}
         <button 
           onClick={handleGoogleLogin}
@@ -149,7 +158,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                 required
               />
               
-              {/* --- NEW: Country Selection --- */}
               <select 
                 value={country} onChange={(e) => setCountry(e.target.value)}
                 className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
@@ -163,7 +171,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                 <option value="OTHER">Other</option>
               </select>
 
-              {/* --- NEW: Referral Source --- */}
               <select 
                 value={referral} onChange={(e) => setReferral(e.target.value)}
                 className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
@@ -219,7 +226,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
             {isSignUp ? 'Already have an account?' : 'Need an account?'}
           </p>
           <button 
-            onClick={() => { setIsSignUp(!isSignUp); setError(''); }} 
+            onClick={() => { setIsSignUp(!isSignUp); setError(''); setSuccessMsg(''); }} 
             className="text-white hover:text-[#fe9a00] text-xs font-black uppercase tracking-widest mt-2 transition-colors"
           >
             {isSignUp ? 'Log In Here' : 'Sign Up Here'}
