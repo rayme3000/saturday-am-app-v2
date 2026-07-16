@@ -7,6 +7,9 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  // --- NEW: Country and Referral States ---
+  const [country, setCountry] = useState('');
+  const [referral, setReferral] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -34,20 +37,40 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         return;
       }
 
+      // Check if username is already taken BEFORE attempting signup
+      const { data: existingUser } = await supabase
+        .from('profiles')
+        .select('username')
+        .ilike('username', username.trim())
+        .maybeSingle();
+
+      if (existingUser) {
+        setError("That username is already taken! Please choose another one.");
+        setLoading(false);
+        return;
+      }
+
       const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
             username: username.trim(),
+            // --- NEW: Save extra fields to DB metadata ---
+            country: country,
+            referral_source: referral
           }
         }
       });
 
       if (signUpError) {
-        setError(signUpError.message);
+        if (signUpError.message.includes('duplicate key') || signUpError.message.includes('unique')) {
+          setError("That username is already taken! Please choose another one.");
+        } else {
+          setError(signUpError.message);
+        }
       } else {
-        alert("Account created successfully! You can now log in.");
+        alert("Account created! Please check your email inbox to confirm your registration.");
         setIsSignUp(false);
         setPassword('');
       }
@@ -68,7 +91,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     }
   };
 
-  // --- GOOGLE AUTH FUNCTION ---
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError('');
@@ -87,8 +109,8 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-md flex items-center justify-center p-6">
-      <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm relative shadow-2xl">
+    <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6">
+      <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm relative shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar">
         <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
           <X className="w-5 h-5" />
         </button>
@@ -112,7 +134,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           Continue with Google
         </button>
 
-        {/* Divider */}
         <div className="flex items-center gap-4 mb-6">
           <div className="flex-1 h-px bg-zinc-800"></div>
           <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Or Use Email</span>
@@ -121,11 +142,42 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         
         <form onSubmit={handleEmailSubmit} className="space-y-4">
           {isSignUp && (
-            <input 
-              type="text" placeholder="Choose a Username" value={username} onChange={(e) => setUsername(e.target.value)}
-              className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
-              required
-            />
+            <>
+              <input 
+                type="text" placeholder="Choose a Username" value={username} onChange={(e) => setUsername(e.target.value)}
+                className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+                required
+              />
+              
+              {/* --- NEW: Country Selection --- */}
+              <select 
+                value={country} onChange={(e) => setCountry(e.target.value)}
+                className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
+                required
+              >
+                <option value="" disabled>Select your Country</option>
+                <option value="US">United States</option>
+                <option value="UK">United Kingdom</option>
+                <option value="CA">Canada</option>
+                <option value="AU">Australia</option>
+                <option value="OTHER">Other</option>
+              </select>
+
+              {/* --- NEW: Referral Source --- */}
+              <select 
+                value={referral} onChange={(e) => setReferral(e.target.value)}
+                className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
+                required
+              >
+                <option value="" disabled>How did you find us?</option>
+                <option value="Youtube">YouTube</option>
+                <option value="Social Media">Instagram / TikTok / Twitter</option>
+                <option value="Live Event">Convention / Live Event</option>
+                <option value="Google">Google Search</option>
+                <option value="Friend">Recommended by a Friend</option>
+                <option value="Other">Other</option>
+              </select>
+            </>
           )}
 
           <input 

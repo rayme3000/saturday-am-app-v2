@@ -174,21 +174,50 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     return ratio ? ratio > 1.2 : false; 
   };
 
-  const goNext = (e?: any) => {
+  const goNext = async (e?: any) => {
     if (e) e.stopPropagation(); 
+    
+    // Check if they are about to hit the End Prompt
+    let willHitEndPrompt = false;
+
     if (mode === 'book') {
       const nextLimit = isSpread(currentPage) ? 1 : (isSpread(currentPage + 1) ? 1 : 2);
-      if (currentPage + nextLimit > pages.length - 1) {
-         setShowEndPrompt(true);
-      } else {
-         setCurrentPage((p) => p + nextLimit);
-      }
+      if (currentPage + nextLimit > pages.length - 1) willHitEndPrompt = true;
     } else {
-      if (currentPage >= pages.length - 1) {
-         setShowEndPrompt(true);
-      } else {
-         setCurrentPage((p) => p + 1);
+      if (currentPage >= pages.length - 1) willHitEndPrompt = true;
+    }
+
+    if (willHitEndPrompt) {
+      setShowEndPrompt(true);
+
+      // --- NEW STAT TRACKER: RECORD CHAPTER READ ---
+      if (userId) {
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('chapters_read')
+            .eq('id', userId)
+            .single();
+          
+          if (profile) {
+            await supabase
+              .from('profiles')
+              .update({ chapters_read: (profile.chapters_read || 0) + 1 })
+              .eq('id', userId);
+          }
+        } catch (error) {
+          console.error("Error saving chapter read stat:", error);
+        }
       }
+      return;
+    }
+    
+    // If they aren't at the end, just turn the page normally
+    if (mode === 'book') {
+      const nextLimit = isSpread(currentPage) ? 1 : (isSpread(currentPage + 1) ? 1 : 2);
+      setCurrentPage((p) => p + nextLimit);
+    } else {
+      setCurrentPage((p) => p + 1);
     }
   };
 
@@ -617,7 +646,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         <div className="flex-1 flex justify-center items-center gap-4 relative">
           
           {showTutorial && (
-            <div className={`hidden lg:flex items-center pointer-events-none transition-opacity duration-1000 ${isTutorialFading ? 'opacity-0' : 'opacity-100'}`}>
+            <div className={`flex absolute -top-10 lg:relative lg:top-0 items-center pointer-events-none transition-opacity duration-1000 ${isTutorialFading ? 'opacity-0' : 'opacity-100'}`}>
               <span className="text-[#fe9a00] text-[8px] sm:text-[9px] font-black uppercase tracking-widest whitespace-nowrap bg-black/90 px-4 py-2 rounded-full border border-[#fe9a00]/50 shadow-[0_0_15px_rgba(254,154,0,0.4)] animate-pulse">
                 Choose Style
               </span>
@@ -646,9 +675,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           </div>
 
           {showTutorial && (
-            <div className={`hidden lg:flex items-center pointer-events-none transition-opacity duration-1000 ${isTutorialFading ? 'opacity-0' : 'opacity-100'}`}>
+            <div className={`flex absolute -top-20 lg:relative lg:top-0 items-center pointer-events-none transition-opacity duration-1000 ${isTutorialFading ? 'opacity-0' : 'opacity-100'}`}>
               <span className="text-[#fe9a00] text-[8px] sm:text-[9px] font-black uppercase tracking-widest whitespace-nowrap bg-black/90 px-4 py-2 rounded-full border border-[#fe9a00]/50 shadow-[0_0_15px_rgba(254,154,0,0.4)] animate-pulse">
-                Drop a Hype!
+                Subscribers, drop a quick react!
               </span>
             </div>
           )}

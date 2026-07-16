@@ -35,24 +35,52 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
     if (isLoading) return;
     setIsLoading(true);
 
-    if (isHyped) {
-      await supabase
-        .from('hypes')
-        .delete()
-        .eq('user_id', userId)
-        .eq('target_type', targetType)
-        .eq('target_id', targetId);
+    try {
+      // 1. Fetch their current Hype total from their profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('total_hypes')
+        .eq('id', userId)
+        .single();
       
-      setIsHyped(false);
-      setLocalCount((prev: number) => Math.max(0, prev - 1));
-    } else {
-      await supabase
-        .from('hypes')
-        .insert([{ user_id: userId, target_type: targetType, target_id: targetId }]);
-      
-      setIsHyped(true);
-      setLocalCount((prev: number) => prev + 1);
+      const currentTotalHypes = profile?.total_hypes || 0;
+
+      if (isHyped) {
+        // Remove hype record from the item
+        await supabase
+          .from('hypes')
+          .delete()
+          .eq('user_id', userId)
+          .eq('target_type', targetType)
+          .eq('target_id', targetId);
+        
+        // Subtract 1 from their profile stats
+        await supabase
+          .from('profiles')
+          .update({ total_hypes: Math.max(0, currentTotalHypes - 1) })
+          .eq('id', userId);
+        
+        setIsHyped(false);
+        setLocalCount((prev: number) => Math.max(0, prev - 1));
+      } else {
+        // Add hype record to the item
+        await supabase
+          .from('hypes')
+          .insert([{ user_id: userId, target_type: targetType, target_id: targetId }]);
+        
+        // Add +1 to their profile stats!
+        await supabase
+          .from('profiles')
+          .update({ total_hypes: currentTotalHypes + 1 })
+          .eq('id', userId);
+        
+        setIsHyped(true);
+        setLocalCount((prev: number) => prev + 1);
+      }
+    } catch (error) {
+      console.error("Error updating hype:", error);
     }
+    
     setIsLoading(false);
   };
 

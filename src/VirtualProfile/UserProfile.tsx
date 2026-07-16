@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Flame, MessageCircle, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, RotateCcw, Plus } from 'lucide-react';
+import { ArrowLeft, Flame, MessageCircle, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, RotateCcw, Plus, Lock } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
 // --- 1. GLOBAL FLEX CARD COMPONENT ---
 export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const { seriesList = [] } = useSeriesData();
-  const [profileStats, setProfileStats] = useState({ total_hypes: 0, quick_reacts: 0, chapters_read: 0 });
+  const [profileStats, setProfileStats] = useState({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0 });
   const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', frameId: 'none', cardSkin: '', topFive: [null, null, null, null, null] });
   const [isFlipped, setIsFlipped] = useState(false);
+  
 
   const BASIC_FRAMES = [
     { id: 'none', name: 'Original', style: 'border-2 border-zinc-800' },
@@ -33,7 +34,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
       if (user) {
         const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
         if (data) {
-          setProfileStats({ total_hypes: data.total_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0 });
+          setProfileStats({ total_hypes: data.total_hypes || 0, super_hypes: data.super_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0 });
           setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', frameId: data.frame_id || 'none', cardSkin: data.card_skin || '', topFive: data.top_five || [null, null, null, null, null] });
         }
       }
@@ -90,23 +91,29 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                 </div>
               </div>
 
-              <div className="flex justify-around items-center bg-black/40 rounded-xl border border-zinc-800/50 shadow-inner p-4 md:p-8 mt-4 mb-4">
-                <div className="text-center w-1/3 border-r border-zinc-800/50">
-                  <p className="text-zinc-500 uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-2">Total Hypes</p>
-                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-3 text-xl md:text-4xl">
-                    <Flame className="w-5 h-5 md:w-10 md:h-10" /> {profileStats.total_hypes.toLocaleString()}
+              <div className="flex justify-around items-center bg-black/40 rounded-xl border border-zinc-800/50 shadow-inner p-4 md:p-6 mt-4 mb-4">
+                <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
+                  <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Hypes</p>
+                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
+                    <Flame className="w-4 h-4 md:w-6 md:h-6" /> {profileStats.total_hypes.toLocaleString()}
                   </p>
                 </div>
-                <div className="text-center w-1/3 border-r border-zinc-800/50">
-                  <p className="text-zinc-500 uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-2">Quick Reacts</p>
-                  <p className="font-black text-cyan-400 flex items-center justify-center gap-1 md:gap-3 text-xl md:text-4xl">
-                    <MessageCircle className="w-5 h-5 md:w-10 md:h-10" /> {profileStats.quick_reacts.toLocaleString()}
+                <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
+                  <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Super</p>
+                  <p className="font-black text-purple-500 flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
+                    <Star className="w-4 h-4 md:w-6 md:h-6" /> {profileStats.super_hypes?.toLocaleString() || 0}
                   </p>
                 </div>
-                <div className="text-center w-1/3">
-                  <p className="text-zinc-500 uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-2">Chapters Read</p>
-                  <p className="font-black text-cyan-400 flex items-center justify-center gap-1 md:gap-3 text-xl md:text-4xl">
-                    <BookOpen className="w-5 h-5 md:w-10 md:h-10" /> {profileStats.chapters_read.toLocaleString()}
+                <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
+                  <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Reacts</p>
+                  <p className="font-black text-cyan-400 flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
+                    <MessageCircle className="w-4 h-4 md:w-6 md:h-6" /> {profileStats.quick_reacts.toLocaleString()}
+                  </p>
+                </div>
+                <div className="text-center flex-1 px-1">
+                  <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Reads</p>
+                  <p className="font-black text-zinc-300 flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
+                    <BookOpen className="w-4 h-4 md:w-6 md:h-6" /> {profileStats.chapters_read.toLocaleString()}
                   </p>
                 </div>
               </div>
@@ -182,57 +189,73 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   const [vaultAvatars, setVaultAvatars] = useState<any[]>([]);
   const [cardSkins, setCardSkins] = useState<any[]>([]); 
   const [selectingSlot, setSelectingSlot] = useState<number | null>(null);
-  const [isSubscriber, setIsSubscriber] = useState(true); 
-  
+  const [isSubscriber, setIsSubscriber] = useState(false); 
+  const [isLoggedIn, setIsLoggedIn] = useState(false);   
+  const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
   const [userProfile, setUserProfile] = useState({
-    username: 'Reader_One',
+    username: 'Reader',
     avatarUrl: '', 
     frameId: 'none',
     cardSkin: '', 
-    topFive: ['apple-black', 'clock-striker', 'titan-king', 'bully-eater', null] as (string | null)[]
+    topFive: [null, null, null, null, null] as (string | null)[]
   });
 
   const [tempProfile, setTempProfile] = useState({...userProfile});
 
   const [profileStats, setProfileStats] = useState({
     total_hypes: 0,
+    super_hypes: 0,
     quick_reacts: 0,
     chapters_read: 0
   });
 
+  // --- NEW: TOTAL HUNTS STATE DEFINED HERE ---
+  const [unlockedHunts, setUnlockedHunts] = useState(0);
+  const [totalHunts, setTotalHunts] = useState(11);
+
   useEffect(() => {
+    // 1. Grab local Bingo Book progress immediately on load
+    const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
+    setUnlockedHunts(savedHunts.length);
+    
+    // Check if the Bingo Book gave us a new total to use!
+    const savedTotal = localStorage.getItem('am_bingo_total');
+    if (savedTotal) setTotalHunts(parseInt(savedTotal));
+
+    // 2. Fetch the rest of the database stats
     const fetchUserStats = async () => {
       const { data: { user } } = await supabase.auth.getUser();
 
       if (user) {
+        setIsLoggedIn(true);
         const { data, error } = await supabase
           .from('profiles')
-          .select('total_hypes, quick_reacts, chapters_read, top_five, card_skin, avatar_url, frame_id')
+          .select('username, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read, top_series, card_skin_url, avatar_url, frame_url')
           .eq('id', user.id)
           .single();
 
         if (data) {
           setProfileStats({
             total_hypes: data.total_hypes || 0,
+            super_hypes: data.super_hypes || 0,
             quick_reacts: data.quick_reacts || 0,
             chapters_read: data.chapters_read || 0
           });
 
-          setUserProfile(prev => ({
-            ...prev,
-            topFive: data.top_five || [null, null, null, null, null],
-            cardSkin: data.card_skin || '',
-            avatarUrl: data.avatar_url || '',
-            frameId: data.frame_id || 'none'
-          }));
+          // Officially sync premium status!
+          setIsSubscriber(data.is_premium || false);
 
-          setTempProfile(prev => ({
-            ...prev,
-            topFive: data.top_five || [null, null, null, null, null],
-            cardSkin: data.card_skin || '',
+          const loadedProfile = {
+            ...userProfile,
+            username: data.username || 'Reader',
+            topFive: data.top_series || [null, null, null, null, null],
+            cardSkin: data.card_skin_url || '',
             avatarUrl: data.avatar_url || '',
-            frameId: data.frame_id || 'none'
-          }));
+            frameId: data.frame_url || 'none'
+          };
+
+          setUserProfile(loadedProfile);
+          setTempProfile(loadedProfile);
         }
       }
     };
@@ -274,6 +297,15 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   }, []);
 
   const openEditor = (targetTab = 'faves', slotIndex: number | null = null) => {
+    // Prevent visitors from opening the editor modal, but let Free Accounts in!
+    if (!isLoggedIn) {
+      setUpsellConfig({
+        title: 'create a free account',
+        message: 'Create a Free Account to customize your profile loadout, equip your favorite series, and track your stats!'
+      });
+      return;
+    }
+
     setTempProfile({...userProfile});
     setActiveTab(targetTab);
     setSelectingSlot(slotIndex);
@@ -287,10 +319,10 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
       const { error } = await supabase
         .from('profiles')
         .update({
-          top_five: tempProfile.topFive,
-          card_skin: tempProfile.cardSkin,
+          top_series: tempProfile.topFive,
+          card_skin_url: tempProfile.cardSkin,
           avatar_url: tempProfile.avatarUrl,
-          frame_id: tempProfile.frameId
+          frame_url: tempProfile.frameId
         })
         .eq('id', user.id);
 
@@ -303,6 +335,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
     setUserProfile({...tempProfile});
     setIsEditing(false);
+    alert("Profile Loadout Saved Successfully!"); 
   };
 
   const getFrameStyle = (id: string) => [...BASIC_FRAMES, ...PREMIUM_FRAMES].find(f => f.id === id)?.style || 'border-2 border-zinc-800';
@@ -367,6 +400,35 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
         <div className="transform skew-x-12 flex items-center gap-2"><ArrowLeft className="w-5 h-5" /><span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Home</span></div>
       </button>
 
+      {/* --- UPSELL MODAL OVERLAY --- */}
+      {upsellConfig && (
+        <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
+          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <Lock className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+              {upsellConfig.title}
+            </h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
+              {upsellConfig.message}
+            </p>
+            <button 
+              onClick={() => {
+                setUpsellConfig(null);
+                onNavigate({ action: 'settings' }); // Or wherever your upgrade page is!
+              }} 
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
+            >
+              sign up for free
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="w-full h-48 sm:h-64 bg-zinc-900 relative overflow-hidden">
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
         <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent"></div>
@@ -405,11 +467,16 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
         {/* --- STATS & LOADOUT --- */}
         <div className="mb-12 border-t border-zinc-800 pt-8 px-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
             <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
               <Flame className="w-6 h-6 text-[#fe9a00] mb-2" />
               <span className="text-3xl font-black">{profileStats.total_hypes.toLocaleString()}</span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes</span>
+            </div>
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
+              <Star className="w-6 h-6 text-purple-500 mb-2" />
+              <span className="text-3xl font-black">{profileStats.super_hypes?.toLocaleString() || 0}</span>
+              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes</span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
               <MessageCircle className="w-6 h-6 text-cyan-400 mb-2" />
@@ -437,11 +504,14 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
                   <Check className="w-4 h-4 text-[#fe9a00]" /> Bingo Book Hunts
                 </h3>
                 <span className="text-[10px] font-bold text-zinc-400 tracking-widest uppercase">
-                  <span className="text-[#fe9a00]">3</span> / 10 Completed
+                  <span className="text-[#fe9a00]">{unlockedHunts}</span> / {totalHunts} Completed
                 </span>
               </div>
               <div className="w-full h-2.5 bg-black border border-zinc-800 rounded-full overflow-hidden shadow-inner">
-                <div className="h-full bg-gradient-to-r from-[#fe9a00] to-yellow-500 rounded-full transition-all duration-1000 w-[30%]" />
+                <div 
+                  className="h-full bg-gradient-to-r from-[#fe9a00] to-yellow-500 rounded-full transition-all duration-1000" 
+                  style={{ width: `${Math.min(100, (unlockedHunts / Math.max(1, totalHunts)) * 100)}%` }} 
+                />
               </div>
             </div>
             <button 
@@ -464,15 +534,46 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           </div>
         </div>
 
-        {/* --- MOUNT THE FLEX AM CREW CARD BUTTON --- */}
-        <div className="flex justify-center w-full mt-12 mb-8">
-          <button 
-            onClick={() => setShowFlexCard(true)}
-            className="flex items-center gap-4 bg-[#fe9a00] text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
-          >
-            <CreditCard className="w-6 h-6" /> Flex AM Crew Card
-          </button>
-        </div>
+        {/* --- MOUNT THE FLEX AM CREW CARD BUTTON / PREVIEW --- */}
+        {!isSubscriber ? (
+          <div className="flex flex-col items-center w-full mt-12 mb-12 px-6">
+            <div 
+              className="relative w-full max-w-sm aspect-[1.58] rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden shadow-2xl mb-6 group cursor-pointer" 
+              onClick={() => setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual AM Crew Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' })}
+            >
+              <img src="https://zcadkovymrnjpjaxvnao.supabase.co/storage/v1/object/public/card-skins/skins/1781908112888_8ozh4h.jpg" className="absolute inset-0 w-full h-full object-cover opacity-40 grayscale group-hover:scale-105 transition-transform duration-700" alt="Card Preview" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col items-center justify-center p-6 text-center">
+                 <div className="w-14 h-14 bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]">
+                   <Lock className="w-6 h-6 text-zinc-400"/>
+                 </div>
+                 <h3 className="text-white font-black italic text-xl uppercase tracking-widest mb-1 drop-shadow-md">AM Crew Card</h3>
+                 <p className="text-[10px] text-[#fe9a00] font-bold uppercase tracking-widest leading-relaxed drop-shadow-md">
+                   Customize and get exclusive perks!
+                 </p>
+              </div>
+            </div>
+            <button 
+              onClick={() => {
+                setUpsellConfig({ 
+                  title: 'Premium Feature', 
+                  message: 'The Virtual AM Crew Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' 
+                });
+              }}
+              className="flex items-center gap-3 bg-zinc-800 text-white border border-zinc-700 px-8 py-4 rounded-full font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] hover:scale-105 transition-all shadow-lg w-full sm:w-auto justify-center"
+            >
+              <CreditCard className="w-5 h-5"/> Subscribe to Unlock
+            </button>
+          </div>
+        ) : (
+          <div className="flex justify-center w-full mt-12 mb-8">
+            <button 
+              onClick={() => setShowFlexCard(true)}
+              className="flex items-center gap-4 bg-[#fe9a00] text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
+            >
+              <CreditCard className="w-6 h-6"/> Flex AM Crew Card
+            </button>
+          </div>
+        )}
 
         <GlobalFlexCard 
           isOpen={showFlexCard} 

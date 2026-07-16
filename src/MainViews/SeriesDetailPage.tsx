@@ -312,20 +312,23 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 
                 <h3 className={`font-bold text-base sm:text-lg line-clamp-2 mb-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
                 
-                <div className="flex flex-col gap-1 w-full max-w-[200px]">
-                   <div className="flex items-center gap-2">
-                     <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                       <div 
-                         className="h-full bg-[#fe9a00] rounded-full transition-all duration-500" 
-                         style={{ width: `${isLocked ? 0 : mockProgress}%` }} 
-                       />
+                {/* --- MEMBERS ONLY PROGRESS BAR --- */}
+                {userTier !== 'visitor' && (
+                  <div className="flex flex-col gap-1 w-full max-w-[200px]">
+                     <div className="flex items-center gap-2">
+                       <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                         <div 
+                           className="h-full bg-[#fe9a00] rounded-full transition-all duration-500" 
+                           style={{ width: `${isLocked ? 0 : readProgress}%` }} 
+                         />
+                       </div>
+                       <span className="text-[10px] font-black text-zinc-500">{isLocked ? 0 : readProgress}%</span>
                      </div>
-                     <span className="text-[10px] font-black text-zinc-500">{isLocked ? 0 : mockProgress}%</span>
-                   </div>
-                   {mockProgress === 100 && !isLocked && (
-                     <span className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
-                   )}
-                </div>
+                     {readProgress === 100 && !isLocked && (
+                       <span className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
+                     )}
+                  </div>
+                )}
 
               </div>
               <div className={`hidden sm:flex items-center justify-center w-10 h-10 rounded-full transition-colors ml-auto flex-shrink-0 ${isLocked ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-800 group-hover:bg-[#fe9a00]'}`}>

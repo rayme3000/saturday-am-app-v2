@@ -56,23 +56,51 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium = false, onRequi
     if (isLoading) return;
     setIsLoading(true);
 
-    if (hasSuperHypedThis) {
-      await supabase
-        .from('super_hypes')
-        .delete()
-        .eq('user_id', userId)
-        .eq('series_slug', seriesSlug);
+    try {
+      // Fetch their current Super Hype total from their profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('super_hypes')
+        .eq('id', userId)
+        .single();
       
-      setHasSuperHypedThis(false);
-      setSuperHypesLeft(prev => prev + 1);
-    } else {
-      await supabase
-        .from('super_hypes')
-        .insert([{ user_id: userId, series_slug: seriesSlug }]);
-      
-      setHasSuperHypedThis(true);
-      setSuperHypesLeft(prev => prev - 1);
+      const currentSuperHypes = profile?.super_hypes || 0;
+
+      if (hasSuperHypedThis) {
+        // Remove super hype record from the series
+        await supabase
+          .from('super_hypes')
+          .delete()
+          .eq('user_id', userId)
+          .eq('series_slug', seriesSlug);
+        
+        // Subtract 1 from their profile stats
+        await supabase
+          .from('profiles')
+          .update({ super_hypes: Math.max(0, currentSuperHypes - 1) })
+          .eq('id', userId);
+        
+        setHasSuperHypedThis(false);
+        setSuperHypesLeft(prev => prev + 1);
+      } else {
+        // Add super hype record to the series
+        await supabase
+          .from('super_hypes')
+          .insert([{ user_id: userId, series_slug: seriesSlug }]);
+        
+        // Add +1 to their profile stats!
+        await supabase
+          .from('profiles')
+          .update({ super_hypes: currentSuperHypes + 1 })
+          .eq('id', userId);
+        
+        setHasSuperHypedThis(true);
+        setSuperHypesLeft(prev => prev - 1);
+      }
+    } catch (error) {
+      console.error("Error updating super hype:", error);
     }
+    
     setIsLoading(false);
   };
 

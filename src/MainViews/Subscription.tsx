@@ -1,8 +1,11 @@
 import React from 'react';
 import { ArrowLeft, Check, Flame, BookOpen, Star, Crown, MessageCircle, CreditCard, Target, ShoppingBag, Plus } from 'lucide-react';
 
-export const Subscription = ({ userTier, onBack }: any) => {
+// --- ADDED onLoginClick PROP ---
+export const Subscription = ({ userTier, onBack, onLoginClick }: any) => {
   const isPremium = userTier === 'premium';
+  const isVisitor = userTier === 'visitor';
+  const isFree = userTier === 'free';
 
   return (
     <div className="min-h-screen bg-black text-white pb-24 animate-fade-in relative z-[200]">
@@ -29,10 +32,18 @@ export const Subscription = ({ userTier, onBack }: any) => {
               <li className="flex items-center gap-3 text-sm font-bold text-zinc-400"><Check className="w-5 h-5 text-zinc-600" /> Read Chapters 1-3 & newest releases</li>
               <li className="flex items-center gap-3 text-sm font-bold text-zinc-400"><Check className="w-5 h-5 text-zinc-600" /> Standard Hypes</li>
               <li className="flex items-center gap-3 text-sm font-bold text-zinc-400"><Check className="w-5 h-5 text-zinc-600" /> Join community discussions</li>
-              <li className="flex items-center gap-3 text-sm font-bold text-zinc-400"><Check className="w-5 h-5 text-zinc-600" /> Basic Digital Club Card</li>
+              <li className="flex items-center gap-3 text-sm font-bold text-zinc-400"><Check className="w-5 h-5 text-zinc-600" /> Customize your profile</li>
             </ul>
-            <button disabled={!isPremium} className="w-full py-4 bg-zinc-800 text-zinc-500 font-black uppercase tracking-widest rounded-xl cursor-not-allowed">
-              {isPremium ? 'Downgrade to Free' : 'Current Plan'}
+            <button 
+              onClick={() => {
+                if (isVisitor && onLoginClick) onLoginClick();
+              }}
+              disabled={isFree} 
+              className={`w-full py-4 font-black uppercase tracking-widest rounded-xl transition-all ${
+                isFree ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-zinc-800 text-white hover:bg-zinc-700 cursor-pointer'
+              }`}
+            >
+              {isVisitor ? 'Create Free Account' : isPremium ? 'Downgrade to Free' : 'Current Plan'}
             </button>
           </div>
 
@@ -55,8 +66,16 @@ export const Subscription = ({ userTier, onBack }: any) => {
               <li className="flex items-center gap-3 text-sm font-bold text-white"><Plus className="w-5 h-5 text-[#fe9a00] flex-shrink-0" /> And more!</li>
             </ul>
             
-            <button className={`w-full py-4 font-black uppercase tracking-widest rounded-xl transition-all relative z-10 ${isPremium ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_20px_rgba(254,154,0,0.4)]'}`}>
-              {isPremium ? 'Manage Subscription' : 'Upgrade to Pro'}
+            <button 
+              onClick={() => {
+                if (isVisitor && onLoginClick) onLoginClick();
+                // Stripe routing will go here later!
+              }}
+              className={`w-full py-4 font-black uppercase tracking-widest rounded-xl transition-all relative z-10 ${
+                isPremium ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_20px_rgba(254,154,0,0.4)]'
+              }`}
+            >
+              {isPremium ? 'Manage Subscription' : isVisitor ? 'Subscribe to Pro' : 'Upgrade to Pro'}
             </button>
           </div>
         </div>

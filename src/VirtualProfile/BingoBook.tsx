@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { ArrowLeft, Target, Lock, Unlock, Eraser, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Target, Lock, Unlock, Eraser, CheckCircle, X } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 
@@ -97,6 +97,30 @@ const BingoBook = ({ onBack }: any) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const progressPercentage = CREATOR_TARGETS.length > 0 ? (unlockedCreators.length / CREATOR_TARGETS.length) * 100 : 0;
+  
+  // --- NEW: PREMIUM CHECK STATES ---
+  const [isSubscriber, setIsSubscriber] = useState(false);
+  const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from('profiles').select('is_premium').eq('id', user.id).single();
+        if (data) setIsSubscriber(data.is_premium || false);
+      }
+    };
+    checkUser();
+  }, []);
+
+  // --- NEW: SAVE TOTAL TARGETS FOR THE PROFILE PAGE ---
+  useEffect(() => {
+    if (CREATOR_TARGETS.length > 0) {
+      localStorage.setItem('am_bingo_total', CREATOR_TARGETS.length.toString());
+    }
+  }, [CREATOR_TARGETS.length]);
+
+  // --- CANVAS LOGIC ---
 
   // --- CANVAS LOGIC ---
   const initCanvas = () => {
@@ -111,6 +135,14 @@ const BingoBook = ({ onBack }: any) => {
     ctx.lineJoin = 'round';
     ctx.lineWidth = 4;
   };
+
+  // --- NEW: LOAD SAVED HUNTS FROM DEVICE ---
+  useEffect(() => {
+    const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
+    const savedSigs = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
+    setUnlockedCreators(savedHunts);
+    setSignatures(savedSigs);
+  }, []);
 
   useEffect(() => {
     if (isUnlocked) {
@@ -218,18 +250,22 @@ const BingoBook = ({ onBack }: any) => {
   };
 
   const handleSave = () => {
-    if (!hasDrawn || !selectedTarget) return; // Prevent saving empty canvas
+    if (!hasDrawn || !selectedTarget) return; 
 
     const canvas = canvasRef.current;
     if (canvas) {
-      // Store the signature image data to allow future updates
+      // Save signature to device memory
       const dataUrl = canvas.toDataURL();
-      setSignatures(prev => ({ ...prev, [selectedTarget.id]: dataUrl }));
+      const newSigs = { ...signatures, [selectedTarget.id]: dataUrl };
+      setSignatures(newSigs);
+      localStorage.setItem('am_bingo_sigs', JSON.stringify(newSigs));
     }
 
-    // Mark the bounty as completed ONLY after successfully saving
+    // Save completed hunt to device memory
     if (!unlockedCreators.includes(selectedTarget.id)) {
-      setUnlockedCreators([...unlockedCreators, selectedTarget.id]);
+      const newHunts = [...unlockedCreators, selectedTarget.id];
+      setUnlockedCreators(newHunts);
+      localStorage.setItem('am_bingo_hunts', JSON.stringify(newHunts));
     }
     closeTargetModal();
   };
@@ -258,16 +294,43 @@ const BingoBook = ({ onBack }: any) => {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-8">
+        {/* --- UPSELL MODAL OVERLAY --- */}
+        {upsellConfig && (
+          <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
+            <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
+              <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+              <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+                <Lock className="w-8 h-8 text-[#fe9a00]" />
+              </div>
+              <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+                {upsellConfig.title}
+              </h2>
+              <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
+                {upsellConfig.message}
+              </p>
+              <button 
+                onClick={() => setUpsellConfig(null)} 
+                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
+              >
+                Upgrade to Pro
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Mission Briefing */}
-    <div className="mb-8 bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-lg relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-1 h-full bg-[#fe9a00]"></div>
-      <h2 className="text-[#fe9a00] text-sm font-black uppercase tracking-[0.2em] mb-3 flex items-center gap-2">
-        <Target className="w-5 h-5" /> Mission
-      </h2>
-      <p className="text-zinc-300 text-sm font-medium leading-relaxed">
-        Find these creators at live shows and conventions and get their autograph. Stay tuned to social media to find events and creators near you.
-      </p>
-    </div>
+        <div className="mb-8 bg-gradient-to-r from-zinc-900 to-black border-2 border-[#fe9a00]/60 rounded-2xl p-6 md:p-8 shadow-[0_0_40px_rgba(254,154,0,0.35)] relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-2 h-full bg-[#fe9a00] shadow-[0_0_20px_rgba(254,154,0,0.8)]"></div>
+          <h2 className="text-[#fe9a00] text-lg md:text-xl font-black uppercase tracking-[0.2em] mb-3 flex items-center gap-3 drop-shadow-[0_2px_10px_rgba(254,154,0,0.5)]">
+            <Target className="w-6 h-6 md:w-7 md:h-7" /> The Mission
+          </h2>
+          <p className="text-white text-base md:text-lg font-bold leading-relaxed tracking-wide">
+            Find these creators at live shows and conventions and get their autograph! Stay tuned to social media to find events and creators near you.
+          </p>
+        </div>
+
         {/* Progress Tracker */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-10 shadow-lg">
           <div className="flex justify-between items-end mb-2">
@@ -289,7 +352,17 @@ const BingoBook = ({ onBack }: any) => {
             return (
               <button 
                 key={target.id}
-                onClick={() => { setSelectedTarget(target); setIsUnlocked(isCaught); }}
+                onClick={() => { 
+                  if (!isSubscriber) {
+                    setUpsellConfig({
+                      title: 'Premium Feature Locked',
+                      message: 'Collecting creator autographs is exclusively for AM Crew Pro members! Upgrade to start your hunt.'
+                    });
+                    return;
+                  }
+                  setSelectedTarget(target); 
+                  setIsUnlocked(isCaught); 
+                }}
                 className={`relative group aspect-[3/4] rounded-xl overflow-hidden border-2 transition-all duration-300 ${
                   isCaught 
                     ? 'border-zinc-700 grayscale opacity-90' 

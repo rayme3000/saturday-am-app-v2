@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, Suspense, lazy, memo } from 'react';
 import Cropper from 'react-easy-crop';
-import { Upload, Check, Image as ImageIcon, Trash2, Star, Calendar, Menu, Home, Heart, Plus, Search, ShoppingBag, User, BookOpen, Play, ArrowLeft, Bookmark, X, MoveHorizontal, MoveVertical, RotateCcw, MessageCircle, MessageCircleOff, ChevronLeft, ChevronRight, Award, Crop, Flame, ArrowUp, SkipBack, SkipForward, Settings, Shield, CreditCard, Maximize2, Save, Scissors, RefreshCw } from 'lucide-react';
+import { Upload, Check, Image as ImageIcon, Trash2, Star, Calendar, Menu, Home, Heart, Plus, Search, ShoppingBag, User, BookOpen, Play, ArrowLeft, Bookmark, X, MoveHorizontal, MoveVertical, RotateCcw, MessageCircle, MessageCircleOff, ChevronLeft, ChevronRight, Award, Crop, Flame, ArrowUp, SkipBack, SkipForward, Settings, Shield, CreditCard, Maximize2, Save, Scissors, RefreshCw, Lock } from 'lucide-react';
 import { supabase } from './supabase';
 import { useSeriesData } from './userSeriesData';
 import { AccountSettings } from './MainViews/AccountSettings';
@@ -84,7 +84,7 @@ const ScrollToTopButton = () => {
 };
 
 // --- HAMBURGER MENU WITH FLEX BUTTON ---
-const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard }: any) => {
+const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell }: any) => {
   if (!isOpen) return null;
 
   const menuItems = [
@@ -104,9 +104,19 @@ const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard }: any
       </div>
       <div className="flex-1 flex flex-col justify-center px-12 gap-6">
         
-        {/* Dedicated Card Flex Button inside the menu */}
+       {/* Dedicated Card Flex Button inside the menu */}
         <button 
-          onClick={() => { onClose(); onOpenFlexCard(); }}
+          onClick={() => { 
+            onClose(); 
+            if (userTier !== 'premium') {
+              onUpsell({
+                title: 'Premium Feature',
+                message: 'The Virtual AM Crew Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.'
+              });
+            } else {
+              onOpenFlexCard(); 
+            }
+          }}
           className="flex items-center gap-4 bg-[#fe9a00] text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all mb-8 shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
         >
           <CreditCard className="w-6 h-6" /> Flex AM Crew Card
@@ -139,6 +149,7 @@ export default function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isFlexCardOpen, setIsFlexCardOpen] = useState(false);
+  const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
 
   // --- NEW: GLOBAL USER STATE ---
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -256,12 +267,43 @@ export default function App() {
         />
       )}
 
+      {/* 1.5 Global Upsell Modal */}
+      {upsellConfig && (
+        <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
+          <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <Lock className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+              {upsellConfig.title}
+            </h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
+              {upsellConfig.message}
+            </p>
+            <button 
+              onClick={() => {
+                setUpsellConfig(null);
+                handleNavigate({ action: 'sub' }); // Instantly routes them to your Subscription Page!
+              }} 
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
+            >
+              Upgrade to Pro
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 2. Global Hamburger Menu */}
       <HamburgerMenu
         isOpen={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}
         onNavigate={handleNavigate}
         onOpenFlexCard={() => setIsFlexCardOpen(true)}
+        userTier={userTier}
+        onUpsell={setUpsellConfig}
       />
 
       {/* 3. Global Flex Card Overlay */}
@@ -303,15 +345,18 @@ export default function App() {
         {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
 
 {currentView === 'sub' && (
-  <SubscriptionPage 
-    userTier={userTier} 
-    onBack={() => setCurrentView('home')} 
-  />
-)}
+          <SubscriptionPage 
+            userTier={userTier} 
+            onBack={() => setCurrentView('home')} 
+            onLoginClick={() => setShowLogin(true)}
+          />
+        )}
         
         {currentView === 'settings' && (
           <SettingsPage 
             userTier={userTier}
+            onNavigate={handleNavigate}
+            onLoginClick={() => setShowLogin(true)}
             onBack={() => setCurrentView('home')} 
             onSignOut={() => { setCurrentView('home'); }} 
           />
