@@ -177,10 +177,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
       `}</style>
 
-      {/* --- HORIZONTAL READER --- */}
+      {/* --- HORIZONTAL READER (BULLETPROOF SCALING) --- */}
       {mode === 'horizontal' && (
         <div 
-          className="absolute inset-0 w-full h-full flex items-center justify-center cursor-pointer select-none z-0 overflow-hidden"
+          className="absolute inset-0 w-full h-full cursor-pointer select-none z-0 overflow-hidden"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           onClick={handleTap}
@@ -188,17 +188,17 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           {pages[currentPage] ? (
             <img 
               src={getUrl(pages[currentPage])} 
-              className="w-full h-full object-contain pointer-events-none" 
+              className="absolute inset-0 w-full h-full max-w-full max-h-full object-contain m-auto pointer-events-none" 
               alt={`Page ${currentPage + 1}`} 
               loading="lazy"
             />
           ) : (
-            <div className="animate-pulse w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
           )}
         </div>
       )}
 
-      {/* --- VERTICAL READER --- */}
+      {/* --- VERTICAL READER (BULLETPROOF SCALING) --- */}
       {mode === 'vertical' && (
         <div className="absolute inset-0 w-full h-full select-none overflow-x-hidden bg-[#0a0a0a] z-0" onClick={toggleUI}>
           <Virtuoso
@@ -206,8 +206,13 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             data={pages}
             rangeChanged={(range) => setCurrentPage(Math.max(0, range.startIndex))}
             itemContent={(index, pageData: any) => (
-              <div className="flex justify-center w-full bg-[#0a0a0a]">
-                <img src={getUrl(pageData)} className="w-full max-w-4xl object-contain block mx-auto" alt={`Page ${index + 1}`} loading="lazy" />
+              <div className="w-full max-w-full overflow-hidden bg-[#0a0a0a]">
+                <img 
+                  src={getUrl(pageData)} 
+                  className="w-full max-w-4xl h-auto object-contain block mx-auto pointer-events-none" 
+                  alt={`Page ${index + 1}`} 
+                  loading="lazy" 
+                />
               </div>
             )}
             components={{
@@ -346,12 +351,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             </div>
           )}
 
-          <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2 sm:p-2.5 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
-            <img 
-  src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" 
-  alt="Quick React" 
-  className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" 
-/>
+          <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2.5 sm:p-3 rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
+            <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
           </button>
         </div>
       </div>
