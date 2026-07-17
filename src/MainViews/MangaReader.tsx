@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  ArrowLeft, SkipForward,
-  Eye, EyeOff, X, User, Shield, 
+  ArrowLeft, SkipForward, X, User, Shield, 
   RotateCcw, MoveHorizontal, MoveVertical
 } from 'lucide-react';
 import { supabase } from '../supabase';
@@ -15,7 +14,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const [showHideHint, setShowHideHint] = useState(false);
 
   // Comments & Ticker
-  const [isTickerEnabled, setIsTickerEnabled] = useState(true);
   const [activeCommentIndex, setActiveCommentIndex] = useState(0);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [localComments, setLocalComments] = useState<any[]>([]); 
@@ -25,32 +23,26 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   // Stats & End Prompt
   const [showEndPrompt, setShowEndPrompt] = useState(false);
 
-  // --- THE FIX: VIEWPORT LOCK ---
   useEffect(() => {
-    // Grab the existing viewport meta tag
     let viewportMeta = document.querySelector('meta[name="viewport"]');
     let originalContent = '';
 
     if (viewportMeta) {
       originalContent = viewportMeta.getAttribute('content') || '';
-      // Force scale to 1.0 and disable user scaling/auto-zooming
       viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
     } else {
-      // If it doesn't exist, create it
       viewportMeta = document.createElement('meta');
       viewportMeta.setAttribute('name', 'viewport');
       viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
       document.head.appendChild(viewportMeta);
     }
 
-    // Cleanup: Restore original viewport when reader closes
     return () => {
       if (viewportMeta && originalContent) {
         viewportMeta.setAttribute('content', originalContent);
       }
     };
   }, []);
-  // ------------------------------
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -110,7 +102,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   const goNext = async (e?: any) => {
     if (e) e.stopPropagation(); 
-    
     if (currentPage >= pages.length - 1) {
       setShowEndPrompt(true);
       if (userId) {
@@ -144,7 +135,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const handleTap = (e: any) => {
     const x = e.clientX;
     const width = window.innerWidth;
-
     if (x < width * 0.3) goPrev(); 
     else if (x > width * 0.7) goNext(); 
     else toggleUI(); 
@@ -171,7 +161,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     }
   };
 
-  // --- VERTICAL SOUNDCLOUD TIMELINE LOGIC ---
   const maxPage = Math.max(1, pages.length - 1);
   const progressPercentage = (currentPage / maxPage) * 100;
   const timelineComments = localComments.slice(-25);
@@ -179,14 +168,15 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const activeComment = visibleComments[activeCommentIndex];
 
   useEffect(() => {
-    if (!isTickerEnabled || visibleComments.length <= 1) return;
+    if (visibleComments.length <= 1) return;
     const interval = setInterval(() => { setActiveCommentIndex((prev) => (prev + 1) % visibleComments.length); }, 3500);
     return () => clearInterval(interval);
-  }, [visibleComments.length, isTickerEnabled, currentPage]);
+  }, [visibleComments.length, currentPage]);
 
   useEffect(() => { setActiveCommentIndex(visibleComments.length > 0 ? visibleComments.length - 1 : 0); }, [currentPage, localComments.length]);
 
-  const handleProgressClick = (e: any) => {
+  // Handle Y-axis click for Vertical Mode
+  const handleVerticalProgressClick = (e: any) => {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     const clickY = e.clientY - rect.top; 
@@ -195,11 +185,28 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     setCurrentPage(Math.max(0, Math.min(newPage, maxPage)));
   };
 
+  // Handle X-axis click for Horizontal Mode
+  const handleHorizontalProgressClick = (e: any) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left; 
+    const percentage = clickX / rect.width;
+    const newPage = Math.round(percentage * maxPage);
+    setCurrentPage(Math.max(0, Math.min(newPage, maxPage)));
+  };
+
   return (
-    <div className="fixed inset-0 z-[100] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans">
+    <div 
+      className="fixed inset-0 z-[100] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans"
+      style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
+    >
       <style>{`
-        @keyframes slide-right-fade { 0% { opacity: 0; transform: translateX(-10px) translateY(-50%); } 100% { opacity: 1; transform: translateX(0) translateY(-50%); } }
+        @keyframes slide-right-fade { 0% { opacity: 0; transform: translateX(-10px); } 100% { opacity: 1; transform: translateX(0); } }
         .animate-slide-right-fade { animation: slide-right-fade 0.3s ease-out forwards; }
+        
+        @keyframes slide-up-fade { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
+        .animate-slide-up-fade { animation: slide-up-fade 0.3s ease-out forwards; }
+        
         @keyframes fade-in { 0% { opacity: 0; } 100% { opacity: 1; } }
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
       `}</style>
@@ -207,27 +214,33 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       {/* --- HORIZONTAL READER --- */}
       {mode === 'horizontal' && (
         <div 
-          className="absolute inset-0 w-full h-full cursor-pointer select-none z-0 overflow-hidden"
+          className="absolute inset-0 w-full h-full cursor-pointer select-none z-0 overflow-hidden flex items-center justify-center"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           onClick={handleTap}
+          style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
         >
           {pages[currentPage] ? (
             <img 
               src={getUrl(pages[currentPage])} 
-              className="absolute inset-0 w-full h-full max-w-full max-h-full object-contain m-auto pointer-events-none" 
+              className="object-contain pointer-events-none" 
+              style={{ width: '100%', height: '100%', maxWidth: '100vw', maxHeight: '100vh' }}
               alt={`Page ${currentPage + 1}`} 
               loading="lazy"
             />
           ) : (
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
+            <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
           )}
         </div>
       )}
 
       {/* --- VERTICAL READER --- */}
       {mode === 'vertical' && (
-        <div className="absolute inset-0 w-full h-full select-none overflow-x-hidden bg-[#0a0a0a] z-0" onClick={toggleUI}>
+        <div 
+          className="absolute inset-0 w-full h-full select-none overflow-x-hidden bg-[#0a0a0a] z-0" 
+          onClick={toggleUI}
+          style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
+        >
           <Virtuoso
             style={{ height: '100%', width: '100%' }}
             data={pages}
@@ -237,6 +250,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                 <img 
                   src={getUrl(pageData)} 
                   className="w-full max-w-4xl h-auto object-contain block mx-auto pointer-events-none" 
+                  style={{ maxWidth: '100vw' }}
                   alt={`Page ${index + 1}`} 
                   loading="lazy" 
                 />
@@ -283,7 +297,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         </div>
       )}
 
-      {/* CENTER TAP HINT */}
       <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[200] pointer-events-none transition-opacity duration-500 ${showHideHint ? 'opacity-100' : 'opacity-0'}`}>
          <div className="bg-black/60 backdrop-blur-md border border-zinc-700/50 px-6 py-4 rounded-full shadow-2xl flex items-center gap-3">
             <RotateCcw className="w-5 h-5 text-white/50" />
@@ -292,100 +305,171 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       </div>
 
       {/* --- TRANSLUCENT TOP-RIGHT INFO PILL --- */}
-      <div className={`absolute top-4 right-2 sm:right-4 bg-black/40 backdrop-blur-md border border-white/5 rounded-full px-4 py-2 z-50 flex flex-col items-end pointer-events-none transition-all duration-300 shadow-xl ${isUIVisible ? 'translate-y-0 opacity-100' : '-translate-y-8 opacity-0'}`}>
+      <div className={`absolute top-2 right-2 sm:top-3 sm:right-3 bg-black/40 backdrop-blur-md border border-white/5 rounded-full px-4 py-2 z-50 flex flex-col items-end pointer-events-none transition-all duration-300 shadow-xl ${isUIVisible ? 'translate-y-0 opacity-100' : '-translate-y-8 opacity-0'}`}>
         <span className="text-white/90 text-[10px] font-bold tracking-wider">{title || 'Reading'}</span>
         <span className="text-[#fe9a00] text-[9px] font-black uppercase tracking-widest mt-0.5">Page {currentPage + 1} / {pages.length}</span>
       </div>
 
-      {/* --- CONTAINER-FREE LEFT STACK UI --- */}
-      <div 
-        className={`absolute top-4 bottom-4 left-2 sm:left-4 w-12 sm:w-16 flex flex-col items-center py-2 z-50 transition-transform duration-300 ${isUIVisible ? 'translate-x-0' : '-translate-x-[200%]'}`}
-        onClick={(e) => e.stopPropagation()} 
-      >
-        
-        {/* Top: Nav & Toggle Comments */}
-        <div className="flex flex-col items-center gap-3 sm:gap-4 w-full">
-          <button onClick={onClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
-            <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
-          
-          <button onClick={() => setIsTickerEnabled(!isTickerEnabled)} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title={isTickerEnabled ? "Hide Comments" : "Show Comments"}>
-            {isTickerEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4 text-white/30" />}
-          </button>
-        </div>
 
-        {/* Middle: Floating Vertical Track */}
-        <div className="flex-1 w-full my-6 relative flex justify-center group" onClick={handleProgressClick}>
-          <div className="absolute inset-y-0 -inset-x-4 cursor-pointer z-10" />
-          
-          <div className="w-1.5 h-full bg-black/40 backdrop-blur-md rounded-full overflow-hidden relative pointer-events-none shadow-inner border border-white/5">
-            <div 
-              className="absolute top-0 left-0 w-full bg-[#fe9a00] transition-all duration-300"
-              style={{ height: `${progressPercentage}%` }}
-            />
+      {/* ========================================================================= */}
+      {/* --- UI BLOCK: VERTICAL MODE (LEFT STACK) ---                              */}
+      {/* ========================================================================= */}
+      {mode === 'vertical' && (
+        <div 
+          className={`absolute top-2 bottom-2 left-2 sm:top-3 sm:bottom-3 sm:left-3 w-12 sm:w-14 flex flex-col items-center py-2 z-50 transition-transform duration-300 ${isUIVisible ? 'translate-x-0' : '-translate-x-[200%]'}`}
+          onClick={(e) => e.stopPropagation()} 
+        >
+          {/* Top: Nav */}
+          <div className="flex flex-col items-center w-full">
+            <button onClick={onClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
+              <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
           </div>
 
-          {/* Render Pinned Avatars */}
-          {isTickerEnabled && timelineComments.map((comment) => (
-            <div 
-              key={comment.id}
-              className="absolute left-1/2 -translate-x-1/2 pointer-events-none transition-transform group-hover:scale-110 drop-shadow-md"
-              style={{ top: `${(comment.pageIndex / maxPage) * 100}%`, transform: 'translate(-50%, -50%)', zIndex: comment.pageIndex === currentPage ? 5 : 1 }}
-            >
-              {comment.avatar && !comment.avatar.includes('pravatar') ? (
-                <img 
-                  src={comment.avatar} 
-                  className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full object-cover shadow-lg transition-all ${comment.pageIndex === currentPage ? 'border-2 border-[#fe9a00] scale-125 opacity-100' : 'opacity-50 grayscale-[50%]'}`} 
-                  alt="" 
-                />
-              ) : (
-                <div className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full bg-zinc-800/90 flex items-center justify-center shadow-lg transition-all ${comment.pageIndex === currentPage ? 'border-2 border-[#fe9a00] scale-125 opacity-100' : 'opacity-50 grayscale-[50%]'}`}>
-                  <User className="w-2 h-2 sm:w-3 sm:h-3 text-zinc-400" />
-                </div>
-              )}
+          {/* Middle: Vertical Track */}
+          <div className="flex-1 w-full my-6 relative flex justify-center group" onClick={handleVerticalProgressClick}>
+            <div className="absolute inset-y-0 -inset-x-4 cursor-pointer z-10" />
+            <div className="w-1.5 h-full bg-black/40 backdrop-blur-md rounded-full overflow-hidden relative pointer-events-none shadow-inner border border-white/5">
+              <div className="absolute top-0 left-0 w-full bg-[#fe9a00] transition-all duration-300" style={{ height: `${progressPercentage}%` }} />
             </div>
-          ))}
 
-          {/* Active Comment Popup */}
-          {isTickerEnabled && activeComment && (
-            <div 
-              key={activeComment.id} 
-              className="absolute left-full ml-4 sm:ml-6 animate-slide-right-fade flex items-center pointer-events-none z-20"
-              style={{ top: `${(currentPage / maxPage) * 100}%` }}
-            >
-              <div className="w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-r-[5px] border-r-black/70 -mr-[1px]" />
-              <div className="bg-black/70 backdrop-blur-md text-white text-[10px] sm:text-[11px] px-3 py-1.5 sm:py-2 rounded-lg shadow-2xl whitespace-nowrap max-w-[180px] sm:max-w-[250px] truncate border border-white/5">
-                <span className="text-[#fe9a00] font-black mr-1 sm:mr-2 uppercase text-[8px] sm:text-[9px]">{activeComment.user}</span>
-                {activeComment.text}
+            {/* Pinned Avatars (Y-Axis) */}
+            {timelineComments.map((comment) => (
+              <div 
+                key={comment.id}
+                className="absolute left-1/2 pointer-events-none transition-transform group-hover:scale-110 drop-shadow-md"
+                style={{ top: `${(comment.pageIndex / maxPage) * 100}%`, transform: 'translate(-50%, -50%)', zIndex: comment.pageIndex === currentPage ? 5 : 1 }}
+              >
+                {comment.avatar && !comment.avatar.includes('pravatar') ? (
+                  <img src={comment.avatar} className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full object-cover shadow-lg transition-all ${comment.pageIndex === currentPage ? 'border-2 border-[#fe9a00] scale-125 opacity-100' : 'opacity-50 grayscale-[50%]'}`} alt="" />
+                ) : (
+                  <div className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full bg-zinc-800/90 flex items-center justify-center shadow-lg transition-all ${comment.pageIndex === currentPage ? 'border-2 border-[#fe9a00] scale-125 opacity-100' : 'opacity-50 grayscale-[50%]'}`}>
+                    <User className="w-2 h-2 sm:w-3 sm:h-3 text-zinc-400" />
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-        </div>
+            ))}
 
-        {/* Bottom: Tools */}
-        <div className="flex flex-col items-center gap-3 w-full">
-          <button 
-            onClick={() => setMode(mode === 'horizontal' ? 'vertical' : 'horizontal')} 
-            className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" 
-            title={mode === 'horizontal' ? 'Switch to Vertical Scroll' : 'Switch to Horizontal Reader'}
-          >
-            {mode === 'horizontal' ? <MoveVertical className="w-3 h-3 sm:w-4 sm:h-4" /> : <MoveHorizontal className="w-3 h-3 sm:w-4 sm:h-4" />}
-          </button>
-          
-          {userId && pages[currentPage] && (
-            <div className="scale-75 sm:scale-90 drop-shadow-md">
-              <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={userId} variant="icon" />
-            </div>
-          )}
+            {/* Active Comment Popup (Right slide) */}
+            {activeComment && (
+              <div 
+                key={activeComment.id} 
+                className="absolute left-full ml-3 sm:ml-4 flex items-center pointer-events-none z-20"
+                style={{ top: `${(currentPage / maxPage) * 100}%`, transform: 'translateY(-50%)' }}
+              >
+                <div className="animate-slide-right-fade flex items-center">
+                  <div className="w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-r-[5px] border-r-black/70 -mr-[1px]" />
+                  <div className="bg-black/70 backdrop-blur-md text-white text-[10px] sm:text-[11px] px-3 py-1.5 sm:py-2 rounded-lg shadow-2xl whitespace-nowrap max-w-[180px] sm:max-w-[250px] truncate border border-white/5">
+                    <span className="text-[#fe9a00] font-black mr-1 sm:mr-2 uppercase text-[8px] sm:text-[9px]">{activeComment.user}</span>
+                    {activeComment.text}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
-          <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2 sm:p-2.5 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
-            <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
-          </button>
+          {/* Bottom: Tools */}
+          <div className="flex flex-col items-center gap-3 w-full">
+            <button onClick={() => setMode('horizontal')} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Switch to Horizontal Reader">
+              <MoveHorizontal className="w-3 h-3 sm:w-4 sm:h-4" />
+            </button>
+            
+            {userId && pages[currentPage] && (
+              <div className="scale-75 sm:scale-90 drop-shadow-md">
+                <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={userId} variant="icon" />
+              </div>
+            )}
+
+            <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2.5 sm:p-3 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
+              <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+
+
+      {/* ========================================================================= */}
+      {/* --- UI BLOCK: HORIZONTAL MODE (BOTTOM BAR) ---                            */}
+      {/* ========================================================================= */}
+      {mode === 'horizontal' && (
+        <div 
+          className={`absolute bottom-2 left-2 right-2 sm:bottom-3 sm:left-3 sm:right-3 h-12 sm:h-14 flex flex-row items-center z-50 transition-transform duration-300 ${isUIVisible ? 'translate-y-0' : 'translate-y-[200%]'}`}
+          onClick={(e) => e.stopPropagation()} 
+        >
+          {/* Left: Nav */}
+          <div className="flex flex-row items-center">
+            <button onClick={onClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
+              <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+          </div>
+
+          {/* Middle: Horizontal Track */}
+          <div className="flex-1 h-full mx-4 sm:mx-6 relative flex items-center group" onClick={handleHorizontalProgressClick}>
+            <div className="absolute inset-x-0 -inset-y-4 cursor-pointer z-10" />
+            <div className="w-full h-1.5 bg-black/40 backdrop-blur-md rounded-full overflow-hidden relative pointer-events-none shadow-inner border border-white/5">
+              <div className="absolute top-0 left-0 h-full bg-[#fe9a00] transition-all duration-300" style={{ width: `${progressPercentage}%` }} />
+            </div>
+
+            {/* Pinned Avatars (X-Axis) */}
+            {timelineComments.map((comment) => (
+              <div 
+                key={comment.id}
+                className="absolute top-1/2 pointer-events-none transition-transform group-hover:scale-110 drop-shadow-md"
+                style={{ left: `${(comment.pageIndex / maxPage) * 100}%`, transform: 'translate(-50%, -50%)', zIndex: comment.pageIndex === currentPage ? 5 : 1 }}
+              >
+                {comment.avatar && !comment.avatar.includes('pravatar') ? (
+                  <img src={comment.avatar} className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full object-cover shadow-lg transition-all ${comment.pageIndex === currentPage ? 'border-2 border-[#fe9a00] scale-125 opacity-100' : 'opacity-50 grayscale-[50%]'}`} alt="" />
+                ) : (
+                  <div className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full bg-zinc-800/90 flex items-center justify-center shadow-lg transition-all ${comment.pageIndex === currentPage ? 'border-2 border-[#fe9a00] scale-125 opacity-100' : 'opacity-50 grayscale-[50%]'}`}>
+                    <User className="w-2 h-2 sm:w-3 sm:h-3 text-zinc-400" />
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Active Comment Popup (Up slide) */}
+            {activeComment && (
+              <div 
+                key={activeComment.id} 
+                className="absolute bottom-full mb-3 sm:mb-4 flex flex-col items-center pointer-events-none z-20"
+                style={{ left: `${(currentPage / maxPage) * 100}%`, transform: 'translateX(-50%)' }}
+              >
+                <div className="animate-slide-up-fade flex flex-col items-center">
+                  <div className="bg-black/70 backdrop-blur-md text-white text-[10px] sm:text-[11px] px-3 py-1.5 sm:py-2 rounded-lg shadow-2xl whitespace-nowrap max-w-[180px] sm:max-w-[250px] truncate border border-white/5">
+                    <span className="text-[#fe9a00] font-black mr-1 sm:mr-2 uppercase text-[8px] sm:text-[9px]">{activeComment.user}</span>
+                    {activeComment.text}
+                  </div>
+                  <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[5px] border-t-black/70 -mt-[1px]" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right: Tools */}
+          <div className="flex flex-row items-center gap-2 sm:gap-3">
+            <button onClick={() => setMode('vertical')} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Switch to Vertical Scroll">
+              <MoveVertical className="w-3 h-3 sm:w-4 sm:h-4" />
+            </button>
+            
+            {userId && pages[currentPage] && (
+              <div className="scale-75 sm:scale-90 drop-shadow-md">
+                <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={userId} variant="icon" />
+              </div>
+            )}
+
+            <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2.5 sm:p-3 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
+              <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
+            </button>
+          </div>
+        </div>
+      )}
+
 
       {/* --- TRANSLUCENT QUICK REACT INPUT POPUP --- */}
-      <div className="absolute bottom-6 left-16 sm:left-24 w-[calc(100%-80px)] sm:w-full max-w-sm z-[110] flex justify-start pr-2 sm:pr-4" onClick={(e) => e.stopPropagation()}>
+      <div 
+        className={`absolute z-[110] flex w-[calc(100%-16px)] sm:w-full max-w-sm pointer-events-none transition-all duration-300 ${mode === 'vertical' ? 'bottom-4 left-16 sm:left-20 justify-start' : 'bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 justify-center'}`} 
+        onClick={(e) => e.stopPropagation()}
+      >
         {isReactInputOpen && isUIVisible && (
            <div className="w-full bg-black/60 backdrop-blur-xl border border-white/10 p-2 rounded-2xl shadow-2xl animate-fade-in pointer-events-auto">
               {isPremium ? (
