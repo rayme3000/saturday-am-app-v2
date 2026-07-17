@@ -154,8 +154,8 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
         <div className="mt-6">
           {activeTab === 'home' && <HomeEditor Dropzone={Dropzone} />}
           {activeTab === 'series' && <SeriesEditor Dropzone={Dropzone} />}
-          {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} />}
-          {activeTab === 'magazine' && <MagazineUploader />}
+          {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
+          {activeTab === 'magazine' && <MagazineUploader Dropzone={Dropzone} />}
           {activeTab === 'avatars' && <AvatarMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
           {activeTab === 'stickers' && <StickerMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
           {activeTab === 'cardskins' && <CardSkinMaker />}
