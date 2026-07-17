@@ -25,6 +25,33 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   // Stats & End Prompt
   const [showEndPrompt, setShowEndPrompt] = useState(false);
 
+  // --- THE FIX: VIEWPORT LOCK ---
+  useEffect(() => {
+    // Grab the existing viewport meta tag
+    let viewportMeta = document.querySelector('meta[name="viewport"]');
+    let originalContent = '';
+
+    if (viewportMeta) {
+      originalContent = viewportMeta.getAttribute('content') || '';
+      // Force scale to 1.0 and disable user scaling/auto-zooming
+      viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+    } else {
+      // If it doesn't exist, create it
+      viewportMeta = document.createElement('meta');
+      viewportMeta.setAttribute('name', 'viewport');
+      viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+      document.head.appendChild(viewportMeta);
+    }
+
+    // Cleanup: Restore original viewport when reader closes
+    return () => {
+      if (viewportMeta && originalContent) {
+        viewportMeta.setAttribute('content', originalContent);
+      }
+    };
+  }, []);
+  // ------------------------------
+
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (user) {
@@ -177,7 +204,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
       `}</style>
 
-      {/* --- HORIZONTAL READER (BULLETPROOF SCALING) --- */}
+      {/* --- HORIZONTAL READER --- */}
       {mode === 'horizontal' && (
         <div 
           className="absolute inset-0 w-full h-full cursor-pointer select-none z-0 overflow-hidden"
@@ -198,7 +225,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         </div>
       )}
 
-      {/* --- VERTICAL READER (BULLETPROOF SCALING) --- */}
+      {/* --- VERTICAL READER --- */}
       {mode === 'vertical' && (
         <div className="absolute inset-0 w-full h-full select-none overflow-x-hidden bg-[#0a0a0a] z-0" onClick={toggleUI}>
           <Virtuoso
@@ -351,7 +378,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             </div>
           )}
 
-          <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2.5 sm:p-3 rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
+          <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2 sm:p-2.5 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
             <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
           </button>
         </div>
