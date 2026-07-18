@@ -319,12 +319,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                        <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                          <div 
                            className="h-full bg-[#fe9a00] rounded-full transition-all duration-500" 
-                           style={{ width: `${isLocked ? 0 : readProgress}%` }} 
+                           style={{ width: `${isLocked ? 0 : mockProgress}%` }} 
                          />
                        </div>
-                       <span className="text-[10px] font-black text-zinc-500">{isLocked ? 0 : readProgress}%</span>
+                       <span className="text-[10px] font-black text-zinc-500">{isLocked ? 0 : mockProgress}%</span>
                      </div>
-                     {readProgress === 100 && !isLocked && (
+                     {mockProgress === 100 && !isLocked && (
                        <span className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
                      )}
                   </div>
