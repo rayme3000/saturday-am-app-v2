@@ -13,6 +13,23 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
   const [homeMagazines, setHomeMagazines] = useState<any[]>([]);
   const [isLoadingSlides, setIsLoadingSlides] = useState(true);
 
+  // --- FRAME LOGIC ---
+  const BASIC_FRAMES = [
+    { id: 'none', style: 'border border-zinc-800' },
+    { id: 'red', style: 'border-2 border-red-600' },
+    { id: 'yellow', style: 'border-2 border-yellow-500' },
+    { id: 'cyan', style: 'border-2 border-cyan-500' },
+  ];
+
+  const PREMIUM_FRAMES = [
+    { id: 'gold', style: 'border-2 border-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)]', orbit: 'border-t-yellow-400 border-r-yellow-400 animate-[spin_3s_linear_infinite]' },
+    { id: 'appleblack', style: 'border-2 border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]', orbit: 'border-t-red-500 border-l-red-500 animate-[spin_2.5s_linear_infinite]' },
+    { id: 'clockstriker', style: 'border-2 border-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]', orbit: 'border-b-cyan-400 border-r-cyan-400 animate-[spin_3s_linear_infinite_reverse]' },
+  ];
+
+  const getFrameStyle = (id: string) => [...BASIC_FRAMES, ...PREMIUM_FRAMES].find(f => f.id === id)?.style || 'border border-[#fe9a00]';
+  const getOrbitStyle = (id: string) => PREMIUM_FRAMES.find(f => f.id === id)?.orbit || '';
+
   useEffect(() => {
     const fetchHomeData = async () => {
       try {
@@ -72,18 +89,29 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
           
           {currentUser ? (
             <div className="flex items-center gap-3 sm:gap-6">
-              <div className="hidden sm:flex items-center gap-3">
-                 {currentUser.avatar_url ? (
-                   <img src={currentUser.avatar_url} className="w-8 h-8 rounded-full border border-[#fe9a00] object-cover" alt="Avatar" />
-                 ) : (
-                   <div className="w-8 h-8 rounded-full bg-zinc-800 border border-[#fe9a00] flex items-center justify-center">
-                     <User className="w-4 h-4 text-zinc-400" />
+              
+              {/* --- UPDATED CLICKABLE AVATAR WITH FRAMES --- */}
+              <div 
+                className="hidden sm:flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => onNavigate({ action: 'profile' })}
+              >
+                 <div className="relative flex items-center justify-center w-8 h-8">
+                   <div className={`w-8 h-8 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 ${getFrameStyle(currentUser?.frame_url)}`}>
+                     {currentUser.avatar_url ? (
+                       <img src={currentUser.avatar_url} className="w-full h-full object-cover" alt="Avatar" />
+                     ) : (
+                       <User className="w-4 h-4 text-zinc-400" />
+                     )}
                    </div>
-                 )}
+                   {PREMIUM_FRAMES.some(p => p.id === currentUser?.frame_url) && (
+                     <div className={`absolute w-10 h-10 rounded-full border border-transparent pointer-events-none ${getOrbitStyle(currentUser?.frame_url)}`} />
+                   )}
+                 </div>
                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#fe9a00]">
                    Welcome, {currentUser.username}
                  </span>
               </div>
+              
               <button onClick={handleLogout} className="bg-zinc-900 border border-zinc-700 text-white px-4 sm:px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-sm hover:bg-red-600 hover:border-red-600 transition-all">
                 Logout
               </button>
