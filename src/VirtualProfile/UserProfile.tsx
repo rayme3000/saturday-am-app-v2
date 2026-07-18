@@ -291,17 +291,35 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     const savedTotal = localStorage.getItem('am_bingo_total');
     if (savedTotal) setTotalHunts(parseInt(savedTotal));
 
+    // --- FETCH AVATARS AND SKINS ---
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    const fetchData = async () => {
+      if (typeof supabase !== 'undefined') {
+        const { data: avatars } = await supabase.from('avatars').select('*').eq('is_active', true).order('created_at', { ascending: false });
+        if (avatars) setVaultAvatars(avatars);
+        
+        const { data: skins } = await supabase.from('card_skins').select('*').eq('is_active', true).order('created_at', { ascending: false });
+        if (skins) setCardSkins(skins);
+      }
+    };
+    fetchData();
+  }, []);
+
     // 2. Fetch the rest of the database stats
     const fetchUserStats = async () => {
       const { data: { user } } = await supabase.auth.getUser();
 
       if (user) {
         setIsLoggedIn(true);
+        // INSTANTLY GRAB REAL NAME FROM LOGIN SESSION
+        const fallbackName = user.user_metadata?.username || 'Reader';
+
         const { data, error } = await supabase
           .from('profiles')
           .select('username, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read, top_series, card_skin_url, avatar_url, frame_url')
           .eq('id', user.id)
-          .single();
+          .maybeSingle();
 
         if (data) {
           setProfileStats({
@@ -311,11 +329,11 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
             chapters_read: data.chapters_read || 0
           });
 
-          // Officially sync premium status!
           setIsSubscriber(data.is_premium || false);
 
           const loadedProfile = {
-            username: data.username || 'Reader',
+            ...userProfile,
+            username: data.username || fallbackName, // Use real name!
             topFive: data.top_series || [null, null, null, null, null],
             cardSkin: data.card_skin_url || '',
             avatarUrl: data.avatar_url || '',
@@ -324,17 +342,16 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
           setUserProfile(loadedProfile);
           setTempProfile(loadedProfile);
+        } else {
+          // GHOST USER SAFETY NET
+          const ghostProfile = { ...userProfile, username: fallbackName };
+          setUserProfile(ghostProfile);
+          setTempProfile(ghostProfile);
         }
       } else {
         // Reset to default if logged out
         setIsLoggedIn(false);
-        setUserProfile({
-          username: 'Reader',
-          avatarUrl: '', 
-          frameId: 'none',
-          cardSkin: '', 
-          topFive: [null, null, null, null, null]
-        });
+        setUserProfile({ username: 'Reader', avatarUrl: '', frameId: 'none', cardSkin: '', topFive: [null, null, null, null, null] });
       }
     };
 
@@ -374,11 +391,14 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (user) {
+      // Guarantee we don't accidentally save "Reader" to the database
+      const realName = user.user_metadata?.username || tempProfile.username;
+
       const { error } = await supabase
         .from('profiles')
         .upsert({
-          id: user.id, // CRUCIAL: Tells Supabase exactly who to create/update
-          username: tempProfile.username,
+          id: user.id, 
+          username: realName, 
           top_series: tempProfile.topFive,
           card_skin_url: tempProfile.cardSkin,
           avatar_url: tempProfile.avatarUrl,
@@ -387,7 +407,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
       if (error) {
         console.error("Error saving profile:", error);
-        alert("Failed to save your loadout. Try again!");
+        alert("Failed to save! Make sure your Supabase RLS policy allows UPDATE and INSERT for profiles.");
         return;
       }
     }
