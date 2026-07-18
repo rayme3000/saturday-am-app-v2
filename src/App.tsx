@@ -139,10 +139,26 @@ const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userT
 });
 
 export default function App() {
-  const [showSplash, setShowSplash] = useState(true);
-  const [currentView, setCurrentView] = useState('home');
-  const [selectedSeries, setSelectedSeries] = useState(null);
-  const [selectedMagazine, setSelectedMagazine] = useState(null);
+  // --- PERSISTENT STATE INITIALIZATION ---
+  const [currentView, setCurrentView] = useState(() => {
+    return sessionStorage.getItem('currentView') || 'home';
+  });
+
+  const [selectedSeries, setSelectedSeries] = useState(() => {
+    const saved = sessionStorage.getItem('selectedSeries');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [selectedMagazine, setSelectedMagazine] = useState(() => {
+    const saved = sessionStorage.getItem('selectedMagazine');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  // Only show splash screen if there is no saved session (first visit)
+  const [showSplash, setShowSplash] = useState(() => {
+    return !sessionStorage.getItem('currentView');
+  });
+
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
 
   // System Overlays
@@ -155,23 +171,41 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userTier, setUserTier] = useState<'visitor' | 'free' | 'premium'>('visitor');
 
-  useEffect(() => { 
-    const timer = setTimeout(() => setShowSplash(false), 3000); 
-    return () => clearTimeout(timer); 
-  }, []);
+  // --- SESSION STORAGE SYNC ---
+  // Every time these change, back them up to browser memory instantly
+  useEffect(() => {
+    sessionStorage.setItem('currentView', currentView);
+    
+    if (selectedSeries) {
+      sessionStorage.setItem('selectedSeries', JSON.stringify(selectedSeries));
+    } else {
+      sessionStorage.removeItem('selectedSeries');
+    }
 
-  // --- NEW: SUPABASE AUTH LISTENER ---
+    if (selectedMagazine) {
+      sessionStorage.setItem('selectedMagazine', JSON.stringify(selectedMagazine));
+    } else {
+      sessionStorage.removeItem('selectedMagazine');
+    }
+  }, [currentView, selectedSeries, selectedMagazine]);
+
+  useEffect(() => { 
+    if (showSplash) {
+      const timer = setTimeout(() => setShowSplash(false), 3000); 
+      return () => clearTimeout(timer); 
+    }
+  }, [showSplash]);
+
+  // --- SUPABASE AUTH LISTENER ---
   useEffect(() => {
     const fetchUserProfile = async (userId: string) => {
       const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
       if (data) {
         setCurrentUser(data);
-        // Map the database text to our app state
         setUserTier(data.subscription_tier === 'premium' ? 'premium' : 'free');
       }
     };
 
-    // 1. Check active session on initial load
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         fetchUserProfile(session.user.id);
@@ -180,7 +214,6 @@ export default function App() {
       }
     });
 
-    // 2. Listen for login/logout events in real-time
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         fetchUserProfile(session.user.id);
@@ -193,7 +226,6 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Cached with useCallback so it doesn't break our memoized components
   const handleNavigate = useCallback((data: any) => {
     if (data.action === 'home') { setCurrentView('home'); return; }
     if (data.action === 'faves') { setCurrentView('faves'); return; }
@@ -225,7 +257,7 @@ export default function App() {
         </div>
       )}
       
-      {/* GLOBAL STYLES (WITH SCROLLBAR HIDING RESTORED) */}
+      {/* GLOBAL STYLES */}
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Unbounded:wght@700;800;900&display=swap');
@@ -262,7 +294,6 @@ export default function App() {
           onClose={() => setShowLogin(false)}
           onSuccess={() => {
             setShowLogin(false);
-            // Re-render handled automatically by the auth listener!
           }}
         />
       )}
@@ -286,7 +317,7 @@ export default function App() {
             <button 
               onClick={() => {
                 setUpsellConfig(null);
-                handleNavigate({ action: 'sub' }); // Instantly routes them to your Subscription Page!
+                handleNavigate({ action: 'sub' });
               }} 
               className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
             >
@@ -312,7 +343,7 @@ export default function App() {
         onClose={() => setIsFlexCardOpen(false)}
       />
 
-      {/* 4. Main Views (Code Split via Suspense) - passing down userTier */}
+      {/* 4. Main Views */}
       <Suspense fallback={
         <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4 pb-20">
           <div className="w-8 h-8 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
@@ -330,21 +361,34 @@ export default function App() {
         )}
 
         {currentView === 'series' && (
-  <SeriesDetailPage 
-    userTier={userTier} 
-    series={selectedSeries} 
-    onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} 
-    onLoginClick={() => setShowLogin(true)} 
-  />
-)}
+          <SeriesDetailPage 
+            userTier={userTier} 
+            series={selectedSeries} 
+            onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} 
+            onLoginClick={() => setShowLogin(true)} 
+          />
+        )}
 
-        {currentView === 'magazine' && (<MagazineDetailPage userTier={userTier} magazine={selectedMagazine} onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} />)}
+        {currentView === 'magazine' && (
+          <MagazineDetailPage 
+            userTier={userTier} 
+            magazine={selectedMagazine} 
+            onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} 
+            onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} 
+          />
+        )}
 
-        {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
+        {currentView === 'admin' && (
+          isAdminAuthenticated ? 
+            <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : 
+            <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />
+        )}
 
-        {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+        {currentView === 'profile' && (
+          <UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />
+        )}
 
-{currentView === 'sub' && (
+        {currentView === 'sub' && (
           <SubscriptionPage 
             userTier={userTier} 
             onBack={() => setCurrentView('home')} 

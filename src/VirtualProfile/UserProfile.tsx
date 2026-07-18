@@ -28,19 +28,76 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const getOrbitStyle = (id: string) => PREMIUM_FRAMES.find(f => f.id === id)?.orbit || '';
 
   useEffect(() => {
-    if (!isOpen) { setIsFlipped(false); return; }
-    const fetchStats = async () => {
+    // 1. Grab local Bingo Book progress immediately on load
+    const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
+    setUnlockedHunts(savedHunts.length);
+    
+    // Check if the Bingo Book gave us a new total to use!
+    const savedTotal = localStorage.getItem('am_bingo_total');
+    if (savedTotal) setTotalHunts(parseInt(savedTotal));
+
+    // 2. Fetch the rest of the database stats
+    const fetchUserStats = async () => {
       const { data: { user } } = await supabase.auth.getUser();
+
       if (user) {
-        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+        setIsLoggedIn(true);
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('username, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read, top_series, card_skin_url, avatar_url, frame_url')
+          .eq('id', user.id)
+          .single();
+
         if (data) {
-          setProfileStats({ total_hypes: data.total_hypes || 0, super_hypes: data.super_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0 });
-          setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', frameId: data.frame_id || 'none', cardSkin: data.card_skin || '', topFive: data.top_five || [null, null, null, null, null] });
+          setProfileStats({
+            total_hypes: data.total_hypes || 0,
+            super_hypes: data.super_hypes || 0,
+            quick_reacts: data.quick_reacts || 0,
+            chapters_read: data.chapters_read || 0
+          });
+
+          // Officially sync premium status!
+          setIsSubscriber(data.is_premium || false);
+
+          const loadedProfile = {
+            username: data.username || 'Reader',
+            topFive: data.top_series || [null, null, null, null, null],
+            cardSkin: data.card_skin_url || '',
+            avatarUrl: data.avatar_url || '',
+            frameId: data.frame_url || 'none'
+          };
+
+          setUserProfile(loadedProfile);
+          setTempProfile(loadedProfile);
         }
+      } else {
+        // Reset to default if logged out
+        setIsLoggedIn(false);
+        setUserProfile({
+          username: 'Reader',
+          avatarUrl: '', 
+          frameId: 'none',
+          cardSkin: '', 
+          topFive: [null, null, null, null, null]
+        });
       }
     };
-    fetchStats();
-  }, [isOpen]);
+
+    // Run it once on initial load
+    fetchUserStats();
+
+    // 3. THE MAGIC LISTENER: Listen for logins/logouts and re-run the fetch!
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+        fetchUserStats();
+      }
+    });
+
+    // Cleanup the listener when the component unmounts
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   if (!isOpen) return null;
 

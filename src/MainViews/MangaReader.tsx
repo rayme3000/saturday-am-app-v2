@@ -12,6 +12,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const [mode, setMode] = useState<'horizontal' | 'vertical'>('horizontal'); 
   const [isUIVisible, setIsUIVisible] = useState(true);
   const [showHideHint, setShowHideHint] = useState(false);
+  
+  // --- NEW: PROGRESS LOADING STATE ---
+  const [isLoadingProgress, setIsLoadingProgress] = useState(true);
 
   // Comments & Ticker
   const [activeCommentIndex, setActiveCommentIndex] = useState(0);
@@ -23,6 +26,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   // Stats & End Prompt
   const [showEndPrompt, setShowEndPrompt] = useState(false);
 
+  // --- Viewport Lock ---
   useEffect(() => {
     let viewportMeta = document.querySelector('meta[name="viewport"]');
     let originalContent = '';
@@ -44,6 +48,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
   }, []);
 
+  // --- Auth Fetch ---
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (user) {
@@ -53,6 +58,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     });
   }, []);
 
+  // --- Fetch Comments ---
   useEffect(() => {
     if (!chapterId) return;
     const fetchReacts = async () => {
@@ -64,12 +70,69 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     fetchReacts();
   }, [chapterId]);
 
+  // --- FETCH READING PROGRESS ---
   useEffect(() => {
-    setCurrentPage(0);
+    if (!chapterId) return;
+    
     setShowEndPrompt(false);
     setIsReactInputOpen(false);
     setIsUIVisible(true); 
-  }, [chapterId]);
+
+    const fetchProgress = async () => {
+      if (!userId) {
+        // If visitor, just start at 0
+        setCurrentPage(0);
+        setIsLoadingProgress(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('reading_history')
+          .select('page_index')
+          .eq('user_id', userId)
+          .eq('chapter_id', chapterId)
+          .single();
+
+        if (data) {
+          setCurrentPage(data.page_index);
+        } else {
+          setCurrentPage(0);
+        }
+      } catch (err) {
+        console.error("No saved progress found, starting at 0");
+        setCurrentPage(0);
+      } finally {
+        setIsLoadingProgress(false);
+      }
+    };
+
+    fetchProgress();
+  }, [chapterId, userId]);
+
+  // --- SAVE READING PROGRESS (DEBOUNCED) ---
+  useEffect(() => {
+    // Skip if visitor or if we are still loading initial progress
+    if (!userId || !chapterId || isLoadingProgress) return;
+
+    const saveTimer = setTimeout(async () => {
+      try {
+        await supabase.from('reading_history').upsert(
+          {
+            user_id: userId,
+            chapter_id: chapterId,
+            page_index: currentPage,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: 'user_id, chapter_id' }
+        );
+      } catch (error) {
+        console.error("Failed to save progress:", error);
+      }
+    }, 1500); // Waits 1.5 seconds after they stop flipping pages before saving
+
+    return () => clearTimeout(saveTimer);
+  }, [currentPage, userId, chapterId, isLoadingProgress]);
 
   const handleReactSubmit = async () => {
     if (!reactText.trim() || !currentUser || !chapterId) return;
@@ -175,7 +238,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   useEffect(() => { setActiveCommentIndex(visibleComments.length > 0 ? visibleComments.length - 1 : 0); }, [currentPage, localComments.length]);
 
-  // Handle Y-axis click for Vertical Mode
   const handleVerticalProgressClick = (e: any) => {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -185,7 +247,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     setCurrentPage(Math.max(0, Math.min(newPage, maxPage)));
   };
 
-  // Handle X-axis click for Horizontal Mode
   const handleHorizontalProgressClick = (e: any) => {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -194,6 +255,14 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     const newPage = Math.round(percentage * maxPage);
     setCurrentPage(Math.max(0, Math.min(newPage, maxPage)));
   };
+
+  if (isLoadingProgress) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-[#0a0a0a] flex items-center justify-center" style={{ width: '100vw', height: '100vh' }}>
+        <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   return (
     <div 
@@ -244,6 +313,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           <Virtuoso
             style={{ height: '100%', width: '100%' }}
             data={pages}
+            initialTopMostItemIndex={currentPage}
             rangeChanged={(range) => setCurrentPage(Math.max(0, range.startIndex))}
             itemContent={(index, pageData: any) => (
               <div className="w-full max-w-full overflow-hidden bg-[#0a0a0a]">
@@ -463,7 +533,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           </div>
         </div>
       )}
-
 
       {/* --- TRANSLUCENT QUICK REACT INPUT POPUP --- */}
       <div 
