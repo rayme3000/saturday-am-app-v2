@@ -376,13 +376,14 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     if (user) {
       const { error } = await supabase
         .from('profiles')
-        .update({
+        .upsert({
+          id: user.id, // CRUCIAL: Tells Supabase exactly who to create/update
+          username: tempProfile.username,
           top_series: tempProfile.topFive,
           card_skin_url: tempProfile.cardSkin,
           avatar_url: tempProfile.avatarUrl,
           frame_url: tempProfile.frameId
-        })
-        .eq('id', user.id);
+        });
 
       if (error) {
         console.error("Error saving profile:", error);

@@ -199,20 +199,31 @@ export default function App() {
   // --- SUPABASE AUTH LISTENER ---
   useEffect(() => {
     const fetchUserProfile = async (sessionUser: any) => {
-      // 1. Immediately set a baseline user so the UI updates the split-second you log in!
+      // Grab the username they typed during signup, or default to Reader
+      const fallbackName = sessionUser.user_metadata?.username || 'Reader';
+      
+      // 1. Immediately set the Nav baseline
       setCurrentUser({
-        username: sessionUser.user_metadata?.username || 'Reader',
+        username: fallbackName,
         avatar_url: ''
       });
 
-      // 2. Try to fetch the full database profile
-      // Using .maybeSingle() prevents loud errors if the profile row doesn't exist yet
+      // 2. Try to fetch their profile from the database
       const { data } = await supabase.from('profiles').select('*').eq('id', sessionUser.id).maybeSingle();
       
       if (data) {
-        // 3. If a profile is found, overwrite the baseline with their real stats
+        // Standard User: Load their stats!
         setCurrentUser(data);
         setUserTier(data.subscription_tier === 'premium' ? 'premium' : 'free');
+      } else {
+        // GHOST USER DETECTED!
+        // 3. Immediately unlock the app by forcing the Free tier
+        setUserTier('free');
+        
+        // 4. Silently create their missing profile row in the database so saves work!
+        await supabase.from('profiles').insert([
+          { id: sessionUser.id, username: fallbackName, subscription_tier: 'free' }
+        ]);
       }
     };
 
