@@ -430,7 +430,7 @@ export default function App() {
         
         {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} />)}
 
-        {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} />)}
+        {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}
 
         {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
       </Suspense>
