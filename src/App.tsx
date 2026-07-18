@@ -353,6 +353,7 @@ export default function App() {
         {currentView === 'home' && (
           <HomePage
             userTier={userTier}
+            currentUser={currentUser} 
             onNavigate={handleNavigate}
             onAdminAccess={() => setCurrentView('admin')}
             onLoginClick={() => setShowLogin(true)}
@@ -421,4 +422,4 @@ export default function App() {
       <ScrollToTopButton />
     </>
   );
-}
+}npm

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Menu } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { MagazineHomeSection } from './MagazineHomeSection';
 import { SeriesSection } from './SeriesSection';
+import { Menu, User } from 'lucide-react';
 
-export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle }: any) => {
+export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle, currentUser }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [heroSlides, setHeroSlides] = useState<any[]>([]);
@@ -46,6 +46,11 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
     }
   };
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    // The listener in App.tsx will automatically detect this and clear the session!
+  };
+
   if (isLoading) return <div className="min-h-screen bg-black text-[#fe9a00] flex items-center justify-center font-black tracking-widest">Loading Vault...</div>;
 
   return (
@@ -65,9 +70,29 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
             />
           </div>
           
-          <button onClick={onLoginClick} className="bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-sm hover:bg-white hover:shadow-[0_0_15px_rgba(254,154,0,0.4)] transition-all">
-            Login
-          </button>
+          {currentUser ? (
+            <div className="flex items-center gap-3 sm:gap-6">
+              <div className="hidden sm:flex items-center gap-3">
+                 {currentUser.avatar_url ? (
+                   <img src={currentUser.avatar_url} className="w-8 h-8 rounded-full border border-[#fe9a00] object-cover" alt="Avatar" />
+                 ) : (
+                   <div className="w-8 h-8 rounded-full bg-zinc-800 border border-[#fe9a00] flex items-center justify-center">
+                     <User className="w-4 h-4 text-zinc-400" />
+                   </div>
+                 )}
+                 <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#fe9a00]">
+                   Welcome, {currentUser.username}
+                 </span>
+              </div>
+              <button onClick={handleLogout} className="bg-zinc-900 border border-zinc-700 text-white px-4 sm:px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-sm hover:bg-red-600 hover:border-red-600 transition-all">
+                Logout
+              </button>
+            </div>
+          ) : (
+            <button onClick={onLoginClick} className="bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-sm hover:bg-white hover:shadow-[0_0_15px_rgba(254,154,0,0.4)] transition-all">
+              Login
+            </button>
+          )}
           
         </nav>
 
