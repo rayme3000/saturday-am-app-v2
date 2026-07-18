@@ -719,7 +719,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
                       </div>
                       {vaultAvatars.map(avatar => (
                         <div key={avatar.id} onClick={() => setTempProfile({...tempProfile, avatarUrl: avatar.image_url})} className={`relative cursor-pointer rounded-full p-1 transition-all ${tempProfile.avatarUrl === avatar.image_url ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
-                          <img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" /><img src={avatar.image_url} alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" /><img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" />
+                          <img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" />
                         </div>
                       ))}
                     </div>
