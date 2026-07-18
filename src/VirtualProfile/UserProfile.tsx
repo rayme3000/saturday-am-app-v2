@@ -9,7 +9,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const [profileStats, setProfileStats] = useState({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0 });
   const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', frameId: 'none', cardSkin: '', topFive: [null, null, null, null, null] });
   const [isFlipped, setIsFlipped] = useState(false);
-  
 
   const BASIC_FRAMES = [
     { id: 'none', name: 'Original', style: 'border-2 border-zinc-800' },
@@ -179,7 +178,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   );
 };
 
-
 // --- 2. MAIN USER PROFILE COMPONENT ---
 export const UserProfile = ({ onBack, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
@@ -209,89 +207,10 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     chapters_read: 0
   });
 
-  // --- NEW: TOTAL HUNTS STATE DEFINED HERE ---
   const [unlockedHunts, setUnlockedHunts] = useState(0);
   const [totalHunts, setTotalHunts] = useState(11);
 
-  useEffect(() => {
-    // 1. Grab local Bingo Book progress immediately on load
-    const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
-    setUnlockedHunts(savedHunts.length);
-    
-    // Check if the Bingo Book gave us a new total to use!
-    const savedTotal = localStorage.getItem('am_bingo_total');
-    if (savedTotal) setTotalHunts(parseInt(savedTotal));
-
-    // 2. Fetch the rest of the database stats
-    const fetchUserStats = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (user) {
-        setIsLoggedIn(true);
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('username, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read, top_series, card_skin_url, avatar_url, frame_url')
-          .eq('id', user.id)
-          .single();
-
-        if (data) {
-          setProfileStats({
-            total_hypes: data.total_hypes || 0,
-            super_hypes: data.super_hypes || 0,
-            quick_reacts: data.quick_reacts || 0,
-            chapters_read: data.chapters_read || 0
-          });
-
-          // Officially sync premium status!
-          setIsSubscriber(data.is_premium || false);
-
-          const loadedProfile = {
-            ...userProfile,
-            username: data.username || 'Reader',
-            topFive: data.top_series || [null, null, null, null, null],
-            cardSkin: data.card_skin_url || '',
-            avatarUrl: data.avatar_url || '',
-            frameId: data.frame_url || 'none'
-          };
-
-          setUserProfile(loadedProfile);
-          setTempProfile(loadedProfile);
-        }
-      }
-    };
-    fetchUserStats();
-  }, []);
-
-  const fallbackSeriesList = [
-    { slug: 'apple-black', title: 'Apple Black', creator_name: 'Whyt Manga', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/apple-black-cover.jpg' },
-    { slug: 'clock-striker', title: 'Clock Striker', creator_name: 'Frederick Ward', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/clock-striker-cover.jpg' },
-    { slug: 'titan-king', title: 'Titan King', creator_name: 'Tony Gold', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/titan-king-cover.jpg' },
-  ];
-  const displaySeriesList = seriesList && seriesList.length > 0 ? seriesList : fallbackSeriesList;
-
-  const BASIC_FRAMES = [
-    { id: 'none', name: 'Original', style: 'border-2 border-zinc-800' },
-    { id: 'red', name: 'Solid Red', style: 'border-2 border-red-600' },
-    { id: 'yellow', name: 'Solid Yellow', style: 'border-2 border-yellow-500' },
-    { id: 'cyan', name: 'Solid Cyan', style: 'border-2 border-cyan-500' },
-  ];
-
-  const PREMIUM_FRAMES = [
-    { id: 'gold', name: 'Ultra Gold', style: 'border-2 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.5)]', orbit: 'border-t-yellow-400 border-r-yellow-400 animate-[spin_3s_linear_infinite]' },
-    { id: 'appleblack', name: 'Apple Black', style: 'border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]', orbit: 'border-t-red-500 border-l-red-500 animate-[spin_2.5s_linear_infinite]' },
-    { id: 'clockstriker', name: 'Clock Striker', style: 'border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]', orbit: 'border-b-cyan-400 border-r-cyan-400 animate-[spin_3s_linear_infinite_reverse]' },
-  ];
-
-  useEffect(() => {
-    // 1. Grab local Bingo Book progress immediately on load
-    const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
-    setUnlockedHunts(savedHunts.length);
-    
-    // Check if the Bingo Book gave us a new total to use!
-    const savedTotal = localStorage.getItem('am_bingo_total');
-    if (savedTotal) setTotalHunts(parseInt(savedTotal));
-
-    // --- FETCH AVATARS AND SKINS ---
+  // --- 1. FETCH AVATARS AND SKINS (Standalone Hook) ---
   useEffect(() => {
     window.scrollTo(0, 0);
     const fetchData = async () => {
@@ -305,6 +224,16 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     };
     fetchData();
   }, []);
+
+  // --- 2. FETCH USER STATS & BINGO BOOK (Standalone Hook) ---
+  useEffect(() => {
+    // 1. Grab local Bingo Book progress immediately on load
+    const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
+    setUnlockedHunts(savedHunts.length);
+    
+    // Check if the Bingo Book gave us a new total to use!
+    const savedTotal = localStorage.getItem('am_bingo_total');
+    if (savedTotal) setTotalHunts(parseInt(savedTotal));
 
     // 2. Fetch the rest of the database stats
     const fetchUserStats = async () => {
@@ -416,6 +345,26 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     setIsEditing(false);
     alert("Profile Loadout Saved Successfully!"); 
   };
+
+  const fallbackSeriesList = [
+    { slug: 'apple-black', title: 'Apple Black', creator_name: 'Whyt Manga', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/apple-black-cover.jpg' },
+    { slug: 'clock-striker', title: 'Clock Striker', creator_name: 'Frederick Ward', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/clock-striker-cover.jpg' },
+    { slug: 'titan-king', title: 'Titan King', creator_name: 'Tony Gold', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/titan-king-cover.jpg' },
+  ];
+  const displaySeriesList = seriesList && seriesList.length > 0 ? seriesList : fallbackSeriesList;
+
+  const BASIC_FRAMES = [
+    { id: 'none', name: 'Original', style: 'border-2 border-zinc-800' },
+    { id: 'red', name: 'Solid Red', style: 'border-2 border-red-600' },
+    { id: 'yellow', name: 'Solid Yellow', style: 'border-2 border-yellow-500' },
+    { id: 'cyan', name: 'Solid Cyan', style: 'border-2 border-cyan-500' },
+  ];
+
+  const PREMIUM_FRAMES = [
+    { id: 'gold', name: 'Ultra Gold', style: 'border-2 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.5)]', orbit: 'border-t-yellow-400 border-r-yellow-400 animate-[spin_3s_linear_infinite]' },
+    { id: 'appleblack', name: 'Apple Black', style: 'border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]', orbit: 'border-t-red-500 border-l-red-500 animate-[spin_2.5s_linear_infinite]' },
+    { id: 'clockstriker', name: 'Clock Striker', style: 'border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]', orbit: 'border-b-cyan-400 border-r-cyan-400 animate-[spin_3s_linear_infinite_reverse]' },
+  ];
 
   const getFrameStyle = (id: string) => [...BASIC_FRAMES, ...PREMIUM_FRAMES].find(f => f.id === id)?.style || 'border-2 border-zinc-800';
   const getOrbitStyle = (id: string) => PREMIUM_FRAMES.find(f => f.id === id)?.orbit || '';
