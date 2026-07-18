@@ -62,7 +62,7 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium = false, onRequi
         .from('profiles')
         .select('super_hypes')
         .eq('id', userId)
-        .single();
+        .maybeSingle(); // <-- CHANGED FROM .single()
       
       const currentSuperHypes = profile?.super_hypes || 0;
 

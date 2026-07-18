@@ -41,7 +41,7 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
         .from('profiles')
         .select('total_hypes')
         .eq('id', userId)
-        .single();
+        .maybeSingle(); // <-- CHANGED FROM .single()
       
       const currentTotalHypes = profile?.total_hypes || 0;
 

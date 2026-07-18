@@ -84,6 +84,24 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
     if (!error && data) { 
       setComments([data, ...comments]); 
       setCommentText(''); 
+      
+      // --- NEW: INCREMENT QUICK REACTS / COMMENTS ON PROFILE ---
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('quick_reacts')
+          .eq('id', currentUser.id)
+          .maybeSingle();
+          
+        const currentReacts = profile?.quick_reacts || 0;
+        
+        await supabase
+          .from('profiles')
+          .update({ quick_reacts: currentReacts + 1 })
+          .eq('id', currentUser.id);
+      } catch (err) {
+        console.error("Failed to update comment stats:", err);
+      }
     }
     setIsSubmitting(false);
   };
