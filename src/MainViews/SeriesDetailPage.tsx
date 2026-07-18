@@ -20,6 +20,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [showAwards, setShowAwards] = useState(false);
   const awardTimeoutRef = useRef<any>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
+  const [readProgresses, setReadProgresses] = useState<any>({});
 
   // --- UPSELL MODAL CONFIG ---
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
@@ -67,6 +68,49 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     };
     fetchDetails();
   }, [series]);
+  // --- FETCH ACTUAL READING PROGRESS ---
+  useEffect(() => {
+    if (!currentUserId || chapters.length === 0) return;
+
+    const fetchReadingProgress = async () => {
+      const chapterIds = chapters.map(c => c.id);
+
+      // 1. Get the user's saved pages from the MangaReader
+      const { data: historyData } = await supabase
+        .from('reading_history')
+        .select('chapter_id, page_index')
+        .eq('user_id', currentUserId)
+        .in('chapter_id', chapterIds);
+
+      if (!historyData || historyData.length === 0) return;
+
+      // 2. Get total pages per chapter to calculate the %
+      const { data: pagesData } = await supabase
+        .from('pages')
+        .select('chapter_id')
+        .in('chapter_id', chapterIds);
+
+      const pageCounts: any = {};
+      if (pagesData) {
+        pagesData.forEach((p: any) => {
+          pageCounts[p.chapter_id] = (pageCounts[p.chapter_id] || 0) + 1;
+        });
+      }
+
+      // 3. Calculate exact percentages
+      const progressMap: any = {};
+      historyData.forEach((h: any) => {
+        const totalPages = pageCounts[h.chapter_id] || 1;
+        const maxPage = Math.max(1, totalPages - 1);
+        const percentage = Math.min(100, Math.round((h.page_index / maxPage) * 100));
+        progressMap[h.chapter_id] = percentage;
+      });
+
+      setReadProgresses(progressMap);
+    };
+
+    fetchReadingProgress();
+  }, [currentUserId, chapters]);
 
   const totalHype = chapters.reduce((sum: number, ch: any) => sum + (ch.hype_count || 0), 0) + (localSeries?.hype_count || 0);
   
@@ -279,7 +323,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
         <div className="mt-8 px-4 sm:px-6 pb-12 w-full max-w-3xl mx-auto">
           {chapters.map((ch: any, index: number) => {
-            const mockProgress = ch.progress || (index === 0 ? 100 : index === 1 ? 50 : 0);
+            const actualProgress = readProgresses[ch.id] || 0;
             const realReacts = ch.react_count || 0;
             const isLocked = checkIsLocked(index);
 
@@ -319,12 +363,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                        <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                          <div 
                            className="h-full bg-[#fe9a00] rounded-full transition-all duration-500" 
-                           style={{ width: `${isLocked ? 0 : mockProgress}%` }} 
+                           style={{ width: `${isLocked ? 0 : actualProgress}%` }} 
                          />
                        </div>
-                       <span className="text-[10px] font-black text-zinc-500">{isLocked ? 0 : mockProgress}%</span>
+                       <span className="text-[10px] font-black text-zinc-500">{isLocked ? 0 : actualProgress}%</span>
                      </div>
-                     {mockProgress === 100 && !isLocked && (
+                     {actualProgress === 100 && !isLocked && (
                        <span className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
                      )}
                   </div>
