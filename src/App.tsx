@@ -198,9 +198,19 @@ export default function App() {
 
   // --- SUPABASE AUTH LISTENER ---
   useEffect(() => {
-    const fetchUserProfile = async (userId: string) => {
-      const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    const fetchUserProfile = async (sessionUser: any) => {
+      // 1. Immediately set a baseline user so the UI updates the split-second you log in!
+      setCurrentUser({
+        username: sessionUser.user_metadata?.username || 'Reader',
+        avatar_url: ''
+      });
+
+      // 2. Try to fetch the full database profile
+      // Using .maybeSingle() prevents loud errors if the profile row doesn't exist yet
+      const { data } = await supabase.from('profiles').select('*').eq('id', sessionUser.id).maybeSingle();
+      
       if (data) {
+        // 3. If a profile is found, overwrite the baseline with their real stats
         setCurrentUser(data);
         setUserTier(data.subscription_tier === 'premium' ? 'premium' : 'free');
       }
@@ -208,7 +218,7 @@ export default function App() {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
-        fetchUserProfile(session.user.id);
+        fetchUserProfile(session.user);
       } else {
         setUserTier('visitor');
       }
@@ -216,7 +226,7 @@ export default function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        fetchUserProfile(session.user.id);
+        fetchUserProfile(session.user);
       } else {
         setCurrentUser(null);
         setUserTier('visitor');
