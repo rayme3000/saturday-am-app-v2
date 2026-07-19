@@ -34,7 +34,8 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
         const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
         if (data) {
           setProfileStats({ total_hypes: data.total_hypes || 0, super_hypes: data.super_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0 });
-          setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', frameId: data.frame_id || 'none', cardSkin: data.card_skin || '', topFive: data.top_five || [null, null, null, null, null] });
+          // FIXED: Corrected column names here so the Flex Card properly reads them
+          setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', frameId: data.frame_url || 'none', cardSkin: data.card_skin_url || '', topFive: data.top_series || [null, null, null, null, null] });
         }
       }
     };
@@ -243,10 +244,10 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
         setIsLoggedIn(true);
         const fallbackName = user.user_metadata?.username || 'Reader';
 
-        // --- FIXED COLUMN NAMES TO MATCH THE DATABASE ---
+        // FIXED: REVERTED BACK TO YOUR CORRECT DATABASE COLUMNS!
         const { data, error } = await supabase
           .from('profiles')
-          .select('username, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read, top_five, card_skin, avatar_url, frame_id')
+          .select('username, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read, top_series, card_skin_url, avatar_url, frame_url')
           .eq('id', user.id)
           .maybeSingle();
 
@@ -263,10 +264,10 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           const loadedProfile = {
             ...userProfile,
             username: data.username || fallbackName,
-            topFive: data.top_five || [null, null, null, null, null],
-            cardSkin: data.card_skin || '',
+            topFive: data.top_series || [null, null, null, null, null],
+            cardSkin: data.card_skin_url || '',
             avatarUrl: data.avatar_url || '',
-            frameId: data.frame_id || 'none'
+            frameId: data.frame_url || 'none'
           };
 
           setUserProfile(loadedProfile);
@@ -321,16 +322,16 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     if (user) {
       const realName = user.user_metadata?.username || tempProfile.username;
 
-      // --- FIXED COLUMN NAMES TO MATCH THE DATABASE ---
+      // FIXED: REVERTED BACK TO YOUR CORRECT DATABASE COLUMNS!
       const { error } = await supabase
         .from('profiles')
         .upsert({
           id: user.id, 
           username: realName, 
-          top_five: tempProfile.topFive,
-          card_skin: tempProfile.cardSkin,
+          top_series: tempProfile.topFive,
+          card_skin_url: tempProfile.cardSkin,
           avatar_url: tempProfile.avatarUrl,
-          frame_id: tempProfile.frameId
+          frame_url: tempProfile.frameId
         });
 
       if (error) {
