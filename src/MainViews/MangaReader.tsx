@@ -316,11 +316,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             initialTopMostItemIndex={currentPage}
             rangeChanged={(range) => setCurrentPage(Math.max(0, range.startIndex))}
             itemContent={(index, pageData: any) => (
-              <div className="w-full max-w-full overflow-hidden bg-[#0a0a0a]">
+              <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0">
                 <img 
                   src={getUrl(pageData)} 
-                  className="w-full max-w-4xl h-auto object-contain block mx-auto pointer-events-none" 
-                  style={{ maxWidth: '100vw' }}
+                  className="w-full h-auto max-w-3xl block pointer-events-none m-0 p-0" 
                   alt={`Page ${index + 1}`} 
                   loading="lazy" 
                 />
