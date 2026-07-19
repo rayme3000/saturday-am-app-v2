@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Flame, MessageCircle, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, RotateCcw, Plus, Lock } from 'lucide-react';
+import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, RotateCcw, Plus, Lock } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
@@ -106,7 +106,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                 <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
                   <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Reacts</p>
                   <p className="font-black text-cyan-400 flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
-                    <MessageCircle className="w-4 h-4 md:w-6 md:h-6" /> {profileStats.quick_reacts.toLocaleString()}
+                    <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-4 h-4 md:w-6 md:h-6 object-contain" /> {profileStats.quick_reacts.toLocaleString()}
                   </p>
                 </div>
                 <div className="text-center flex-1 px-1">
@@ -241,12 +241,12 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
       if (user) {
         setIsLoggedIn(true);
-        // INSTANTLY GRAB REAL NAME FROM LOGIN SESSION
         const fallbackName = user.user_metadata?.username || 'Reader';
 
+        // --- FIXED COLUMN NAMES TO MATCH THE DATABASE ---
         const { data, error } = await supabase
           .from('profiles')
-          .select('username, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read, top_series, card_skin_url, avatar_url, frame_url')
+          .select('username, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read, top_five, card_skin, avatar_url, frame_id')
           .eq('id', user.id)
           .maybeSingle();
 
@@ -262,11 +262,11 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
           const loadedProfile = {
             ...userProfile,
-            username: data.username || fallbackName, // Use real name!
-            topFive: data.top_series || [null, null, null, null, null],
-            cardSkin: data.card_skin_url || '',
+            username: data.username || fallbackName,
+            topFive: data.top_five || [null, null, null, null, null],
+            cardSkin: data.card_skin || '',
             avatarUrl: data.avatar_url || '',
-            frameId: data.frame_url || 'none'
+            frameId: data.frame_id || 'none'
           };
 
           setUserProfile(loadedProfile);
@@ -294,7 +294,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
       }
     });
 
-    // Cleanup the listener when the component unmounts
     return () => {
       authListener.subscription.unsubscribe();
     };
@@ -320,18 +319,18 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (user) {
-      // Guarantee we don't accidentally save "Reader" to the database
       const realName = user.user_metadata?.username || tempProfile.username;
 
+      // --- FIXED COLUMN NAMES TO MATCH THE DATABASE ---
       const { error } = await supabase
         .from('profiles')
         .upsert({
           id: user.id, 
           username: realName, 
-          top_series: tempProfile.topFive,
-          card_skin_url: tempProfile.cardSkin,
+          top_five: tempProfile.topFive,
+          card_skin: tempProfile.cardSkin,
           avatar_url: tempProfile.avatarUrl,
-          frame_url: tempProfile.frameId
+          frame_id: tempProfile.frameId
         });
 
       if (error) {
@@ -373,9 +372,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     const series = displaySeriesList.find((s: any) => s.slug === seriesSlug);
     if (!series) return null;
 
-    // The Magic Prefetch Function
     const prefetchSeriesPage = () => {
-      // This silently downloads the code chunk in the background!
       import('../MainViews/SeriesDetailPage'); 
     };
 
@@ -383,8 +380,8 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
       <div 
         key={seriesSlug} 
         onClick={onClick} 
-        onMouseEnter={prefetchSeriesPage} // Triggers when a mouse hovers (Desktop)
-        onTouchStart={prefetchSeriesPage} // Triggers the millisecond a finger touches the screen (Mobile)
+        onMouseEnter={prefetchSeriesPage}
+        onTouchStart={prefetchSeriesPage}
         className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all ${
           isEditingMode ? 'border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.4)]' : 'border border-zinc-800 shadow-lg hover:border-[#fe9a00]/50'
         }`}
@@ -447,7 +444,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
             <button 
               onClick={() => {
                 setUpsellConfig(null);
-                onNavigate({ action: 'settings' }); // Or wherever your upgrade page is!
+                onNavigate({ action: 'settings' }); 
               }} 
               className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
             >
@@ -507,7 +504,8 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes</span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
-              <MessageCircle className="w-6 h-6 text-cyan-400 mb-2" />
+              {/* --- CUSTOM QUICK REACT ICON --- */}
+              <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" />
               <span className="text-3xl font-black">{profileStats.quick_reacts.toLocaleString()}</span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Quick Reacts</span>
             </div>
@@ -524,7 +522,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
             </div>
           </div>
           
-          {/* --- NEW: BINGO BOOK PROGRESS SECTION --- */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 md:p-6 mb-2 mt-8 flex flex-col sm:flex-row items-center gap-6 shadow-lg">
             <div className="flex-1 w-full">
               <div className="flex justify-between items-end mb-3">
@@ -562,7 +559,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           </div>
         </div>
 
-        {/* --- MOUNT THE FLEX AM CREW CARD BUTTON / PREVIEW --- */}
         {!isSubscriber ? (
           <div className="flex flex-col items-center w-full mt-12 mb-12 px-6">
             <div 
