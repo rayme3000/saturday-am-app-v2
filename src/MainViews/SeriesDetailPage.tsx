@@ -22,10 +22,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [isPremiumUser, setIsPremiumUser] = useState(false);
   const [readProgresses, setReadProgresses] = useState<any>({});
 
-  // --- UPSELL MODAL CONFIG ---
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
 
-  // FAVES STATE & FETCH LOGIC
   const [isFavorited, setIsFavorited] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
@@ -34,8 +32,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       const { data: { user } } = await supabase.auth.getUser();
       if (user && localSeries) {
         setCurrentUserId(user.id);
-        
-        // FIXED: Replaced .single() with .maybeSingle() and selected all columns to avoid crashes
         const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
         
         if (data?.favorites && data.favorites.includes(localSeries.slug)) {
@@ -71,7 +67,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchDetails();
   }, [series]);
 
-  // --- FETCH ACTUAL READING PROGRESS ---
   useEffect(() => {
     if (!currentUserId || chapters.length === 0) return;
 
@@ -114,7 +109,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   const totalHype = chapters.reduce((sum: number, ch: any) => sum + (ch.hype_count || 0), 0) + (localSeries?.hype_count || 0);
   
-  // --- ACCESS TIER LOGIC ---
   const checkIsLocked = (index: number) => {
     if (userTier === 'premium') return false; 
     if (userTier === 'free') {
@@ -165,25 +159,31 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       return;
     }
 
-    const newFavoriteStatus = !isFavorited;
-    setIsFavorited(newFavoriteStatus);
+    // --- OPTIMISTIC UI UPDATE ---
+    const previousState = isFavorited;
+    setIsFavorited(!previousState);
 
     try {
       const { data } = await supabase.from('profiles').select('*').eq('id', currentUserId).maybeSingle();
       let currentFaves = data?.favorites || [];
+      if (!Array.isArray(currentFaves)) currentFaves = []; // Safety check
 
-      if (newFavoriteStatus) {
+      if (!previousState) {
         if (!currentFaves.includes(localSeries.slug)) currentFaves.push(localSeries.slug);
       } else {
         currentFaves = currentFaves.filter((slug: string) => slug !== localSeries.slug);
       }
 
       const { error } = await supabase.from('profiles').update({ favorites: currentFaves }).eq('id', currentUserId);
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase Error:", error.message);
+        throw error;
+      }
       
     } catch (err) {
       console.error("Failed to update favorites:", err);
-      setIsFavorited(!newFavoriteStatus);
+      // If the database fails, revert the visual change
+      setIsFavorited(previousState);
     }
   };
 
@@ -308,7 +308,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             />
             <button onClick={handleToggleFavorite} className={`flex items-center gap-2 px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all ${isFavorited ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00] hover:bg-zinc-900' : 'bg-[#fe9a00] text-black hover:bg-white hover:shadow-[0_0_20px_rgba(254,154,0,0.4)]'}`}>
               <Bookmark className={`w-5 h-5 ${isFavorited ? 'fill-[#fe9a00]' : ''}`} />
-              <span>{isFavorited ? 'FAVORITED' : 'ADD TO FAVES'}</span>
+              <span>{isFavorited ? 'SAVED TO YOUR FAVES' : 'ADD TO FAVES'}</span>
             </button>
           </div>
         </div>
@@ -354,7 +354,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 
                 <h3 className={`font-bold text-base sm:text-lg line-clamp-2 mb-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
                 
-                {/* --- MEMBERS ONLY PROGRESS BAR --- */}
                 {userTier !== 'visitor' && (
                   <div className="flex flex-col gap-1 w-full max-w-[200px]">
                      <div className="flex items-center gap-2">

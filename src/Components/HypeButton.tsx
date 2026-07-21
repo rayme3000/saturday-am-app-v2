@@ -15,15 +15,31 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
 
   const checkIfHyped = async () => {
     setIsLoading(true);
+    
+    // 1. Check if THIS user has already hyped it
     const { data } = await supabase
       .from('hypes')
       .select('id')
       .eq('user_id', userId)
       .eq('target_type', targetType)
       .eq('target_id', targetId)
-      .single();
+      .maybeSingle();
     
     if (data) setIsHyped(true);
+
+    // 2. Fetch the LIVE total count from the database
+    const { count } = await supabase
+      .from('hypes')
+      .select('*', { count: 'exact', head: true })
+      .eq('target_type', targetType)
+      .eq('target_id', targetId);
+
+    if (count !== null && count > 0) {
+      setLocalCount(count);
+    } else if (initialCount > 0 && count === 0) {
+      setLocalCount(initialCount); // Fallback to initial count
+    }
+
     setIsLoading(false);
   };
 
@@ -32,27 +48,34 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
       if (onRequireAuth) onRequireAuth();
       return;
     }
-    if (isLoading) return;
-    setIsLoading(true);
+
+    // --- OPTIMISTIC UI UPDATE ---
+    // Change the UI instantly before talking to the database
+    const previousIsHyped = isHyped;
+    const previousCount = localCount;
+
+    setIsHyped(!previousIsHyped);
+    setLocalCount((prev: number) => previousIsHyped ? Math.max(0, prev - 1) : prev + 1);
 
     try {
-      // 1. Fetch their current Hype total from their profile
+      // Fetch their current Hype total from their profile
       const { data: profile } = await supabase
         .from('profiles')
         .select('total_hypes')
         .eq('id', userId)
-        .maybeSingle(); // <-- CHANGED FROM .single()
+        .maybeSingle(); 
       
       const currentTotalHypes = profile?.total_hypes || 0;
 
-      if (isHyped) {
+      if (previousIsHyped) {
         // Remove hype record from the item
-        await supabase
+        const { error: err1 } = await supabase
           .from('hypes')
           .delete()
           .eq('user_id', userId)
           .eq('target_type', targetType)
           .eq('target_id', targetId);
+        if (err1) throw err1;
         
         // Subtract 1 from their profile stats
         await supabase
@@ -60,28 +83,25 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
           .update({ total_hypes: Math.max(0, currentTotalHypes - 1) })
           .eq('id', userId);
         
-        setIsHyped(false);
-        setLocalCount((prev: number) => Math.max(0, prev - 1));
       } else {
         // Add hype record to the item
-        await supabase
+        const { error: err2 } = await supabase
           .from('hypes')
           .insert([{ user_id: userId, target_type: targetType, target_id: targetId }]);
+        if (err2) throw err2;
         
         // Add +1 to their profile stats!
         await supabase
           .from('profiles')
           .update({ total_hypes: currentTotalHypes + 1 })
           .eq('id', userId);
-        
-        setIsHyped(true);
-        setLocalCount((prev: number) => prev + 1);
       }
     } catch (error) {
       console.error("Error updating hype:", error);
+      // If the database fails, revert the visual change
+      setIsHyped(previousIsHyped);
+      setLocalCount(previousCount);
     }
-    
-    setIsLoading(false);
   };
 
   const formattedHype = localCount >= 1000 ? (localCount / 1000).toFixed(1) + 'K' : localCount.toString();
