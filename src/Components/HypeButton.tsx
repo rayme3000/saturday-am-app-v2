@@ -18,7 +18,7 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bon
       setLocalCount(initialCount);
     }
     return () => { isMounted.current = false; };
-  }, [userId, targetId]);
+  }, [userId, targetId, initialCount]);
 
   const checkIfHyped = async () => {
     if (!targetId || !userId) return;
@@ -107,8 +107,8 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bon
     }, 500);
   };
 
-  // --- THE FIX: We dynamically add the bonus page hypes to the core series hypes ---
-  const displayCount = localCount + bonusCount;
+  // --- We dynamically add the bonus page hypes to the core series hypes ---
+  const displayCount = localCount + (bonusCount || 0);
   const formattedHype = displayCount >= 1000 ? (displayCount / 1000).toFixed(1) + 'K' : displayCount.toString();
 
   if (variant === 'icon') {
