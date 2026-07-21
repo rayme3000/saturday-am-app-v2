@@ -31,11 +31,10 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
     const fetchStats = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
         if (data) {
           setProfileStats({ total_hypes: data.total_hypes || 0, super_hypes: data.super_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0 });
-          // FIXED: Corrected column names here so the Flex Card properly reads them
-          setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', frameId: data.frame_url || 'none', cardSkin: data.card_skin_url || '', topFive: data.top_series || [null, null, null, null, null] });
+          setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', frameId: data.frame_id || 'none', cardSkin: data.card_skin || '', topFive: data.top_five || [null, null, null, null, null] });
         }
       }
     };
@@ -228,15 +227,12 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
   // --- 2. FETCH USER STATS & BINGO BOOK (Standalone Hook) ---
   useEffect(() => {
-    // 1. Grab local Bingo Book progress immediately on load
     const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
     setUnlockedHunts(savedHunts.length);
     
-    // Check if the Bingo Book gave us a new total to use!
     const savedTotal = localStorage.getItem('am_bingo_total');
     if (savedTotal) setTotalHunts(parseInt(savedTotal));
 
-    // 2. Fetch the rest of the database stats
     const fetchUserStats = async () => {
       const { data: { user } } = await supabase.auth.getUser();
 
@@ -244,12 +240,14 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
         setIsLoggedIn(true);
         const fallbackName = user.user_metadata?.username || 'Reader';
 
-        // FIXED: REVERTED BACK TO YOUR CORRECT DATABASE COLUMNS!
+        // FIXED: Using .select('*') guarantees we NEVER crash due to mismatched columns!
         const { data, error } = await supabase
           .from('profiles')
-          .select('username, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read, top_series, card_skin_url, avatar_url, frame_url')
+          .select('*')
           .eq('id', user.id)
           .maybeSingle();
+
+        if (error) console.error("Fetch profile error:", error);
 
         if (data) {
           setProfileStats({
@@ -264,31 +262,28 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           const loadedProfile = {
             ...userProfile,
             username: data.username || fallbackName,
-            topFive: data.top_series || [null, null, null, null, null],
-            cardSkin: data.card_skin_url || '',
+            topFive: data.top_five || [null, null, null, null, null],
+            cardSkin: data.card_skin || '',
             avatarUrl: data.avatar_url || '',
-            frameId: data.frame_url || 'none'
+            frameId: data.frame_id || 'none'
           };
 
           setUserProfile(loadedProfile);
           setTempProfile(loadedProfile);
         } else {
-          // GHOST USER SAFETY NET
+          // Only falls back to Ghost Profile if the user row truly doesn't exist yet
           const ghostProfile = { ...userProfile, username: fallbackName };
           setUserProfile(ghostProfile);
           setTempProfile(ghostProfile);
         }
       } else {
-        // Reset to default if logged out
         setIsLoggedIn(false);
         setUserProfile({ username: 'Reader', avatarUrl: '', frameId: 'none', cardSkin: '', topFive: [null, null, null, null, null] });
       }
     };
 
-    // Run it once on initial load
     fetchUserStats();
 
-    // 3. THE MAGIC LISTENER: Listen for logins/logouts and re-run the fetch!
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
         fetchUserStats();
@@ -301,7 +296,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   }, []);
 
   const openEditor = (targetTab = 'faves', slotIndex: number | null = null) => {
-    // Prevent visitors from opening the editor modal, but let Free Accounts in!
     if (!isLoggedIn) {
       setUpsellConfig({
         title: 'create a free account',
@@ -322,21 +316,21 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     if (user) {
       const realName = user.user_metadata?.username || tempProfile.username;
 
-      // CHANGED: Use .update() instead of .upsert() to prevent constraint errors!
+      // FIXED: Safely targeting the correct columns with .update()
       const { error } = await supabase
         .from('profiles')
         .update({
           username: realName, 
-          top_series: tempProfile.topFive,
-          card_skin_url: tempProfile.cardSkin,
+          top_five: tempProfile.topFive,
+          card_skin: tempProfile.cardSkin,
           avatar_url: tempProfile.avatarUrl,
-          frame_url: tempProfile.frameId
+          frame_id: tempProfile.frameId
         })
-        .eq('id', user.id); // Must specify exactly which row to update
+        .eq('id', user.id);
 
       if (error) {
         console.error("Error saving profile:", error);
-        alert("Failed to save! Check your Supabase RLS policies.");
+        alert("Failed to save! Make sure your Supabase RLS policy allows UPDATE for profiles.");
         return;
       }
     }
