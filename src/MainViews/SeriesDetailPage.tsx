@@ -34,7 +34,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       const { data: { user } } = await supabase.auth.getUser();
       if (user && localSeries) {
         setCurrentUserId(user.id);
-        const { data } = await supabase.from('profiles').select('favorites, is_premium').eq('id', user.id).single();
+        
+        // FIXED: Replaced .single() with .maybeSingle() and selected all columns to avoid crashes
+        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
         
         if (data?.favorites && data.favorites.includes(localSeries.slug)) {
           setIsFavorited(true);
@@ -68,6 +70,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     };
     fetchDetails();
   }, [series]);
+
   // --- FETCH ACTUAL READING PROGRESS ---
   useEffect(() => {
     if (!currentUserId || chapters.length === 0) return;
@@ -75,7 +78,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     const fetchReadingProgress = async () => {
       const chapterIds = chapters.map(c => c.id);
 
-      // 1. Get the user's saved pages from the MangaReader
       const { data: historyData } = await supabase
         .from('reading_history')
         .select('chapter_id, page_index')
@@ -84,7 +86,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
       if (!historyData || historyData.length === 0) return;
 
-      // 2. Get total pages per chapter to calculate the %
       const { data: pagesData } = await supabase
         .from('pages')
         .select('chapter_id')
@@ -97,7 +98,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         });
       }
 
-      // 3. Calculate exact percentages
       const progressMap: any = {};
       historyData.forEach((h: any) => {
         const totalPages = pageCounts[h.chapter_id] || 1;
@@ -124,7 +124,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   };
 
   const handleReadChapter = async (chapter: any, index: number) => {
-    // TRIGGER UPSELL IF LOCKED
     if (checkIsLocked(index)) {
       setUpsellConfig({
         type: userTier === 'visitor' ? 'visitor' : 'premium',
@@ -158,7 +157,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   };
 
   const handleToggleFavorite = async () => {
-    // TRIGGER UPSELL IF NOT LOGGED IN
     if (!currentUserId || userTier === 'visitor') {
       setUpsellConfig({
         type: 'visitor',
@@ -171,7 +169,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     setIsFavorited(newFavoriteStatus);
 
     try {
-      const { data } = await supabase.from('profiles').select('favorites').eq('id', currentUserId).single();
+      const { data } = await supabase.from('profiles').select('*').eq('id', currentUserId).maybeSingle();
       let currentFaves = data?.favorites || [];
 
       if (newFavoriteStatus) {
@@ -216,7 +214,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               <button 
                 onClick={() => { 
                   setUpsellConfig(null); 
-                  if(onLoginClick) onLoginClick(); // This will open the Auth modal!
+                  if(onLoginClick) onLoginClick(); 
                 }} 
                 className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors"
               >
