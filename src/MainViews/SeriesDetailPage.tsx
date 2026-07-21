@@ -22,7 +22,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [isPremiumUser, setIsPremiumUser] = useState(false);
   const [readProgresses, setReadProgresses] = useState<any>({});
 
-  // --- AGGREGATE PAGE STATS ---
   const [chapterStats, setChapterStats] = useState<any>({});
   const [readerClosedCount, setReaderClosedCount] = useState(0);
 
@@ -70,7 +69,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchDetails();
   }, [series]);
 
-  // --- FETCH ACTUAL READING PROGRESS ---
   useEffect(() => {
     if (!currentUserId || chapters.length === 0) return;
 
@@ -112,13 +110,17 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchReadingProgress();
   }, [currentUserId, chapters]);
 
-  // --- FETCH AGGREGATED PER-PAGE HYPES AND REACTS ---
+  // --- THE FIX: Robust stat fetching that safely combines all data ---
   useEffect(() => {
     if (chapters.length === 0) return;
 
     const fetchChapterStats = async () => {
       try {
         const chapterIds = chapters.map(c => String(c.id));
+        const newStats: any = {};
+        
+        // Initialize empty stats
+        chapterIds.forEach(id => { newStats[id] = { hypes: 0, reacts: 0 }; });
 
         // 1. Fetch Reacts
         const { data: reactsData } = await supabase
@@ -126,63 +128,60 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           .select('chapter_id')
           .in('chapter_id', chapterIds);
 
-        // 2. Fetch Pages
+        if (reactsData) {
+          reactsData.forEach((r: any) => {
+            const cId = String(r.chapter_id);
+            if (newStats[cId]) newStats[cId].reacts += 1;
+          });
+        }
+
+        // 2. Fetch Pages to link Hypes
         const { data: pagesData } = await supabase
           .from('pages')
           .select('id, chapter_id')
           .in('chapter_id', chapterIds);
 
-        // Map setup
-        const statsMap: any = {};
-        chapterIds.forEach(id => { statsMap[id] = { hypes: 0, reacts: 0 }; });
-
-        // Tally Reacts
-        if (reactsData) {
-          reactsData.forEach((r: any) => {
-            const cId = String(r.chapter_id);
-            if (statsMap[cId]) statsMap[cId].reacts += 1;
-          });
-        }
-
-        // Tally Hypes (if pages exist)
         if (pagesData && pagesData.length > 0) {
           const pageIds = pagesData.map((p: any) => String(p.id));
           const pageToChapter: any = {};
           pagesData.forEach((p: any) => { pageToChapter[String(p.id)] = String(p.chapter_id); });
           
-          let hypesData: any[] = [];
+          let allHypes: any[] = [];
           
           // Chunk to avoid long URL constraints
-          for (let i = 0; i < pageIds.length; i += 150) {
-            const chunk = pageIds.slice(i, i + 150);
-            const { data } = await supabase
+          for (let i = 0; i < pageIds.length; i += 200) {
+            const chunk = pageIds.slice(i, i + 200);
+            const { data: chunkData } = await supabase
               .from('hypes')
               .select('target_id')
               .eq('target_type', 'page')
               .in('target_id', chunk);
-            if (data) hypesData.push(...data);
+            
+            if (chunkData) allHypes = [...allHypes, ...chunkData];
           }
 
-          hypesData.forEach((h: any) => {
+          allHypes.forEach((h: any) => {
             const cId = pageToChapter[String(h.target_id)];
-            if (cId && statsMap[cId]) statsMap[cId].hypes += 1;
+            if (cId && newStats[cId]) {
+              newStats[cId].hypes += 1;
+            }
           });
         }
 
-        setChapterStats(statsMap);
+        // Force React to redraw the numbers using a new object reference
+        setChapterStats({ ...newStats });
       } catch (err) {
         console.error("Failed to fetch chapter stats:", err);
       }
     };
 
     fetchChapterStats();
-  }, [chapters, readerClosedCount]); // Re-runs instantly whenever the reader closes!
+  }, [chapters, readerClosedCount]); // Runs every time the reader closes!
 
-  // Aggregated Total Hype for the Series level
-  const totalHype = chapters.reduce((sum: number, ch: any) => {
-    const pageHypes = chapterStats[String(ch.id)]?.hypes;
-    return sum + (pageHypes !== undefined ? pageHypes : (ch.hype_count || 0));
-  }, 0) + (localSeries?.hype_count || 0);
+  const aggregatedSubHypes = chapters.reduce((sum: number, ch: any) => {
+    const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
+    return sum + (ch.hype_count || 0) + pageHypes;
+  }, 0);
   
   const checkIsLocked = (index: number) => {
     if (userTier === 'premium') return false; 
@@ -234,7 +233,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       return;
     }
 
-    // Optimistic UI Update
     const previousState = isFavorited;
     setIsFavorited(!previousState);
 
@@ -257,7 +255,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       
     } catch (err) {
       console.error("Failed to update favorites:", err);
-      // Revert if db fails
       setIsFavorited(previousState);
     }
   };
@@ -324,12 +321,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             onClose={() => { 
               setIsReaderOpen(false); 
               setActiveChapterId(null); 
-              setReaderClosedCount(c => c + 1); 
+              setReaderClosedCount(c => c + 1); // Triggers re-fetch!
             }} 
             onHome={() => { 
               setIsReaderOpen(false); 
               setActiveChapterId(null); 
-              setReaderClosedCount(c => c + 1); 
+              setReaderClosedCount(c => c + 1); // Triggers re-fetch!
               onBack(); 
             }}
             onNext={() => { if (hasNext) handleReadChapter(chapters[currentIndex + 1], currentIndex + 1); }}
@@ -379,7 +376,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               targetType="series" 
               targetId={localSeries.slug} 
               userId={currentUserId} 
-              initialCount={totalHype} 
+              initialCount={localSeries?.hype_count || 0} 
+              bonusCount={aggregatedSubHypes}
               onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to drop Hypes and support the creators!" })}
             />
             <SuperHypeButton 
@@ -407,9 +405,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             const actualProgress = readProgresses[String(ch.id)] || 0;
             const isLocked = checkIsLocked(index);
 
-            // AGGREGATED DISPLAY VARS (fallbacks to db default while it loads)
-            const displayHypes = chapterStats[String(ch.id)]?.hypes !== undefined ? chapterStats[String(ch.id)].hypes : (ch.hype_count || 0);
-            const displayReacts = chapterStats[String(ch.id)]?.reacts !== undefined ? chapterStats[String(ch.id)].reacts : (ch.react_count || 0);
+            // --- THE FIX: We ADD the page counts to the chapter counts, we don't replace them! ---
+            const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
+            const pageReacts = chapterStats[String(ch.id)]?.reacts || 0;
+            
+            const displayHypes = (ch.hype_count || 0) + pageHypes;
+            const displayReacts = (ch.react_count || 0) + pageReacts;
 
             return (
             <div key={ch.id} onClick={() => handleReadChapter(ch, index)} className="flex items-center gap-4 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
@@ -427,12 +428,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   <p className={`text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
                   
                   <div className="flex items-center gap-2">
-                    {/* PER PAGE HYPE COUNT */}
                     <div className="flex items-center gap-1.5 bg-zinc-900/80 border border-zinc-800 px-2 py-0.5 rounded-full">
                        <Flame className="w-3 h-3 text-[#fe9a00] fill-[#fe9a00]/20" />
                        <span className="text-[9px] text-zinc-300 font-bold">{displayHypes}</span>
                     </div>
-                    {/* PER PAGE QUICK REACT COUNT */}
                     <div className="flex items-center gap-1.5 bg-zinc-900/80 border border-zinc-800 px-2 py-0.5 rounded-full">
                        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-3 h-3 object-contain drop-shadow-md" />
                        <span className="text-[9px] text-zinc-300 font-bold">{displayReacts}</span>
