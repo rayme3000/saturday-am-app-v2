@@ -72,7 +72,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   // --- FETCH READING PROGRESS ---
   useEffect(() => {
-    if (!chapterId) return;
+    // FIXED: If there is no chapterId (like in Magazines), kill the spinner immediately!
+    if (!chapterId) {
+      setIsLoadingProgress(false);
+      return;
+    }
     
     setShowEndPrompt(false);
     setIsReactInputOpen(false);
