@@ -6,12 +6,15 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
   const [isHyped, setIsHyped] = useState(false);
   const [localCount, setLocalCount] = useState(initialCount);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
 
   useEffect(() => {
     if (userId && targetId) {
       checkIfHyped();
+    } else {
+      setLocalCount(initialCount);
     }
-  }, [userId, targetId]);
+  }, [userId, targetId, initialCount]);
 
   const checkIfHyped = async () => {
     setIsLoading(true);
@@ -37,20 +40,27 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
     if (count !== null && count > 0) {
       setLocalCount(count);
     } else if (initialCount > 0 && count === 0) {
-      setLocalCount(initialCount); // Fallback to initial count
+      setLocalCount(initialCount); 
     }
 
     setIsLoading(false);
   };
 
-  const handleHype = async () => {
+  const handleHype = async (e: any) => {
+    // STOP the click from accidentally turning the page in the MangaReader
+    if (e) e.stopPropagation();
+
     if (!userId) {
       if (onRequireAuth) onRequireAuth();
+      else alert("Please log in or create a Free Account to drop hypes!");
       return;
     }
 
+    // --- SATISFYING ANIMATION TRIGGER ---
+    setIsAnimating(true);
+    setTimeout(() => setIsAnimating(false), 400);
+
     // --- OPTIMISTIC UI UPDATE ---
-    // Change the UI instantly before talking to the database
     const previousIsHyped = isHyped;
     const previousCount = localCount;
 
@@ -58,7 +68,6 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
     setLocalCount((prev: number) => previousIsHyped ? Math.max(0, prev - 1) : prev + 1);
 
     try {
-      // Fetch their current Hype total from their profile
       const { data: profile } = await supabase
         .from('profiles')
         .select('total_hypes')
@@ -68,7 +77,6 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
       const currentTotalHypes = profile?.total_hypes || 0;
 
       if (previousIsHyped) {
-        // Remove hype record from the item
         const { error: err1 } = await supabase
           .from('hypes')
           .delete()
@@ -77,20 +85,17 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
           .eq('target_id', targetId);
         if (err1) throw err1;
         
-        // Subtract 1 from their profile stats
         await supabase
           .from('profiles')
           .update({ total_hypes: Math.max(0, currentTotalHypes - 1) })
           .eq('id', userId);
         
       } else {
-        // Add hype record to the item
         const { error: err2 } = await supabase
           .from('hypes')
           .insert([{ user_id: userId, target_type: targetType, target_id: targetId }]);
         if (err2) throw err2;
         
-        // Add +1 to their profile stats!
         await supabase
           .from('profiles')
           .update({ total_hypes: currentTotalHypes + 1 })
@@ -98,7 +103,6 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
       }
     } catch (error) {
       console.error("Error updating hype:", error);
-      // If the database fails, revert the visual change
       setIsHyped(previousIsHyped);
       setLocalCount(previousCount);
     }
@@ -106,18 +110,39 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
 
   const formattedHype = localCount >= 1000 ? (localCount / 1000).toFixed(1) + 'K' : localCount.toString();
 
+  // --- ICON-ONLY VARIANT (Used inside the Manga Reader) ---
+  if (variant === 'icon') {
+    return (
+      <button 
+        onClick={handleHype}
+        disabled={isLoading}
+        className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 ${isHyped ? 'bg-[#fe9a00]/20' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'} border border-white/5 shadow-xl group flex items-center justify-center`}
+        title="Hype this Page"
+      >
+        <Flame 
+          className={`w-5 h-5 sm:w-6 sm:h-6 transition-all duration-300 ${isHyped ? 'fill-[#fe9a00] text-[#fe9a00]' : 'text-white/70 group-hover:text-white'} ${isAnimating ? 'scale-[1.7] -translate-y-1 rotate-12 drop-shadow-[0_0_15px_rgba(254,154,0,0.8)]' : 'scale-100'}`} 
+        />
+        {/* Number Badge */}
+        {localCount > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 bg-[#fe9a00] text-black text-[9px] font-black px-1.5 py-0.5 rounded-full border border-black shadow-md">
+            {formattedHype}
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  // --- DEFAULT VARIANT (Used on Series Pages) ---
   return (
     <button 
       onClick={handleHype}
       disabled={isLoading}
-      className={`flex items-center justify-center transition-all group ${
-        variant === 'icon' 
-          ? 'p-2 rounded-full hover:bg-black text-[#fe9a00]' 
-          : `gap-2 px-6 py-3 rounded-full font-black uppercase tracking-widest border ${isHyped ? 'border-[#fe9a00] bg-zinc-900 shadow-[0_0_15px_rgba(254,154,0,0.2)]' : 'border-zinc-800 bg-zinc-900/80 hover:bg-zinc-800 hover:border-[#fe9a00]'}`
-      }`}
+      className={`flex items-center justify-center transition-all duration-300 group gap-2 px-6 py-3 rounded-full font-black uppercase tracking-widest border ${isHyped ? 'border-[#fe9a00] bg-zinc-900 shadow-[0_0_15px_rgba(254,154,0,0.2)]' : 'border-zinc-800 bg-zinc-900/80 hover:bg-zinc-800 hover:border-[#fe9a00]'}`}
     >
-      <Flame className={`w-5 h-5 transition-colors ${isHyped ? 'fill-[#fe9a00]' : 'group-hover:fill-[#fe9a00]'}`} />
-      {variant !== 'icon' && <span>{formattedHype} HYPE</span>}
+      <Flame 
+        className={`w-5 h-5 transition-all duration-300 ${isHyped ? 'fill-[#fe9a00] text-[#fe9a00]' : 'group-hover:fill-[#fe9a00] text-zinc-400'} ${isAnimating ? 'scale-[1.7] -translate-y-1 rotate-12 drop-shadow-[0_0_15px_rgba(254,154,0,0.8)]' : 'scale-100'}`} 
+      />
+      <span>{formattedHype} HYPE</span>
     </button>
   );
 };
