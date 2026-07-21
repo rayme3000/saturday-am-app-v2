@@ -322,21 +322,21 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     if (user) {
       const realName = user.user_metadata?.username || tempProfile.username;
 
-      // FIXED: REVERTED BACK TO YOUR CORRECT DATABASE COLUMNS!
+      // CHANGED: Use .update() instead of .upsert() to prevent constraint errors!
       const { error } = await supabase
         .from('profiles')
-        .upsert({
-          id: user.id, 
+        .update({
           username: realName, 
           top_series: tempProfile.topFive,
           card_skin_url: tempProfile.cardSkin,
           avatar_url: tempProfile.avatarUrl,
           frame_url: tempProfile.frameId
-        });
+        })
+        .eq('id', user.id); // Must specify exactly which row to update
 
       if (error) {
         console.error("Error saving profile:", error);
-        alert("Failed to save! Make sure your Supabase RLS policy allows UPDATE and INSERT for profiles.");
+        alert("Failed to save! Check your Supabase RLS policies.");
         return;
       }
     }
