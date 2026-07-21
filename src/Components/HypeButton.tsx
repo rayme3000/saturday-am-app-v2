@@ -2,12 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
 import { Flame } from 'lucide-react';
 
-export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, variant = 'default', onRequireAuth }: any) => {
+export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bonusCount = 0, variant = 'default', onRequireAuth }: any) => {
   const [isHyped, setIsHyped] = useState(false);
   const [localCount, setLocalCount] = useState(initialCount);
   const [isAnimating, setIsAnimating] = useState(false);
   
-  // Use refs to prevent delayed database fetches from overwriting your clicks!
   const isProcessing = useRef(false);
   const isMounted = useRef(true);
 
@@ -24,7 +23,6 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
   const checkIfHyped = async () => {
     if (!targetId || !userId) return;
     
-    // Ensure the ID is formatted as a string so Supabase doesn't reject it
     const targetString = String(targetId);
     
     const { data } = await supabase
@@ -35,7 +33,6 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
       .eq('target_id', targetString)
       .maybeSingle();
     
-    // ONLY update visually if the user hasn't actively clicked the button
     if (isMounted.current && !isProcessing.current) {
       if (data) setIsHyped(true);
       else setIsHyped(false);
@@ -57,7 +54,6 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
   };
 
   const handleHype = async (e: any) => {
-    // 1. Prevent the click from triggering the Manga Reader UI
     if (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -69,24 +65,20 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
       return;
     }
 
-    // 2. Prevent spam-clicking from breaking the database
     if (isProcessing.current) return;
     isProcessing.current = true;
 
-    // 3. Trigger the satisfying pop animation!
     setIsAnimating(true);
     setTimeout(() => setIsAnimating(false), 400);
 
     const previousIsHyped = isHyped;
     const targetString = String(targetId);
 
-    // 4. Optimistic UI Update - Lock it in instantly!
     setIsHyped(!previousIsHyped);
     setLocalCount((prev: number) => previousIsHyped ? Math.max(0, prev - 1) : prev + 1);
 
     try {
       if (previousIsHyped) {
-        // Remove hype
         await supabase
           .from('hypes')
           .delete()
@@ -94,13 +86,11 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
           .eq('target_type', targetType)
           .eq('target_id', targetString);
       } else {
-        // Add hype
         await supabase
           .from('hypes')
           .insert([{ user_id: userId, target_type: targetType, target_id: targetString }]);
       }
 
-      // Fire-and-forget the profile stat update so it doesn't slow down the button
       supabase.from('profiles').select('total_hypes').eq('id', userId).maybeSingle().then(({ data }) => {
         if (data) {
           const newTotal = previousIsHyped ? Math.max(0, data.total_hypes - 1) : data.total_hypes + 1;
@@ -110,18 +100,17 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
 
     } catch (error) {
       console.error("Error saving hype to database:", error);
-      // We purposefully DO NOT revert the UI here so it stays satisfyingly selected for the user.
     }
 
-    // Release the lock after 500ms
     setTimeout(() => {
       if (isMounted.current) isProcessing.current = false;
     }, 500);
   };
 
-  const formattedHype = localCount >= 1000 ? (localCount / 1000).toFixed(1) + 'K' : localCount.toString();
+  // --- THE FIX: We dynamically add the bonus page hypes to the core series hypes ---
+  const displayCount = localCount + bonusCount;
+  const formattedHype = displayCount >= 1000 ? (displayCount / 1000).toFixed(1) + 'K' : displayCount.toString();
 
-  // --- ICON-ONLY VARIANT (Used inside the Manga Reader) ---
   if (variant === 'icon') {
     return (
       <button 
@@ -132,8 +121,7 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
         <Flame 
           className={`w-5 h-5 sm:w-6 sm:h-6 transition-all duration-300 ${isHyped ? 'fill-[#fe9a00] text-[#fe9a00]' : 'text-white/70 group-hover:text-white'} ${isAnimating ? 'scale-[1.5] -translate-y-1 rotate-6 filter drop-shadow-[0_0_12px_rgba(254,154,0,1)]' : 'scale-100'}`} 
         />
-        {/* Number Badge */}
-        {localCount > 0 && (
+        {displayCount > 0 && (
           <span className="absolute -top-1.5 -right-1.5 bg-[#fe9a00] text-black text-[9px] font-black px-1.5 py-0.5 rounded-full border border-black shadow-md z-10">
             {formattedHype}
           </span>
@@ -142,7 +130,6 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, var
     );
   }
 
-  // --- DEFAULT VARIANT (Used on Series Pages) ---
   return (
     <button 
       onClick={handleHype}
