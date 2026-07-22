@@ -79,16 +79,16 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
         <img 
           src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" 
           alt="Manga Collage" 
-          className="w-full h-full object-cover opacity-30 md:hidden"
+          className="w-full h-full object-cover opacity-60 md:hidden"
         />
         {/* Desktop Backdrop */}
         <img 
           src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" 
           alt="Manga Collage" 
-          className="hidden md:block w-full h-full object-cover opacity-30"
+          className="hidden md:block w-full h-full object-cover opacity-60"
         />
-        {/* Gradient Overlay to ensure text readability */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/40 to-black pointer-events-none" />
+        {/* Gradient Overlay to ensure text readability without going 100% pitch black */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/50 to-black/80 pointer-events-none" />
       </div>
 
       {/* TOP NAVIGATION BAR */}
