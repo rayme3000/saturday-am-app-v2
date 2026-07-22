@@ -145,7 +145,6 @@ export default function App() {
   const [userTier, setUserTier] = useState<'visitor' | 'free' | 'premium'>('visitor');
 
   // --- SESSION STORAGE SYNC ---
-  // Every time these change, back them up to browser memory instantly
   useEffect(() => {
     sessionStorage.setItem('currentView', currentView);
     
@@ -172,42 +171,39 @@ export default function App() {
   // --- SUPABASE AUTH LISTENER ---
   useEffect(() => {
     const fetchUserProfile = async (sessionUser: any) => {
-      // Grab the username they typed during signup, or default to Reader
       const fallbackName = sessionUser.user_metadata?.username || 'Reader';
       
-      // 1. Immediately set the Nav baseline
-      setCurrentUser({
-        username: fallbackName,
-        avatar_url: ''
-      });
-
-      // 2. Try to fetch their profile from the database
       const { data } = await supabase.from('profiles').select('*').eq('id', sessionUser.id).maybeSingle();
       
       if (data) {
-        // Standard User: Load their stats!
         setCurrentUser(data);
         setUserTier(data.subscription_tier === 'premium' ? 'premium' : 'free');
       } else {
-        // GHOST USER DETECTED!
-        // 3. Immediately unlock the app by forcing the Free tier
         setUserTier('free');
-        
-        // 4. Silently create their missing profile row in the database so saves work!
         await supabase.from('profiles').insert([
           { id: sessionUser.id, username: fallbackName, subscription_tier: 'free' }
         ]);
+        setCurrentUser({ username: fallbackName, avatar_url: '', frame_id: 'none' });
       }
     };
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        fetchUserProfile(session.user);
-      } else {
-        setUserTier('visitor');
-      }
-    });
+    const checkSessionAndFetch = () => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          fetchUserProfile(session.user);
+        } else {
+          setUserTier('visitor');
+        }
+      });
+    };
 
+    // 1. Initial Load
+    checkSessionAndFetch();
+
+    // 2. Listen for UserProfile.tsx saves to instantly update the Nav Pill!
+    window.addEventListener('profileUpdated', checkSessionAndFetch);
+
+    // 3. Listen for general Auth changes (login/logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         fetchUserProfile(session.user);
@@ -217,7 +213,10 @@ export default function App() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener('profileUpdated', checkSessionAndFetch);
+    };
   }, []);
 
   const handleNavigate = useCallback((data: any) => {
@@ -414,7 +413,7 @@ export default function App() {
           currentView={currentView} 
           onNavigate={handleNavigate} 
           userAvatar={currentUser?.avatar_url} 
-          userFrame={currentUser?.frame_url} 
+          userFrame={currentUser?.frame_id} 
         />
       )}
 

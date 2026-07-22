@@ -24,7 +24,8 @@ export const FloatingPillNav = memo(({ currentView, onNavigate, userAvatar, user
   return (
     <div className="fixed bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 w-[92%] sm:w-auto sm:min-w-[400px] max-w-md z-[40] pointer-events-none">
       
-      <nav className="bg-black/80 backdrop-blur-md border border-[#fe9a00] rounded-full px-6 py-3 flex items-center justify-between shadow-[0_10px_40px_rgba(0,0,0,0.8)] pointer-events-auto">
+      {/* Changed py-3 to py-1.5 to make the pill narrower height-wise */}
+      <nav className="bg-black/80 backdrop-blur-md border border-[#fe9a00] rounded-full px-6 py-1.5 flex items-center justify-between shadow-[0_10px_40px_rgba(0,0,0,0.8)] pointer-events-auto">
         
         {/* Home Icon */}
         <button 
