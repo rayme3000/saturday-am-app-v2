@@ -38,11 +38,27 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
     return () => clearInterval(timer);
   }, [heroSlides.length]);
 
+  // --- BULLETPROOF CLICK HANDLER ---
   const handleSlideClick = (slide: any) => {
-    if (slide.link_type === 'external') { window.open(slide.link_target, '_blank'); } 
+    if (!slide.link_target) return; // Safety check to prevent empty clicks
+
+    // EXTERNAL LINKS (Opens safely in a new tab)
+    if (slide.link_type === 'external') { 
+      window.open(slide.link_target, '_blank', 'noopener,noreferrer'); 
+    } 
+    // INTERNAL SERIES LINKS (Navigates within the app)
     else if (slide.link_type === 'series') {
       const matchedSeries = seriesList.find((s: any) => s.slug === slide.link_target);
-      onNavigate(matchedSeries || slide.link_target); 
+      
+      if (matchedSeries) {
+        onNavigate(matchedSeries); 
+      } else {
+        console.warn("Could not find matching series for slug:", slide.link_target);
+      }
+    }
+    // INTERNAL MAGAZINE LINKS (Navigates within the app)
+    else if (slide.link_type === 'magazine') {
+      onNavigate({ publish_date: slide.link_target, action: 'magazine' });
     }
   };
 
@@ -95,7 +111,7 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
           {currentUser ? (
             <div className="flex items-center gap-3 sm:gap-6">
               
-              {/* --- USER WELCOME MESSAGE (Avatar Removed) --- */}
+              {/* --- USER WELCOME MESSAGE --- */}
               <div 
                 className="hidden sm:flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
                 onClick={() => onNavigate({ action: 'profile' })}
