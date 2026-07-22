@@ -1,8 +1,8 @@
 import React from 'react';
 import { ArrowLeft, Check, Flame, BookOpen, Star, Crown, MessageCircle, CreditCard, Target, ShoppingBag, Plus } from 'lucide-react';
 
-// --- ADDED onLoginClick PROP ---
-export const Subscription = ({ userTier, onBack, onLoginClick }: any) => {
+// --- ADDED onNavigate PROP ---
+export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any) => {
   const isPremium = userTier === 'premium';
   const isVisitor = userTier === 'visitor';
   const isFree = userTier === 'free';
@@ -68,8 +68,13 @@ export const Subscription = ({ userTier, onBack, onLoginClick }: any) => {
             
             <button 
               onClick={() => {
-                if (isVisitor && onLoginClick) onLoginClick();
-                // Stripe routing will go here later!
+                if (isPremium) {
+                  onNavigate({ action: 'settings' });
+                } else if (isVisitor && onLoginClick) {
+                  onLoginClick();
+                } else {
+                  // Stripe routing for Upgrade
+                }
               }}
               className={`w-full py-4 font-black uppercase tracking-widest rounded-xl transition-all relative z-10 ${
                 isPremium ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_20px_rgba(254,154,0,0.4)]'

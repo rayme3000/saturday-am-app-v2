@@ -177,11 +177,12 @@ export default function App() {
       
       if (data) {
         setCurrentUser(data);
-        setUserTier(data.subscription_tier === 'premium' ? 'premium' : 'free');
+        // FIX: Now securely locks into the is_premium checkbox directly
+        setUserTier(data.is_premium ? 'premium' : 'free');
       } else {
         setUserTier('free');
         await supabase.from('profiles').insert([
-          { id: sessionUser.id, username: fallbackName, subscription_tier: 'free' }
+          { id: sessionUser.id, username: fallbackName, is_premium: false }
         ]);
         setCurrentUser({ username: fallbackName, avatar_url: '', frame_id: 'none' });
       }
@@ -387,6 +388,7 @@ export default function App() {
             userTier={userTier} 
             onBack={() => setCurrentView('home')} 
             onLoginClick={() => setShowLogin(true)}
+            onNavigate={handleNavigate}
           />
         )}
         
@@ -400,7 +402,7 @@ export default function App() {
           />
         )}
         
-        {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} />)}
+        {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
 
         {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}
 

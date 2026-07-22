@@ -3,14 +3,13 @@ import { ArrowLeft, Target, Lock, Unlock, Eraser, CheckCircle, X } from 'lucide-
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 
-const BingoBook = ({ onBack }: any) => {
+const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
 
   // Dynamically generate ALL creators/writers from your series data
   const CREATOR_TARGETS = useMemo(() => {
     const uniqueCreatorsMap = new Map();
 
-    // The "Ultimate Shredder" - Breaks apart arrays, objects, and combined strings
     const processName = (nameInput: any, defaultAvatar: any, sTitle: string) => {
       if (!nameInput) return;
 
@@ -21,13 +20,8 @@ const BingoBook = ({ onBack }: any) => {
         let avatarToUse = defaultAvatar;
 
         if (typeof nameObj === 'object' && nameObj !== null) {
-          
-          // --- THE MAGIC FILTER ---
-          // Because we prioritize series.creators below, this flag will finally be read!
           if (nameObj.is_visible === false) return; 
-
           nameStr = nameObj.name || nameObj.fullName || nameObj.value || nameObj.text || Object.values(nameObj)[0];
-          // Pull their specific avatar from the DB object if it exists
           avatarToUse = nameObj.avatar_url || nameObj.avatar || defaultAvatar; 
         }
 
@@ -64,12 +58,9 @@ const BingoBook = ({ onBack }: any) => {
     seriesList.forEach((series: any) => {
       const sTitle = series.title || series.name;
 
-      // 🚨 THIS IS THE KEY FIX 🚨
-      // Check if we have the new Supabase relational data first!
       if (series.creators && Array.isArray(series.creators) && series.creators.length > 0) {
         processName(series.creators, null, sTitle);
       } else {
-        // Fallback for older series that haven't been re-saved in the new editor yet
         processName(series.creator_name || series.creator, series.creator_avatar || series.creator_image, sTitle);
         processName(series.writer_name || series.writer || series.author_name, series.writer_avatar || series.writer_image, sTitle);
         processName(series.artist_name || series.artist || series.illustrator, series.artist_avatar || series.artist_image, sTitle);
@@ -77,7 +68,6 @@ const BingoBook = ({ onBack }: any) => {
       }
     });
 
-    // Alphabetize the final list
     return Array.from(uniqueCreatorsMap.values())
       .sort((a: any, b: any) => a.name.localeCompare(b.name))
       .map((creator: any, index) => ({ id: index + 1, ...creator }));
@@ -89,7 +79,6 @@ const BingoBook = ({ onBack }: any) => {
   const [hasDrawn, setHasDrawn] = useState(false);
   const [viewingAutograph, setViewingAutograph] = useState<string | null>(null);
   
-  // Auth & Drawing States
   const [pinInput, setPinInput] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -98,31 +87,27 @@ const BingoBook = ({ onBack }: any) => {
 
   const progressPercentage = CREATOR_TARGETS.length > 0 ? (unlockedCreators.length / CREATOR_TARGETS.length) * 100 : 0;
   
-  // --- NEW: PREMIUM CHECK STATES ---
-  const [isSubscriber, setIsSubscriber] = useState(false);
-  const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
+  const [isSubscriber, setIsSubscriber] = useState<boolean | null>(null);
 
   useEffect(() => {
     const checkUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data } = await supabase.from('profiles').select('is_premium').eq('id', user.id).single();
-        if (data) setIsSubscriber(data.is_premium || false);
+        setIsSubscriber(data?.is_premium || false);
+      } else {
+        setIsSubscriber(false);
       }
     };
     checkUser();
   }, []);
 
-  // --- NEW: SAVE TOTAL TARGETS FOR THE PROFILE PAGE ---
   useEffect(() => {
     if (CREATOR_TARGETS.length > 0) {
       localStorage.setItem('am_bingo_total', CREATOR_TARGETS.length.toString());
     }
   }, [CREATOR_TARGETS.length]);
 
-  // --- CANVAS LOGIC ---
-
-  // --- CANVAS LOGIC ---
   const initCanvas = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -136,7 +121,6 @@ const BingoBook = ({ onBack }: any) => {
     ctx.lineWidth = 4;
   };
 
-  // --- NEW: LOAD SAVED HUNTS FROM DEVICE ---
   useEffect(() => {
     const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
     const savedSigs = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
@@ -150,12 +134,11 @@ const BingoBook = ({ onBack }: any) => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext('2d');
 
-      // If the creator already signed this, load their previous signature onto the canvas
       if (canvas && ctx && selectedTarget && signatures[selectedTarget.id]) {
         const img = new Image();
         img.onload = () => ctx.drawImage(img, 0, 0);
         img.src = signatures[selectedTarget.id];
-        setHasDrawn(true); // Treat as drawn so they can immediately re-save if desired
+        setHasDrawn(true); 
       }
 
       window.addEventListener('resize', initCanvas);
@@ -174,17 +157,17 @@ const BingoBook = ({ onBack }: any) => {
   };
 
   const startDrawing = (e: any) => {
-  e.preventDefault();
-  const { x, y } = getCoordinates(e);
-  const ctx = canvasRef.current?.getContext('2d');
-  if (ctx) {
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.strokeStyle = penColor;
-    setIsDrawing(true);
-    setHasDrawn(true); 
-  }
-};
+    e.preventDefault();
+    const { x, y } = getCoordinates(e);
+    const ctx = canvasRef.current?.getContext('2d');
+    if (ctx) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.strokeStyle = penColor;
+      setIsDrawing(true);
+      setHasDrawn(true); 
+    }
+  };
 
   const draw = (e: any) => {
     e.preventDefault();
@@ -208,29 +191,19 @@ const BingoBook = ({ onBack }: any) => {
     const ctx = canvas?.getContext('2d');
     if (canvas && ctx) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      setHasDrawn(false); // Disable save button since it's empty again
+      setHasDrawn(false); 
     }
   };
 
-  // --- DATABASE AUTH LOGIC ---
   const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     try {
-      // 1. Ask Supabase for the live PIN and Expiration
-      const { data, error } = await supabase
-        .from('bingo_settings')
-        .select('*')
-        .eq('id', 1)
-        .single();
-
+      const { data, error } = await supabase.from('bingo_settings').select('*').eq('id', 1).single();
       if (error) throw error;
-
       if (data) {
         const now = new Date();
         const expiresAt = new Date(data.expires_at);
 
-        // 2. Check if it matches and isn't expired
         if (pinInput === data.current_pin) {
           if (now < expiresAt) {
             setIsUnlocked(true);
@@ -245,7 +218,6 @@ const BingoBook = ({ onBack }: any) => {
       console.error("Error verifying PIN:", err);
       alert("Error connecting to database. Please check your connection.");
     }
-    
     setPinInput('');
   };
 
@@ -254,14 +226,12 @@ const BingoBook = ({ onBack }: any) => {
 
     const canvas = canvasRef.current;
     if (canvas) {
-      // Save signature to device memory
       const dataUrl = canvas.toDataURL();
       const newSigs = { ...signatures, [selectedTarget.id]: dataUrl };
       setSignatures(newSigs);
       localStorage.setItem('am_bingo_sigs', JSON.stringify(newSigs));
     }
 
-    // Save completed hunt to device memory
     if (!unlockedCreators.includes(selectedTarget.id)) {
       const newHunts = [...unlockedCreators, selectedTarget.id];
       setUnlockedCreators(newHunts);
@@ -277,9 +247,39 @@ const BingoBook = ({ onBack }: any) => {
     setHasDrawn(false);
   };
 
+  if (isSubscriber === null) return <div className="min-h-screen bg-black" />;
+
+  // --- FULL PAGE LOCK SCREEN FOR FREE USERS ---
+  if (isSubscriber === false) {
+    return (
+      <div className="min-h-screen bg-black text-white relative z-[200] flex flex-col">
+        <div className="absolute top-6 left-6 z-50">
+          <button onClick={onBack} className="p-3 bg-zinc-900 hover:bg-zinc-800 rounded-full transition-colors shadow-lg">
+            <ArrowLeft className="w-5 h-5 text-white" />
+          </button>
+        </div>
+        
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-24 h-24 bg-zinc-900 rounded-full flex items-center justify-center mb-6 border border-zinc-800 shadow-[0_0_30px_rgba(254,154,0,0.2)]">
+            <Lock className="w-10 h-10 text-[#fe9a00]" />
+          </div>
+          <h1 className="text-3xl md:text-4xl font-black uppercase italic tracking-widest text-white mb-4">Bingo <span className="text-red-600">Book</span></h1>
+          <p className="text-zinc-400 font-bold max-w-md mb-8 leading-relaxed">
+            The Bingo Book hunt is exclusively for Saturday AM Pro Members. Upgrade your account to collect digital autographs from your favorite creators at live events!
+          </p>
+          <button 
+            onClick={() => onNavigate({ action: 'sub' })} 
+            className="bg-[#fe9a00] text-black px-8 py-4 rounded-full font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)]"
+          >
+            Upgrade to Pro
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-white pb-24 animate-fade-in relative z-[200]">
-      
       {/* Header */}
       <div className="sticky top-0 z-50 bg-black/95 backdrop-blur-xl border-b border-zinc-900 p-6 flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -287,39 +287,13 @@ const BingoBook = ({ onBack }: any) => {
             <ArrowLeft className="w-5 h-5 text-white" />
           </button>
           <div className="flex items-center gap-3">
-  <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" alt="Saturday AM" className="h-8 md:h-10 object-contain drop-shadow-md" />
-  <h1 className="text-xl md:text-2xl font-black uppercase italic tracking-widest text-white">Bingo <span className="text-red-600">Book</span></h1>
-</div>
+            <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" alt="Saturday AM" className="h-8 md:h-10 object-contain drop-shadow-md" />
+            <h1 className="text-xl md:text-2xl font-black uppercase italic tracking-widest text-white">Bingo <span className="text-red-600">Book</span></h1>
+          </div>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* --- UPSELL MODAL OVERLAY --- */}
-        {upsellConfig && (
-          <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
-            <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-              <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-              <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
-                <Lock className="w-8 h-8 text-[#fe9a00]" />
-              </div>
-              <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
-                {upsellConfig.title}
-              </h2>
-              <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
-                {upsellConfig.message}
-              </p>
-              <button 
-                onClick={() => setUpsellConfig(null)} 
-                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
-              >
-                Upgrade to Pro
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Mission Briefing */}
         <div className="mb-8 bg-gradient-to-r from-zinc-900 to-black border-2 border-[#fe9a00]/60 rounded-2xl p-6 md:p-8 shadow-[0_0_40px_rgba(254,154,0,0.35)] relative overflow-hidden">
           <div className="absolute top-0 left-0 w-2 h-full bg-[#fe9a00] shadow-[0_0_20px_rgba(254,154,0,0.8)]"></div>
@@ -353,13 +327,6 @@ const BingoBook = ({ onBack }: any) => {
               <button 
                 key={target.id}
                 onClick={() => { 
-                  if (!isSubscriber) {
-                    setUpsellConfig({
-                      title: 'Premium Feature Locked',
-                      message: 'Collecting creator autographs is exclusively for AM Crew Pro members! Upgrade to start your hunt.'
-                    });
-                    return;
-                  }
                   setSelectedTarget(target); 
                   setIsUnlocked(isCaught); 
                 }}
@@ -369,7 +336,6 @@ const BingoBook = ({ onBack }: any) => {
                     : 'border-zinc-800 hover:border-red-600 hover:shadow-[0_0_20px_rgba(220,38,38,0.3)]'
                 }`}
               >
-                {/* 1. Image: Full color when uncaught, faded when caught */}
                 <img 
                   src={target.avatar} 
                   alt={target.name} 
@@ -378,20 +344,15 @@ const BingoBook = ({ onBack }: any) => {
                   }`} 
                 />
                 
-                {/* 2. Base Overlay details */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-4 text-left">
-                  
-                  {/* Bolder, larger WANTED text only shows when uncaught */}
                   {!isCaught && (
                     <p className="text-xs sm:text-sm text-red-500 font-black uppercase tracking-[0.3em] mb-1 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
                       Wanted
                     </p>
                   )}
-                  
                   <h3 className={`font-black uppercase italic tracking-wider leading-tight ${isCaught ? 'text-zinc-500 text-xs' : 'text-white text-sm'}`}>
                     {target.name}
                   </h3>
-                  
                   {target.series?.length > 0 && (
                     <p className={`text-[9px] font-bold uppercase mt-1 line-clamp-2 leading-tight ${isCaught ? 'text-zinc-600' : 'text-zinc-400'}`}>
                       {target.series.join(' • ')}
@@ -399,13 +360,15 @@ const BingoBook = ({ onBack }: any) => {
                   )}
                 </div>
 
-                {/* 3. Caught Stamp & View Button Overlay */}
                 {isCaught && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[2px] transition-all">
                     <span className="text-2xl sm:text-3xl font-black italic uppercase text-[#fe9a00] drop-shadow-[0_0_15px_rgba(254,154,0,0.6)] transform -rotate-12 mb-6 border-y-4 border-[#fe9a00] py-2 px-4 bg-black/50">
                       Collected
                     </span>
-                    <div className="bg-zinc-900 border border-zinc-700 text-white px-5 py-2.5 rounded-full text-[9px] font-black uppercase tracking-widest group-hover:bg-[#fe9a00] group-hover:text-black group-hover:border-[#fe9a00] transition-colors shadow-2xl">
+                    <div 
+                      onClick={(e) => { e.stopPropagation(); setViewingAutograph(signatures[target.id]); }}
+                      className="bg-zinc-900 border border-zinc-700 text-white px-5 py-2.5 rounded-full text-[9px] font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-colors shadow-2xl"
+                    >
                       View Autograph
                     </div>
                   </div>
@@ -413,20 +376,13 @@ const BingoBook = ({ onBack }: any) => {
               </button>
             );
           })}
-          {CREATOR_TARGETS.length === 0 && (
-            <p className="col-span-full text-center text-zinc-500 font-bold tracking-widest uppercase py-8">No targets found in series data.</p>
-          )}
         </div>
-
-                
-</div>
+      </div>
 
       {/* TARGET MODAL (Auth & Canvas) */}
       {selectedTarget && (
         <div className="fixed inset-0 z-[300] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl relative">
-            
-            {/* Modal Header */}
             <div className="flex justify-between items-center p-4 border-b border-zinc-800 bg-zinc-900">
               <div className="flex items-center gap-3">
                 <Target className={`w-5 h-5 ${isUnlocked ? 'text-[#fe9a00]' : 'text-red-500'}`} />
@@ -435,11 +391,8 @@ const BingoBook = ({ onBack }: any) => {
               <button onClick={closeTargetModal} className="text-zinc-500 hover:text-white font-black uppercase tracking-widest text-[10px]">Close</button>
             </div>
 
-            {/* Content Area */}
             <div className="p-6 flex-1 flex flex-col min-h-[400px]">
-              
               {!isUnlocked ? (
-                /* AUTHENTICATION SCREEN */
                 <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
                   <div className="w-20 h-20 rounded-full bg-zinc-900 flex items-center justify-center border-2 border-red-500 shadow-[0_0_30px_rgba(255,0,0,0.2)]">
                     <Lock className="w-8 h-8 text-red-500" />
@@ -465,7 +418,6 @@ const BingoBook = ({ onBack }: any) => {
                   <p className="text-[9px] text-zinc-600 uppercase tracking-widest">(Check workplace for PIN)</p>
                 </div>
               ) : (
-                /* CANVAS SCREEN */
                 <div className="flex-1 flex flex-col">
                   <div className="flex justify-between items-center mb-4">
                      <span className="text-xs text-[#fe9a00] font-black uppercase tracking-widest flex items-center gap-2">
@@ -487,7 +439,7 @@ const BingoBook = ({ onBack }: any) => {
                     />
                   </div>
                   
-                  <button onClick={closeTargetModal} className="mt-4 w-full py-4 bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 rounded-xl font-black uppercase tracking-widest text-[10px] transition-colors">
+                  <button onClick={handleSave} className="mt-4 w-full py-4 bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 rounded-xl font-black uppercase tracking-widest text-[10px] transition-colors">
                     Save Signature & Return to Grid
                   </button>
                 </div>
@@ -496,13 +448,13 @@ const BingoBook = ({ onBack }: any) => {
           </div>
         </div>
       )}
-{/* FULLSCREEN AUTOGRAPH VIEWER */}
+
+      {/* FULLSCREEN AUTOGRAPH VIEWER */}
       {viewingAutograph && (
         <div 
           className="fixed inset-0 z-[400] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-8 animate-fade-in" 
           onClick={() => setViewingAutograph(null)}
         >
-          {/* Close Button */}
           <button 
             onClick={() => setViewingAutograph(null)} 
             className="absolute top-6 right-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-50 shadow-2xl"
@@ -511,14 +463,12 @@ const BingoBook = ({ onBack }: any) => {
           </button>
           
           <div className="relative max-w-full max-h-full w-full h-full flex flex-col items-center justify-center pointer-events-none">
-            {/* The Autograph Image */}
             <img 
               src={viewingAutograph} 
               className="max-w-full max-h-full object-contain drop-shadow-[0_0_30px_rgba(254,154,0,0.5)] pointer-events-auto bg-black border border-zinc-800 rounded-2xl" 
               alt="Creator Autograph" 
               onClick={(e) => e.stopPropagation()} 
             />
-            
             <p className="mt-8 text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">
               Official Saturday AM Autograph
             </p>
