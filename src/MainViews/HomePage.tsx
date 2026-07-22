@@ -71,11 +71,30 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
   if (isLoading) return <div className="min-h-screen bg-black text-[#fe9a00] flex items-center justify-center font-black tracking-widest">Loading Vault...</div>;
 
   return (
-    <div className="bg-black min-h-screen text-white p-6 pb-24">
+    <div className="relative min-h-screen bg-transparent text-white p-6 pb-24">
+      
+      {/* --- FIXED PARALLAX BACKGROUND --- */}
+      <div className="fixed inset-0 z-[-1] bg-black">
+        {/* Mobile Backdrop */}
+        <img 
+          src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" 
+          alt="Manga Collage" 
+          className="w-full h-full object-cover opacity-30 md:hidden"
+        />
+        {/* Desktop Backdrop */}
+        <img 
+          src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" 
+          alt="Manga Collage" 
+          className="hidden md:block w-full h-full object-cover opacity-30"
+        />
+        {/* Gradient Overlay to ensure text readability */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/40 to-black pointer-events-none" />
+      </div>
+
       {/* TOP NAVIGATION BAR */}
-        <nav className="w-full z-50 p-4 sm:p-6 flex justify-between items-center bg-black border-b border-zinc-900">
+        <nav className="w-full z-50 p-4 sm:p-6 flex justify-between items-center bg-black/50 backdrop-blur-md border-b border-zinc-900/50 mb-8 rounded-2xl shadow-lg">
           
-          <button onClick={onMenuToggle} className="p-2 hover:bg-zinc-900 rounded-full transition-colors">
+          <button onClick={onMenuToggle} className="p-2 hover:bg-zinc-800/80 rounded-full transition-colors">
              <Menu className="w-6 h-6 text-white" />
           </button>
           
@@ -125,7 +144,7 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
         </nav>
 
       <div className="mb-8 w-full flex flex-col items-center">
-        <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900 border border-zinc-800">
+        <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900/80 border border-zinc-800/50 shadow-xl backdrop-blur-sm">
           {heroSlides.map((slide, index) => (
             <div key={slide.id} onClick={() => handleSlideClick(slide)} className={`absolute inset-0 transition-opacity duration-1000 ease-in-out cursor-pointer ${index === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}>
               <img src={slide.mobile_url} alt={`Slide ${index}`} className="md:hidden w-full h-full object-cover" />
@@ -151,7 +170,7 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
       })}
     
       <div className="mt-8 mb-24 flex justify-center">
-        <button onClick={onAdminAccess} className="text-[8px] text-zinc-900 hover:text-zinc-600 tracking-[0.3em] font-black transition-colors cursor-pointer">Admin Access</button>
+        <button onClick={onAdminAccess} className="text-[8px] text-zinc-900 hover:text-zinc-500 tracking-[0.3em] font-black transition-colors cursor-pointer">Admin Access</button>
       </div>
     </div>
   );
