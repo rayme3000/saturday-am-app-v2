@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { MagazineHomeSection } from './MagazineHomeSection';
 import { SeriesSection } from './SeriesSection';
-import { Menu, User } from 'lucide-react';
+import { Menu } from 'lucide-react';
 
 export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle, currentUser }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
@@ -12,23 +12,6 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
   const [homeSections, setHomeSections] = useState<any[]>([]);
   const [homeMagazines, setHomeMagazines] = useState<any[]>([]);
   const [isLoadingSlides, setIsLoadingSlides] = useState(true);
-
-  // --- FRAME LOGIC ---
-  const BASIC_FRAMES = [
-    { id: 'none', style: 'border border-zinc-800' },
-    { id: 'red', style: 'border-2 border-red-600' },
-    { id: 'yellow', style: 'border-2 border-yellow-500' },
-    { id: 'cyan', style: 'border-2 border-cyan-500' },
-  ];
-
-  const PREMIUM_FRAMES = [
-    { id: 'gold', style: 'border-2 border-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)]', orbit: 'border-t-yellow-400 border-r-yellow-400 animate-[spin_3s_linear_infinite]' },
-    { id: 'appleblack', style: 'border-2 border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]', orbit: 'border-t-red-500 border-l-red-500 animate-[spin_2.5s_linear_infinite]' },
-    { id: 'clockstriker', style: 'border-2 border-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]', orbit: 'border-b-cyan-400 border-r-cyan-400 animate-[spin_3s_linear_infinite_reverse]' },
-  ];
-
-  const getFrameStyle = (id: string) => [...BASIC_FRAMES, ...PREMIUM_FRAMES].find(f => f.id === id)?.style || 'border border-[#fe9a00]';
-  const getOrbitStyle = (id: string) => PREMIUM_FRAMES.find(f => f.id === id)?.orbit || '';
 
   useEffect(() => {
     const fetchHomeData = async () => {
@@ -65,7 +48,6 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    // The listener in App.tsx will automatically detect this and clear the session!
   };
 
   if (isLoading) return <div className="min-h-screen bg-black text-[#fe9a00] flex items-center justify-center font-black tracking-widest">Loading Vault...</div>;
@@ -75,19 +57,24 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
       
       {/* --- FIXED PARALLAX BACKGROUND --- */}
       <div className="fixed inset-0 z-[-1] bg-black">
-        {/* Mobile Backdrop - Removed opacity class */}
+        {/* Mobile Backdrop */}
         <img 
           src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" 
           alt="Manga Collage" 
           className="w-full h-full object-cover md:hidden"
         />
-        {/* Desktop Backdrop - Removed opacity class */}
+        {/* Desktop Backdrop */}
         <img 
           src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" 
           alt="Manga Collage" 
           className="hidden md:block w-full h-full object-cover"
         />
-        {/* The gradient overlay has been completely removed! */}
+        
+        {/* Top Gradient Overlay */}
+        <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
+        
+        {/* Bottom Gradient Overlay */}
+        <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
       </div>
 
       {/* TOP NAVIGATION BAR */}
@@ -108,23 +95,11 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
           {currentUser ? (
             <div className="flex items-center gap-3 sm:gap-6">
               
-              {/* --- UPDATED CLICKABLE AVATAR WITH FRAMES --- */}
+              {/* --- USER WELCOME MESSAGE (Avatar Removed) --- */}
               <div 
                 className="hidden sm:flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
                 onClick={() => onNavigate({ action: 'profile' })}
               >
-                 <div className="relative flex items-center justify-center w-8 h-8">
-                   <div className={`w-8 h-8 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 ${getFrameStyle(currentUser?.frame_url)}`}>
-                     {currentUser.avatar_url ? (
-                       <img src={currentUser.avatar_url} className="w-full h-full object-cover" alt="Avatar" />
-                     ) : (
-                       <User className="w-4 h-4 text-zinc-400" />
-                     )}
-                   </div>
-                   {PREMIUM_FRAMES.some(p => p.id === currentUser?.frame_url) && (
-                     <div className={`absolute w-10 h-10 rounded-full border border-transparent pointer-events-none ${getOrbitStyle(currentUser?.frame_url)}`} />
-                   )}
-                 </div>
                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#fe9a00]">
                    Welcome, {currentUser.username}
                  </span>
