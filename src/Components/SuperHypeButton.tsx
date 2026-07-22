@@ -1,134 +1,89 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
+import { Flame } from 'lucide-react';
 
-export const SuperHypeButton = ({ seriesSlug, userId, isPremium = false, onRequirePremium, onRequireAuth }: any) => {
-  const [superHypesLeft, setSuperHypesLeft] = useState(0);
-  const [hasSuperHypedThis, setHasSuperHypedThis] = useState(false);
+export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremium, onRequireAuth }: any) => {
+  const [hasSuperHyped, setHasSuperHyped] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-
-  const MAX_HYPES = isPremium ? 5 : 3;
 
   useEffect(() => {
     if (userId && seriesSlug) {
-      checkHypeStatus();
+      checkSuperHypeStatus();
     } else {
       setIsLoading(false);
     }
-  }, [userId, seriesSlug, isPremium]);
+  }, [userId, seriesSlug]);
 
-  const checkHypeStatus = async () => {
-    setIsLoading(true);
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const { count } = await supabase
-      .from('super_hypes')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .gte('created_at', startOfMonth.toISOString());
-
-    const { data: specificHype } = await supabase
+  const checkSuperHypeStatus = async () => {
+    const { data } = await supabase
       .from('super_hypes')
       .select('id')
       .eq('user_id', userId)
       .eq('series_slug', seriesSlug)
-      .single();
+      .maybeSingle();
 
-    const usedHypes = count || 0;
-    setSuperHypesLeft(MAX_HYPES - usedHypes);
-    setHasSuperHypedThis(!!specificHype);
+    if (data) setHasSuperHyped(true);
     setIsLoading(false);
   };
 
   const handleSuperHype = async () => {
-    // 1. Auth check
+    // 1. Check Auth
     if (!userId) {
       if (onRequireAuth) onRequireAuth();
       return;
     }
-    // 2. Premium check
-    if (!isPremium && !hasSuperHypedThis && superHypesLeft <= 0) {
-        if (onRequirePremium) onRequirePremium();
-        return;
+
+    // 2. Enforce Paywall for Free Users
+    if (!isPremium) {
+      if (onRequirePremium) onRequirePremium();
+      return;
     }
 
-    if (isLoading) return;
+    // 3. Prevent Duplicate Hypes
+    if (hasSuperHyped || isLoading) return;
+
     setIsLoading(true);
 
     try {
-      // Fetch their current Super Hype total from their profile
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('super_hypes')
-        .eq('id', userId)
-        .maybeSingle(); // <-- CHANGED FROM .single()
-      
-      const currentSuperHypes = profile?.super_hypes || 0;
+      // Create the Super Hype
+      const { error } = await supabase
+        .from('super_hypes')
+        .insert([{ user_id: userId, series_slug: seriesSlug }]);
 
-      if (hasSuperHypedThis) {
-        // Remove super hype record from the series
-        await supabase
-          .from('super_hypes')
-          .delete()
-          .eq('user_id', userId)
-          .eq('series_slug', seriesSlug);
-        
-        // Subtract 1 from their profile stats
+      if (error) throw error;
+
+      // Update User Profile Stats
+      const { data: profile } = await supabase.from('profiles').select('super_hypes_left').eq('id', userId).single();
+      
+      if (profile && profile.super_hypes_left > 0) {
         await supabase
           .from('profiles')
-          .update({ super_hypes: Math.max(0, currentSuperHypes - 1) })
+          .update({ super_hypes_left: profile.super_hypes_left - 1 })
           .eq('id', userId);
-        
-        setHasSuperHypedThis(false);
-        setSuperHypesLeft(prev => prev + 1);
-      } else {
-        // Add super hype record to the series
-        await supabase
-          .from('super_hypes')
-          .insert([{ user_id: userId, series_slug: seriesSlug }]);
-        
-        // Add +1 to their profile stats!
-        await supabase
-          .from('profiles')
-          .update({ super_hypes: currentSuperHypes + 1 })
-          .eq('id', userId);
-        
-        setHasSuperHypedThis(true);
-        setSuperHypesLeft(prev => prev - 1);
       }
-    } catch (error) {
-      console.error("Error updating super hype:", error);
+
+      setHasSuperHyped(true);
+    } catch (err) {
+      console.error("Failed to super hype:", err);
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
   };
 
   return (
     <button 
       onClick={handleSuperHype}
-      className={`flex items-center gap-3 px-6 py-3 rounded-xl font-black uppercase tracking-widest transition-all ${
-        hasSuperHypedThis 
-          ? 'bg-gradient-to-r from-[#fe9a00] to-red-600 text-black shadow-[0_0_30px_rgba(254,154,0,0.6)] hover:scale-105'
-          : 'bg-zinc-900 border border-[#fe9a00]/50 text-[#fe9a00] hover:bg-[#fe9a00]/10 hover:scale-105 shadow-[0_0_15px_rgba(254,154,0,0.1)]'
+      disabled={isLoading || hasSuperHyped}
+      className={`flex items-center gap-3 px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all ${
+        hasSuperHyped 
+          ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00]' 
+          : 'bg-gradient-to-r from-yellow-500 to-[#fe9a00] text-black hover:scale-105 shadow-[0_0_20px_rgba(254,154,0,0.4)]'
       }`}
     >
-      <img 
-        src="/crown.png" 
-        alt="Super Hype" 
-        className={`w-6 h-6 transition-all ${
-          hasSuperHypedThis 
-            ? 'invert brightness-0' 
-            : 'brightness-0 invert sepia saturate-[7000%] hue-rotate-[1deg]'
-        }`}
-      />
-      <div className="flex flex-col items-start">
-        <span className="text-[14px] italic leading-tight">
-          {hasSuperHypedThis ? 'SUPER HYPED!' : 'SUPER HYPE'}
-        </span>
-        <span className="text-[9px] opacity-80 leading-tight uppercase tracking-widest">
-          {superHypesLeft}/{MAX_HYPES} left for the mon.
-        </span>
+      <Flame className={`w-5 h-5 ${hasSuperHyped ? 'fill-[#fe9a00]' : 'fill-black'}`} />
+      <div className="flex flex-col text-left">
+        <span className="leading-tight">{hasSuperHyped ? 'SUPER HYPED!' : 'SUPER HYPE'}</span>
+        {!hasSuperHyped && <span className="text-[9px] font-bold opacity-80 leading-tight">Pro Exclusive</span>}
       </div>
     </button>
   );

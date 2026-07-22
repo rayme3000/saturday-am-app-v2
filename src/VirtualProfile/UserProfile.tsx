@@ -99,7 +99,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                 </div>
                 <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
                   <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Super</p>
-                  <p className="font-black text-purple-500 flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
+                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
                     <Star className="w-4 h-4 md:w-6 md:h-6" /> {profileStats.super_hypes?.toLocaleString() || 0}
                   </p>
                 </div>
@@ -111,7 +111,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                 </div>
                 <div className="text-center flex-1 px-1">
                   <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Reads</p>
-                  <p className="font-black text-zinc-300 flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
+                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
                     <BookOpen className="w-4 h-4 md:w-6 md:h-6" /> {profileStats.chapters_read.toLocaleString()}
                   </p>
                 </div>
@@ -190,6 +190,8 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   const [isSubscriber, setIsSubscriber] = useState(false); 
   const [isLoggedIn, setIsLoggedIn] = useState(false);   
   const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  
   const [userProfile, setUserProfile] = useState({
     username: 'Reader',
     avatarUrl: '', 
@@ -240,7 +242,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
         setIsLoggedIn(true);
         const fallbackName = user.user_metadata?.username || 'Reader';
 
-        // FIXED: Using .select('*') guarantees we NEVER crash due to mismatched columns!
         const { data, error } = await supabase
           .from('profiles')
           .select('*')
@@ -271,7 +272,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           setUserProfile(loadedProfile);
           setTempProfile(loadedProfile);
         } else {
-          // Only falls back to Ghost Profile if the user row truly doesn't exist yet
           const ghostProfile = { ...userProfile, username: fallbackName };
           setUserProfile(ghostProfile);
           setTempProfile(ghostProfile);
@@ -316,7 +316,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     if (user) {
       const realName = user.user_metadata?.username || tempProfile.username;
 
-      // FIXED: Safely targeting the correct columns with .update()
       const { error } = await supabase
         .from('profiles')
         .update({
@@ -337,7 +336,10 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
     setUserProfile({...tempProfile});
     setIsEditing(false);
-    alert("Profile Loadout Saved Successfully!"); 
+    
+    // Trigger in-app success toast instead of browser alert
+    setShowSuccessToast(true);
+    setTimeout(() => setShowSuccessToast(false), 3000);
   };
 
   const fallbackSeriesList = [
@@ -416,6 +418,14 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
   return (
     <div className="min-h-screen bg-black text-white relative pb-20">
+      
+      {/* IN-APP SUCCESS TOAST */}
+      {showSuccessToast && (
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-[#fe9a00] text-black px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] animate-fade-in">
+          <Check className="w-5 h-5" /> Loadout Saved!
+        </div>
+      )}
+
       <button onClick={onBack} className="absolute top-6 left-6 p-3 bg-zinc-900/90 rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors z-20 transform -skew-x-12">
         <div className="transform skew-x-12 flex items-center gap-2"><ArrowLeft className="w-5 h-5" /><span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Home</span></div>
       </button>
@@ -443,7 +453,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
               }} 
               className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
             >
-              sign up for free
+              Sign up / Subscribe
             </button>
           </div>
         </div>
@@ -494,18 +504,17 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes</span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
-              <Star className="w-6 h-6 text-purple-500 mb-2" />
+              <Star className="w-6 h-6 text-[#fe9a00] mb-2" />
               <span className="text-3xl font-black">{profileStats.super_hypes?.toLocaleString() || 0}</span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes</span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
-              {/* --- CUSTOM QUICK REACT ICON --- */}
               <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" />
               <span className="text-3xl font-black">{profileStats.quick_reacts.toLocaleString()}</span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Quick Reacts</span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
-              <BookOpen className="w-6 h-6 text-zinc-400 mb-2" />
+              <BookOpen className="w-6 h-6 text-[#fe9a00] mb-2" />
               <span className="text-3xl font-black">{profileStats.chapters_read.toLocaleString()}</span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Chapters Read</span>
             </div>
@@ -665,22 +674,53 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
                 <div className="space-y-6">
                   <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-4">Select an artwork skin for your digital club card</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    
+                    {/* Free Carbon Black Base Skin */}
                     <div onClick={() => setTempProfile({...tempProfile, cardSkin: ''})} className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${!tempProfile.cardSkin ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-zinc-500'}`}>
                       <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-80 mix-blend-overlay" />
                       <div className="absolute inset-0 flex items-center justify-center bg-black/40"><span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Carbon Black</span></div>
                     </div>
 
+                    {/* Premium Custom Skins */}
                     {displaySeriesList.map((s: any) => (
-                      <div key={s.slug} onClick={() => setTempProfile({...tempProfile, cardSkin: s.cover_url})} className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === s.cover_url ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-zinc-500'}`}>
+                      <div key={s.slug} 
+                           onClick={() => {
+                              if (!isSubscriber) {
+                                setUpsellConfig({ title: 'Premium Feature', message: 'Custom AM Card Skins are exclusively for Pro members! Upgrade to customize your digital pass.' });
+                                return;
+                              }
+                              setTempProfile({...tempProfile, cardSkin: s.cover_url})
+                           }} 
+                           className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === s.cover_url ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-zinc-500'}`}>
                         <img src={s.cover_url} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" alt={s.title} />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 hover:opacity-100 transition-opacity"><span className="text-[10px] font-black uppercase tracking-widest text-white">{s.title}</span></div>
+                        
+                        {!isSubscriber && (
+                          <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-10">
+                            <Lock className="w-6 h-6 text-zinc-400" />
+                          </div>
+                        )}
                       </div>
                     ))}
 
                     {cardSkins.map((skin: any) => (
-                      <div key={skin.id} onClick={() => setTempProfile({...tempProfile, cardSkin: skin.image_url})} className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === skin.image_url ? 'border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105' : 'border-zinc-800 hover:border-purple-500/50'}`}>
+                      <div key={skin.id} 
+                           onClick={() => {
+                              if (!isSubscriber) {
+                                setUpsellConfig({ title: 'Premium Feature', message: 'Custom AM Card Skins are exclusively for Pro members! Upgrade to customize your digital pass.' });
+                                return;
+                              }
+                              setTempProfile({...tempProfile, cardSkin: skin.image_url})
+                           }} 
+                           className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === skin.image_url ? 'border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105' : 'border-zinc-800 hover:border-purple-500/50'}`}>
                         <img src={skin.image_url} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" alt={skin.name} />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 hover:opacity-100 transition-opacity"><span className="text-[10px] font-black uppercase tracking-widest text-white text-center px-2">{skin.name}</span></div>
+                        
+                        {!isSubscriber && (
+                          <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-10">
+                            <Lock className="w-6 h-6 text-zinc-400" />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -730,12 +770,27 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
                   {activeTab === 'premium' && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                       {PREMIUM_FRAMES.map(frame => (
-                        <div key={frame.id} onClick={() => setTempProfile({...tempProfile, frameId: frame.id})} className={`relative flex flex-col items-center bg-zinc-900/50 p-4 rounded-xl border transition-all ${tempProfile.frameId === frame.id ? 'border-purple-500 bg-purple-900/10' : 'border-zinc-800 hover:border-purple-900/50 cursor-pointer'}`}>
+                        <div key={frame.id} 
+                             onClick={() => {
+                                if (!isSubscriber) {
+                                  setUpsellConfig({ title: 'Premium Feature', message: 'Premium Frames are exclusively for Pro members! Upgrade to equip animated frames.' });
+                                  return;
+                                }
+                                setTempProfile({...tempProfile, frameId: frame.id})
+                             }} 
+                             className={`relative flex flex-col items-center bg-zinc-900/50 p-4 rounded-xl border transition-all overflow-hidden ${tempProfile.frameId === frame.id ? 'border-purple-500 bg-purple-900/10' : 'border-zinc-800 hover:border-purple-900/50 cursor-pointer'}`}>
+                            
                             <div className="relative w-16 h-16 flex items-center justify-center mb-3">
                               <div className={`w-10 h-10 rounded-full bg-zinc-900 z-10 flex items-center justify-center ${frame.style}`}><User className="w-5 h-5 text-zinc-600" /></div>
                               <div className={`absolute w-14 h-14 rounded-full border-2 border-transparent ${frame.orbit}`} />
                             </div>
                             <span className="text-[9px] font-black uppercase tracking-widest text-center text-purple-400">{frame.name}</span>
+
+                            {!isSubscriber && (
+                              <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-20">
+                                <Lock className="w-6 h-6 text-zinc-400" />
+                              </div>
+                            )}
                         </div>
                       ))}
                     </div>

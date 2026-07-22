@@ -414,6 +414,7 @@ export default function App() {
           currentView={currentView} 
           onNavigate={handleNavigate} 
           userAvatar={currentUser?.avatar_url} 
+          userFrame={currentUser?.frame_url} 
         />
       )}
 
