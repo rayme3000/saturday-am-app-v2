@@ -75,20 +75,19 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
       
       {/* --- FIXED PARALLAX BACKGROUND --- */}
       <div className="fixed inset-0 z-[-1] bg-black">
-        {/* Mobile Backdrop */}
+        {/* Mobile Backdrop - Removed opacity class */}
         <img 
           src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" 
           alt="Manga Collage" 
-          className="w-full h-full object-cover opacity-60 md:hidden"
+          className="w-full h-full object-cover md:hidden"
         />
-        {/* Desktop Backdrop */}
+        {/* Desktop Backdrop - Removed opacity class */}
         <img 
           src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" 
           alt="Manga Collage" 
-          className="hidden md:block w-full h-full object-cover opacity-60"
+          className="hidden md:block w-full h-full object-cover"
         />
-        {/* Gradient Overlay to ensure text readability without going 100% pitch black */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/50 to-black/80 pointer-events-none" />
+        {/* The gradient overlay has been completely removed! */}
       </div>
 
       {/* TOP NAVIGATION BAR */}
