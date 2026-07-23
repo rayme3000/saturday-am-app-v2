@@ -6,7 +6,6 @@ import {
 import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
-import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { APP_ICONS } from '../appIcons';
 
 export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium }: any) => {
@@ -64,7 +63,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   useEffect(() => {
     if (!chapterId) return;
     const fetchReacts = async () => {
-      const { data } = await supabase.from('page_reacts').select('*').eq('chapter_id', chapterId).order('created_at', { ascending: true });
+      const { data, error } = await supabase.from('page_reacts').select('*').eq('chapter_id', chapterId).order('created_at', { ascending: true });
+      
+      // ADDED DEBUG LOG: Check your browser console!
+      if (error) console.error("Supabase Error fetching reacts:", error.message);
+      
       if (data) {
         setLocalComments(data.map((r: any) => ({ id: r.id, pageIndex: r.page_index, user: r.user_name, avatar: r.avatar_url, text: r.text })));
       }
@@ -293,26 +296,13 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
         >
           {pages[currentPage] ? (
-            <TransformWrapper
-              initialScale={1}
-              minScale={1}
-              maxScale={4}
-              limitToBounds={true}
-              centerZoomedOut={true}
-            >
-              <TransformComponent 
-                wrapperStyle={{ width: '100%', height: '100%' }} 
-                contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              >
-                <img 
-                  src={getUrl(pages[currentPage])} 
-                  className="object-contain pointer-events-none" 
-                  style={{ width: '100%', height: '100%', maxWidth: '100vw', maxHeight: '100vh' }}
-                  alt={`Page ${currentPage + 1}`} 
-                  loading="lazy"
-                />
-              </TransformComponent>
-            </TransformWrapper>
+            <img 
+              src={getUrl(pages[currentPage])} 
+              className="object-contain pointer-events-none" 
+              style={{ width: '100%', height: '100%', maxWidth: '100vw', maxHeight: '100vh' }}
+              alt={`Page ${currentPage + 1}`} 
+              loading="lazy"
+            />
           ) : (
             <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
           )}
@@ -333,22 +323,12 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             rangeChanged={(range) => setCurrentPage(Math.max(0, range.startIndex))}
             itemContent={(index, pageData: any) => (
               <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0">
-                <TransformWrapper
-                  initialScale={1}
-                  minScale={1}
-                  maxScale={4}
-                  limitToBounds={true}
-                  centerZoomedOut={true}
-                >
-                  <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-                    <img 
-                      src={getUrl(pageData)} 
-                      className="w-full h-auto max-w-3xl block pointer-events-none m-0 p-0" 
-                      alt={`Page ${index + 1}`} 
-                      loading="lazy" 
-                    />
-                  </TransformComponent>
-                </TransformWrapper>
+                <img 
+                  src={getUrl(pageData)} 
+                  className="w-full h-auto max-w-3xl block pointer-events-none m-0 p-0" 
+                  alt={`Page ${index + 1}`} 
+                  loading="lazy" 
+                />
               </div>
             )}
             components={{
