@@ -52,13 +52,20 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremiu
 
       if (error) throw error;
 
-      // Update User Profile Stats
-      const { data: profile } = await supabase.from('profiles').select('super_hypes_left').eq('id', userId).single();
+      // Update User Profile Stats (BOTH limit and total tracker)
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('super_hypes, super_hypes_left')
+        .eq('id', userId)
+        .single();
       
       if (profile && profile.super_hypes_left > 0) {
         await supabase
           .from('profiles')
-          .update({ super_hypes_left: profile.super_hypes_left - 1 })
+          .update({ 
+            super_hypes_left: profile.super_hypes_left - 1,
+            super_hypes: (profile.super_hypes || 0) + 1
+          })
           .eq('id', userId);
       }
 

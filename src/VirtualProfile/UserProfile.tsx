@@ -105,7 +105,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                 </div>
                 <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
                   <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Reacts</p>
-                  <p className="font-black text-cyan-400 flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
+                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
                     <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-4 h-4 md:w-6 md:h-6 object-contain" /> {profileStats.quick_reacts.toLocaleString()}
                   </p>
                 </div>
@@ -417,8 +417,24 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   );
 
   return (
-    <div className="min-h-screen bg-black text-white relative pb-20">
+    <div className="min-h-screen bg-transparent text-white relative pb-20">
       
+      {/* --- FIXED PARALLAX BACKGROUND --- */}
+      <div className="fixed inset-0 z-[-1] bg-black">
+        <img 
+          src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" 
+          alt="Manga Collage" 
+          className="w-full h-full object-cover md:hidden"
+        />
+        <img 
+          src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" 
+          alt="Manga Collage" 
+          className="hidden md:block w-full h-full object-cover"
+        />
+        <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
+      </div>
+
       {/* IN-APP SUCCESS TOAST */}
       {showSuccessToast && (
         <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-[#fe9a00] text-black px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] animate-fade-in">
@@ -459,9 +475,10 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
         </div>
       )}
 
-      <div className="w-full h-48 sm:h-64 bg-zinc-900 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
-        <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent"></div>
+      {/* Header Banner - Semi-transparent so backdrop bleeds through */}
+      <div className="w-full h-48 sm:h-64 bg-black/40 backdrop-blur-sm relative overflow-hidden">
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay"></div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
       </div>
 
       <div className="max-w-4xl mx-auto relative -mt-16 sm:-mt-24">
@@ -470,7 +487,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
         <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6 mb-12 px-6">
           <div className="relative group cursor-pointer" onClick={() => openEditor('art')}>
             <div className={`relative w-32 h-32 sm:w-40 sm:h-40 flex items-center justify-center`}>
-              <div className={`w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden relative z-10 bg-zinc-900 flex items-center justify-center ${getFrameStyle(userProfile.frameId)}`}>
+              <div className={`w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden relative z-10 bg-zinc-900 flex items-center justify-center shadow-xl ${getFrameStyle(userProfile.frameId)}`}>
                 {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover rounded-full" /> : <User className="w-12 h-12 text-zinc-500" />}
               </div>
               {PREMIUM_FRAMES.some(p => p.id === userProfile.frameId) && ( <div className={`absolute w-32 h-32 sm:w-40 sm:h-40 rounded-full border-[3px] border-transparent pointer-events-none ${getOrbitStyle(userProfile.frameId)}`} /> )}
@@ -484,41 +501,41 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
             >
               <Settings className="w-3 h-3" /> Edit Profile
             </button>
-            <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter">{userProfile.username}</h1>
-            <p className={`text-xs font-black uppercase tracking-widest mt-1 italic ${isSubscriber ? 'text-purple-400' : 'text-zinc-500'}`}>
+            <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter drop-shadow-lg">{userProfile.username}</h1>
+            <p className={`text-xs font-black uppercase tracking-widest mt-1 italic drop-shadow-md ${isSubscriber ? 'text-purple-400' : 'text-zinc-400'}`}>
                {isSubscriber ? 'Premium Saturday AM+ Member' : 'Standard Member'}
             </p>
           </div>
           
           <div className="sm:ml-auto flex items-center gap-3 mt-4 sm:mt-0">
-            <button onClick={() => onNavigate({ action: 'settings' })} className="bg-zinc-900 border border-zinc-700 p-3 rounded-full hover:border-white transition-colors group"><Settings className="w-5 h-5 text-zinc-400 group-hover:text-white" /></button>
+            <button onClick={() => onNavigate({ action: 'settings' })} className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-700 p-3 rounded-full hover:border-white transition-colors group"><Settings className="w-5 h-5 text-zinc-400 group-hover:text-white" /></button>
           </div>
         </div>
 
         {/* --- STATS & LOADOUT --- */}
-        <div className="mb-12 border-t border-zinc-800 pt-8 px-6">
+        <div className="mb-12 border-t border-zinc-800/50 pt-8 px-6">
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-            <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <Flame className="w-6 h-6 text-[#fe9a00] mb-2" />
               <span className="text-3xl font-black">{profileStats.total_hypes.toLocaleString()}</span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes</span>
             </div>
-            <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <Star className="w-6 h-6 text-[#fe9a00] mb-2" />
               <span className="text-3xl font-black">{profileStats.super_hypes?.toLocaleString() || 0}</span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes</span>
             </div>
-            <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" />
               <span className="text-3xl font-black">{profileStats.quick_reacts.toLocaleString()}</span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Quick Reacts</span>
             </div>
-            <div className="flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border border-zinc-800">
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <BookOpen className="w-6 h-6 text-[#fe9a00] mb-2" />
               <span className="text-3xl font-black">{profileStats.chapters_read.toLocaleString()}</span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Chapters Read</span>
             </div>
-            <div className={`flex flex-col gap-1 p-5 bg-zinc-900 rounded-xl border relative overflow-hidden ${isSubscriber ? 'border-[#fe9a00]/30' : 'border-zinc-800 opacity-50'}`}>
+            <div className={`flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border relative overflow-hidden shadow-xl ${isSubscriber ? 'border-[#fe9a00]/30' : 'border-zinc-800 opacity-50'}`}>
               <div className={`absolute top-0 right-0 w-16 h-16 rounded-bl-full ${isSubscriber ? 'bg-[#fe9a00]/10' : 'bg-zinc-800'}`}></div>
               <Award className={`w-6 h-6 mb-2 relative z-10 ${isSubscriber ? 'text-[#fe9a00]' : 'text-zinc-500'}`} />
               <span className="text-2xl font-black mt-1 text-white relative z-10">{isSubscriber ? 'Active' : 'N/A'}</span>
@@ -526,7 +543,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
             </div>
           </div>
           
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 md:p-6 mb-2 mt-8 flex flex-col sm:flex-row items-center gap-6 shadow-lg">
+          <div className="bg-zinc-900/80 backdrop-blur-md border border-zinc-800 rounded-xl p-5 md:p-6 mb-2 mt-8 flex flex-col sm:flex-row items-center gap-6 shadow-xl">
             <div className="flex-1 w-full">
               <div className="flex justify-between items-end mb-3">
                 <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
@@ -552,7 +569,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           </div>
           
           <div className="flex justify-between items-end mb-4 mt-12">
-            <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Star className="w-4 h-4 text-[#fe9a00]" /> Top 5 Fave Series</h3>
+            <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 drop-shadow-md"><Star className="w-4 h-4 text-[#fe9a00]" /> Top 5 Fave Series</h3>
           </div>
           
           <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">

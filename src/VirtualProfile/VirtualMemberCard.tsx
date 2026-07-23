@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CreditCard, RotateCcw, X, Maximize2, User, Flame, MessageCircle, BookOpen, Star } from 'lucide-react';
 
-export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, memberSince, hypes, reacts, chaptersRead, skinUrl, topFive, seriesList, onRenew, onChangeSkin, getFrameStyle, getOrbitStyle }: any) => {
+export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, memberSince, hypes, superHypes, reacts, chaptersRead, skinUrl, topFive, seriesList, onRenew, onChangeSkin, getFrameStyle, getOrbitStyle }: any) => {
   const [isFlipped, setIsFlipped] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -11,28 +11,22 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
 
       {/* === FRONT OF CARD === */}
       <div className="absolute inset-0 [backface-visibility:hidden] rounded-xl overflow-hidden bg-zinc-900 flex flex-col justify-end shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700">
-        {/* Artwork Skin Only */}
         <img 
           src={skinUrl || "https://zcadkovymrnjpjaxvnao.supabase.co/storage/v1/object/public/card-skins/skins/1781908112888_8ozh4h.jpg"} 
           className="absolute inset-0 w-full h-full object-cover z-0" 
           alt="Card Skin" 
         />
         
-        {/* Foil Card Sheen Overlay */}
         <div 
           className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay"
-          style={{
-            background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)'
-          }}
+          style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }}
         />
 
-        {/* Badge */}
         <div className="absolute top-4 right-4 z-20 flex flex-col items-end pointer-events-none">
             <span className="font-black italic text-[#fe9a00] text-sm sm:text-base tracking-tighter drop-shadow-md">SATURDAY AM</span>
             <span className="text-[6px] sm:text-[8px] font-black uppercase tracking-[0.3em] text-white drop-shadow-md">Official Member</span>
         </div>
 
-        {/* Fullscreen Toggle Button */}
         <button 
           onClick={(e) => { e.stopPropagation(); setIsFullscreen(!isFullscreen); }} 
           className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 z-30 p-2 sm:p-2.5 bg-black/60 backdrop-blur-md rounded-full text-zinc-300 hover:text-white hover:bg-[#fe9a00] transition-colors shadow-lg"
@@ -41,7 +35,6 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
           {isFullscreen ? <X className="w-3 h-3 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3 h-3 sm:w-4 sm:h-4" />}
         </button>
 
-        {/* INACTIVE OVERLAY */}
         {!isSubscriber && (
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50">
               <span className="text-zinc-500 mb-2"><CreditCard className="w-8 h-8" /></span>
@@ -55,16 +48,12 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
 
       {/* === BACK OF CARD === */}
       <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-xl bg-zinc-900 overflow-hidden flex flex-col justify-between p-3 sm:p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700">
-        {/* Foil Card Sheen Overlay */}
         <div 
           className="absolute inset-0 pointer-events-none z-0"
-          style={{
-            background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)'
-          }}
+          style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }}
         />
         
         <div className="relative z-10 flex flex-col h-full justify-between">
-          {/* Fullscreen Toggle Button (Back) */}
           <button 
             onClick={(e) => { e.stopPropagation(); setIsFullscreen(!isFullscreen); }} 
             className="absolute top-0 right-0 z-30 p-2 sm:p-2.5 bg-black/60 backdrop-blur-md rounded-full text-zinc-300 hover:text-white hover:bg-[#fe9a00] transition-colors shadow-lg"
@@ -73,7 +62,6 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
             {isFullscreen ? <X className="w-3 h-3 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3 h-3 sm:w-4 sm:h-4" />}
           </button>
 
-          {/* Top Left: Avatar & Username */}
           <div className="flex items-center gap-3 border-b border-zinc-800 pb-2 pr-10">
             <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center flex-shrink-0">
               <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(frameId)}`}>
@@ -91,29 +79,34 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
             </div>
           </div>
 
-          {/* Stats Row (Dual-Sized) */}
+          {/* FIX: Stats Row now perfectly symmetrical and fully Orange */}
           <div className={`flex justify-around items-center bg-black/40 rounded-lg border border-zinc-800/50 shadow-inner transition-all duration-300 ${isFullscreen ? 'p-3 sm:p-5 mt-4 mb-2' : 'p-2 mt-1'}`}>
-            <div className="text-center w-1/3 border-r border-zinc-800/50">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Total Hypes</p>
+            <div className="text-center w-1/4 border-r border-zinc-800/50">
+              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Hypes</p>
               <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
                 <Flame className={`transition-all duration-300 ${isFullscreen ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-2.5 h-2.5 sm:w-3 sm:h-3'}`} /> {hypes}
               </p>
             </div>
-            <div className="text-center w-1/3 border-r border-zinc-800/50">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Quick Reacts</p>
-              <p className={`font-black text-cyan-400 flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
+            <div className="text-center w-1/4 border-r border-zinc-800/50">
+              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Super</p>
+              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
+                <Star className={`transition-all duration-300 ${isFullscreen ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-2.5 h-2.5 sm:w-3 sm:h-3'}`} /> {superHypes || 0}
+              </p>
+            </div>
+            <div className="text-center w-1/4 border-r border-zinc-800/50">
+              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Reacts</p>
+              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
                 <MessageCircle className={`transition-all duration-300 ${isFullscreen ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-2.5 h-2.5 sm:w-3 sm:h-3'}`} /> {reacts}
               </p>
             </div>
-            <div className="text-center w-1/3">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Chapters Read</p>
-              <p className={`font-black text-cyan-400 flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
+            <div className="text-center w-1/4">
+              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Reads</p>
+              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
                 <BookOpen className={`transition-all duration-300 ${isFullscreen ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-2.5 h-2.5 sm:w-3 sm:h-3'}`} /> {chaptersRead}
               </p>
             </div>
           </div>
 
-          {/* My Favorite Series (Dual-Sized Peel-and-Stick Aesthetic) */}
           <div className="flex flex-col justify-center w-full mt-1 sm:mt-2 flex-1">
             <p className={`${isFullscreen ? 'text-[10px] sm:text-[12px] mb-2' : 'text-[8px] sm:text-[9px] mb-1.5'} text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-1.5 transition-all`}>
               <Star className={`${isFullscreen ? 'w-4 h-4' : 'w-3 h-3'} text-[#fe9a00]`} /> Top 5 Stickers
@@ -123,7 +116,6 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
                 const slug = topFive[i];
                 const series = seriesList.find((s:any) => s.slug === slug);
                 
-                // If the slot is empty, render a ghost circle
                 if (!series) {
                    return (
                      <div key={i} className="flex flex-col items-center w-[18%] gap-1">
@@ -132,7 +124,6 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
                    );
                 }
                 
-                // Prioritize the dedicated sticker_url, fallback to character art if no sticker is uploaded yet
                 const stickerImage = series.sticker_url || series.character_url || series.cover_url;
 
                 return (
@@ -151,12 +142,9 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
                         className="w-full h-full object-cover object-top" 
                         alt={`${series.title} sticker`} 
                       />
-                      
-                      {/* Glossy Vinyl Overlay */}
                       <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
                     </div>
                     
-                    {/* Consistent Text Title Only */}
                     <span className={`${isFullscreen ? 'text-[7px] sm:text-[9px] mt-1' : 'text-[5px] sm:text-[6px]'} font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all`}>
                       {series.title}
                     </span>
@@ -166,7 +154,6 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
             </div>
           </div>
 
-          {/* Promo Text */}
           <div className="text-center pt-1">
             <p className="text-[6px] sm:text-[7px] text-zinc-500 uppercase tracking-widest leading-relaxed">
               Present this digital pass at live events for discounts.<br/>
@@ -181,8 +168,6 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
   return (
     <>
       <div className="border-t border-zinc-800 pt-12 pb-12 w-full max-w-4xl mx-auto px-6">
-        
-        {/* Dynamic Header: Button vanishes when flipped */}
         <div className="flex justify-between items-end mb-4">
           <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-purple-500" /> Digital AM Club Card
@@ -194,10 +179,8 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
           </div>
         </div>
         
-        {/* The CLEANED Inline Card Container */}
         <div className="relative w-full max-w-sm mx-auto aspect-[1.58] card-perspective mb-8 group cursor-pointer" onClick={() => setIsFlipped(!isFlipped)}>
           {isSubscriber && <div className={`absolute -inset-4 bg-gradient-to-r from-[#fe9a00]/30 to-purple-600/30 blur-2xl opacity-50 rounded-[3rem] transition-opacity duration-1000`} />}
-          
           {CardContent()}
         </div>
         
@@ -208,14 +191,11 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
         )}
       </div>
 
-      {/* FULLSCREEN OVERLAY */}
       {isFullscreen && (
         <div className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 animate-fade-in" onClick={() => setIsFullscreen(false)}>
-          {/* Card stretches to 2xl when fullscreen! */}
           <div className="w-full max-w-2xl aspect-[1.58] [perspective:1000px] cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}>
             {CardContent()}
           </div>
-          
           <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mt-12 animate-pulse flex items-center gap-2">
             <RotateCcw className="w-4 h-4" /> Tap anywhere on card to flip
           </p>
