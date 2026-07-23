@@ -6,6 +6,8 @@ import {
 import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+import { APP_ICONS } from '../appIcons';
 
 export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
@@ -72,7 +74,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   // --- FETCH READING PROGRESS ---
   useEffect(() => {
-    // FIXED: If there is no chapterId (like in Magazines), kill the spinner immediately!
     if (!chapterId) {
       setIsLoadingProgress(false);
       return;
@@ -84,7 +85,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
     const fetchProgress = async () => {
       if (!userId) {
-        // If visitor, just start at 0
         setCurrentPage(0);
         setIsLoadingProgress(false);
         return;
@@ -116,7 +116,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   // --- SAVE READING PROGRESS (DEBOUNCED) ---
   useEffect(() => {
-    // Skip if visitor or if we are still loading initial progress
     if (!userId || !chapterId || isLoadingProgress) return;
 
     const saveTimer = setTimeout(async () => {
@@ -133,7 +132,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       } catch (error) {
         console.error("Failed to save progress:", error);
       }
-    }, 1500); // Waits 1.5 seconds after they stop flipping pages before saving
+    }, 1500); 
 
     return () => clearTimeout(saveTimer);
   }, [currentPage, userId, chapterId, isLoadingProgress]);
@@ -294,13 +293,26 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
         >
           {pages[currentPage] ? (
-            <img 
-              src={getUrl(pages[currentPage])} 
-              className="object-contain pointer-events-none" 
-              style={{ width: '100%', height: '100%', maxWidth: '100vw', maxHeight: '100vh' }}
-              alt={`Page ${currentPage + 1}`} 
-              loading="lazy"
-            />
+            <TransformWrapper
+              initialScale={1}
+              minScale={1}
+              maxScale={4}
+              limitToBounds={true}
+              centerZoomedOut={true}
+            >
+              <TransformComponent 
+                wrapperStyle={{ width: '100%', height: '100%' }} 
+                contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <img 
+                  src={getUrl(pages[currentPage])} 
+                  className="object-contain pointer-events-none" 
+                  style={{ width: '100%', height: '100%', maxWidth: '100vw', maxHeight: '100vh' }}
+                  alt={`Page ${currentPage + 1}`} 
+                  loading="lazy"
+                />
+              </TransformComponent>
+            </TransformWrapper>
           ) : (
             <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
           )}
@@ -321,12 +333,22 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             rangeChanged={(range) => setCurrentPage(Math.max(0, range.startIndex))}
             itemContent={(index, pageData: any) => (
               <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0">
-                <img 
-                  src={getUrl(pageData)} 
-                  className="w-full h-auto max-w-3xl block pointer-events-none m-0 p-0" 
-                  alt={`Page ${index + 1}`} 
-                  loading="lazy" 
-                />
+                <TransformWrapper
+                  initialScale={1}
+                  minScale={1}
+                  maxScale={4}
+                  limitToBounds={true}
+                  centerZoomedOut={true}
+                >
+                  <TransformComponent wrapperStyle={{ width: '100%' }} contentStyle={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                    <img 
+                      src={getUrl(pageData)} 
+                      className="w-full h-auto max-w-3xl block pointer-events-none m-0 p-0" 
+                      alt={`Page ${index + 1}`} 
+                      loading="lazy" 
+                    />
+                  </TransformComponent>
+                </TransformWrapper>
               </div>
             )}
             components={{
@@ -454,7 +476,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             )}
 
             <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2.5 sm:p-3 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
-              <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
+              <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
             </button>
           </div>
         </div>
@@ -531,7 +553,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             )}
 
             <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2.5 sm:p-3 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
-              <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
+              <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
             </button>
           </div>
         </div>

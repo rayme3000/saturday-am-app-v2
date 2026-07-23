@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CreditCard, RotateCcw, X, Maximize2, User, Flame, MessageCircle, BookOpen, Star } from 'lucide-react';
+import { APP_ICONS } from '../appIcons';
 
 export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, memberSince, hypes, superHypes, reacts, chaptersRead, skinUrl, topFive, seriesList, onRenew, onChangeSkin, getFrameStyle, getOrbitStyle }: any) => {
   const [isFlipped, setIsFlipped] = useState(false);
@@ -79,7 +80,7 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
             </div>
           </div>
 
-          {/* FIX: Stats Row now perfectly symmetrical and fully Orange */}
+          {/* Stats Row */}
           <div className={`flex justify-around items-center bg-black/40 rounded-lg border border-zinc-800/50 shadow-inner transition-all duration-300 ${isFullscreen ? 'p-3 sm:p-5 mt-4 mb-2' : 'p-2 mt-1'}`}>
             <div className="text-center w-1/4 border-r border-zinc-800/50">
               <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Hypes</p>
@@ -96,7 +97,7 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
             <div className="text-center w-1/4 border-r border-zinc-800/50">
               <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Reacts</p>
               <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
-                <MessageCircle className={`transition-all duration-300 ${isFullscreen ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-2.5 h-2.5 sm:w-3 sm:h-3'}`} /> {reacts}
+                <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className="w-4 h-4 md:w-6 md:h-6 object-contain" /> {reacts}
               </p>
             </div>
             <div className="text-center w-1/4">

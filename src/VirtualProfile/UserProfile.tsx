@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, RotateCcw, Plus, Lock } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+import { APP_ICONS } from '../appIcons';
 
 // --- 1. GLOBAL FLEX CARD COMPONENT ---
 export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
@@ -106,7 +107,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                 <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
                   <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Reacts</p>
                   <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
-                    <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-4 h-4 md:w-6 md:h-6 object-contain" /> {profileStats.quick_reacts.toLocaleString()}
+                    <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className="w-4 h-4 md:w-6 md:h-6 object-contain" /> {profileStats.quick_reacts.toLocaleString()}
                   </p>
                 </div>
                 <div className="text-center flex-1 px-1">
@@ -526,7 +527,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes</span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
-              <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" />
+              <img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" />
               <span className="text-3xl font-black">{profileStats.quick_reacts.toLocaleString()}</span>
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Quick Reacts</span>
             </div>
