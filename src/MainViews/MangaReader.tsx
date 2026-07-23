@@ -556,7 +556,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                     <input
                       autoFocus
                       type="text"
-                      maxLength={140}
+                      maxLength={30}
                       value={reactText}
                       onChange={(e) => setReactText(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') handleReactSubmit(); }}
