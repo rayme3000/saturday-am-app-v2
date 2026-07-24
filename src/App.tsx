@@ -144,6 +144,10 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userTier, setUserTier] = useState<'visitor' | 'free' | 'premium'>('visitor');
 
+  // --- PWA INSTALL PROMPT STATE ---
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+
   // --- SESSION STORAGE SYNC ---
   useEffect(() => {
     sessionStorage.setItem('currentView', currentView);
@@ -219,6 +223,41 @@ export default function App() {
       window.removeEventListener('profileUpdated', checkSessionAndFetch);
     };
   }, []);
+
+  // --- PWA INSTALL LISTENER ---
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      // Prevent Chrome from automatically showing the default prompt
+      e.preventDefault();
+      // Stash the event so it can be triggered later
+      setDeferredPrompt(e);
+      // Show our custom UI
+      setShowInstallPrompt(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    
+    // Show the native installation prompt
+    deferredPrompt.prompt();
+    
+    // Wait for the user to respond to the prompt
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      console.log('User accepted the install prompt');
+    }
+    
+    // Clear the saved prompt since it can't be used again
+    setDeferredPrompt(null);
+    setShowInstallPrompt(false);
+  };
 
   const handleNavigate = useCallback((data: any) => {
     if (data.action === 'home') { setCurrentView('home'); return; }
@@ -417,6 +456,29 @@ export default function App() {
           userAvatar={currentUser?.avatar_url} 
           userFrame={currentUser?.frame_id} 
         />
+      )}
+
+      {/* 6. Custom PWA Install Banner */}
+      {showInstallPrompt && (
+        <div className="fixed top-4 sm:top-6 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-[6000] bg-zinc-900 border border-[#fe9a00] p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex items-center justify-between animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-black rounded-lg border border-zinc-700 p-1 flex items-center justify-center">
+              <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-full h-full object-contain" alt="Logo" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-white font-black italic uppercase text-sm tracking-widest leading-tight">Saturday AM</span>
+              <span className="text-zinc-400 text-[9px] font-bold uppercase tracking-widest mt-0.5">Install the official app</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowInstallPrompt(false)} className="p-2 text-zinc-500 hover:text-white transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+            <button onClick={handleInstallClick} className="bg-[#fe9a00] text-black px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">
+              Install
+            </button>
+          </div>
+        </div>
       )}
 
       <ScrollToTopButton />
