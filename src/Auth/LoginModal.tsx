@@ -156,7 +156,11 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           {isSignUp && (
             <>
               <input 
-                type="text" placeholder="Choose a Username" value={username} onChange={(e) => setUsername(e.target.value)}
+                type="text" 
+                placeholder="Choose a Username" 
+                value={username} 
+                onChange={(e) => setUsername(e.target.value)}
+                maxLength={15}  {/* <-- ADD THIS LINE HERE */}
                 className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
                 required
               />

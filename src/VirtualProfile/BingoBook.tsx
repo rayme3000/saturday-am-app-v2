@@ -85,6 +85,9 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const [penColor, setPenColor] = useState('#fe9a00');
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // --- NEW: Custom Alert State ---
+  const [alertConfig, setAlertConfig] = useState<{ title: string, message: string } | null>(null);
+
   const progressPercentage = CREATOR_TARGETS.length > 0 ? (unlockedCreators.length / CREATOR_TARGETS.length) * 100 : 0;
   
   const [isSubscriber, setIsSubscriber] = useState<boolean | null>(null);
@@ -208,15 +211,15 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
           if (now < expiresAt) {
             setIsUnlocked(true);
           } else {
-            alert("This convention PIN has expired! Ask the AM team for the new one.");
+            setAlertConfig({ title: "PIN Expired", message: "This convention PIN has expired! Ask the AM team for the new one." });
           }
         } else {
-          alert("Incorrect Creator PIN. Please try again.");
+          setAlertConfig({ title: "Access Denied", message: "Incorrect Creator PIN. Please try again." });
         }
       }
     } catch (err: any) {
       console.error("Error verifying PIN:", err);
-      alert("Error connecting to database. Please check your connection.");
+      setAlertConfig({ title: "Connection Error", message: "Error connecting to database. Please check your connection." });
     }
     setPinInput('');
   };
@@ -472,6 +475,32 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
             <p className="mt-8 text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] animate-pulse">
               Official Saturday AM Autograph
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* IN-APP ALERT MODAL */}
+      {alertConfig && (
+        <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setAlertConfig(null)}>
+          <div className="bg-zinc-950 border border-red-900/50 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-[0_0_40px_rgba(239,68,68,0.2)] relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setAlertConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-6 bg-red-900/20 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]">
+              <X className="w-8 h-8 text-red-500" />
+            </div>
+            <h2 className="text-xl font-black italic uppercase tracking-tighter text-white mb-2">
+              {alertConfig.title}
+            </h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
+              {alertConfig.message}
+            </p>
+            <button 
+              onClick={() => setAlertConfig(null)} 
+              className="w-full font-black uppercase tracking-widest py-3 rounded transition-colors bg-red-600 text-white hover:bg-red-500"
+            >
+              Acknowledge
+            </button>
           </div>
         </div>
       )}

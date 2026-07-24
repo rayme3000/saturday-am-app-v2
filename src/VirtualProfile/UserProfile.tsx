@@ -192,6 +192,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);   
   const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [errorToast, setErrorToast] = useState(''); // <-- Added Error Toast State
   
   const [userProfile, setUserProfile] = useState({
     username: 'Reader',
@@ -330,7 +331,8 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
       if (error) {
         console.error("Error saving profile:", error);
-        alert("Failed to save! Make sure your Supabase RLS policy allows UPDATE for profiles.");
+        setErrorToast("Failed to save! Please check your connection.");
+        setTimeout(() => setErrorToast(''), 3000);
         return;
       }
     }
@@ -440,6 +442,13 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
       {showSuccessToast && (
         <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-[#fe9a00] text-black px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] animate-fade-in">
           <Check className="w-5 h-5" /> Loadout Saved!
+        </div>
+      )}
+
+      {/* IN-APP ERROR TOAST */}
+      {errorToast && (
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-red-600 text-white px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-fade-in">
+          <X className="w-5 h-5" /> {errorToast}
         </div>
       )}
 
