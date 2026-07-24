@@ -434,11 +434,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               >
                 <div className="animate-slide-right-fade flex items-center">
                   <div className="w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-r-[5px] border-r-black/70 -mr-[1px]" />
-                  <div className="bg-black/70 backdrop-blur-md text-white px-3 py-1.5 sm:py-2 rounded-lg shadow-2xl max-w-[180px] sm:max-w-[250px] border border-white/5 flex flex-col">
-                    <span className="text-[#fe9a00] font-black uppercase text-[7px] sm:text-[8px] mb-0.5 truncate w-full max-w-[120px]">
-                      {activeComment.user}
+                  <div className="bg-black/70 backdrop-blur-md text-white px-3 py-2 rounded-lg shadow-2xl max-w-[180px] sm:max-w-[250px] border border-white/5 flex flex-col items-start">
+                    <span className="text-[#fe9a00] font-semibold uppercase text-[8px] mb-0.5 w-full truncate">
+                      {activeComment.user.length > 15 ? `${activeComment.user.slice(0, 15)}...` : activeComment.user}
                     </span>
-                    <span className="text-[10px] sm:text-[11px] leading-tight break-words">
+                    <span className="text-[10px] sm:text-[11px] leading-tight break-words text-left">
                       {activeComment.text}
                     </span>
                   </div>
@@ -514,11 +514,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                 style={{ left: `${(currentPage / maxPage) * 100}%`, transform: 'translateX(-50%)' }}
               >
                 <div className="animate-slide-up-fade flex flex-col items-center">
-                  <div className="bg-black/70 backdrop-blur-md text-white px-3 py-1.5 sm:py-2 rounded-lg shadow-2xl max-w-[180px] sm:max-w-[250px] border border-white/5 flex flex-col">
-                    <span className="text-[#fe9a00] font-black uppercase text-[7px] sm:text-[8px] mb-0.5 truncate w-full max-w-[120px]">
-                      {activeComment.user}
+                  <div className="bg-black/70 backdrop-blur-md text-white px-3 py-2 rounded-lg shadow-2xl max-w-[180px] sm:max-w-[250px] border border-white/5 flex flex-col items-start">
+                    <span className="text-[#fe9a00] font-semibold uppercase text-[8px] mb-0.5 w-full truncate">
+                      {activeComment.user.length > 15 ? `${activeComment.user.slice(0, 15)}...` : activeComment.user}
                     </span>
-                    <span className="text-[10px] sm:text-[11px] leading-tight break-words">
+                    <span className="text-[10px] sm:text-[11px] leading-tight break-words text-left">
                       {activeComment.text}
                     </span>
                   </div>
