@@ -438,7 +438,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                     <span className="text-[#fe9a00] font-semibold uppercase text-[8px] mb-0.5 w-full truncate">
                       {activeComment.user.length > 15 ? `${activeComment.user.slice(0, 15)}...` : activeComment.user}
                     </span>
-                    <span className="text-[10px] sm:text-[11px] leading-tight break-words text-left">
+                    <span className="text-[10px] sm:text-[11px] leading-tight break-words text-left whitespace-normal">
                       {activeComment.text}
                     </span>
                   </div>
@@ -518,7 +518,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                     <span className="text-[#fe9a00] font-semibold uppercase text-[8px] mb-0.5 w-full truncate">
                       {activeComment.user.length > 15 ? `${activeComment.user.slice(0, 15)}...` : activeComment.user}
                     </span>
-                    <span className="text-[10px] sm:text-[11px] leading-tight break-words text-left">
+                    <span className="text-[10px] sm:text-[11px] leading-tight break-words text-left whitespace-normal">
                       {activeComment.text}
                     </span>
                   </div>
