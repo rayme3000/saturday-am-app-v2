@@ -10,6 +10,7 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
     { name: 'My Favorites', action: 'faves', prefetch: () => import('../MainViews/MyFaves.tsx') },
     { name: 'Bingo Book', action: 'bingobook', prefetch: () => import('../VirtualProfile/BingoBook') },
     { name: 'Subscription', action: 'sub', prefetch: null },
+    { name: 'Leaderboard', action: 'leaderboard', prefetch: () => import('../MainViews/Leaderboard.tsx') },
     { name: 'Settings', action: 'settings', prefetch: () => import('../MainViews/Settings.tsx') }
   ];
 

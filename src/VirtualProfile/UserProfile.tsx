@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, RotateCcw, Plus, Lock } from 'lucide-react';
+import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, RotateCcw, Plus, Lock, Trophy, Activity } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
@@ -7,7 +7,7 @@ import { APP_ICONS } from '../appIcons';
 // --- 1. GLOBAL FLEX CARD COMPONENT ---
 export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const { seriesList = [] } = useSeriesData();
-  const [profileStats, setProfileStats] = useState({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0 });
+  const [profileStats, setProfileStats] = useState({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---" });
   const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', frameId: 'none', cardSkin: '', topFive: [null, null, null, null, null] });
   const [isFlipped, setIsFlipped] = useState(false);
 
@@ -29,17 +29,52 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
 
   useEffect(() => {
     if (!isOpen) { setIsFlipped(false); return; }
-    const fetchStats = async () => {
+    
+    const fetchStatsAndRank = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-        if (data) {
-          setProfileStats({ total_hypes: data.total_hypes || 0, super_hypes: data.super_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0 });
-          setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', frameId: data.frame_id || 'none', cardSkin: data.card_skin || '', topFive: data.top_five || [null, null, null, null, null] });
-        }
+      if (!user) return;
+
+      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+      const { data: allProfiles } = await supabase.from('profiles').select('id, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read');
+      
+      let myRank: string | number = "---";
+
+      if (allProfiles) {
+        const rankedFans = allProfiles
+          .map((p) => {
+            const score = 
+              (p.total_hypes || 0) * 1 + 
+              (p.quick_reacts || 0) * 5 + 
+              (p.chapters_read || 0) * 5 + 
+              (p.super_hypes || 0) * 10 + 
+              (p.is_premium ? 20 : 0);
+            return { id: p.id, score };
+          })
+          .filter((p) => p.score > 0)
+          .sort((a, b) => b.score - a.score);
+
+        const myIndex = rankedFans.findIndex(f => f.id === user.id);
+        if (myIndex !== -1) myRank = myIndex + 1;
+      }
+
+      if (data) {
+        setProfileStats({ 
+          total_hypes: data.total_hypes || 0, 
+          super_hypes: data.super_hypes || 0, 
+          quick_reacts: data.quick_reacts || 0, 
+          chapters_read: data.chapters_read || 0, 
+          rank: myRank as string
+        });
+        setUserProfile({ 
+          username: data.username || 'Reader', 
+          avatarUrl: data.avatar_url || '', 
+          frameId: data.frame_id || 'none', 
+          cardSkin: data.card_skin || '', 
+          topFive: data.top_five || [null, null, null, null, null] 
+        });
       }
     };
-    fetchStats();
+    fetchStatsAndRank();
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -69,29 +104,40 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
           </div>
 
           {/* === BACK OF CARD === */}
-          <div className="absolute inset-0 w-full h-full bg-zinc-900 rounded-2xl md:rounded-[2rem] border-2 border-zinc-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col justify-between p-4 md:p-10 card-face card-back">
+          <div className="absolute inset-0 w-full h-full bg-zinc-900 rounded-2xl md:rounded-[2rem] border-2 border-zinc-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col justify-between p-5 md:p-10 card-face card-back">
             <div className="absolute inset-0 pointer-events-none z-0" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }} />
             
             <div className="relative z-10 flex flex-col h-full justify-between">
               
-              <div className="flex items-center gap-4 border-b border-zinc-800 pb-4 md:pb-6">
-                <div className="relative w-16 h-16 md:w-24 md:h-24 flex items-center justify-center flex-shrink-0">
-                  <div className={`w-14 h-14 md:w-20 md:h-20 rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(userProfile.frameId)}`}>
-                    {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="w-8 h-8 md:w-10 md:h-10 text-zinc-600" />}
+              <div className="flex justify-between items-start border-b border-zinc-800 pb-4 md:pb-6 pr-4">
+                <div className="flex items-center gap-3 md:gap-4">
+                  <div className="relative w-14 h-14 md:w-20 md:h-20 flex items-center justify-center flex-shrink-0">
+                    <div className={`w-12 h-12 md:w-16 md:h-16 rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(userProfile.frameId)}`}>
+                      {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="w-6 h-6 md:w-8 md:h-8 text-zinc-600" />}
+                    </div>
+                    {getOrbitStyle(userProfile.frameId) && <div className={`absolute w-full h-full rounded-full border-2 border-transparent ${getOrbitStyle(userProfile.frameId)}`} />}
                   </div>
-                  {getOrbitStyle(userProfile.frameId) && <div className={`absolute w-full h-full rounded-full border-2 border-transparent ${getOrbitStyle(userProfile.frameId)}`} />}
+                  <div className="flex flex-col truncate pt-1">
+                    <p className="font-black text-xl md:text-4xl italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none mb-1 md:mb-2">{userProfile.username}</p>
+                    <p className="text-[6px] md:text-[10px] text-[#fe9a00] font-black uppercase tracking-widest flex flex-wrap gap-x-1.5 leading-tight">
+                      <span>MEMBER SINCE OCT 2023</span>
+                      <span className="text-zinc-600 hidden sm:inline">|</span>
+                      <span className="text-zinc-400">STORE DISCOUNT CODE: AMCLUB26</span>
+                    </p>
+                  </div>
                 </div>
-                <div className="flex flex-col truncate pt-1">
-                  <p className="font-black text-2xl md:text-5xl italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none">{userProfile.username}</p>
-                  <p className="text-[8px] md:text-[12px] text-[#fe9a00] font-black uppercase tracking-widest mt-2 flex flex-wrap gap-x-2 leading-tight">
-                    <span>MEMBER SINCE OCT 2023</span>
-                    <span className="text-zinc-600 hidden sm:inline">|</span>
-                    <span className="text-zinc-400">STORE DISCOUNT CODE: AMCLUB26</span>
-                  </p>
+
+                <div className="flex flex-col items-end text-right justify-center pt-1 md:pt-2">
+                  <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[8px] md:text-[12px] flex items-center gap-1.5">
+                    <Trophy className="w-3 h-3 md:w-5 md:h-5" /> Fan Rank
+                  </span>
+                  <span className="font-black italic text-white drop-shadow-[0_0_10px_rgba(254,154,0,0.5)] text-2xl md:text-5xl leading-none mt-1.5 md:mt-2">
+                    #{profileStats.rank}
+                  </span>
                 </div>
               </div>
 
-              <div className="flex justify-around items-center bg-black/40 rounded-xl border border-zinc-800/50 shadow-inner p-4 md:p-6 mt-4 mb-4">
+              <div className="flex justify-around items-center bg-black/40 rounded-xl border border-zinc-800/50 shadow-inner p-4 md:p-6 my-auto">
                 <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
                   <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Hypes</p>
                   <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
@@ -118,8 +164,8 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                 </div>
               </div>
 
-              <div className="flex flex-col justify-center w-full flex-1">
-                <p className="text-[10px] md:text-sm text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-2 mb-2 md:mb-4">
+              <div className="flex flex-col justify-center w-full pb-2">
+                <p className="text-[10px] md:text-sm text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-2 mb-3 md:mb-5">
                   <Star className="w-4 h-4 md:w-5 md:h-5 text-[#fe9a00]" /> Top 5 Stickers
                 </p>
                 <div className="flex gap-2 md:gap-6 w-full justify-between items-start px-2 md:px-8">
@@ -159,14 +205,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                   })}
                 </div>
               </div>
-
-              <div className="text-center pt-4 md:pt-6 mt-auto">
-                <p className="text-[8px] md:text-[10px] text-zinc-500 uppercase tracking-widest leading-relaxed">
-                  Present this digital pass at live events for discounts.<br/>
-                  Use code <span className="text-white font-black">AMCLUB26</span> in the Shopify store.
-                </p>
-              </div>
-
             </div>
           </div>
         </div>
@@ -192,7 +230,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);   
   const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
-  const [errorToast, setErrorToast] = useState(''); // <-- Added Error Toast State
+  const [errorToast, setErrorToast] = useState(''); 
   
   const [userProfile, setUserProfile] = useState({
     username: 'Reader',
@@ -208,7 +246,9 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     total_hypes: 0,
     super_hypes: 0,
     quick_reacts: 0,
-    chapters_read: 0
+    chapters_read: 0,
+    rank: "---",
+    score: 0
   });
 
   const [unlockedHunts, setUnlockedHunts] = useState(0);
@@ -229,7 +269,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     fetchData();
   }, []);
 
-  // --- 2. FETCH USER STATS & BINGO BOOK (Standalone Hook) ---
+  // --- 2. FETCH USER STATS, BINGO BOOK & GLOBAL RANK ---
   useEffect(() => {
     const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
     setUnlockedHunts(savedHunts.length);
@@ -252,12 +292,40 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
         if (error) console.error("Fetch profile error:", error);
 
+        // Fetch all profiles to calculate Global Rank
+        const { data: allProfiles } = await supabase.from('profiles').select('id, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read');
+        let myRank: string | number = "---";
+        let myScore = 0;
+
+        if (allProfiles) {
+          const rankedFans = allProfiles
+            .map((p) => {
+              const score = 
+                (p.total_hypes || 0) * 1 + 
+                (p.quick_reacts || 0) * 5 + 
+                (p.chapters_read || 0) * 5 + 
+                (p.super_hypes || 0) * 10 + 
+                (p.is_premium ? 20 : 0);
+              return { id: p.id, score };
+            })
+            .filter((p) => p.score > 0)
+            .sort((a, b) => b.score - a.score);
+
+          const myIndex = rankedFans.findIndex(f => f.id === user.id);
+          if (myIndex !== -1) {
+            myRank = myIndex + 1;
+            myScore = rankedFans[myIndex].score;
+          }
+        }
+
         if (data) {
           setProfileStats({
             total_hypes: data.total_hypes || 0,
             super_hypes: data.super_hypes || 0,
             quick_reacts: data.quick_reacts || 0,
-            chapters_read: data.chapters_read || 0
+            chapters_read: data.chapters_read || 0,
+            rank: myRank as string,
+            score: myScore
           });
 
           setIsSubscriber(data.is_premium || false);
@@ -339,8 +407,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
     setUserProfile({...tempProfile});
     setIsEditing(false);
-    
-    // Trigger in-app success toast instead of browser alert
     setShowSuccessToast(true);
     setTimeout(() => setShowSuccessToast(false), 3000);
   };
@@ -494,7 +560,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
       <div className="max-w-4xl mx-auto relative -mt-16 sm:-mt-24">
         
         {/* --- USER HEADER --- */}
-        <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6 mb-12 px-6">
+        <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6 mb-8 px-6">
           <div className="relative group cursor-pointer" onClick={() => openEditor('art')}>
             <div className={`relative w-32 h-32 sm:w-40 sm:h-40 flex items-center justify-center`}>
               <div className={`w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden relative z-10 bg-zinc-900 flex items-center justify-center shadow-xl ${getFrameStyle(userProfile.frameId)}`}>
@@ -519,6 +585,32 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           
           <div className="sm:ml-auto flex items-center gap-3 mt-4 sm:mt-0">
             <button onClick={() => onNavigate({ action: 'settings' })} className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-700 p-3 rounded-full hover:border-white transition-colors group"><Settings className="w-5 h-5 text-zinc-400 group-hover:text-white" /></button>
+          </div>
+        </div>
+
+        {/* --- MASSIVE PROFILE RANK BANNER --- */}
+        <div className="px-6 mb-10">
+          <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-6 bg-gradient-to-r from-zinc-900/90 via-black/80 to-zinc-900/90 border border-zinc-800 rounded-2xl p-6 shadow-2xl backdrop-blur-md relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-[#fe9a00]/10 rounded-bl-full blur-2xl pointer-events-none" />
+            
+            <div className="flex items-center gap-4">
+              <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shadow-[0_0_15px_rgba(254,154,0,0.3)]">
+                <Trophy className="w-8 h-8 sm:w-10 sm:h-10 text-[#fe9a00]" />
+              </div>
+              <div className="flex flex-col text-center sm:text-left">
+                <h3 className="text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1">Global AM Super Fan Rank</h3>
+                <div className="text-4xl sm:text-5xl font-black italic uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-[#fe9a00] drop-shadow-md">
+                  #{profileStats.rank}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col items-center sm:items-end sm:ml-auto border-t sm:border-t-0 sm:border-l border-zinc-800 pt-4 sm:pt-0 sm:pl-6 w-full sm:w-auto">
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Total Fandom Score</span>
+              <div className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
+                <Activity className="w-4 h-4 text-[#fe9a00]" /> {profileStats.score.toLocaleString()}
+              </div>
+            </div>
           </div>
         </div>
 

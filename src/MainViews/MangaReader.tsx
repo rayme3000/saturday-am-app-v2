@@ -7,6 +7,7 @@ import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
 import { APP_ICONS } from '../appIcons';
+import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 
 export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
@@ -14,8 +15,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const [isUIVisible, setIsUIVisible] = useState(true);
   const [showHideHint, setShowHideHint] = useState(false);
   
-  // --- NEW: PROGRESS LOADING STATE ---
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
+  const [isAuthLoaded, setIsAuthLoaded] = useState(false);
 
   // Comments & Ticker
   const [activeCommentIndex, setActiveCommentIndex] = useState(0);
@@ -26,6 +27,15 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   // Stats & End Prompt
   const [showEndPrompt, setShowEndPrompt] = useState(false);
+
+  // --- ZOOM & PROGRESS REFS ---
+  const transformRef = useRef<any>(null);
+  const currentPageRef = useRef(currentPage);
+
+  // Keep ref in sync for the unmount save
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
 
   // --- Viewport Lock ---
   useEffect(() => {
@@ -49,6 +59,13 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
   }, []);
 
+  // --- Reset Zoom on Page Turn ---
+  useEffect(() => {
+    if (transformRef.current) {
+      transformRef.current.resetTransform(0); // 0ms animation snaps it back instantly
+    }
+  }, [currentPage, mode]);
+
   // --- Auth Fetch ---
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -56,6 +73,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         const { data: profile } = await supabase.from('profiles').select('username, avatar_url').eq('id', user.id).single();
         setCurrentUser({ id: user.id, name: profile?.username || 'Reader', avatar: profile?.avatar_url || 'https://i.pravatar.cc/150?u=99' });
       }
+      setIsAuthLoaded(true);
     });
   }, []);
 
@@ -64,8 +82,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     if (!chapterId) return;
     const fetchReacts = async () => {
       const { data, error } = await supabase.from('page_reacts').select('*').eq('chapter_id', chapterId).order('created_at', { ascending: true });
-      
-      // ADDED DEBUG LOG: Check your browser console!
       if (error) console.error("Supabase Error fetching reacts:", error.message);
       
       if (data) {
@@ -75,10 +91,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     fetchReacts();
   }, [chapterId]);
 
-  // --- FETCH READING PROGRESS ---
+  // --- FETCH INITIAL READING PROGRESS ---
   useEffect(() => {
-    if (!chapterId) {
-      setIsLoadingProgress(false);
+    if (!chapterId || !isAuthLoaded) {
+      if (!chapterId) setIsLoadingProgress(false);
       return;
     }
     
@@ -86,26 +102,25 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     setIsReactInputOpen(false);
     setIsUIVisible(true); 
 
+    const activeUserId = userId || currentUser?.id;
+
     const fetchProgress = async () => {
-      if (!userId) {
+      if (!activeUserId) {
         setCurrentPage(0);
         setIsLoadingProgress(false);
         return;
       }
 
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('reading_history')
           .select('page_index')
-          .eq('user_id', userId)
+          .eq('user_id', activeUserId)
           .eq('chapter_id', chapterId)
-          .single();
+          .maybeSingle();
 
-        if (data) {
-          setCurrentPage(data.page_index);
-        } else {
-          setCurrentPage(0);
-        }
+        if (data) setCurrentPage(data.page_index);
+        else setCurrentPage(0);
       } catch (err) {
         console.error("No saved progress found, starting at 0");
         setCurrentPage(0);
@@ -115,30 +130,59 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
 
     fetchProgress();
-  }, [chapterId, userId]);
+  }, [chapterId, userId, isAuthLoaded, currentUser]);
 
-  // --- SAVE READING PROGRESS (DEBOUNCED) ---
-  useEffect(() => {
-    if (!userId || !chapterId || isLoadingProgress) return;
+  // --- GUARANTEED SAVE FUNCTION ---
+  // Replaces the broken 'upsert' with a bulletproof manual select/update/insert block
+  const saveProgressToDB = async (pageToSave: number) => {
+    const activeUserId = userId || currentUser?.id;
+    if (!activeUserId || !chapterId) return;
 
-    const saveTimer = setTimeout(async () => {
-      try {
-        await supabase.from('reading_history').upsert(
-          {
-            user_id: userId,
-            chapter_id: chapterId,
-            page_index: currentPage,
-            updated_at: new Date().toISOString()
-          },
-          { onConflict: 'user_id, chapter_id' }
-        );
-      } catch (error) {
-        console.error("Failed to save progress:", error);
+    try {
+      const { data } = await supabase
+        .from('reading_history')
+        .select('id')
+        .eq('user_id', activeUserId)
+        .eq('chapter_id', chapterId)
+        .maybeSingle();
+      
+      if (data?.id) {
+         await supabase.from('reading_history').update({ page_index: pageToSave, updated_at: new Date().toISOString() }).eq('id', data.id);
+      } else {
+         await supabase.from('reading_history').insert([{ user_id: activeUserId, chapter_id: chapterId, page_index: pageToSave, updated_at: new Date().toISOString() }]);
       }
-    }, 1500); 
+      
+      // Fire an event to tell the rest of the app (like the Series Detail Page) to refresh progress bars
+      window.dispatchEvent(new Event('progressUpdated'));
+    } catch (error) { 
+      console.error("Failed to save progress:", error); 
+    }
+  };
+
+  // --- DEBOUNCED PROGRESS TRACKING ---
+  useEffect(() => {
+    if (isLoadingProgress) return;
+
+    const saveTimer = setTimeout(() => {
+      saveProgressToDB(currentPage);
+    }, 1000); // 1-second debounce prevents spamming the database on fast scrolls
 
     return () => clearTimeout(saveTimer);
-  }, [currentPage, userId, chapterId, isLoadingProgress]);
+  }, [currentPage, isLoadingProgress, currentUser, userId, chapterId]);
+
+  // --- GUARANTEED SAVE ON CLOSE ---
+  const handleClose = async (e?: any) => {
+    if (e) e.stopPropagation();
+    await saveProgressToDB(currentPageRef.current);
+    onClose();
+  };
+
+  // --- GUARANTEED SAVE ON NEXT CHAPTER ---
+  const handleNextChapter = async (e?: any) => {
+    if (e) e.stopPropagation();
+    await saveProgressToDB(currentPageRef.current);
+    onNext();
+  };
 
   const handleReactSubmit = async () => {
     if (!reactText.trim() || !currentUser || !chapterId) return;
@@ -162,7 +206,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       if (error) throw error;
       
       const { data: profile } = await supabase.from('profiles').select('quick_reacts').eq('id', currentUser.id).single();
-      if (profile) await supabase.from('profiles').update({ quick_reacts: (profile.quick_reacts || 0) + 1 }).eq('id', currentUser.id);
+      if (profile) {
+        await supabase.from('profiles').update({ quick_reacts: (profile.quick_reacts || 0) + 1 }).eq('id', currentUser.id);
+        window.dispatchEvent(new Event('profileUpdated'));
+      }
     } catch (err) { console.error("Failed to save react:", err); }
   };
 
@@ -173,11 +220,13 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     if (e) e.stopPropagation(); 
     if (currentPage >= pages.length - 1) {
       setShowEndPrompt(true);
-      if (userId) {
+      const activeUserId = userId || currentUser?.id;
+      if (activeUserId) {
         try {
-          const { data: profile } = await supabase.from('profiles').select('chapters_read').eq('id', userId).single();
+          const { data: profile } = await supabase.from('profiles').select('chapters_read').eq('id', activeUserId).single();
           if (profile) {
-            await supabase.from('profiles').update({ chapters_read: (profile.chapters_read || 0) + 1 }).eq('id', userId);
+            await supabase.from('profiles').update({ chapters_read: (profile.chapters_read || 0) + 1 }).eq('id', activeUserId);
+            window.dispatchEvent(new Event('profileUpdated'));
           }
         } catch (error) { console.error("Error saving chapter read stat:", error); }
       }
@@ -286,23 +335,66 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
       `}</style>
 
-      {/* --- HORIZONTAL READER --- */}
+      {/* ========================================================================= */}
+      {/* --- HORIZONTAL READER (WITH SAFE PINCH-TO-ZOOM GATING) ---                */}
+      {/* ========================================================================= */}
       {mode === 'horizontal' && (
-        <div 
-          className="absolute inset-0 w-full h-full cursor-pointer select-none z-0 overflow-hidden flex items-center justify-center"
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-          onClick={handleTap}
-          style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
-        >
+        <div className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center">
           {pages[currentPage] ? (
-            <img 
-              src={getUrl(pages[currentPage])} 
-              className="object-contain pointer-events-none" 
-              style={{ width: '100%', height: '100%', maxWidth: '100vw', maxHeight: '100vh' }}
-              alt={`Page ${currentPage + 1}`} 
-              loading="lazy"
-            />
+            <TransformWrapper
+              ref={transformRef}
+              initialScale={1}
+              minScale={1}
+              maxScale={4}
+              centerOnInit
+              doubleClick={{ step: 2 }} // Double tap to zoom 2x
+              panning={{ velocityDisabled: true }}
+              wheel={{ step: 0.1 }}
+            >
+              {({ state }) => (
+                <div className="w-full h-full relative">
+                  <TransformComponent 
+                    wrapperStyle={{ width: '100vw', height: '100vh' }}
+                    contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <img 
+                      src={getUrl(pages[currentPage])} 
+                      className="object-contain pointer-events-none" 
+                      style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
+                      alt={`Page ${currentPage + 1}`} 
+                      loading="lazy"
+                    />
+                  </TransformComponent>
+
+                  {/* INVISIBLE TAP ZONES: Only active when NOT zoomed in */}
+                  {state.scale <= 1 && (
+                    <>
+                      {/* Left Side (Prev) */}
+                      <div 
+                        className="absolute top-0 bottom-0 left-0 w-[30%] z-20 cursor-pointer"
+                        onClick={goPrev}
+                        onTouchStart={handleTouchStart}
+                        onTouchEnd={handleTouchEnd}
+                      />
+                      {/* Center (Toggle UI) */}
+                      <div 
+                        className="absolute top-0 bottom-0 left-[30%] right-[30%] z-20 cursor-pointer"
+                        onClick={toggleUI}
+                        onTouchStart={handleTouchStart}
+                        onTouchEnd={handleTouchEnd}
+                      />
+                      {/* Right Side (Next) */}
+                      <div 
+                        className="absolute top-0 bottom-0 right-0 w-[30%] z-20 cursor-pointer"
+                        onClick={goNext}
+                        onTouchStart={handleTouchStart}
+                        onTouchEnd={handleTouchEnd}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+            </TransformWrapper>
           ) : (
             <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
           )}
@@ -337,11 +429,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                   <h2 className="text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-2">End of Chapter</h2>
                   <div className="flex flex-col gap-4 w-full mt-8">
                     {hasNext && (
-                      <button onClick={onNext} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors flex items-center justify-center gap-2">
+                      <button onClick={handleNextChapter} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors flex items-center justify-center gap-2">
                         Read Next <SkipForward className="w-5 h-5" />
                       </button>
                     )}
-                    <button onClick={onClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
+                    <button onClick={handleClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
                       <ArrowLeft className="w-5 h-5" /> Back to Series
                     </button>
                   </div>
@@ -358,11 +450,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           <h2 className="text-4xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-2">End of Chapter</h2>
           <div className="flex flex-col gap-4 w-full max-w-sm mt-8">
             {hasNext && (
-              <button onClick={() => { setShowEndPrompt(false); onNext(); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors flex items-center justify-center gap-2">
+              <button onClick={() => { setShowEndPrompt(false); handleNextChapter(); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors flex items-center justify-center gap-2">
                 Read Next <SkipForward className="w-5 h-5" />
               </button>
             )}
-            <button onClick={onClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
+            <button onClick={handleClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
               <ArrowLeft className="w-5 h-5" /> Back to Series
             </button>
             <button onClick={() => setShowEndPrompt(false)} className="mt-6 text-zinc-500 font-bold uppercase tracking-widest text-[10px] hover:text-white transition-colors">
@@ -396,7 +488,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         >
           {/* Top: Nav */}
           <div className="flex flex-col items-center w-full">
-            <button onClick={onClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
+            <button onClick={handleClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
               <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
@@ -453,9 +545,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               <MoveHorizontal className="w-3 h-3 sm:w-4 sm:h-4" />
             </button>
             
-            {userId && pages[currentPage] && (
+            {currentUser?.id && pages[currentPage] && (
               <div className="scale-75 sm:scale-90 drop-shadow-md">
-                <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={userId} variant="icon" />
+                <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={currentUser.id} variant="icon" />
               </div>
             )}
 
@@ -477,7 +569,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         >
           {/* Left: Nav */}
           <div className="flex flex-row items-center">
-            <button onClick={onClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
+            <button onClick={handleClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
               <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
@@ -534,9 +626,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               <MoveVertical className="w-3 h-3 sm:w-4 sm:h-4" />
             </button>
             
-            {userId && pages[currentPage] && (
+            {currentUser?.id && pages[currentPage] && (
               <div className="scale-75 sm:scale-90 drop-shadow-md">
-                <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={userId} variant="icon" />
+                <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={currentUser.id} variant="icon" />
               </div>
             )}
 

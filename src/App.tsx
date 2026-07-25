@@ -19,6 +19,7 @@ const MagazineDetailPage = lazy(() => import('./MainViews/MagazineDetailPage').t
 const AdminDashboard = lazy(() => import('./AmCommandCenter/AdminDashboard').then(mod => ({ default: mod.AdminDashboard })));
 const UserProfile = lazy(() => import('./VirtualProfile/UserProfile').then(mod => ({ default: mod.UserProfile })));
 const SubscriptionPage = lazy(() => import('./MainViews/Subscription.tsx').then(mod => ({ default: mod.Subscription })));
+const Leaderboard = lazy(() => import('./MainViews/Leaderboard.tsx'));
 
 // 3. Lazy Load the views that use Default Exports
 const SettingsPage = lazy(() => import('./MainViews/Settings.tsx'));
@@ -208,7 +209,9 @@ export default function App() {
     if (data.action === 'account') { setCurrentView('account'); return; }
     if (data.action === 'settings') { setCurrentView('settings'); return; }
     if (data.action === 'bingobook') { setCurrentView('bingobook'); return; }
-    if (data.action === 'sub') { setCurrentView('sub'); return; }    
+    if (data.action === 'sub') { setCurrentView('sub'); return; }
+    if (data.action === 'leaderboard') { setCurrentView('leaderboard'); return; }
+    
     if (data.publish_date) {
       setSelectedMagazine(data);
       setCurrentView('magazine');
@@ -369,6 +372,14 @@ export default function App() {
             onBack={() => setCurrentView('home')} 
             onLoginClick={() => setShowLogin(true)}
             onNavigate={handleNavigate}
+          />
+        )}
+
+        {currentView === 'leaderboard' && (
+          <Leaderboard 
+            userTier={userTier} 
+            currentUser={currentUser}
+            onBack={() => setCurrentView('home')} 
           />
         )}
         

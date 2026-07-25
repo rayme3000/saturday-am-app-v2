@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { CreditCard, RotateCcw, X, Maximize2, User, Flame, MessageCircle, BookOpen, Star } from 'lucide-react';
+import { CreditCard, RotateCcw, X, Maximize2, User, Flame, BookOpen, Star, Trophy } from 'lucide-react';
 import { APP_ICONS } from '../appIcons';
 
-export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, memberSince, hypes, superHypes, reacts, chaptersRead, skinUrl, topFive, seriesList, onRenew, onChangeSkin, getFrameStyle, getOrbitStyle }: any) => {
+export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, memberSince, hypes, superHypes, reacts, chaptersRead, skinUrl, topFive, seriesList, onRenew, onChangeSkin, getFrameStyle, getOrbitStyle, globalRank = "---" }: any) => {
   const [isFlipped, setIsFlipped] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -48,7 +48,7 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
       </div>
 
       {/* === BACK OF CARD === */}
-      <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-xl bg-zinc-900 overflow-hidden flex flex-col justify-between p-3 sm:p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700">
+      <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-xl bg-zinc-900 overflow-hidden flex flex-col justify-between p-4 sm:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700">
         <div 
           className="absolute inset-0 pointer-events-none z-0"
           style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }}
@@ -63,56 +63,67 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
             {isFullscreen ? <X className="w-3 h-3 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3 h-3 sm:w-4 sm:h-4" />}
           </button>
 
-          <div className="flex items-center gap-3 border-b border-zinc-800 pb-2 pr-10">
-            <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center flex-shrink-0">
-              <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(frameId)}`}>
-                {avatarUrl ? <img src={avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="w-5 h-5 text-zinc-600" />}
+          <div className="flex justify-between items-start border-b border-zinc-800 pb-3 sm:pb-4 pr-10 sm:pr-12">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="relative w-12 h-12 sm:w-16 sm:h-16 flex items-center justify-center flex-shrink-0">
+                <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(frameId)}`}>
+                  {avatarUrl ? <img src={avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="w-5 h-5 text-zinc-600" />}
+                </div>
+                {getOrbitStyle(frameId) && <div className={`absolute w-full h-full rounded-full border-2 border-transparent ${getOrbitStyle(frameId)}`} />}
               </div>
-              {getOrbitStyle(frameId) && <div className={`absolute w-full h-full rounded-full border-2 border-transparent ${getOrbitStyle(frameId)}`} />}
+              <div className="flex flex-col truncate pt-1">
+                <p className="font-black text-base sm:text-2xl italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none mb-1">{username}</p>
+                <p className="text-[5px] sm:text-[7px] text-[#fe9a00] font-black uppercase tracking-widest flex flex-wrap gap-x-1.5 leading-tight">
+                  <span>MEMBER SINCE {memberSince}</span>
+                  <span className="text-zinc-600 hidden sm:inline">|</span>
+                  <span className="text-zinc-400">STORE DISCOUNT CODE: AMCLUB26</span>
+                </p>
+              </div>
             </div>
-            <div className="flex flex-col truncate pt-1">
-              <p className="font-black text-base sm:text-xl italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none">{username}</p>
-              <p className="text-[5px] sm:text-[6px] text-[#fe9a00] font-black uppercase tracking-widest mt-1.5 flex flex-wrap gap-x-1.5 leading-tight">
-                <span>MEMBER SINCE {memberSince}</span>
-                <span className="text-zinc-600 hidden sm:inline">|</span>
-                <span className="text-zinc-400">STORE DISCOUNT CODE: AMCLUB26</span>
-              </p>
+
+            <div className="flex flex-col items-end text-right justify-center pt-1">
+              <span className={`text-[#fe9a00] font-black uppercase tracking-widest flex items-center gap-1 ${isFullscreen ? 'text-[8px] sm:text-[10px]' : 'text-[6px] sm:text-[8px]'}`}>
+                 <Trophy className={isFullscreen ? 'w-3 h-3' : 'w-2.5 h-2.5'} /> Fan Rank
+              </span>
+              <span className={`font-black italic text-white drop-shadow-[0_0_10px_rgba(254,154,0,0.5)] leading-none mt-1.5 ${isFullscreen ? 'text-2xl sm:text-4xl' : 'text-lg sm:text-2xl'}`}>
+                 #{globalRank}
+              </span>
             </div>
           </div>
 
           {/* Stats Row */}
-          <div className={`flex justify-around items-center bg-black/40 rounded-lg border border-zinc-800/50 shadow-inner transition-all duration-300 ${isFullscreen ? 'p-3 sm:p-5 mt-4 mb-2' : 'p-2 mt-1'}`}>
+          <div className={`flex justify-around items-center bg-black/40 rounded-lg border border-zinc-800/50 shadow-inner transition-all duration-300 ${isFullscreen ? 'p-4 sm:p-6' : 'p-3'}`}>
             <div className="text-center w-1/4 border-r border-zinc-800/50">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Hypes</p>
-              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
-                <Flame className={`transition-all duration-300 ${isFullscreen ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-2.5 h-2.5 sm:w-3 sm:h-3'}`} /> {hypes}
+              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[9px] sm:text-[11px] mb-2' : 'text-[7px] sm:text-[9px] mb-1'}`}>Hypes</p>
+              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-xl sm:text-2xl' : 'text-sm sm:text-base'}`}>
+                <Flame className={`transition-all duration-300 ${isFullscreen ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-3 h-3 sm:w-4 sm:h-4'}`} /> {hypes}
               </p>
             </div>
             <div className="text-center w-1/4 border-r border-zinc-800/50">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Super</p>
-              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
-                <Star className={`transition-all duration-300 ${isFullscreen ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-2.5 h-2.5 sm:w-3 sm:h-3'}`} /> {superHypes || 0}
+              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[9px] sm:text-[11px] mb-2' : 'text-[7px] sm:text-[9px] mb-1'}`}>Super</p>
+              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-xl sm:text-2xl' : 'text-sm sm:text-base'}`}>
+                <Star className={`transition-all duration-300 ${isFullscreen ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-3 h-3 sm:w-4 sm:h-4'}`} /> {superHypes || 0}
               </p>
             </div>
             <div className="text-center w-1/4 border-r border-zinc-800/50">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Reacts</p>
-              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
-                <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className="w-4 h-4 md:w-6 md:h-6 object-contain" /> {reacts}
+              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[9px] sm:text-[11px] mb-2' : 'text-[7px] sm:text-[9px] mb-1'}`}>Reacts</p>
+              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-xl sm:text-2xl' : 'text-sm sm:text-base'}`}>
+                <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className={`object-contain transition-all duration-300 ${isFullscreen ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-3 h-3 sm:w-4 sm:h-4'}`} /> {reacts}
               </p>
             </div>
             <div className="text-center w-1/4">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[8px] sm:text-[10px] mb-1' : 'text-[6px] sm:text-[8px] mb-0.5'}`}>Reads</p>
-              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-base sm:text-xl' : 'text-xs sm:text-sm'}`}>
-                <BookOpen className={`transition-all duration-300 ${isFullscreen ? 'w-4 h-4 sm:w-5 sm:h-5' : 'w-2.5 h-2.5 sm:w-3 sm:h-3'}`} /> {chaptersRead}
+              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[9px] sm:text-[11px] mb-2' : 'text-[7px] sm:text-[9px] mb-1'}`}>Reads</p>
+              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-xl sm:text-2xl' : 'text-sm sm:text-base'}`}>
+                <BookOpen className={`transition-all duration-300 ${isFullscreen ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-3 h-3 sm:w-4 sm:h-4'}`} /> {chaptersRead}
               </p>
             </div>
           </div>
 
-          <div className="flex flex-col justify-center w-full mt-1 sm:mt-2 flex-1">
-            <p className={`${isFullscreen ? 'text-[10px] sm:text-[12px] mb-2' : 'text-[8px] sm:text-[9px] mb-1.5'} text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-1.5 transition-all`}>
+          <div className="flex flex-col justify-center w-full">
+            <p className={`${isFullscreen ? 'text-[11px] sm:text-[13px] mb-4' : 'text-[9px] sm:text-[10px] mb-2'} text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-1.5 transition-all`}>
               <Star className={`${isFullscreen ? 'w-4 h-4' : 'w-3 h-3'} text-[#fe9a00]`} /> Top 5 Stickers
             </p>
-            <div className="flex gap-1 w-full justify-between items-start px-1 sm:px-2">
+            <div className="flex gap-1.5 w-full justify-between items-start px-2 sm:px-4">
               {[0, 1, 2, 3, 4].map((i) => {
                 const slug = topFive[i];
                 const series = seriesList.find((s:any) => s.slug === slug);
@@ -120,7 +131,7 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
                 if (!series) {
                    return (
                      <div key={i} className="flex flex-col items-center w-[18%] gap-1">
-                       <div className={`${isFullscreen ? 'w-16 h-16 sm:w-20 sm:h-20' : 'w-10 h-10 sm:w-12 sm:h-12'} rounded-full border border-dashed border-zinc-700/50 bg-black/20 m-0.5 transition-all duration-300`} />
+                       <div className={`${isFullscreen ? 'w-20 h-20 sm:w-24 sm:h-24' : 'w-12 h-12 sm:w-14 sm:h-14'} rounded-full border border-dashed border-zinc-700/50 bg-black/20 m-0.5 transition-all duration-300`} />
                      </div>
                    );
                 }
@@ -128,14 +139,14 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
                 const stickerImage = series.sticker_url || series.character_url || series.cover_url;
 
                 return (
-                  <div key={i} className="flex flex-col items-center w-[18%] gap-1">
+                  <div key={i} className="flex flex-col items-center w-[18%] gap-1.5">
                     <div 
                       className={`relative rounded-full overflow-hidden bg-[#f4f4f5] border-[#f4f4f5]
-                        ${isFullscreen ? 'w-16 h-16 sm:w-20 sm:h-20 border-[3px] sm:border-[4px]' : 'w-10 h-10 sm:w-12 sm:h-12 border-[1.5px] sm:border-[2px]'} 
+                        ${isFullscreen ? 'w-20 h-20 sm:w-24 sm:h-24 border-[3px] sm:border-[5px]' : 'w-12 h-12 sm:w-14 sm:h-14 border-[1.5px] sm:border-[2.5px]'} 
                         shadow-[2px_4px_8px_rgba(0,0,0,0.7)] 
                         transform hover:scale-110 hover:rotate-6 transition-all duration-300 cursor-pointer flex-shrink-0 m-0.5
                         ${i % 2 === 0 ? '-rotate-3' : 'rotate-2'} 
-                        ${i === 2 ? '-translate-y-1' : ''}
+                        ${i === 2 ? '-translate-y-2' : ''}
                       `}
                     >
                       <img 
@@ -146,20 +157,13 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
                       <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
                     </div>
                     
-                    <span className={`${isFullscreen ? 'text-[7px] sm:text-[9px] mt-1' : 'text-[5px] sm:text-[6px]'} font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all`}>
+                    <span className={`${isFullscreen ? 'text-[8px] sm:text-[10px] mt-1' : 'text-[6px] sm:text-[7px]'} font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all`}>
                       {series.title}
                     </span>
                   </div>
                 );
               })}
             </div>
-          </div>
-
-          <div className="text-center pt-1">
-            <p className="text-[6px] sm:text-[7px] text-zinc-500 uppercase tracking-widest leading-relaxed">
-              Present this digital pass at live events for discounts.<br/>
-              Use code <span className="text-white font-black">AMCLUB26</span> in the Shopify store.
-            </p>
           </div>
         </div>
       </div>
