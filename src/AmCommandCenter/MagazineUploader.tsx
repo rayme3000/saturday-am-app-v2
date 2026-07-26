@@ -69,6 +69,27 @@ export const MagazineUploader = ({ Dropzone, onDirty, onClean }: any) => {
     if (onDirty) onDirty();
   };
 
+  // --- PAGE MANAGEMENT (REMOVE / MOVE) ---
+  const removePage = (index: number) => {
+    const newPages = formData.pages.filter((_, i) => i !== index);
+    setFormData({ ...formData, pages: newPages });
+    if (onDirty) onDirty();
+  };
+
+  const movePage = (index: number, direction: 'left' | 'right') => {
+    const newPages = [...formData.pages];
+    if (direction === 'left' && index > 0) [newPages[index - 1], newPages[index]] = [newPages[index], newPages[index - 1]];
+    else if (direction === 'right' && index < newPages.length - 1) [newPages[index + 1], newPages[index]] = [newPages[index], newPages[index + 1]];
+    setFormData({ ...formData, pages: newPages });
+    if (onDirty) onDirty();
+  };
+
+  const removePreviewPage = (index: number) => {
+    const newPages = formData.previewPages.filter((_, i) => i !== index);
+    setFormData({ ...formData, previewPages: newPages });
+    if (onDirty) onDirty();
+  };
+
   const handleSaveMagazine = async (publishStatus: boolean) => {
     setIsSaving(true);
     try {
@@ -141,7 +162,16 @@ export const MagazineUploader = ({ Dropzone, onDirty, onClean }: any) => {
               {formData.previewPages.length > 0 && (
                 <div className="bg-black border border-zinc-800 p-2 rounded mb-4">
                   <div className="grid grid-cols-4 gap-2">
-                    {formData.previewPages.map((url, i) => (<img key={i} src={url} className="w-full aspect-[2/3] object-cover rounded" alt="Prev" />))}
+                    {formData.previewPages.map((url, i) => (
+                      <div key={i} className="relative group/page aspect-[2/3] rounded overflow-hidden border border-zinc-800">
+                        <img src={url} className="w-full h-full object-cover" alt="Prev" />
+                        <div className="absolute inset-0 bg-black/80 opacity-0 group-hover/page:opacity-100 flex flex-col justify-between p-1 transition-opacity">
+                          <div className="flex justify-end w-full">
+                            <button onClick={() => removePreviewPage(i)} className="p-1 hover:text-red-500 text-zinc-300 bg-black/50 rounded"><X className="w-3 h-3" /></button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -154,9 +184,20 @@ export const MagazineUploader = ({ Dropzone, onDirty, onClean }: any) => {
                 <div className="bg-black border border-zinc-800 p-3 rounded mb-4 max-h-[300px] overflow-y-auto">
                   <div className="grid grid-cols-4 lg:grid-cols-6 gap-3">
                     {formData.pages.map((url, i) => (
-                      <div key={i} draggable onMouseDown={(e) => handlePageClick(i, e)} onDragStart={(e) => handleDragStart(e, i)} onDragEnter={() => setDragOverItem(i)} onDragEnd={() => { setDraggedItem(null); setDragOverItem(null); }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, i)} className={`relative aspect-[2/3] rounded border-2 select-none ${selectedPages.includes(i) ? 'border-[#fe9a00] z-10' : dragOverItem === i ? 'border-white border-dashed' : 'border-zinc-800'}`}>
-                        <div className="absolute top-1 left-1 bg-black/80 px-1 py-0.5 rounded text-white text-[8px]">{i+1}</div>
+                      <div key={i} draggable onMouseDown={(e) => handlePageClick(i, e)} onDragStart={(e) => handleDragStart(e, i)} onDragEnter={() => setDragOverItem(i)} onDragEnd={() => { setDraggedItem(null); setDragOverItem(null); }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, i)} className={`relative group/page aspect-[2/3] rounded border-2 select-none overflow-hidden ${selectedPages.includes(i) ? 'border-[#fe9a00] z-10' : dragOverItem === i ? 'border-white border-dashed' : 'border-zinc-800'}`}>
+                        <div className="absolute top-1 left-1 bg-black/80 px-1 py-0.5 rounded text-white text-[8px] z-10">{i+1}</div>
                         <img src={url} alt={`Pg ${i+1}`} draggable={false} className="w-full h-full object-cover pointer-events-none" />
+                        
+                        {/* Hover Overlay Controls */}
+                        <div className="absolute inset-0 bg-black/80 opacity-0 group-hover/page:opacity-100 flex flex-col justify-between p-1 transition-opacity z-20">
+                          <div className="flex justify-end w-full">
+                            <button onClick={(e) => { e.stopPropagation(); removePage(i); }} className="p-1 hover:text-red-500 text-zinc-300 bg-black/50 rounded"><X className="w-3 h-3" /></button>
+                          </div>
+                          <div className="flex justify-between w-full">
+                            <button onClick={(e) => { e.stopPropagation(); movePage(i, 'left'); }} className="p-1 hover:text-[#fe9a00] text-zinc-300 bg-black/50 rounded"><ChevronLeft className="w-3 h-3" /></button>
+                            <button onClick={(e) => { e.stopPropagation(); movePage(i, 'right'); }} className="p-1 hover:text-[#fe9a00] text-zinc-300 bg-black/50 rounded"><ChevronRight className="w-3 h-3" /></button>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Suspense, lazy } from 'react';
+import { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
 import { ArrowUp, X, Lock } from 'lucide-react';
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
@@ -90,6 +90,41 @@ export default function App() {
   // --- PWA INSTALL PROMPT STATE ---
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+
+  // --- HISTORY & NAVIGATION REF ---
+  const isPopState = useRef(false);
+
+  // --- HARDWARE BACK BUTTON INTERCEPTOR ---
+  useEffect(() => {
+    // Initialize the first history entry with our current state so there's a baseline
+    window.history.replaceState({ view: currentView, series: selectedSeries, magazine: selectedMagazine }, '');
+
+    const handlePopState = (e: PopStateEvent) => {
+      isPopState.current = true; // Tell the next useEffect NOT to push a new state
+      
+      if (e.state && e.state.view) {
+        // Retrieve the data from the history breadcrumb
+        setSelectedSeries(e.state.series || null);
+        setSelectedMagazine(e.state.magazine || null);
+        setCurrentView(e.state.view);
+      } else {
+        // Fallback to home
+        setCurrentView('home');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Push new history state whenever the user navigates
+  useEffect(() => {
+    if (isPopState.current) {
+      isPopState.current = false; // Reset the flag, user just navigated backward natively
+    } else {
+      window.history.pushState({ view: currentView, series: selectedSeries, magazine: selectedMagazine }, '');
+    }
+  }, [currentView, selectedSeries, selectedMagazine]);
 
   // --- SESSION STORAGE SYNC ---
   useEffect(() => {

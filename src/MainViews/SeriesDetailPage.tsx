@@ -69,6 +69,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchDetails();
   }, [series]);
 
+  // --- THE FIX: readerClosedCount added to dependencies so the progress bar refreshes! ---
   useEffect(() => {
     if (!currentUserId || chapters.length === 0) return;
 
@@ -108,9 +109,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     };
 
     fetchReadingProgress();
-  }, [currentUserId, chapters]);
+  }, [currentUserId, chapters, readerClosedCount]);
 
-  // --- THE FIX: Robust stat fetching that safely combines all data ---
   useEffect(() => {
     if (chapters.length === 0) return;
 
@@ -119,10 +119,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         const chapterIds = chapters.map(c => String(c.id));
         const newStats: any = {};
         
-        // Initialize empty stats
         chapterIds.forEach(id => { newStats[id] = { hypes: 0, reacts: 0 }; });
 
-        // 1. Fetch Reacts
         const { data: reactsData } = await supabase
           .from('page_reacts')
           .select('chapter_id')
@@ -135,7 +133,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           });
         }
 
-        // 2. Fetch Pages to link Hypes
         const { data: pagesData } = await supabase
           .from('pages')
           .select('id, chapter_id')
@@ -148,7 +145,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           
           let allHypes: any[] = [];
           
-          // Chunk to avoid long URL constraints
           for (let i = 0; i < pageIds.length; i += 200) {
             const chunk = pageIds.slice(i, i + 200);
             const { data: chunkData } = await supabase
@@ -168,7 +164,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           });
         }
 
-        // Force React to redraw the numbers using a new object reference
         setChapterStats({ ...newStats });
       } catch (err) {
         console.error("Failed to fetch chapter stats:", err);
@@ -176,7 +171,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     };
 
     fetchChapterStats();
-  }, [chapters, readerClosedCount]); // Runs every time the reader closes!
+  }, [chapters, readerClosedCount]);
 
   const aggregatedSubHypes = chapters.reduce((sum: number, ch: any) => {
     const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
@@ -405,7 +400,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             const actualProgress = readProgresses[String(ch.id)] || 0;
             const isLocked = checkIsLocked(index);
 
-            // --- THE FIX: We ADD the page counts to the chapter counts, we don't replace them! ---
             const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
             const pageReacts = chapterStats[String(ch.id)]?.reacts || 0;
             

@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { MagazineHomeSection } from './MagazineHomeSection';
 import { SeriesSection } from './SeriesSection';
-import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame } from 'lucide-react';
+import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play } from 'lucide-react';
 
 export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle, currentUser }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
@@ -13,8 +13,8 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
   const [homeMagazines, setHomeMagazines] = useState<any[]>([]);
   const [isLoadingSlides, setIsLoadingSlides] = useState(true);
   
-  // --- NEW: HELP MODAL STATE ---
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [recentReads, setRecentReads] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchHomeData = async () => {
@@ -35,6 +35,101 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
     };
     fetchHomeData();
   }, []);
+
+  // --- THE BULLETPROOF RECENT READS FIX ---
+  useEffect(() => {
+    const fetchRecentReads = async () => {
+      if (isLoading) return;
+      
+      try {
+        // 1. Get the true UUID directly from Supabase Auth
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        // 2. Fetch history using the real Auth UUID
+        const { data: history, error: historyError } = await supabase
+          .from('reading_history')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('updated_at', { ascending: false })
+          .limit(10);
+
+        if (historyError) {
+          console.error("Supabase History Error:", historyError.message);
+          return;
+        }
+
+        if (!history || history.length === 0) {
+          setRecentReads([]);
+          return;
+        }
+
+        // 3. Grab IDs and fetch matching content safely using select('*')
+        const allIds = history.map((h: any) => h.chapter_id);
+        let chapters: any[] = [];
+        let magazines: any[] = [];
+
+        if (allIds.length > 0) {
+          const { data: chapterData, error: chapErr } = await supabase
+            .from('chapters')
+            .select('*')
+            .in('id', allIds);
+            
+          if (chapErr) console.error("Supabase Chapters Error:", chapErr.message);
+          if (chapterData) chapters = chapterData;
+
+          const { data: magData, error: magErr } = await supabase
+            .from('magazines')
+            .select('*')
+            .in('id', allIds);
+            
+          if (magErr) console.error("Supabase Magazines Error:", magErr.message);
+          if (magData) magazines = magData;
+        }
+
+        // 4. Combine and format for the UI
+        const combined = history.map((h: any) => {
+          const chap = chapters.find((c: any) => String(c.id) === String(h.chapter_id));
+          const mag = magazines.find((m: any) => String(m.id) === String(h.chapter_id));
+
+          if (chap) {
+            const series = seriesList.find((s: any) => s.slug === chap.series_slug);
+            if (!series) {
+              console.warn("Could not find matching series for slug:", chap.series_slug);
+              return null;
+            }
+            return {
+              ...h,
+              type: 'series',
+              target: series,
+              title: series.title,
+              subtitle: `Chapter ${chap.chapter_number}`,
+              image: chap.thumbnail_url || series.cover_url,
+            };
+          } else if (mag) {
+            const magTarget = { ...mag, publish_date: mag.publish_date || mag.publish_at };
+            return {
+              ...h,
+              type: 'magazine',
+              target: magTarget,
+              title: mag.title,
+              subtitle: `Magazine Issue`,
+              image: mag.cover_url,
+            };
+          }
+          return null;
+        }).filter(Boolean);
+
+        setRecentReads(combined);
+      } catch (err: any) {
+        console.error("Critical Error fetching recent reads:", err);
+      }
+    };
+
+    fetchRecentReads();
+    window.addEventListener('progressUpdated', fetchRecentReads);
+    return () => window.removeEventListener('progressUpdated', fetchRecentReads);
+  }, [seriesList, isLoading]);
 
   useEffect(() => {
     const timer = setInterval(() => { setCurrentSlide((prev) => (heroSlides.length > 0 ? (prev + 1) % heroSlides.length : 0)); }, 5000);
@@ -105,7 +200,7 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
                 onClick={() => onNavigate({ action: 'profile' })}
               >
                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#fe9a00]">
-                   Welcome, {currentUser.username}
+                   Welcome, {currentUser.username || 'Reader'}
                  </span>
               </div>
               <button onClick={handleLogout} className="bg-zinc-900 border border-zinc-700 text-white px-4 sm:px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-sm hover:bg-red-600 hover:border-red-600 transition-all">
@@ -237,6 +332,52 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
           )}
         </div>
       </div>
+      
+      {/* JUMP BACK IN CAROUSEL */}
+      {recentReads.length > 0 && (
+        <div className="mb-12 animate-fade-in">
+          <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-wider text-white mb-4 px-2 drop-shadow-md">
+            Jump Back In
+          </h2>
+          <div className="flex gap-4 overflow-x-auto pb-4 px-2 no-scrollbar">
+            {recentReads.map((read) => (
+              <div 
+                key={read.id} 
+                onClick={() => onNavigate(read.target)}
+                className="relative min-w-[140px] w-[140px] md:min-w-[180px] md:w-[180px] aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group border border-zinc-800 hover:border-[#fe9a00] transition-all shadow-lg flex-shrink-0"
+              >
+                <img 
+                  src={read.image} 
+                  alt={read.title} 
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                />
+                
+                {/* Title & Stats Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-3 z-10">
+                  <h3 className="text-white font-black uppercase text-xs md:text-sm leading-tight line-clamp-1 drop-shadow-md">
+                    {read.title}
+                  </h3>
+                  <div className="flex justify-between items-center mt-1">
+                    <p className="text-[#fe9a00] font-bold text-[9px] md:text-[10px] uppercase tracking-widest drop-shadow-md">
+                      {read.subtitle}
+                    </p>
+                    <p className="text-zinc-300 font-bold text-[8px] md:text-[9px] uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded border border-zinc-700 backdrop-blur-sm">
+                      Pg. {read.page_index + 1}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Play Button Hover Overlay */}
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-[2px] z-20">
+                  <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-[#fe9a00] flex items-center justify-center shadow-[0_0_20px_rgba(254,154,0,0.6)] transform scale-75 group-hover:scale-100 transition-transform duration-300">
+                    <Play className="w-5 h-5 md:w-6 md:h-6 text-black ml-1" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       
       <MagazineHomeSection magazines={homeMagazines} onMagazineClick={onNavigate} />
 

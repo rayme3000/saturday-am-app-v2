@@ -1,29 +1,78 @@
 import { useState, useEffect } from 'react';
-import { Heart, Search, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Heart, Search, ChevronRight, ArrowLeft, Play } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 
 const Favorites = ({ setActiveTab, onNavigate }: any) => {
-  const { seriesList = [] } = useSeriesData();
+  const { seriesList = [], isLoading } = useSeriesData();
   const [myFaves, setMyFaves] = useState<any[]>([]); 
-  
+  const [recentReads, setRecentReads] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
   const suggestedSeries = seriesList.slice(0, 4);
   const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
-  // --- FETCH ACTUAL FAVORITES FROM PROFILE ---
+  // --- FETCH ACTUAL FAVORITES & RECENT READS ---
   useEffect(() => {
-    const fetchFaves = async () => {
+    const fetchUserData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user && seriesList.length > 0) {
-        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-        if (data?.favorites) {
-          const faves = seriesList.filter((s: any) => data.favorites.includes(s.slug));
-          setMyFaves(faves);
+      if (!user) return;
+      setCurrentUser(user);
+
+      // 1. Fetch User Profile & Favorites
+      const { data: profile } = await supabase.from('profiles').select('favorites').eq('id', user.id).maybeSingle();
+      if (profile?.favorites && seriesList.length > 0) {
+        const faves = seriesList.filter((s: any) => profile.favorites.includes(s.slug));
+        setMyFaves(faves);
+      }
+
+      // 2. Fetch Recently Read History
+      try {
+        const { data: history } = await supabase
+          .from('reading_history')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('updated_at', { ascending: false })
+          .limit(10);
+
+        if (history && history.length > 0) {
+          const chapterIds = history.map((h: any) => h.chapter_id);
+
+          let chapters: any[] = [];
+          let magazines: any[] = [];
+
+          const { data: chData } = await supabase.from('chapters').select('id, series_slug, chapter_number, title, thumbnail_url').in('id', chapterIds);
+          if (chData) chapters = chData;
+
+          const { data: magData } = await supabase.from('magazines').select('*').in('id', chapterIds);
+          if (magData) magazines = magData;
+
+          const combined = history.map((h: any) => {
+            const chap = chapters.find((c: any) => String(c.id) === String(h.chapter_id));
+            const mag = magazines.find((m: any) => String(m.id) === String(h.chapter_id));
+            
+            if (chap) {
+              const series = seriesList.find((s: any) => s.slug === chap.series_slug);
+              if (!series) return null;
+              return { ...h, type: 'series', target: series, title: series.title, subtitle: `Chapter ${chap.chapter_number}`, image: chap.thumbnail_url || series.cover_url };
+            } else if (mag) {
+              const magTarget = { ...mag, publish_date: mag.publish_date || mag.publish_at };
+              return { ...h, type: 'magazine', target: magTarget, title: mag.title, subtitle: `Magazine Issue`, image: mag.cover_url };
+            }
+            return null;
+          }).filter(Boolean);
+          
+          setRecentReads(combined);
         }
+      } catch (err: any) { 
+        console.error("Error fetching recent reads:", err.message); 
       }
     };
-    fetchFaves();
+
+    fetchUserData();
   }, [seriesList]);
+
+  if (isLoading) return <div className="min-h-screen bg-black text-[#fe9a00] flex items-center justify-center font-black tracking-widest">Loading Vault...</div>;
 
   return (
     <div className="min-h-screen bg-black text-white pb-24 pt-6 px-4">
@@ -39,6 +88,36 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
       <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white mb-8 border-b border-zinc-800 pb-4">
         My Faves
       </h1>
+
+      {/* --- JUMP BACK IN CAROUSEL --- */}
+      {currentUser && recentReads.length > 0 && (
+        <div className="mb-12 animate-fade-in border-b border-zinc-800/50 pb-8">
+          <h2 className="text-sm font-black uppercase tracking-[0.2em] text-[#fe9a00] mb-4 px-2">Jump Back In</h2>
+          <div className="flex gap-4 overflow-x-auto pb-4 px-2 no-scrollbar">
+            {recentReads.map((read) => (
+              <div 
+                key={read.id} 
+                onClick={() => onNavigate ? onNavigate(read.target) : null} 
+                className="relative min-w-[140px] w-[140px] md:min-w-[180px] md:w-[180px] aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group border border-zinc-800 hover:border-[#fe9a00] transition-all shadow-lg flex-shrink-0"
+              >
+                <img src={read.image} alt={read.title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-3 z-10">
+                  <h3 className="text-white font-black uppercase text-xs md:text-sm leading-tight line-clamp-1 drop-shadow-md">{read.title}</h3>
+                  <div className="flex justify-between items-center mt-1">
+                    <p className="text-[#fe9a00] font-bold text-[9px] md:text-[10px] uppercase tracking-widest drop-shadow-md">{read.subtitle}</p>
+                    <p className="text-zinc-300 font-bold text-[8px] md:text-[9px] uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded border border-zinc-700 backdrop-blur-sm">Pg. {read.page_index + 1}</p>
+                  </div>
+                </div>
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-[2px] z-20">
+                  <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-[#fe9a00] flex items-center justify-center shadow-[0_0_20px_rgba(254,154,0,0.6)] transform scale-75 group-hover:scale-100 transition-transform duration-300">
+                    <Play className="w-5 h-5 md:w-6 md:h-6 text-black ml-1" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* EMPTY STATE CONDITION */}
       {myFaves.length === 0 ? (

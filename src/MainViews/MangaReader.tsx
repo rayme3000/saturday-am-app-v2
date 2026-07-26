@@ -31,13 +31,43 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   // --- ZOOM & PROGRESS REFS ---
   const transformRef = useRef<any>(null);
   const currentPageRef = useRef(currentPage);
+  const activeUserRef = useRef(userId || currentUser?.id);
+  const isComponentMounted = useRef(true);
 
-  // Keep ref in sync for the unmount save
+  useEffect(() => { activeUserRef.current = userId || currentUser?.id; }, [userId, currentUser]);
+
   useEffect(() => {
     currentPageRef.current = currentPage;
   }, [currentPage]);
 
-  // --- Viewport Lock ---
+  // --- RESTORED UNMOUNT BEACON ---
+  useEffect(() => {
+    isComponentMounted.current = true;
+    return () => {
+      isComponentMounted.current = false;
+      const finalUserId = activeUserRef.current;
+      const finalPage = currentPageRef.current;
+
+      if (finalUserId && chapterId) {
+        // Restored Original Upsert
+        supabase.from('reading_history').upsert(
+          { user_id: finalUserId, chapter_id: chapterId, page_index: finalPage, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id, chapter_id' }
+        ).then();
+        
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        
+        if (supabaseUrl && supabaseKey) {
+            const payload = JSON.stringify({ user_id: finalUserId, chapter_id: chapterId, page_index: finalPage, updated_at: new Date().toISOString() });
+            const url = `${supabaseUrl}/rest/v1/reading_history?on_conflict=user_id,chapter_id`;
+            const blob = new Blob([payload], { type: 'application/json' });
+            navigator.sendBeacon(url + `&apikey=${supabaseKey}&Authorization=Bearer ${supabaseKey}`, blob);
+        }
+      }
+    };
+  }, [chapterId]);
+
   useEffect(() => {
     let viewportMeta = document.querySelector('meta[name="viewport"]');
     let originalContent = '';
@@ -59,14 +89,12 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
   }, []);
 
-  // --- Reset Zoom on Page Turn ---
   useEffect(() => {
     if (transformRef.current) {
-      transformRef.current.resetTransform(0); // 0ms animation snaps it back instantly
+      transformRef.current.resetTransform(0); 
     }
   }, [currentPage, mode]);
 
-  // --- Auth Fetch ---
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (user) {
@@ -77,7 +105,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     });
   }, []);
 
-  // --- Fetch Comments ---
   useEffect(() => {
     if (!chapterId) return;
     const fetchReacts = async () => {
@@ -91,7 +118,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     fetchReacts();
   }, [chapterId]);
 
-  // --- FETCH INITIAL READING PROGRESS ---
   useEffect(() => {
     if (!chapterId || !isAuthLoaded) {
       if (!chapterId) setIsLoadingProgress(false);
@@ -119,8 +145,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           .eq('chapter_id', chapterId)
           .maybeSingle();
 
-        if (data) setCurrentPage(data.page_index);
-        else setCurrentPage(0);
+        if (data && typeof data.page_index === 'number') {
+          setCurrentPage(data.page_index);
+        } else {
+          setCurrentPage(0);
+        }
       } catch (err) {
         console.error("No saved progress found, starting at 0");
         setCurrentPage(0);
@@ -132,52 +161,38 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     fetchProgress();
   }, [chapterId, userId, isAuthLoaded, currentUser]);
 
-  // --- GUARANTEED SAVE FUNCTION ---
-  // Replaces the broken 'upsert' with a bulletproof manual select/update/insert block
+  // --- RESTORED GUARANTEED SAVE FUNCTION ---
   const saveProgressToDB = async (pageToSave: number) => {
     const activeUserId = userId || currentUser?.id;
-    if (!activeUserId || !chapterId) return;
+    if (!activeUserId || !chapterId || !isComponentMounted.current) return;
 
     try {
-      const { data } = await supabase
-        .from('reading_history')
-        .select('id')
-        .eq('user_id', activeUserId)
-        .eq('chapter_id', chapterId)
-        .maybeSingle();
-      
-      if (data?.id) {
-         await supabase.from('reading_history').update({ page_index: pageToSave, updated_at: new Date().toISOString() }).eq('id', data.id);
-      } else {
-         await supabase.from('reading_history').insert([{ user_id: activeUserId, chapter_id: chapterId, page_index: pageToSave, updated_at: new Date().toISOString() }]);
-      }
-      
-      // Fire an event to tell the rest of the app (like the Series Detail Page) to refresh progress bars
+      await supabase.from('reading_history').upsert(
+        { user_id: activeUserId, chapter_id: chapterId, page_index: pageToSave, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id, chapter_id' }
+      );
       window.dispatchEvent(new Event('progressUpdated'));
     } catch (error) { 
       console.error("Failed to save progress:", error); 
     }
   };
 
-  // --- DEBOUNCED PROGRESS TRACKING ---
   useEffect(() => {
     if (isLoadingProgress) return;
 
     const saveTimer = setTimeout(() => {
       saveProgressToDB(currentPage);
-    }, 1000); // 1-second debounce prevents spamming the database on fast scrolls
+    }, 1000); 
 
     return () => clearTimeout(saveTimer);
   }, [currentPage, isLoadingProgress, currentUser, userId, chapterId]);
 
-  // --- GUARANTEED SAVE ON CLOSE ---
   const handleClose = async (e?: any) => {
     if (e) e.stopPropagation();
     await saveProgressToDB(currentPageRef.current);
     onClose();
   };
 
-  // --- GUARANTEED SAVE ON NEXT CHAPTER ---
   const handleNextChapter = async (e?: any) => {
     if (e) e.stopPropagation();
     await saveProgressToDB(currentPageRef.current);

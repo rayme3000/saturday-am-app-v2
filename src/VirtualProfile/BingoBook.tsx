@@ -83,9 +83,11 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [penColor, setPenColor] = useState('#fe9a00');
+  
+  // --- CANVAS & SMOOTHING REFS ---
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pointsRef = useRef<{x: number, y: number}[]>([]); // Tracks points for Bézier curves
 
-  // --- NEW: Custom Alert State ---
   const [alertConfig, setAlertConfig] = useState<{ title: string, message: string } | null>(null);
 
   const progressPercentage = CREATOR_TARGETS.length > 0 ? (unlockedCreators.length / CREATOR_TARGETS.length) * 100 : 0;
@@ -159,6 +161,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     return { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY };
   };
 
+  // --- UPGRADED DRAWING LOGIC (Bézier Curves) ---
   const startDrawing = (e: any) => {
     e.preventDefault();
     const { x, y } = getCoordinates(e);
@@ -167,8 +170,12 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.strokeStyle = penColor;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = 5; // Slightly thicker for a nicer ink bleed feel
       setIsDrawing(true);
       setHasDrawn(true); 
+      pointsRef.current = [{ x, y }]; // Reset curve points
     }
   };
 
@@ -177,9 +184,33 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     if (!isDrawing) return;
     const { x, y } = getCoordinates(e);
     const ctx = canvasRef.current?.getContext('2d');
+    
     if (ctx) {
-      ctx.lineTo(x, y);
-      ctx.stroke();
+      const points = pointsRef.current;
+      points.push({ x, y });
+
+      // We need at least 3 points to calculate a clean curve
+      if (points.length > 2) {
+        const controlPoint = points[points.length - 2];
+        const endPoint = {
+          x: (controlPoint.x + x) / 2,
+          y: (controlPoint.y + y) / 2,
+        };
+        
+        ctx.quadraticCurveTo(controlPoint.x, controlPoint.y, endPoint.x, endPoint.y);
+        ctx.stroke();
+        
+        // Setup the next segment
+        ctx.beginPath();
+        ctx.moveTo(endPoint.x, endPoint.y);
+        
+        // Keep the last two points to calculate the next bend
+        pointsRef.current = [endPoint, { x, y }];
+      } else {
+        // Fallback for single quick taps/dots
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
     }
   };
 
@@ -187,6 +218,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     const ctx = canvasRef.current?.getContext('2d');
     if (ctx) ctx.closePath();
     setIsDrawing(false);
+    pointsRef.current = []; // Clear curve memory
   };
 
   const clearCanvas = () => {
@@ -195,6 +227,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     if (canvas && ctx) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       setHasDrawn(false); 
+      pointsRef.current = [];
     }
   };
 
@@ -248,6 +281,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     setIsUnlocked(false);
     setPinInput('');
     setHasDrawn(false);
+    pointsRef.current = [];
   };
 
   if (isSubscriber === null) return <div className="min-h-screen bg-black" />;
