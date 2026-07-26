@@ -129,7 +129,7 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
     fetchRecentReads();
     window.addEventListener('progressUpdated', fetchRecentReads);
     return () => window.removeEventListener('progressUpdated', fetchRecentReads);
-  }, [seriesList, isLoading]);
+  }, [seriesList, isLoading, currentUser]);
 
   useEffect(() => {
     const timer = setInterval(() => { setCurrentSlide((prev) => (heroSlides.length > 0 ? (prev + 1) % heroSlides.length : 0)); }, 5000);
@@ -387,9 +387,7 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
         return <SeriesSection key={section.id} title={section.title} series={seriesInSection} onSeriesClick={onNavigate} />;
       })}
     
-      <div className="mt-8 mb-24 flex justify-center">
-        <button onClick={onAdminAccess} className="text-[8px] text-zinc-900 hover:text-zinc-500 tracking-[0.3em] font-black transition-colors cursor-pointer">Admin Access</button>
-      </div>
+      
     </div>
   );
 };

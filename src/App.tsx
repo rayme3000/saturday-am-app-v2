@@ -238,6 +238,7 @@ export default function App() {
 
   const handleNavigate = useCallback((data: any) => {
     if (data.action === 'home') { setCurrentView('home'); return; }
+    if (data.action === 'admin') { setCurrentView('admin'); return; } // <-- ADD THIS LINE
     if (data.action === 'faves') { setCurrentView('faves'); return; }
     if (data.action === 'browse') { setCurrentView('browse'); return; }
     if (data.action === 'profile') { setCurrentView('profile'); return; }
@@ -254,7 +255,7 @@ export default function App() {
       setSelectedSeries(data);
       setCurrentView('series');
     }
-  }, []); 
+  }, []);
 
   return (
     <>
@@ -341,13 +342,14 @@ export default function App() {
 
       {/* 2. Global Hamburger Menu */}
       <HamburgerMenu
-        isOpen={isMenuOpen}
-        onClose={() => setIsMenuOpen(false)}
-        onNavigate={handleNavigate}
-        onOpenFlexCard={() => setIsFlexCardOpen(true)}
-        userTier={userTier}
-        onUpsell={setUpsellConfig}
-      />
+  isOpen={isMenuOpen}
+  onClose={() => setIsMenuOpen(false)}
+  onNavigate={handleNavigate}
+  onOpenFlexCard={() => setIsFlexCardOpen(true)}
+  userTier={userTier}
+  onUpsell={setUpsellConfig}
+  currentUser={currentUser}
+/>
 
       {/* 3. Global Flex Card Overlay */}
       <GlobalFlexCard

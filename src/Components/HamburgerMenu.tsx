@@ -1,7 +1,7 @@
 import { memo } from 'react';
-import { X, CreditCard } from 'lucide-react';
+import { X, CreditCard, ShieldAlert } from 'lucide-react';
 
-export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell }: any) => {
+export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser }: any) => {
   if (!isOpen) return null;
 
   const menuItems = [
@@ -51,6 +51,18 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
             {item.name}
           </button>
         ))}
+
+        {/* --- ADMIN SECURE BUTTON --- */}
+        {currentUser?.is_admin && (
+          <div className="mt-8 pt-8 border-t border-zinc-900">
+            <button 
+              onClick={() => { onNavigate({ action: 'admin' }); onClose(); }}
+              className="flex items-center gap-4 text-3xl sm:text-4xl font-black uppercase italic tracking-tighter text-red-600 hover:text-red-400 text-left transition-colors py-1"
+            >
+              Command Center <ShieldAlert className="w-6 h-6 sm:w-8 sm:h-8" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
