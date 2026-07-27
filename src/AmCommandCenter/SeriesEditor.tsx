@@ -9,7 +9,7 @@ export const SeriesEditor = ({ Dropzone }: any) => {
   const [isSaving, setIsSaving] = useState(false);
   
   const [formData, setFormData] = useState({ 
-    seriesTitle: '', bannerUrl: '', logoUrl: '', characterUrl: '', 
+    seriesTitle: '', bannerUrl: '', logoUrl: '', characterUrl: '', characterAlign: 'center',
     synopsis: '', awards: '', hasAwards: false, 
     creators: [{ role: 'Creator', name: '', bio: '', flagCode: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }] 
   });
@@ -18,7 +18,7 @@ export const SeriesEditor = ({ Dropzone }: any) => {
   useEffect(() => {
     const fetchSeriesData = async () => {
       if (targetSeries === 'new') {
-        setFormData({ seriesTitle: '', bannerUrl: '', logoUrl: '', characterUrl: '', synopsis: '', awards: '', hasAwards: false, creators: [{ role: 'Creator', name: '', flagCode: '', avatar: '', bio: '', instagram: '', twitter: '', supportLink: '', is_visible: true }] });
+        setFormData({ seriesTitle: '', bannerUrl: '', logoUrl: '', characterUrl: '', characterAlign: 'center', synopsis: '', awards: '', hasAwards: false, creators: [{ role: 'Creator', name: '', flagCode: '', avatar: '', bio: '', instagram: '', twitter: '', supportLink: '', is_visible: true }] });
       } else {
         const selectedSeries = seriesList.find((s: any) => s.slug === targetSeries);
         if (selectedSeries) {
@@ -35,7 +35,7 @@ export const SeriesEditor = ({ Dropzone }: any) => {
               twitter: c.twitter_url || '', 
               instagram: c.instagram_url || '', 
               supportLink: c.support_url || '', 
-              is_visible: c.is_visible !== false // True unless explicitly false
+              is_visible: c.is_visible !== false
             })); 
           } else { 
             loadedCreators = [{ role: 'Creator', name: selectedSeries.creator_name || '', flagCode: selectedSeries.flag_code || '', avatar: selectedSeries.creator_avatar || '', bio: selectedSeries.creator_bio || '', twitter: selectedSeries.creator_twitter || '', instagram: selectedSeries.creator_instagram || '', supportLink: selectedSeries.creator_support_link || '', is_visible: true }]; 
@@ -46,6 +46,7 @@ export const SeriesEditor = ({ Dropzone }: any) => {
             bannerUrl: selectedSeries.cover_url || '', 
             logoUrl: selectedSeries.logo_url || '', 
             characterUrl: selectedSeries.character_url || '', 
+            characterAlign: selectedSeries.character_align || 'center',
             synopsis: selectedSeries.synopsis || '', 
             awards: selectedSeries.awards || '', 
             hasAwards: selectedSeries.has_awards || false, 
@@ -73,6 +74,7 @@ export const SeriesEditor = ({ Dropzone }: any) => {
         cover_url: formData.bannerUrl, 
         logo_url: formData.logoUrl, 
         character_url: formData.characterUrl, 
+        character_align: formData.characterAlign,
         awards: formData.hasAwards ? formData.awards : null, 
         has_awards: formData.hasAwards, 
         creator_name: primaryCreator.name, 
@@ -115,7 +117,6 @@ export const SeriesEditor = ({ Dropzone }: any) => {
 
   return (
     <div className="space-y-6 animate-fade-in-up">
-      {/* Target Selector */}
       <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl flex items-end gap-4">
         <div className="flex-1">
           <label className="block text-[10px] font-bold text-[#fe9a00] uppercase mb-2">Editor Mode</label>
@@ -139,16 +140,34 @@ export const SeriesEditor = ({ Dropzone }: any) => {
            <Dropzone label="+ Add Banner" height="p-6" folderPath="series-banners" onUploadComplete={(url: any) => handleInputChange('bannerUrl', url)} />
         </div>
         
-        <div className="grid grid-cols-2 gap-4 border-b border-zinc-800 pb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-zinc-800 pb-6">
            <div>
              <h3 className="font-bold text-[#fe9a00] mb-2 uppercase text-xs">Logo</h3>
-             {formData.logoUrl && <img src={formData.logoUrl} className="h-16 mb-3 bg-black p-2 rounded" alt="Logo" />}
+             {formData.logoUrl && <img src={formData.logoUrl} className="h-16 mb-3 bg-black p-2 rounded object-contain" alt="Logo" />}
              <Dropzone label="+ Add Logo" folderPath="series-logos" onUploadComplete={(url: any) => handleInputChange('logoUrl', url)} />
            </div>
+           
+           {/* ALIGNMENT FIX APPLIED HERE */}
            <div>
              <h3 className="font-bold text-[#fe9a00] mb-2 uppercase text-xs">Character Render</h3>
-             {formData.characterUrl && <img src={formData.characterUrl} className="h-16 mb-3 bg-black p-2 rounded" alt="Character" />}
-             <Dropzone label="+ Add Character" folderPath="series-characters" onUploadComplete={(url: any) => handleInputChange('characterUrl', url)} />
+             <div className="flex gap-4">
+               <div className="flex-1">
+                 {formData.characterUrl && <img src={formData.characterUrl} className="h-16 mb-3 bg-black p-2 rounded object-contain" alt="Character" />}
+                 <Dropzone label="+ Add Character" folderPath="series-characters" onUploadComplete={(url: any) => handleInputChange('characterUrl', url)} />
+               </div>
+               <div className="w-1/3">
+                 <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-2">Alignment</label>
+                 <select 
+                   value={formData.characterAlign} 
+                   onChange={(e) => handleInputChange('characterAlign', e.target.value)}
+                   className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-xs focus:border-[#fe9a00]"
+                 >
+                   <option value="top">Top</option>
+                   <option value="center">Center</option>
+                   <option value="bottom">Bottom</option>
+                 </select>
+               </div>
+             </div>
            </div>
         </div>
 
@@ -177,7 +196,6 @@ export const SeriesEditor = ({ Dropzone }: any) => {
              {formData.creators.map((c, i) => (
                 <div key={i} className="bg-black p-4 rounded border border-zinc-800 space-y-4 relative">
                   
-                  {/* BINGO VISIBILITY TOGGLE RESTORED */}
                   <div className="flex items-center justify-between bg-zinc-900 p-2 rounded border border-zinc-700 mb-2">
                     <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Bingo Visibility</span>
                     <button 

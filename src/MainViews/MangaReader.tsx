@@ -9,7 +9,7 @@ import { HypeButton } from '../Components/HypeButton';
 import { APP_ICONS } from '../appIcons';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 
-export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium }: any) => {
+export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium, initialPage = 0 }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [mode, setMode] = useState<'horizontal' | 'vertical'>('horizontal'); 
   const [isUIVisible, setIsUIVisible] = useState(true);
@@ -131,6 +131,13 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     const activeUserId = userId || currentUser?.id;
 
     const fetchProgress = async () => {
+      // --- INTERCEPT: Jump Back In Payload ---
+      if (initialPage > 0) {
+        setCurrentPage(initialPage);
+        setIsLoadingProgress(false);
+        return;
+      }
+
       if (!activeUserId) {
         setCurrentPage(0);
         setIsLoadingProgress(false);
@@ -159,7 +166,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
 
     fetchProgress();
-  }, [chapterId, userId, isAuthLoaded, currentUser]);
+  }, [chapterId, userId, isAuthLoaded, currentUser, initialPage]); // Added initialPage to dependencies
 
   // --- RESTORED GUARANTEED SAVE FUNCTION ---
   const saveProgressToDB = async (pageToSave: number) => {

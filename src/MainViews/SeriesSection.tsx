@@ -41,11 +41,18 @@ export const SeriesSection = ({ title, series, onSeriesClick }: any) => {
             <div key={s.id} className="w-1/3 sm:w-1/4 md:w-1/5 flex-shrink-0 snap-start cursor-pointer group/card" onClick={() => onSeriesClick(s)}>
               <div className="relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] bg-zinc-900 border border-zinc-800 shadow-lg group-hover/card:border-[#fe9a00]/50 transition-colors duration-300 mb-2">
                 <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-black z-0" />
+                
+                {/* --- PHYSICAL ANCHOR DYNAMIC ALIGNMENT --- */}
                 <img 
                   src={s.character_url || s.cover_url} 
                   alt={`${s.title} Character`} 
-                  className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4"
+                  className={`absolute left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 ${
+                    s.character_align === 'top' ? 'top-0 translate-y-2' : 
+                    s.character_align === 'center' ? 'top-1/2 -translate-y-1/2' : 
+                    'bottom-0 translate-y-4'
+                  }`}
                 />
+                
                 <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black via-black/90 to-transparent z-20" />
                 <div className="absolute bottom-4 left-0 right-0 flex justify-center z-30 px-3">
                   <img 

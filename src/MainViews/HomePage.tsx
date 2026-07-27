@@ -5,7 +5,7 @@ import { MagazineHomeSection } from './MagazineHomeSection';
 import { SeriesSection } from './SeriesSection';
 import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play } from 'lucide-react';
 
-export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle, currentUser }: any) => {
+export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, userTier }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [heroSlides, setHeroSlides] = useState<any[]>([]);
@@ -36,17 +36,17 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
     fetchHomeData();
   }, []);
 
-  // --- THE BULLETPROOF RECENT READS FIX ---
   useEffect(() => {
     const fetchRecentReads = async () => {
       if (isLoading) return;
       
       try {
-        // 1. Get the true UUID directly from Supabase Auth
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+          setRecentReads([]);
+          return;
+        }
 
-        // 2. Fetch history using the real Auth UUID
         const { data: history, error: historyError } = await supabase
           .from('reading_history')
           .select('*')
@@ -64,7 +64,6 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
           return;
         }
 
-        // 3. Grab IDs and fetch matching content safely using select('*')
         const allIds = history.map((h: any) => h.chapter_id);
         let chapters: any[] = [];
         let magazines: any[] = [];
@@ -87,7 +86,6 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
           if (magData) magazines = magData;
         }
 
-        // 4. Combine and format for the UI
         const combined = history.map((h: any) => {
           const chap = chapters.find((c: any) => String(c.id) === String(h.chapter_id));
           const mag = magazines.find((m: any) => String(m.id) === String(h.chapter_id));
@@ -196,12 +194,20 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
           {currentUser ? (
             <div className="flex items-center gap-3 sm:gap-6">
               <div 
-                className="hidden sm:flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                className="hidden sm:flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity"
                 onClick={() => onNavigate({ action: 'profile' })}
               >
                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#fe9a00]">
-                   Welcome, {currentUser.username || 'Reader'}
+                   Welcome,{' '}
+                   <span className={userTier === 'premium' ? 'text-purple-400 drop-shadow-[0_0_10px_rgba(168,85,247,0.8)] transition-colors duration-500' : 'text-[#fe9a00]'}>
+                     {currentUser.username || 'Reader'}
+                   </span>
                  </span>
+                 {userTier === 'premium' && (
+                   <span className="bg-purple-900/40 border border-purple-500 text-purple-400 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black tracking-widest uppercase ml-1 animate-fade-in">
+                     PRO
+                   </span>
+                 )}
               </div>
               <button onClick={handleLogout} className="bg-zinc-900 border border-zinc-700 text-white px-4 sm:px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-sm hover:bg-red-600 hover:border-red-600 transition-all">
                 Logout
@@ -343,7 +349,11 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
             {recentReads.map((read) => (
               <div 
                 key={read.id} 
-                onClick={() => onNavigate(read.target)}
+                onClick={() => onNavigate({ 
+                  ...read.target, 
+                  autoOpenChapterId: read.chapter_id, 
+                  autoOpenPage: read.page_index 
+                })}
                 className="relative min-w-[140px] w-[140px] md:min-w-[180px] md:w-[180px] aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group border border-zinc-800 hover:border-[#fe9a00] transition-all shadow-lg flex-shrink-0"
               >
                 <img 
@@ -386,8 +396,6 @@ export const HomePage = ({ onNavigate, onAdminAccess, onLoginClick, onMenuToggle
         if (seriesInSection.length === 0) return null; 
         return <SeriesSection key={section.id} title={section.title} series={seriesInSection} onSeriesClick={onNavigate} />;
       })}
-    
-      
     </div>
   );
 };

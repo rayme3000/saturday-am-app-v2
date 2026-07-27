@@ -28,6 +28,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
   const [isFavorited, setIsFavorited] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  
+  // --- JUMP BACK IN STATES ---
+  const [startPage, setStartPage] = useState(0);
+  const [hasAutoOpened, setHasAutoOpened] = useState(false);
 
   useEffect(() => {
     const checkFavoriteStatus = async () => {
@@ -69,7 +73,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchDetails();
   }, [series]);
 
-  // --- THE FIX: readerClosedCount added to dependencies so the progress bar refreshes! ---
   useEffect(() => {
     if (!currentUserId || chapters.length === 0) return;
 
@@ -173,6 +176,20 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchChapterStats();
   }, [chapters, readerClosedCount]);
 
+  // --- AUTO OPEN LISTENER ---
+  useEffect(() => {
+   
+    if (chapters.length > 0 && series?.autoOpenChapterId && !hasAutoOpened) {
+      const index = chapters.findIndex(c => String(c.id) === String(series.autoOpenChapterId));
+      const chapter = chapters[index];
+      
+      if (chapter) {
+        handleReadChapter(chapter, index, series.autoOpenPage || 0);
+        setHasAutoOpened(true); 
+      }
+    }
+  }, [chapters, series, hasAutoOpened]);
+
   const aggregatedSubHypes = chapters.reduce((sum: number, ch: any) => {
     const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
     return sum + (ch.hype_count || 0) + pageHypes;
@@ -186,7 +203,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return index !== 0; 
   };
 
-  const handleReadChapter = async (chapter: any, index: number) => {
+  const handleReadChapter = async (chapter: any, index: number, initialPage = 0) => {
     if (checkIsLocked(index)) {
       setUpsellConfig({
         type: userTier === 'visitor' ? 'visitor' : 'premium',
@@ -205,7 +222,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       
     if (data && data.length > 0) { 
       setActivePages(data as any); 
-      setActiveChapterId(chapter.id); 
+      setActiveChapterId(chapter.id);
+      setStartPage(initialPage); 
       setIsReaderOpen(true); 
     } 
     else { 
@@ -313,15 +331,18 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             isPremium={isPremiumUser}
             title={activeChapterData ? `Chapter ${activeChapterData.chapter_number} - ${activeChapterData.title || ''}` : ''}
             subtitle={localSeries.title}
+            initialPage={startPage} // PASSED DOWN INITIAL PAGE
             onClose={() => { 
               setIsReaderOpen(false); 
-              setActiveChapterId(null); 
-              setReaderClosedCount(c => c + 1); // Triggers re-fetch!
+              setActiveChapterId(null);
+              setStartPage(0); // RESET
+              setReaderClosedCount(c => c + 1); 
             }} 
             onHome={() => { 
               setIsReaderOpen(false); 
-              setActiveChapterId(null); 
-              setReaderClosedCount(c => c + 1); // Triggers re-fetch!
+              setActiveChapterId(null);
+              setStartPage(0); // RESET
+              setReaderClosedCount(c => c + 1); 
               onBack(); 
             }}
             onNext={() => { if (hasNext) handleReadChapter(chapters[currentIndex + 1], currentIndex + 1); }}
@@ -465,28 +486,39 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           {chapters.length === 0 && <div className="text-center py-16 text-zinc-500 font-bold tracking-widest text-xs uppercase">No chapters uploaded yet.</div>}
         </div>
         <SeriesCommentsSection 
-  seriesSlug={localSeries?.slug} 
-  onRequireAuth={() => setUpsellConfig({ 
-    type: 'visitor', 
-    message: "Create a Free Account to join the community discussion and share your thoughts!" 
-  })} 
-/>        
+          seriesSlug={localSeries?.slug} 
+          onRequireAuth={() => setUpsellConfig({ 
+            type: 'visitor', 
+            message: "Create a Free Account to join the community discussion and share your thoughts!" 
+          })} 
+        />        
         <div className="pb-24 px-6 w-full max-w-3xl mx-auto">
           <div className="border-t border-zinc-800 pt-12 flex flex-col items-center gap-16">
+            
+            {/* --- CREATOR NAME BUG FIX --- */}
             {creators.map((c: any, index) => {
-              const safeName = c.name || 'Creator'; const firstName = safeName.split(' ')[0];
+              const safeName = c.name || 'Creator'; 
               return (
                 <div key={index} className="flex flex-col items-center text-center w-full max-w-lg bg-zinc-900/30 p-8 rounded-2xl border border-zinc-800/50">
                   <div className="flex flex-col items-center gap-4 mb-6">
-                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-zinc-700 overflow-hidden border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.3)]"><img src={c.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} alt={safeName} className="w-full h-full object-cover" /></div>
-                    <div><h4 className="font-black text-xl sm:text-2xl tracking-tight">{firstName}</h4><p className="text-[10px] text-[#fe9a00] uppercase font-black tracking-widest mt-1">{c.role || 'Creator'}</p></div>
+                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-zinc-700 overflow-hidden border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.3)]">
+                      <img src={c.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} alt={safeName} className="w-full h-full object-cover" />
+                    </div>
+                    <div>
+                      <h4 className="font-black text-xl sm:text-2xl tracking-tight">{safeName}</h4>
+                      <p className="text-[10px] text-[#fe9a00] uppercase font-black tracking-widest mt-1">{c.role || 'Creator'}</p>
+                    </div>
                   </div>
                   <p className="text-sm sm:text-base text-zinc-300 leading-relaxed mb-8">{c.bio || '...'}</p>
                   <div className="flex flex-wrap justify-center gap-3 mb-8">
                     {c.twitter_url && <a href={c.twitter_url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-5 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]">Twitter</a>}
                     {c.instagram_url && <a href={c.instagram_url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-5 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]">Instagram</a>}
                   </div>
-                  {c.support_url && (<button onClick={() => window.open(c.support_url, '_blank')} className="flex items-center justify-center gap-2 w-full sm:w-auto border-2 border-[#fe9a00] text-[#fe9a00] px-8 py-3 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black transition-colors"><Heart className="w-4 h-4" /> Support {firstName}</button>)}
+                  {c.support_url && (
+                    <button onClick={() => window.open(c.support_url, '_blank')} className="flex items-center justify-center gap-2 w-full sm:w-auto border-2 border-[#fe9a00] text-[#fe9a00] px-8 py-3 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black transition-colors">
+                      <Heart className="w-4 h-4" /> Support {safeName.split(' ')[0]}
+                    </button>
+                  )}
                 </div>
               );
             })}
