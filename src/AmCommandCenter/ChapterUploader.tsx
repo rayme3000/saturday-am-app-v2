@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, X, ChevronLeft, ChevronRight, Crop, MoveHorizontal, Calendar } from 'lucide-react';
+import { BookOpen, X, ChevronLeft, ChevronRight, Crop, Calendar } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
-// Assuming MangaReader component exists for preview
 import { MangaReader } from '../MainViews/MangaReader';
 
 export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onClean }: any) => {
@@ -15,11 +14,6 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
   const [refreshKey, setRefreshKey] = useState(0);
   const [cropSourceImage, setCropSourceImage] = useState<string | null>(null);
 
-  // Layout states RESTORED
-  const [firstPageSide, setFirstPageSide] = useState<'left' | 'right'>('left');
-  const [readingDirection, setReadingDirection] = useState<'ltr' | 'rtl'>('ltr');
-
-  // Drag and Drop states RESTORED
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
   const [draggedItem, setDraggedItem] = useState<number | null>(null);
   const [dragOverItem, setDragOverItem] = useState<number | null>(null);
@@ -28,6 +22,8 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
     chapterNumber: '',
     title: '',
     thumbnailUrl: '',
+    thumbnailScale: 100,
+    thumbnailPosition: '50% 50%',
     pages: [] as string[],
     isPublished: false,
     isScheduled: false,
@@ -47,7 +43,18 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
   useEffect(() => {
     if (targetChapter === 'new') {
       const nextNum = existingChapters.length > 0 ? Math.floor(Number(existingChapters[0].chapter_number) + 1) : 1;
-      setFormData({ chapterNumber: nextNum.toString(), title: '', thumbnailUrl: '', pages: [], isPublished: false, isScheduled: false, publishDate: new Date().toISOString().split('T')[0], publishTime: '12:00' });
+      setFormData({ 
+        chapterNumber: nextNum.toString(), 
+        title: '', 
+        thumbnailUrl: '', 
+        thumbnailScale: 100,
+        thumbnailPosition: '50% 50%',
+        pages: [], 
+        isPublished: false, 
+        isScheduled: false, 
+        publishDate: new Date().toISOString().split('T')[0], 
+        publishTime: '12:00' 
+      });
     } else {
       const selected = existingChapters.find(c => c.id === targetChapter);
       if (selected) {
@@ -57,6 +64,8 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
             chapterNumber: selected.chapter_number.toString(),
             title: selected.title || '',
             thumbnailUrl: selected.thumbnail_url || '',
+            thumbnailScale: selected.thumbnail_scale || 100,
+            thumbnailPosition: selected.thumbnail_position || '50% 50%',
             pages: data ? data.map(p => p.image_url) : [],
             isPublished: selected.is_published || false,
             isScheduled: !!selected.publish_at,
@@ -71,7 +80,6 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
 
   useEffect(() => { setTargetChapter('new'); }, [targetSeries]);
 
-  // DRAG AND DROP LOGIC RESTORED
   const handlePageClick = (index: number, e: React.MouseEvent) => {
     if (e.ctrlKey || e.metaKey) {
       setSelectedPages(prev => prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index].sort((a, b) => a - b));
@@ -117,6 +125,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
   };
 
   const removePage = (index: number) => {
+    if (!window.confirm(`Are you sure you want to remove page ${index + 1}?`)) return;
     const newPages = formData.pages.filter((_, i) => i !== index);
     setFormData({ ...formData, pages: newPages });
     if (onDirty) onDirty();
@@ -148,6 +157,8 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
         chapter_number: Number(formData.chapterNumber),
         title: formData.title || `Chapter ${formData.chapterNumber}`,
         thumbnail_url: formData.thumbnailUrl || formData.pages[0],
+        thumbnail_scale: formData.thumbnailScale,
+        thumbnail_position: formData.thumbnailPosition,
         is_published: publishStatus, 
         publish_at: publishTimestamp 
       };
@@ -182,12 +193,26 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
     } catch (error: any) { alert('Failed: ' + error.message); }
   };
 
+  // Slider Math
+  const posParts = formData.thumbnailPosition.split(' ');
+  const xVal = parseInt(posParts[0]) || 50;
+  const yVal = parseInt(posParts[1]) || 50;
+
   return (
     <div className="space-y-6 animate-fade-in-up">
-      {isPreviewOpen && <MangaReader pages={formData.pages} readingDirection={readingDirection} onClose={() => setIsPreviewOpen(false)} />}
+      {/* Reader Preview defaults to LTR */}
+      {isPreviewOpen && <MangaReader pages={formData.pages} readingDirection="ltr" onClose={() => setIsPreviewOpen(false)} />}
       
       {cropSourceImage && (
-        <ThumbnailCropperModal imageUrl={cropSourceImage} onCropComplete={(newUrl: any) => { setFormData({...formData, thumbnailUrl: newUrl}); if (onDirty) onDirty(); setCropSourceImage(null); }} onCancel={() => setCropSourceImage(null)} />
+        <ThumbnailCropperModal 
+          imageUrl={cropSourceImage} 
+          onCropComplete={(newUrl: any) => { 
+            setFormData({...formData, thumbnailUrl: newUrl}); 
+            if (onDirty) onDirty(); 
+            setCropSourceImage(null); 
+          }} 
+          onCancel={() => setCropSourceImage(null)} 
+        />
       )}
 
       {/* Editor Mode Selector */}
@@ -214,7 +239,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
               {targetChapter !== 'new' && (<button onClick={() => setTargetChapter('new')} className="text-[10px] font-bold bg-zinc-800 px-4 py-2 rounded hover:bg-[#fe9a00] hover:text-black transition-colors">+ Create New Chapter</button>)}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
               <div>
                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Chapter Number</label>
                 <input type="number" step="0.1" value={formData.chapterNumber} onChange={(e) => { setFormData({...formData, chapterNumber: e.target.value}); if (onDirty) onDirty(); }} className="w-full bg-black border border-zinc-700 rounded p-3 text-white font-bold focus:border-[#fe9a00]" />
@@ -225,36 +250,49 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
               </div>
             </div>
 
-            {/* Reading Layout Toggles RESTORED */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-zinc-800">
-              <div className="bg-black border border-zinc-800 rounded-xl p-4 shadow-inner">
-                <h4 className="font-black text-[10px] text-zinc-400 uppercase tracking-widest flex items-center gap-2 mb-3"><BookOpen className="w-3 h-3 text-[#fe9a00]" /> First Page Placement</h4>
-                <div className="flex bg-zinc-900 rounded-lg p-1 border border-zinc-800">
-                  <button onClick={() => setFirstPageSide('left')} className={`flex-1 px-4 py-2 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${firstPageSide === 'left' ? 'bg-[#fe9a00] text-black' : 'text-zinc-600 hover:text-white'}`}>Left</button>
-                  <button onClick={() => setFirstPageSide('right')} className={`flex-1 px-4 py-2 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${firstPageSide === 'right' ? 'bg-[#fe9a00] text-black' : 'text-zinc-600 hover:text-white'}`}>Right</button>
-                </div>
-              </div>
-              <div className="bg-black border border-zinc-800 rounded-xl p-4 shadow-inner">
-                <h4 className="font-black text-[10px] text-zinc-400 uppercase tracking-widest flex items-center gap-2 mb-3"><MoveHorizontal className="w-3 h-3 text-[#fe9a00]" /> Reading Direction</h4>
-                <div className="flex bg-zinc-900 rounded-lg p-1 border border-zinc-800">
-                  <button onClick={() => setReadingDirection('ltr')} className={`flex-1 px-4 py-2 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${readingDirection === 'ltr' ? 'bg-[#fe9a00] text-black' : 'text-zinc-600 hover:text-white'}`}>LTR</button>
-                  <button onClick={() => setReadingDirection('rtl')} className={`flex-1 px-4 py-2 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${readingDirection === 'rtl' ? 'bg-[#fe9a00] text-black' : 'text-zinc-600 hover:text-white'}`}>RTL</button>
-                </div>
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-zinc-800">
               <div>
                 <h3 className="font-bold text-[#fe9a00] mb-2 uppercase tracking-widest text-xs">Custom Thumbnail</h3>
                 {formData.thumbnailUrl && (
-                  <div className="relative group/thumb mb-4">
-                    <img src={formData.thumbnailUrl} className="w-full aspect-square object-cover rounded-lg border border-zinc-700" alt="Thumb" />
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center pointer-events-none">
-                      <button onClick={() => setCropSourceImage(formData.thumbnailUrl)} className="p-3 bg-black border border-zinc-700 text-[#fe9a00] rounded-full pointer-events-auto"><Crop className="w-5 h-5" /></button>
+                  <div className="relative group/thumb mb-4 rounded-lg overflow-hidden border border-zinc-700 aspect-square bg-black">
+                    <img 
+                      src={formData.thumbnailUrl} 
+                      className="w-full h-full object-cover transition-all" 
+                      style={{ 
+                        objectPosition: formData.thumbnailPosition,
+                        transform: `scale(${formData.thumbnailScale / 100})`
+                      }}
+                      alt="Thumb" 
+                    />
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center pointer-events-none transition-opacity">
+                      <button onClick={() => setCropSourceImage(formData.thumbnailUrl)} className="p-3 bg-black border border-zinc-700 text-[#fe9a00] rounded-full pointer-events-auto hover:bg-zinc-800 transition-colors"><Crop className="w-5 h-5" /></button>
                     </div>
                   </div>
                 )}
+                
                 <Dropzone label={formData.thumbnailUrl ? "Replace Thumb" : "+ Upload Thumb"} height="p-4" folderPath="chapter-thumbnails" onUploadComplete={(url: any) => { setFormData({...formData, thumbnailUrl: url}); if (onDirty) onDirty(); }} />
+                
+                {/* NEW THUMBNAIL FINE TUNE SLIDERS */}
+                {formData.thumbnailUrl && (
+                  <div className="bg-black border border-zinc-800 p-3 rounded-xl mt-4 space-y-3">
+                     <h4 className="text-[9px] font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-800 pb-1">Fine-Tune Thumb</h4>
+                     <div className="flex items-center gap-2">
+                       <span className="text-[9px] font-bold text-zinc-400 w-10">Zoom</span>
+                       <input type="range" min="50" max="300" value={formData.thumbnailScale} onChange={(e) => { setFormData({...formData, thumbnailScale: Number(e.target.value)}); if (onDirty) onDirty(); }} className="flex-1 accent-[#fe9a00]" />
+                       <span className="text-[9px] font-black text-white w-8">{formData.thumbnailScale}%</span>
+                     </div>
+                     <div className="flex items-center gap-2">
+                       <span className="text-[9px] font-bold text-zinc-400 w-10">X-Axis</span>
+                       <input type="range" min="0" max="100" value={xVal} onChange={(e) => { setFormData({...formData, thumbnailPosition: `${e.target.value}% ${yVal}%`}); if (onDirty) onDirty(); }} className="flex-1 accent-[#fe9a00]" />
+                       <span className="text-[9px] font-black text-white w-8">{xVal}%</span>
+                     </div>
+                     <div className="flex items-center gap-2">
+                       <span className="text-[9px] font-bold text-zinc-400 w-10">Y-Axis</span>
+                       <input type="range" min="0" max="100" value={yVal} onChange={(e) => { setFormData({...formData, thumbnailPosition: `${xVal}% ${e.target.value}%`}); if (onDirty) onDirty(); }} className="flex-1 accent-[#fe9a00]" />
+                       <span className="text-[9px] font-black text-white w-8">{yVal}%</span>
+                     </div>
+                  </div>
+                )}
               </div>
 
               <div className="md:col-span-2">
@@ -319,7 +357,17 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
             <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
               {existingChapters.map(ch => (
                 <div key={ch.id} onClick={() => { setTargetChapter(ch.id); if (onClean) onClean(); }} className={`rounded p-3 flex gap-3 items-center group cursor-pointer transition-colors border ${targetChapter === ch.id ? 'bg-zinc-800 border-[#fe9a00]' : 'bg-black border-zinc-800 hover:border-zinc-700'}`}>
-                  <img src={ch.thumbnail_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} className="w-12 h-12 object-cover rounded bg-zinc-800" alt="Thumb" />
+                  <div className="w-12 h-12 rounded bg-zinc-800 overflow-hidden shrink-0">
+                    <img 
+                      src={ch.thumbnail_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} 
+                      className="w-full h-full object-cover" 
+                      style={{
+                        objectPosition: ch.thumbnail_position || '50% 50%',
+                        transform: `scale(${(ch.thumbnail_scale || 100) / 100})`
+                      }}
+                      alt="Thumb" 
+                    />
+                  </div>
                   <div className="flex-1 overflow-hidden">
                     <div className="flex items-center gap-2 mb-1">
                       <p className="text-[9px] text-[#fe9a00] tracking-widest">CH {ch.chapter_number}</p>

@@ -3,7 +3,6 @@ import { X, MoveVertical } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
-
 export const HomeEditor = ({ Dropzone }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [isSaving, setIsSaving] = useState(false);
@@ -40,31 +39,44 @@ export const HomeEditor = ({ Dropzone }: any) => {
   }, [seriesList]);
 
   const addSlide = () => setSlides([...slides, { id: Date.now(), linkType: 'series', linkTarget: '', desktop_url: '', mobile_url: '' }]);
-  const removeSlide = (idToRemove: any) => setSlides(slides.filter(slide => slide.id !== idToRemove));
+  
+  const removeSlide = (idToRemove: any) => {
+    if (!window.confirm("Delete this hero slide?")) return;
+    setSlides(slides.filter(slide => slide.id !== idToRemove));
+  };
+
   const updateSlide = (id: any, field: any, value: any) => setSlides(slides.map(slide => slide.id === id ? { ...slide, [field]: value } : slide));
   
   const createSection = () => {
     const title = window.prompt("Enter new section title:");
     if (title && !sections.find(s => s.title === title)) { setSections([...sections, { title }]); setSectionSeries({ ...sectionSeries, [title]: [] }); }
   };
+
   const removeSection = (titleToRemove: any) => {
     if (!window.confirm(`Delete the "${titleToRemove}" section?`)) return;
     setSections(sections.filter(s => s.title !== titleToRemove));
     const newMapping = { ...sectionSeries }; delete newMapping[titleToRemove]; setSectionSeries(newMapping);
   };
+
   const moveSection = (index: number, direction: string) => {
     const newArr = [...sections];
     if (direction === 'up' && index > 0) [newArr[index - 1], newArr[index]] = [newArr[index], newArr[index - 1]];
     if (direction === 'down' && index < newArr.length - 1) [newArr[index + 1], newArr[index]] = [newArr[index], newArr[index + 1]];
     setSections(newArr);
   };
+
   const handleAddSeries = (sectionTitle: any, seriesSlug: any) => {
     if (!seriesSlug) return;
     const seriesToAdd = seriesList.find(s => s.slug === seriesSlug);
     if (!seriesToAdd || sectionSeries[sectionTitle]?.find((s: any) => s.slug === seriesSlug)) return;
     setSectionSeries({ ...sectionSeries, [sectionTitle]: [...(sectionSeries[sectionTitle] || []), seriesToAdd] });
   };
-  const removeSeriesFromSection = (sectionTitle: any, seriesSlug: any) => { setSectionSeries({ ...sectionSeries, [sectionTitle]: sectionSeries[sectionTitle].filter((s: any) => s.slug !== seriesSlug) }); };
+
+  const removeSeriesFromSection = (sectionTitle: any, seriesSlug: any) => { 
+    if (!window.confirm(`Remove this series from ${sectionTitle}?`)) return;
+    setSectionSeries({ ...sectionSeries, [sectionTitle]: sectionSeries[sectionTitle].filter((s: any) => s.slug !== seriesSlug) }); 
+  };
+
   const moveSeries = (sectionTitle: any, index: number, direction: string) => {
     const arr = [...sectionSeries[sectionTitle]];
     if (direction === 'up' && index > 0) [arr[index - 1], arr[index]] = [arr[index], arr[index - 1]];
@@ -78,7 +90,12 @@ export const HomeEditor = ({ Dropzone }: any) => {
     if (!magToAdd || featuredMagazines.find((m: any) => m.id === magToAdd.id)) return;
     setFeaturedMagazines([...featuredMagazines, magToAdd]);
   };
-  const removeMagazine = (magId: any) => { setFeaturedMagazines(featuredMagazines.filter((m: any) => m.id !== magId)); };
+
+  const removeMagazine = (magId: any) => { 
+    if (!window.confirm("Remove this magazine from the featured lane?")) return;
+    setFeaturedMagazines(featuredMagazines.filter((m: any) => m.id !== magId)); 
+  };
+
   const moveMagazine = (index: number, direction: string) => {
     const arr = [...featuredMagazines];
     if (direction === 'up' && index > 0) [arr[index - 1], arr[index]] = [arr[index], arr[index - 1]];

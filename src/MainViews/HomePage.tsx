@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { MagazineHomeSection } from './MagazineHomeSection';
 import { SeriesSection } from './SeriesSection';
-import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play } from 'lucide-react';
+import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play, Trophy, Crown, Zap } from 'lucide-react';
 
 export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, userTier }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
@@ -276,6 +276,39 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                     Vertical scroll
                   </div>
                 </div>
+              </div>
+
+              {/* LEADERBOARD & SUPERFAN RANKING */}
+              <div className="pt-6 border-t border-zinc-800">
+                <h3 className="text-[#fe9a00] font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-[#fe9a00]" /> Leaderboard & Rankings
+                </h3>
+                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
+                  Compete globally to become an S-Class Superfan! The leaderboard tracks real-time community activity and highlights the top fans on the platform.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-white font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-[#fe9a00]" /> How to Rank Up
+                </h3>
+                <div className="pl-3 space-y-2 text-zinc-400 text-xs font-bold leading-relaxed">
+                  <p>Your ranking score is calculated based on how you interact with the app. Activities are weighted to reward high engagement:</p>
+                  <ul className="list-disc list-inside text-[#fe9a00] ml-2 space-y-1">
+                    <li><span className="text-zinc-300">Reading chapters and dropping Quick Reacts build your foundation.</span></li>
+                    <li><span className="text-zinc-300">Dropping Super Hypes carries significantly more weight!</span></li>
+                    <li><span className="text-purple-400">Pro subscribers get a permanent ranking multiplier.</span></li>
+                  </ul>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-yellow-500 font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
+                  <Crown className="w-4 h-4 text-yellow-500" /> The Big 3 & Story of the Week
+                </h3>
+                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-yellow-500 pl-3">
+                  The Big 3 showcases the top 3 most-hyped manga across Saturday AM, and the #1 spot is officially crowned our <strong className="text-white">Story of the Week!</strong> Want your favorite series to take the spotlight? Rally fellow fans to drop <span className="text-[#fe9a00]">Super Hypes</span> and boost its score to the very top.
+                </p>
               </div>
 
               <div className="pt-6 border-t border-zinc-800">

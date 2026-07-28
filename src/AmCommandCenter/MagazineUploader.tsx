@@ -44,7 +44,6 @@ export const MagazineUploader = ({ Dropzone, onDirty, onClean }: any) => {
     }
   }, [targetMagazine, magazines]);
 
-  // DRAG AND DROP
   const handlePageClick = (index: number, e: React.MouseEvent) => {
     if (e.ctrlKey || e.metaKey) setSelectedPages(prev => prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index].sort((a, b) => a - b));
     else if (e.shiftKey && selectedPages.length > 0) {
@@ -69,8 +68,8 @@ export const MagazineUploader = ({ Dropzone, onDirty, onClean }: any) => {
     if (onDirty) onDirty();
   };
 
-  // --- PAGE MANAGEMENT (REMOVE / MOVE) ---
   const removePage = (index: number) => {
+    if (!window.confirm(`Are you sure you want to remove page ${index + 1}?`)) return;
     const newPages = formData.pages.filter((_, i) => i !== index);
     setFormData({ ...formData, pages: newPages });
     if (onDirty) onDirty();
@@ -85,6 +84,7 @@ export const MagazineUploader = ({ Dropzone, onDirty, onClean }: any) => {
   };
 
   const removePreviewPage = (index: number) => {
+    if (!window.confirm(`Are you sure you want to remove preview page ${index + 1}?`)) return;
     const newPages = formData.previewPages.filter((_, i) => i !== index);
     setFormData({ ...formData, previewPages: newPages });
     if (onDirty) onDirty();
@@ -138,7 +138,6 @@ export const MagazineUploader = ({ Dropzone, onDirty, onClean }: any) => {
           <textarea rows={3} value={formData.synopsis} onChange={(e) => setFormData({...formData, synopsis: e.target.value})} className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-sm" />
         </div>
 
-        {/* First Page Placement */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-6 border-b border-zinc-800">
           <div className="bg-black border border-zinc-800 rounded-xl p-4 flex flex-col justify-center">
             <h4 className="font-black text-xs text-white uppercase tracking-widest flex items-center gap-2 mb-3"><BookOpen className="w-4 h-4 text-[#fe9a00]" /> First Page Placement</h4>
@@ -188,7 +187,6 @@ export const MagazineUploader = ({ Dropzone, onDirty, onClean }: any) => {
                         <div className="absolute top-1 left-1 bg-black/80 px-1 py-0.5 rounded text-white text-[8px] z-10">{i+1}</div>
                         <img src={url} alt={`Pg ${i+1}`} draggable={false} className="w-full h-full object-cover pointer-events-none" />
                         
-                        {/* Hover Overlay Controls */}
                         <div className="absolute inset-0 bg-black/80 opacity-0 group-hover/page:opacity-100 flex flex-col justify-between p-1 transition-opacity z-20">
                           <div className="flex justify-end w-full">
                             <button onClick={(e) => { e.stopPropagation(); removePage(i); }} className="p-1 hover:text-red-500 text-zinc-300 bg-black/50 rounded"><X className="w-3 h-3" /></button>
@@ -208,7 +206,6 @@ export const MagazineUploader = ({ Dropzone, onDirty, onClean }: any) => {
           </div>
         </div>
 
-        {/* Schedule */}
         <div className="bg-black border border-zinc-800 p-5 rounded-xl shadow-inner mt-8">
            <div className="flex items-center justify-between">
              <h4 className="font-black text-xs text-white uppercase tracking-widest flex items-center gap-2"><Calendar className="w-4 h-4 text-[#fe9a00]" /> Schedule</h4>
