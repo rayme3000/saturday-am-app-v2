@@ -86,7 +86,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   
   // --- CANVAS & SMOOTHING REFS ---
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const pointsRef = useRef<{x: number, y: number}[]>([]); // Tracks points for Bézier curves
+  const pointsRef = useRef<{x: number, y: number}[]>([]); 
 
   const [alertConfig, setAlertConfig] = useState<{ title: string, message: string } | null>(null);
 
@@ -135,7 +135,6 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
 
   useEffect(() => {
     if (isUnlocked) {
-      // Need a slight delay to ensure the rotation CSS finishes before measuring bounds
       setTimeout(() => {
         initCanvas();
         const canvas = canvasRef.current;
@@ -154,34 +153,26 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     }
   }, [isUnlocked, selectedTarget, signatures]);
 
+  // --- FIXED 1:1 TOUCH TRACKING COORDINATES ---
   const getCoordinates = (e: any) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     
-    // Because the canvas is visually rotated 90deg, 
-    // the X and Y coordinates must be swapped and inverted!
+    let clientX = e.clientX;
+    let clientY = e.clientY;
+
     if (e.touches && e.touches.length > 0) {
-      const touchX = e.touches[0].clientX - rect.left;
-      const touchY = e.touches[0].clientY - rect.top;
-      
-      // Calculate true coordinate based on 90deg counter-clockwise rotation
-      return { 
-        x: touchY, 
-        y: canvas.height - touchX 
-      };
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
     }
     
-    // Fallback for mouse
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
     return { 
-      x: mouseY, 
-      y: canvas.height - mouseX 
+      x: clientX - rect.left, 
+      y: clientY - rect.top 
     };
   };
 
-  // --- UPGRADED DRAWING LOGIC (Bézier Curves) ---
   const startDrawing = (e: any) => {
     e.preventDefault();
     const { x, y } = getCoordinates(e);
@@ -273,26 +264,13 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     setPinInput('');
   };
 
+  // --- FIXED NATIVE SAVING (No offscreen canvas rotation needed) ---
   const handleSave = () => {
     if (!hasDrawn || !selectedTarget) return; 
 
-    // Because the canvas is rotated visually, we need to create a temporary 
-    // off-screen canvas to rotate the actual image data before saving it
     const canvas = canvasRef.current;
     if (canvas) {
-      const tempCanvas = document.createElement('canvas');
-      // Swap width and height back to portrait for storage
-      tempCanvas.width = canvas.height;
-      tempCanvas.height = canvas.width;
-      
-      const tCtx = tempCanvas.getContext('2d');
-      if (tCtx) {
-        tCtx.translate(tempCanvas.width / 2, tempCanvas.height / 2);
-        tCtx.rotate((90 * Math.PI) / 180);
-        tCtx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
-      }
-
-      const dataUrl = tempCanvas.toDataURL();
+      const dataUrl = canvas.toDataURL('image/png');
       const newSigs = { ...signatures, [selectedTarget.id]: dataUrl };
       setSignatures(newSigs);
       localStorage.setItem('am_bingo_sigs', JSON.stringify(newSigs));
@@ -450,18 +428,14 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       {selectedTarget && (
         <div className={`fixed inset-0 z-[600] bg-black/95 backdrop-blur-xl flex items-center justify-center animate-fade-in ${isUnlocked ? 'p-0' : 'p-4'}`}>
           
-          {/* 
-            If UNLOCKED, we force the container to rotate -90deg and swap width/height 
-            to fake a landscape mode screen for drawing! 
-          */}
           <div 
-            className={`bg-zinc-950 border border-zinc-800 rounded-2xl flex flex-col shadow-2xl relative transition-all overflow-hidden ${
+            className={`bg-zinc-950 border-zinc-800 flex flex-col shadow-2xl relative transition-all overflow-hidden ${
               isUnlocked 
-                ? 'w-[100vh] h-[100vw] transform -rotate-90 origin-center fixed' 
-                : 'w-full max-w-2xl min-h-[400px]'
+                ? 'w-full h-full rounded-none border-0 md:border md:rounded-2xl md:w-[90vw] md:max-w-5xl md:h-[80vh]' // Fullscreen portrait on mobile, nice large modal on desktop!
+                : 'w-full max-w-2xl min-h-[400px] rounded-2xl border'
             }`}
           >
-            <div className="flex justify-between items-center p-4 border-b border-zinc-800 bg-zinc-900 z-50">
+            <div className="flex justify-between items-center p-4 sm:p-6 border-b border-zinc-800 bg-zinc-900 z-50">
               <div className="flex items-center gap-3">
                 <Target className={`w-5 h-5 ${isUnlocked ? 'text-[#fe9a00]' : 'text-red-500'}`} />
                 <span className="font-black uppercase tracking-widest text-sm">{selectedTarget.name}</span>
@@ -469,7 +443,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
               <button onClick={closeTargetModal} className="text-zinc-500 hover:text-white font-black uppercase tracking-widest text-[10px]">Close</button>
             </div>
 
-            <div className="p-6 flex-1 flex flex-col h-full w-full">
+            <div className="p-4 sm:p-6 flex-1 flex flex-col h-full w-full">
               {!isUnlocked ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
                   <div className="w-20 h-20 rounded-full bg-zinc-900 flex items-center justify-center border-2 border-red-500 shadow-[0_0_30px_rgba(255,0,0,0.2)]">
