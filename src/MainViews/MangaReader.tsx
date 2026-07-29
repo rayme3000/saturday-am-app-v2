@@ -277,36 +277,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     else toggleUI(); 
   };
 
-  // --- MULTI-TOUCH SAFE SWIPE DETECTION ---
-  const touchStartX = useRef(0);
-  const touchStartY = useRef(0);
-  const isMultiTouch = useRef(false);
-
-  const handleTouchStart = (e: any) => { 
-    if (e.touches.length > 1) {
-      isMultiTouch.current = true;
-      return;
-    }
-    isMultiTouch.current = false;
-    touchStartX.current = e.touches[0].clientX; 
-    touchStartY.current = e.touches[0].clientY; 
-  };
-  
-  const handleTouchEnd = (e: any) => {
-    if (isMultiTouch.current || e.changedTouches.length === 0) return;
-
-    const touchEndX = e.changedTouches[0].clientX;
-    const touchEndY = e.changedTouches[0].clientY;
-    
-    const diffX = touchStartX.current - touchEndX;
-    const diffY = touchStartY.current - touchEndY;
-    
-    if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
-      if (diffX > 0) goNext(); 
-      else goPrev();         
-    }
-  };
-
   const maxPage = Math.max(1, pages.length - 1);
   const progressPercentage = (currentPage / maxPage) * 100;
   const timelineComments = localComments.slice(-25);
@@ -364,7 +334,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       `}</style>
 
       {/* ========================================================================= */}
-      {/* --- HORIZONTAL READER (WITH NATIVE PINCH-TO-ZOOM) ---                     */}
+      {/* --- HORIZONTAL READER (WITH NATIVE PINCH & ROLL ZOOM ENABLED) ---         */}
       {/* ========================================================================= */}
       {mode === 'horizontal' && (
         <div className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center">
@@ -379,8 +349,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               limitToBounds={true}
               doubleClick={{ step: 2 }} 
               panning={{ velocityDisabled: true }}
-              wheel={{ step: 0.1, wheelDisabled: false }} 
-              pinch={{ step: 5 }} 
+              // Removed custom pinch & wheel objects to let the library use native defaults!
             >
               {({ state }) => (
                 <div className="w-full h-full relative">
@@ -388,17 +357,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                     wrapperStyle={{ width: '100vw', height: '100vh' }}
                     contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    {/* The Click & Swipe handlers are now INSIDE the zoom component! */}
+                    {/* ONLY using onClick here. Custom swiping logic removed so touch events bubble up to the zoom wrapper! */}
                     <div 
                       className="w-full h-full flex items-center justify-center cursor-pointer"
                       onClick={(e) => {
                         if (state.scale <= 1) handleTap(e);
-                      }}
-                      onTouchStart={(e) => {
-                        if (state.scale <= 1) handleTouchStart(e);
-                      }}
-                      onTouchEnd={(e) => {
-                        if (state.scale <= 1) handleTouchEnd(e);
                       }}
                     >
                       <img 
