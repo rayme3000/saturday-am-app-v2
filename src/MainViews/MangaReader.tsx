@@ -277,15 +277,24 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     else toggleUI(); 
   };
 
+  // --- MULTI-TOUCH SAFE SWIPE DETECTION ---
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
+  const isMultiTouch = useRef(false);
 
   const handleTouchStart = (e: any) => { 
+    if (e.touches.length > 1) {
+      isMultiTouch.current = true;
+      return;
+    }
+    isMultiTouch.current = false;
     touchStartX.current = e.touches[0].clientX; 
     touchStartY.current = e.touches[0].clientY; 
   };
   
   const handleTouchEnd = (e: any) => {
+    if (isMultiTouch.current || e.changedTouches.length === 0) return;
+
     const touchEndX = e.changedTouches[0].clientX;
     const touchEndY = e.changedTouches[0].clientY;
     
@@ -355,13 +364,13 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       `}</style>
 
       {/* ========================================================================= */}
-      {/* --- HORIZONTAL READER (WITH SAFE PINCH-TO-ZOOM GATING) ---                */}
+      {/* --- HORIZONTAL READER (WITH NATIVE PINCH-TO-ZOOM) ---                     */}
       {/* ========================================================================= */}
       {mode === 'horizontal' && (
         <div className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center">
           {pages[currentPage] ? (
             <TransformWrapper
-              key={`zoom-wrapper-${currentPage}`} // <--- THIS FORCES THE ZOOM TO RESET EVERY PAGE TURN
+              key={`zoom-wrapper-${currentPage}`} // FORCES ZOOM RESET EVERY TURN
               ref={transformRef}
               initialScale={1}
               minScale={1}
@@ -370,8 +379,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               limitToBounds={true}
               doubleClick={{ step: 2 }} 
               panning={{ velocityDisabled: true }}
-              wheel={{ step: 0.1, wheelDisabled: false }} // Explicitly enable mouse wheel roll-to-zoom
-              pinch={{ step: 5 }} // Ensure mobile pinch is responsive
+              wheel={{ step: 0.1, wheelDisabled: false }} 
+              pinch={{ step: 5 }} 
             >
               {({ state }) => (
                 <div className="w-full h-full relative">
@@ -379,38 +388,28 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                     wrapperStyle={{ width: '100vw', height: '100vh' }}
                     contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    <img 
-                      src={getUrl(pages[currentPage])} 
-                      className="object-contain pointer-events-none" 
-                      style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
-                      alt={`Page ${currentPage + 1}`} 
-                      loading="lazy"
-                    />
+                    {/* The Click & Swipe handlers are now INSIDE the zoom component! */}
+                    <div 
+                      className="w-full h-full flex items-center justify-center cursor-pointer"
+                      onClick={(e) => {
+                        if (state.scale <= 1) handleTap(e);
+                      }}
+                      onTouchStart={(e) => {
+                        if (state.scale <= 1) handleTouchStart(e);
+                      }}
+                      onTouchEnd={(e) => {
+                        if (state.scale <= 1) handleTouchEnd(e);
+                      }}
+                    >
+                      <img 
+                        src={getUrl(pages[currentPage])} 
+                        className="object-contain pointer-events-none" 
+                        style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
+                        alt={`Page ${currentPage + 1}`} 
+                        loading="lazy"
+                      />
+                    </div>
                   </TransformComponent>
-
-                  {/* INVISIBLE TAP ZONES: Only active when NOT zoomed in */}
-                  {state.scale <= 1 && (
-                    <>
-                      <div 
-                        className="absolute top-0 bottom-0 left-0 w-[40%] sm:w-[45%] z-20 cursor-pointer"
-                        onClick={goPrev}
-                        onTouchStart={handleTouchStart}
-                        onTouchEnd={handleTouchEnd}
-                      />
-                      <div 
-                        className="absolute top-0 bottom-0 left-[40%] right-[40%] sm:left-[45%] sm:right-[45%] z-20 cursor-pointer"
-                        onClick={toggleUI}
-                        onTouchStart={handleTouchStart}
-                        onTouchEnd={handleTouchEnd}
-                      />
-                      <div 
-                        className="absolute top-0 bottom-0 right-0 w-[40%] sm:w-[45%] z-20 cursor-pointer"
-                        onClick={goNext}
-                        onTouchStart={handleTouchStart}
-                        onTouchEnd={handleTouchEnd}
-                      />
-                    </>
-                  )}
                 </div>
               )}
             </TransformWrapper>
