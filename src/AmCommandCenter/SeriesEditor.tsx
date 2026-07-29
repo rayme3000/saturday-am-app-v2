@@ -3,6 +3,25 @@ import { X, Monitor, Smartphone, Trash2 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
+// --- COMPREHENSIVE COUNTRY CODE LIST (FIXED) ---
+const COUNTRY_CODES = [
+  { code: 'US', name: 'United States' }, { code: 'GB', name: 'United Kingdom' }, { code: 'JP', name: 'Japan' },
+  { code: 'BR', name: 'Brazil' }, { code: 'CA', name: 'Canada' }, { code: 'MX', name: 'Mexico' }, { code: 'FR', name: 'France' }, 
+  { code: 'DE', name: 'Germany' }, { code: 'IT', name: 'Italy' }, { code: 'ES', name: 'Spain' }, { code: 'KR', name: 'South Korea' },
+  { code: 'CN', name: 'China' }, { code: 'TW', name: 'Taiwan' }, { code: 'IN', name: 'India' }, { code: 'ID', name: 'Indonesia' },
+  { code: 'PH', name: 'Philippines' }, { code: 'MY', name: 'Malaysia' }, { code: 'SG', name: 'Singapore' }, { code: 'TH', name: 'Thailand' },
+  { code: 'VN', name: 'Vietnam' }, { code: 'AU', name: 'Australia' }, { code: 'NZ', name: 'New Zealand' }, { code: 'ZA', name: 'South Africa' },
+  { code: 'NG', name: 'Nigeria' }, { code: 'EG', name: 'Egypt' }, { code: 'KE', name: 'Kenya' }, { code: 'GH', name: 'Ghana' },
+  { code: 'RU', name: 'Russia' }, { code: 'UA', name: 'Ukraine' }, { code: 'PL', name: 'Poland' }, { code: 'SE', name: 'Sweden' },
+  { code: 'NL', name: 'Netherlands' }, { code: 'BE', name: 'Belgium' }, { code: 'CH', name: 'Switzerland' }, { code: 'AT', name: 'Austria' },
+  { code: 'NO', name: 'Norway' }, { code: 'FI', name: 'Finland' }, { code: 'DK', name: 'Denmark' },
+  { code: 'IE', name: 'Ireland' }, { code: 'PT', name: 'Portugal' }, { code: 'GR', name: 'Greece' }, { code: 'TR', name: 'Turkey' },
+  { code: 'SA', name: 'Saudi Arabia' }, { code: 'AE', name: 'United Arab Emirates' }, { code: 'IL', name: 'Israel' }, { code: 'AR', name: 'Argentina' },
+  { code: 'CL', name: 'Chile' }, { code: 'CO', name: 'Colombia' }, { code: 'PE', name: 'Peru' }, { code: 'VE', name: 'Venezuela' },
+  { code: 'JM', name: 'Jamaica' }, { code: 'PR', name: 'Puerto Rico' }, { code: 'BS', name: 'Bahamas' }, { code: 'HT', name: 'Haiti' },
+  { code: 'HN', name: 'Honduras' }
+].sort((a, b) => a.name.localeCompare(b.name));
+
 // --- ULTRA-MODERN CSS PATTERN GENERATOR ---
 const getPatternStyle = (color: string, pattern: string) => {
   const baseColor = color || '#18181b';
@@ -170,11 +189,32 @@ export const SeriesEditor = ({ Dropzone }: any) => {
   };
 
   const handleDeleteSeries = async () => {
-    if (!window.confirm("Delete this series?")) return;
+    if (!window.confirm("Are you sure you want to permanently delete this series?")) return;
+    
+    setIsSaving(true);
     try { 
-      await supabase.from('series').delete().eq('slug', targetSeries); 
-      alert("Deleted!"); setTargetSeries('new'); 
-    } catch (error: any) { alert('Failed: ' + error.message); }
+      const { error: creatorErr } = await supabase.from('series_creators').delete().eq('series_slug', targetSeries);
+      if (creatorErr) throw creatorErr;
+
+      const { data: deletedData, error: seriesErr } = await supabase
+        .from('series')
+        .delete()
+        .eq('slug', targetSeries)
+        .select();
+
+      if (seriesErr) throw seriesErr;
+
+      if (!deletedData || deletedData.length === 0) {
+        throw new Error("Supabase RLS Policy blocked the deletion! Make sure your Row Level Security allows DELETE operations on the 'series' table.");
+      }
+
+      alert("Series permanently deleted!"); 
+      window.location.reload(); 
+    } catch (error: any) { 
+      alert('Failed to delete series:\n\n' + error.message + '\n\nNote: If this series has Chapters uploaded, you must delete its Chapters in the Chapter Uploader first!'); 
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const activePosition = previewDevice === 'desktop' ? formData.bannerPositionDesktop : formData.bannerPositionMobile;
@@ -212,7 +252,19 @@ export const SeriesEditor = ({ Dropzone }: any) => {
             {seriesList.map((s: any) => <option key={s.id} value={s.slug}>{s.title}</option>)}
           </select>
         </div>
-        {targetSeries !== 'new' && (<button onClick={handleDeleteSeries} className="px-6 py-3 bg-red-900/20 text-red-500 border border-red-900 rounded font-bold uppercase text-[10px] tracking-widest hover:bg-red-500 hover:text-white transition-colors">Delete</button>)}
+        {targetSeries !== 'new' && (
+          <button 
+            onClick={handleDeleteSeries} 
+            disabled={isSaving}
+            className={`px-6 py-3 border rounded font-bold uppercase text-[10px] tracking-widest transition-colors ${
+              isSaving 
+                ? 'bg-zinc-800 text-zinc-500 border-zinc-700 cursor-not-allowed' 
+                : 'bg-red-900/20 text-red-500 border-red-900 hover:bg-red-500 hover:text-white'
+            }`}
+          >
+            {isSaving ? 'Deleting...' : 'Delete'}
+          </button>
+        )}
       </div>
 
       <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl space-y-6">
@@ -474,52 +526,90 @@ export const SeriesEditor = ({ Dropzone }: any) => {
            </div>
            
            <div className={`grid ${formData.creators.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-6`}>
-             {formData.creators.map((c, i) => (
-                <div key={i} className="bg-black p-4 rounded border border-zinc-800 space-y-4 relative">
-                  
-                  <div className="flex items-center justify-between bg-zinc-900 p-2 rounded border border-zinc-700 mb-2">
-                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Bingo Visibility</span>
-                    <button type="button" onClick={() => { const nc = [...formData.creators]; nc[i].is_visible = nc[i].is_visible === false ? true : false; handleInputChange('creators', nc); }} className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded transition-colors ${c.is_visible !== false ? 'bg-green-900/30 text-green-500 hover:bg-green-900/50' : 'bg-zinc-800 text-zinc-500 hover:text-white'}`}>
-                      {c.is_visible !== false ? 'Visible' : 'Hidden'}
-                    </button>
-                  </div>
+             {formData.creators.map((c, i) => {
+                // Determine if the current flagCode is NOT in the list
+                const isCustomFlag = c.flagCode && !COUNTRY_CODES.some(cc => cc.code === c.flagCode);
+                const selectValue = isCustomFlag ? 'OTHER' : c.flagCode;
 
-                  <select 
-                    className="w-full bg-black border border-[#fe9a00]/30 text-[#fe9a00] rounded p-2 text-[10px] font-bold uppercase tracking-widest"
-                    onChange={(e) => handleAutofillCreator(i, e.target.value)}
-                    value=""
-                  >
-                    <option value="" disabled>-- Quick Fill: Select Existing Creator --</option>
-                    {existingCreators.map(ec => (
-                      <option key={ec.name} value={ec.name} className="text-white bg-zinc-900">{ec.name}</option>
-                    ))}
-                  </select>
+                return (
+                  <div key={i} className="bg-black p-4 rounded border border-zinc-800 space-y-4 relative">
+                    
+                    <div className="flex items-center justify-between bg-zinc-900 p-2 rounded border border-zinc-700 mb-2">
+                      <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Bingo Visibility</span>
+                      <button type="button" onClick={() => { const nc = [...formData.creators]; nc[i].is_visible = nc[i].is_visible === false ? true : false; handleInputChange('creators', nc); }} className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded transition-colors ${c.is_visible !== false ? 'bg-green-900/30 text-green-500 hover:bg-green-900/50' : 'bg-zinc-800 text-zinc-500 hover:text-white'}`}>
+                        {c.is_visible !== false ? 'Visible' : 'Hidden'}
+                      </button>
+                    </div>
 
-                  <div className="grid grid-cols-3 gap-2">
-                    <input type="text" placeholder="Role (e.g., Creator)" value={c.role} onChange={(e) => { const nc = [...formData.creators]; nc[i].role = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
-                    <input type="text" placeholder="Full Name" value={c.name} onChange={(e) => { const nc = [...formData.creators]; nc[i].name = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
-                    <input type="text" placeholder="Flag Code (e.g., BR)" value={c.flagCode} onChange={(e) => { const nc = [...formData.creators]; nc[i].flagCode = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
-                  </div>
-                  
-                  <div className="flex gap-4 items-center">
-                    {c.avatar ? (
-                      <div className="relative group/avatar w-16 h-16 flex-shrink-0 cursor-pointer">
-                        <img src={c.avatar} className="w-16 h-16 rounded-full object-cover border border-zinc-700" alt="Avatar" />
-                        <button type="button" onClick={() => { if(window.confirm("Remove this Avatar?")) { const nc = [...formData.creators]; nc[i].avatar = ''; handleInputChange('creators', nc); } }} className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-full opacity-0 group-hover/avatar:opacity-100 transition-opacity"><X className="w-6 h-6 text-red-500" /></button>
+                    <select 
+                      className="w-full bg-black border border-[#fe9a00]/30 text-[#fe9a00] rounded p-2 text-[10px] font-bold uppercase tracking-widest"
+                      onChange={(e) => handleAutofillCreator(i, e.target.value)}
+                      value=""
+                    >
+                      <option value="" disabled>-- Quick Fill: Select Existing Creator --</option>
+                      {existingCreators.map(ec => (
+                        <option key={ec.name} value={ec.name} className="text-white bg-zinc-900">{ec.name}</option>
+                      ))}
+                    </select>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <input type="text" placeholder="Role (e.g., Creator)" value={c.role} onChange={(e) => { const nc = [...formData.creators]; nc[i].role = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+                      <input type="text" placeholder="Full Name" value={c.name} onChange={(e) => { const nc = [...formData.creators]; nc[i].name = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+                      
+                      <div className="flex gap-2">
+                        <select 
+                          value={selectValue} 
+                          onChange={(e) => { 
+                            const nc = [...formData.creators]; 
+                            nc[i].flagCode = e.target.value === 'OTHER' ? (isCustomFlag ? c.flagCode : '') : e.target.value; 
+                            handleInputChange('creators', nc); 
+                          }} 
+                          className="flex-1 bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]"
+                        >
+                          <option value="">-- Flag --</option>
+                          {COUNTRY_CODES.map(country => (
+                            <option key={country.code} value={country.code}>{country.name}</option>
+                          ))}
+                          <option value="OTHER">Other (Enter Code)</option>
+                        </select>
+
+                        {(isCustomFlag || selectValue === 'OTHER') && (
+                          <input 
+                            type="text" 
+                            placeholder="Code" 
+                            maxLength={2}
+                            value={c.flagCode} 
+                            onChange={(e) => { 
+                              const nc = [...formData.creators]; 
+                              nc[i].flagCode = e.target.value.toUpperCase(); 
+                              handleInputChange('creators', nc); 
+                            }} 
+                            className="w-16 text-center bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs font-black focus:border-[#fe9a00]"
+                          />
+                        )}
                       </div>
-                    ) : (
-                      <div className="w-24 flex-shrink-0"><Dropzone label="+ Avatar" folderPath="avatars" onUploadComplete={(url: any) => { const nc = [...formData.creators]; nc[i].avatar = url; handleInputChange('creators', nc); }} /></div>
-                    )}
-                    <textarea placeholder="Creator Bio..." value={c.bio} onChange={(e) => { const nc = [...formData.creators]; nc[i].bio = e.target.value; handleInputChange('creators', nc); }} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs h-20" />
-                  </div>
+                    </div>
+                    
+                    <div className="flex gap-4 items-center">
+                      {c.avatar ? (
+                        <div className="relative group/avatar w-16 h-16 flex-shrink-0 cursor-pointer">
+                          <img src={c.avatar} className="w-16 h-16 rounded-full object-cover border border-zinc-700" alt="Avatar" />
+                          <button type="button" onClick={() => { if(window.confirm("Remove this Avatar?")) { const nc = [...formData.creators]; nc[i].avatar = ''; handleInputChange('creators', nc); } }} className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-full opacity-0 group-hover/avatar:opacity-100 transition-opacity"><X className="w-6 h-6 text-red-500" /></button>
+                        </div>
+                      ) : (
+                        <div className="w-24 flex-shrink-0"><Dropzone label="+ Avatar" folderPath="avatars" onUploadComplete={(url: any) => { const nc = [...formData.creators]; nc[i].avatar = url; handleInputChange('creators', nc); }} /></div>
+                      )}
+                      <textarea placeholder="Creator Bio..." value={c.bio} onChange={(e) => { const nc = [...formData.creators]; nc[i].bio = e.target.value; handleInputChange('creators', nc); }} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs h-20" />
+                    </div>
 
-                  <div className="grid grid-cols-3 gap-2">
-                    <input type="text" placeholder="Twitter URL" value={c.twitter} onChange={(e) => { const nc = [...formData.creators]; nc[i].twitter = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
-                    <input type="text" placeholder="Instagram URL" value={c.instagram} onChange={(e) => { const nc = [...formData.creators]; nc[i].instagram = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
-                    <input type="text" placeholder="Support URL" value={c.supportLink} onChange={(e) => { const nc = [...formData.creators]; nc[i].supportLink = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+                    <div className="grid grid-cols-3 gap-2">
+                      <input type="text" placeholder="Twitter URL" value={c.twitter} onChange={(e) => { const nc = [...formData.creators]; nc[i].twitter = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+                      <input type="text" placeholder="Instagram URL" value={c.instagram} onChange={(e) => { const nc = [...formData.creators]; nc[i].instagram = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+                      <input type="text" placeholder="Support URL" value={c.supportLink} onChange={(e) => { const nc = [...formData.creators]; nc[i].supportLink = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+                    </div>
                   </div>
-                </div>
-             ))}
+                );
+             })}
            </div>
         </div>
         <button onClick={handleSaveSeries} disabled={isSaving} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded mt-4 hover:bg-white transition-colors">

@@ -11,6 +11,12 @@ export const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) 
   const [otherMagazines, setOtherMagazines] = useState<any[]>([]);
   const scrollRef = useRef(null);
 
+  // --- NEW STATES FOR USER & PROGRESS ---
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isPremiumUser, setIsPremiumUser] = useState(false);
+  const [startPage, setStartPage] = useState(0);
+  const [hasAutoOpened, setHasAutoOpened] = useState(false);
+
   useEffect(() => {
     window.scrollTo(0, 0);
     const fetchOtherMags = async () => {
@@ -20,6 +26,30 @@ export const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) 
     };
     fetchOtherMags();
   }, [magazine]);
+
+  // --- FETCH USER AUTH STATUS ---
+  useEffect(() => {
+    const checkUserStatus = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUserId(user.id);
+        const { data } = await supabase.from('profiles').select('is_premium').eq('id', user.id).maybeSingle();
+        if (data?.is_premium) {
+          setIsPremiumUser(true);
+        }
+      }
+    };
+    checkUserStatus();
+  }, []);
+
+  // --- AUTO OPEN LISTENER FOR "JUMP BACK IN" ---
+  useEffect(() => {
+    if (magazine?.autoOpenPage !== undefined && !hasAutoOpened && magazine.pages && magazine.pages.length > 0) {
+      setStartPage(magazine.autoOpenPage);
+      setIsReaderOpen(true);
+      setHasAutoOpened(true); 
+    }
+  }, [magazine, hasAutoOpened]);
 
   if (!magazine) return null;
 
@@ -42,15 +72,18 @@ export const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) 
   return (
     <div className="relative min-h-screen bg-black text-white pb-12 overflow-hidden">
       
-      {/* Full Issue Reader */}
+      {/* Full Issue Reader - WITH ADDED PROPS! */}
       {isReaderOpen && (
         <MangaReader 
           pages={magazine.pages || []} 
+          chapterId={magazine.id} // Essential for reading history & quick reacts!
+          userId={currentUserId}
+          isPremium={isPremiumUser}
+          initialPage={startPage}
           title={magazine.title}
-          subtitle="Issue Preview"
-          readingDirection="ltr"
-          onClose={() => setIsReaderOpen(false)} 
-          onHome={() => { setIsReaderOpen(false); onBack(); }}
+          subtitle="Magazine Issue"
+          onClose={() => { setIsReaderOpen(false); setStartPage(0); }} 
+          onHome={() => { setIsReaderOpen(false); setStartPage(0); onBack(); }}
         />
       )}
 
@@ -120,7 +153,7 @@ export const MagazineDetailPage = ({ magazine, onBack, onMagazineSelect }: any) 
           </div>
           <h1 className="text-5xl md:text-7xl font-black uppercase italic leading-none mb-6 tracking-tighter" style={{ color: primaryColor }}>{magazine.title}</h1>
           <p className="text-sm md:text-base text-zinc-300 leading-relaxed max-w-md mb-12 border-l border-zinc-800 pl-4">{magazine.synopsis || "No synopsis provided for this issue."}</p>
-          <button onClick={() => { if (magazine.pages && magazine.pages.length > 0) { setIsReaderOpen(true); } else { alert("This issue doesn't have any pages uploaded yet!"); } }} className="bg-zinc-900 text-white border border-zinc-700 font-black uppercase tracking-widest px-12 py-5 hover:bg-white hover:text-black hover:border-white transition-all transform -skew-x-12 group">
+          <button onClick={() => { if (magazine.pages && magazine.pages.length > 0) { setStartPage(0); setIsReaderOpen(true); } else { alert("This issue doesn't have any pages uploaded yet!"); } }} className="bg-zinc-900 text-white border border-zinc-700 font-black uppercase tracking-widest px-12 py-5 hover:bg-white hover:text-black hover:border-white transition-all transform -skew-x-12 group">
             <span className="block transform skew-x-12 flex items-center gap-3">Read Full Issue <ArrowLeft className="w-4 h-4 rotate-180 group-hover:translate-x-2 transition-transform" /></span>
           </button>
         </div>

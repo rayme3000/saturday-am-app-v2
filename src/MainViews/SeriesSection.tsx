@@ -39,8 +39,12 @@ export const SeriesSection = ({ title, series, onSeriesClick }: any) => {
 
       <div className="relative">
         <button 
-          onClick={() => scroll('left')}
-          className="absolute left-0 top-0 bottom-8 z-10 flex items-center justify-center w-10 sm:w-12 bg-gradient-to-r from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex cursor-pointer"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            scroll('left');
+          }}
+          className="absolute left-0 top-0 bottom-8 z-50 flex items-center justify-center w-10 sm:w-12 bg-gradient-to-r from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex cursor-pointer"
         >
           <ChevronLeft className="w-8 h-8 text-white hover:text-[#fe9a00] transition-colors drop-shadow-md" />
         </button>
@@ -94,8 +98,12 @@ export const SeriesSection = ({ title, series, onSeriesClick }: any) => {
         </div>
 
         <button 
-          onClick={() => scroll('right')}
-          className="absolute right-0 top-0 bottom-8 z-10 flex items-center justify-center w-10 sm:w-12 bg-gradient-to-l from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex cursor-pointer"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            scroll('right');
+          }}
+          className="absolute right-0 top-0 bottom-8 z-50 flex items-center justify-center w-10 sm:w-12 bg-gradient-to-l from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex cursor-pointer"
         >
           <ChevronRight className="w-8 h-8 text-white hover:text-[#fe9a00] transition-colors drop-shadow-md" />
         </button>

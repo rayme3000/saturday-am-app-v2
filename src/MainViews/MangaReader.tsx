@@ -17,6 +17,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
   const [isAuthLoaded, setIsAuthLoaded] = useState(false);
+  const [internalIsPremium, setInternalIsPremium] = useState(isPremium);
 
   // Comments & Ticker
   const [activeCommentIndex, setActiveCommentIndex] = useState(0);
@@ -40,7 +41,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     currentPageRef.current = currentPage;
   }, [currentPage]);
 
-  // --- RESTORED UNMOUNT BEACON ---
+  // --- UNMOUNT BEACON ---
   useEffect(() => {
     isComponentMounted.current = true;
     return () => {
@@ -49,7 +50,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       const finalPage = currentPageRef.current;
 
       if (finalUserId && chapterId) {
-        // Restored Original Upsert
         supabase.from('reading_history').upsert(
           { user_id: finalUserId, chapter_id: chapterId, page_index: finalPage, updated_at: new Date().toISOString() },
           { onConflict: 'user_id, chapter_id' }
@@ -68,6 +68,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
   }, [chapterId]);
 
+  // Prevents mobile browsers from zooming the entire UI instead of just the image
   useEffect(() => {
     let viewportMeta = document.querySelector('meta[name="viewport"]');
     let originalContent = '';
@@ -89,6 +90,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
   }, []);
 
+  // Failsafe to ensure zoom resets
   useEffect(() => {
     if (transformRef.current) {
       transformRef.current.resetTransform(0); 
@@ -98,8 +100,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (user) {
-        const { data: profile } = await supabase.from('profiles').select('username, avatar_url').eq('id', user.id).single();
+        const { data: profile } = await supabase.from('profiles').select('username, avatar_url, is_premium').eq('id', user.id).single();
         setCurrentUser({ id: user.id, name: profile?.username || 'Reader', avatar: profile?.avatar_url || 'https://i.pravatar.cc/150?u=99' });
+        if (profile?.is_premium) setInternalIsPremium(true);
       }
       setIsAuthLoaded(true);
     });
@@ -131,7 +134,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     const activeUserId = userId || currentUser?.id;
 
     const fetchProgress = async () => {
-      // --- INTERCEPT: Jump Back In Payload ---
       if (initialPage > 0) {
         setCurrentPage(initialPage);
         setIsLoadingProgress(false);
@@ -166,9 +168,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
 
     fetchProgress();
-  }, [chapterId, userId, isAuthLoaded, currentUser, initialPage]); // Added initialPage to dependencies
+  }, [chapterId, userId, isAuthLoaded, currentUser, initialPage]);
 
-  // --- RESTORED GUARANTEED SAVE FUNCTION ---
   const saveProgressToDB = async (pageToSave: number) => {
     const activeUserId = userId || currentUser?.id;
     if (!activeUserId || !chapterId || !isComponentMounted.current) return;
@@ -186,11 +187,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   useEffect(() => {
     if (isLoadingProgress) return;
-
-    const saveTimer = setTimeout(() => {
-      saveProgressToDB(currentPage);
-    }, 1000); 
-
+    const saveTimer = setTimeout(() => { saveProgressToDB(currentPage); }, 1000); 
     return () => clearTimeout(saveTimer);
   }, [currentPage, isLoadingProgress, currentUser, userId, chapterId]);
 
@@ -275,8 +272,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const handleTap = (e: any) => {
     const x = e.clientX;
     const width = window.innerWidth;
-    if (x < width * 0.3) goPrev(); 
-    else if (x > width * 0.7) goNext(); 
+    if (x < width * 0.4) goPrev(); 
+    else if (x > width * 0.6) goNext(); 
     else toggleUI(); 
   };
 
@@ -364,14 +361,17 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         <div className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center">
           {pages[currentPage] ? (
             <TransformWrapper
+              key={`zoom-wrapper-${currentPage}`} // <--- THIS FORCES THE ZOOM TO RESET EVERY PAGE TURN
               ref={transformRef}
               initialScale={1}
               minScale={1}
               maxScale={4}
-              centerOnInit
-              doubleClick={{ step: 2 }} // Double tap to zoom 2x
+              centerOnInit={true}
+              limitToBounds={true}
+              doubleClick={{ step: 2 }} 
               panning={{ velocityDisabled: true }}
-              wheel={{ step: 0.1 }}
+              wheel={{ step: 0.1, wheelDisabled: false }} // Explicitly enable mouse wheel roll-to-zoom
+              pinch={{ step: 5 }} // Ensure mobile pinch is responsive
             >
               {({ state }) => (
                 <div className="w-full h-full relative">
@@ -391,23 +391,20 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                   {/* INVISIBLE TAP ZONES: Only active when NOT zoomed in */}
                   {state.scale <= 1 && (
                     <>
-                      {/* Left Side (Prev) */}
                       <div 
-                        className="absolute top-0 bottom-0 left-0 w-[30%] z-20 cursor-pointer"
+                        className="absolute top-0 bottom-0 left-0 w-[40%] sm:w-[45%] z-20 cursor-pointer"
                         onClick={goPrev}
                         onTouchStart={handleTouchStart}
                         onTouchEnd={handleTouchEnd}
                       />
-                      {/* Center (Toggle UI) */}
                       <div 
-                        className="absolute top-0 bottom-0 left-[30%] right-[30%] z-20 cursor-pointer"
+                        className="absolute top-0 bottom-0 left-[40%] right-[40%] sm:left-[45%] sm:right-[45%] z-20 cursor-pointer"
                         onClick={toggleUI}
                         onTouchStart={handleTouchStart}
                         onTouchEnd={handleTouchEnd}
                       />
-                      {/* Right Side (Next) */}
                       <div 
-                        className="absolute top-0 bottom-0 right-0 w-[30%] z-20 cursor-pointer"
+                        className="absolute top-0 bottom-0 right-0 w-[40%] sm:w-[45%] z-20 cursor-pointer"
                         onClick={goNext}
                         onTouchStart={handleTouchStart}
                         onTouchEnd={handleTouchEnd}
@@ -668,7 +665,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       >
         {isReactInputOpen && isUIVisible && (
            <div className="w-full bg-black/60 backdrop-blur-xl border border-white/10 p-2 rounded-2xl shadow-2xl animate-fade-in pointer-events-auto">
-              {isPremium ? (
+              {internalIsPremium ? (
                 <div className="flex flex-col gap-2">
                   <div className="flex justify-between items-center px-2 pt-1 pb-1 sm:pb-2 border-b border-white/10">
                     <span className="text-[9px] sm:text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Quick React</span>

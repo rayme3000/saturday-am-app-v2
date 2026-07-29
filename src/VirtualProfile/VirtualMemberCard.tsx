@@ -6,10 +6,11 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
   const [isFlipped, setIsFlipped] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // The inner contents of the card, extracted so we can reuse it in normal and fullscreen modes
   const CardContent = () => (
-    <div className={`relative w-full h-full transition-transform duration-700 [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
-
+    <div 
+      className={`relative w-full h-full transition-transform duration-700 [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}
+      style={{ containerType: 'inline-size' }}
+    >
       {/* === FRONT OF CARD === */}
       <div className="absolute inset-0 [backface-visibility:hidden] rounded-xl overflow-hidden bg-zinc-900 flex flex-col justify-end shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700">
         <img 
@@ -23,24 +24,25 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
           style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }}
         />
 
-        <div className="absolute top-4 right-4 z-20 flex flex-col items-end pointer-events-none">
-            <span className="font-black italic text-[#fe9a00] text-sm sm:text-base tracking-tighter drop-shadow-md">SATURDAY AM</span>
-            <span className="text-[6px] sm:text-[8px] font-black uppercase tracking-[0.3em] text-white drop-shadow-md">Official Member</span>
+        <div className="absolute z-20 flex flex-col items-end pointer-events-none" style={{ top: '4cqi', right: '4cqi' }}>
+            <span className="font-black italic text-[#fe9a00] tracking-tighter drop-shadow-md" style={{ fontSize: '4.5cqi' }}>SATURDAY AM</span>
+            <span className="font-black uppercase tracking-[0.3em] text-white drop-shadow-md" style={{ fontSize: '1.2cqi', marginTop: '0.5cqi' }}>Official Member</span>
         </div>
 
         <button 
           onClick={(e) => { e.stopPropagation(); setIsFullscreen(!isFullscreen); }} 
-          className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 z-30 p-2 sm:p-2.5 bg-black/60 backdrop-blur-md rounded-full text-zinc-300 hover:text-white hover:bg-[#fe9a00] transition-colors shadow-lg"
+          className="absolute z-30 bg-black/60 backdrop-blur-md rounded-full text-zinc-300 hover:text-white hover:bg-[#fe9a00] transition-colors shadow-lg"
+          style={{ bottom: '4cqi', right: '4cqi', padding: '1.5cqi' }}
           title={isFullscreen ? "Close Fullscreen" : "View Fullscreen"}
         >
-          {isFullscreen ? <X className="w-3 h-3 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3 h-3 sm:w-4 sm:h-4" />}
+          {isFullscreen ? <X style={{ width: '3cqi', height: '3cqi' }} /> : <Maximize2 style={{ width: '3cqi', height: '3cqi' }} />}
         </button>
 
         {!isSubscriber && (
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-              <span className="text-zinc-500 mb-2"><CreditCard className="w-8 h-8" /></span>
-              <p className="text-zinc-300 font-black tracking-widest text-xs mb-4 uppercase">Membership Inactive</p>
-              <button onClick={(e) => { e.stopPropagation(); onRenew(); }} className="bg-[#fe9a00] text-black px-6 py-2.5 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-white hover:scale-105 transition-all">
+              <span className="text-zinc-500" style={{ marginBottom: '2cqi' }}><CreditCard style={{ width: '8cqi', height: '8cqi' }} /></span>
+              <p className="text-zinc-300 font-black tracking-widest uppercase" style={{ fontSize: '2.5cqi', marginBottom: '3cqi' }}>Membership Inactive</p>
+              <button onClick={(e) => { e.stopPropagation(); onRenew(); }} className="bg-[#fe9a00] text-black rounded-full font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all" style={{ padding: '2cqi 5cqi', fontSize: '2cqi' }}>
                 Rejoin the Squad
               </button>
           </div>
@@ -48,7 +50,7 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
       </div>
 
       {/* === BACK OF CARD === */}
-      <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-xl bg-zinc-900 overflow-hidden flex flex-col justify-between p-4 sm:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700">
+      <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-xl bg-zinc-900 overflow-hidden flex flex-col justify-between shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700" style={{ padding: '5cqi' }}>
         <div 
           className="absolute inset-0 pointer-events-none z-0"
           style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }}
@@ -57,81 +59,81 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
         <div className="relative z-10 flex flex-col h-full justify-between">
           <button 
             onClick={(e) => { e.stopPropagation(); setIsFullscreen(!isFullscreen); }} 
-            className="absolute top-0 right-0 z-30 p-2 sm:p-2.5 bg-black/60 backdrop-blur-md rounded-full text-zinc-300 hover:text-white hover:bg-[#fe9a00] transition-colors shadow-lg"
+            className="absolute top-0 right-0 z-30 bg-black/60 backdrop-blur-md rounded-full text-zinc-300 hover:text-white hover:bg-[#fe9a00] transition-colors shadow-lg"
+            style={{ padding: '1.5cqi' }}
             title={isFullscreen ? "Close Fullscreen" : "View Fullscreen"}
           >
-            {isFullscreen ? <X className="w-3 h-3 sm:w-4 sm:h-4" /> : <Maximize2 className="w-3 h-3 sm:w-4 sm:h-4" />}
+            {isFullscreen ? <X style={{ width: '2.5cqi', height: '2.5cqi' }} /> : <Maximize2 style={{ width: '2.5cqi', height: '2.5cqi' }} />}
           </button>
 
-          <div className="flex justify-between items-start border-b border-zinc-800 pb-3 sm:pb-4 pr-10 sm:pr-12">
-            <div className="flex items-center gap-3 sm:gap-4">
-              <div className="relative w-12 h-12 sm:w-16 sm:h-16 flex items-center justify-center flex-shrink-0">
-                <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(frameId)}`}>
-                  {avatarUrl ? <img src={avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="w-5 h-5 text-zinc-600" />}
+          <div className="flex justify-between items-start border-b border-zinc-800" style={{ paddingBottom: '3.5cqi', paddingRight: '7cqi' }}>
+            <div className="flex items-center" style={{ gap: '3cqi' }}>
+              <div className="relative flex items-center justify-center flex-shrink-0" style={{ width: '14cqi', height: '14cqi' }}>
+                <div className={`rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(frameId)}`} style={{ width: '12cqi', height: '12cqi' }}>
+                  {avatarUrl ? <img src={avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="text-zinc-600" style={{ width: '6cqi', height: '6cqi' }} />}
                 </div>
                 {getOrbitStyle(frameId) && <div className={`absolute w-full h-full rounded-full border-2 border-transparent ${getOrbitStyle(frameId)}`} />}
               </div>
-              <div className="flex flex-col truncate pt-1">
-                <p className="font-black text-base sm:text-2xl italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none mb-1">{username}</p>
-                <p className="text-[5px] sm:text-[7px] text-[#fe9a00] font-black uppercase tracking-widest flex flex-wrap gap-x-1.5 leading-tight">
+              <div className="flex flex-col truncate" style={{ paddingTop: '1cqi' }}>
+                <p className="font-black italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none" style={{ fontSize: '5.5cqi', marginBottom: '1.5cqi' }}>{username}</p>
+                <p className="text-[#fe9a00] font-black uppercase tracking-widest flex flex-wrap leading-tight" style={{ fontSize: '1.4cqi', gap: '1.5cqi' }}>
                   <span>MEMBER SINCE {memberSince}</span>
-                  <span className="text-zinc-600 hidden sm:inline">|</span>
+                  <span className="text-zinc-600">|</span>
                   <span className="text-zinc-400">STORE DISCOUNT CODE: AMCLUB26</span>
                 </p>
               </div>
             </div>
 
-            <div className="flex flex-col items-end text-right justify-center pt-1">
-              <span className={`text-[#fe9a00] font-black uppercase tracking-widest flex items-center gap-1 ${isFullscreen ? 'text-[8px] sm:text-[10px]' : 'text-[6px] sm:text-[8px]'}`}>
-                 <Trophy className={isFullscreen ? 'w-3 h-3' : 'w-2.5 h-2.5'} /> Fan Rank
+            <div className="flex flex-col items-end text-right justify-center" style={{ paddingTop: '1cqi' }}>
+              <span className="text-[#fe9a00] font-black uppercase tracking-widest flex items-center" style={{ fontSize: '1.6cqi', gap: '0.8cqi' }}>
+                 <Trophy style={{ width: '2cqi', height: '2cqi' }} /> Fan Rank
               </span>
-              <span className={`font-black italic text-white drop-shadow-[0_0_10px_rgba(254,154,0,0.5)] leading-none mt-1.5 ${isFullscreen ? 'text-2xl sm:text-4xl' : 'text-lg sm:text-2xl'}`}>
+              <span className="font-black italic text-white drop-shadow-[0_0_10px_rgba(254,154,0,0.5)] leading-none" style={{ fontSize: '6cqi', marginTop: '1.5cqi' }}>
                  #{globalRank}
               </span>
             </div>
           </div>
 
-          {/* Stats Row */}
-          <div className={`flex justify-around items-center bg-black/40 rounded-lg border border-zinc-800/50 shadow-inner transition-all duration-300 ${isFullscreen ? 'p-4 sm:p-6' : 'p-3'}`}>
-            <div className="text-center w-1/4 border-r border-zinc-800/50">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[9px] sm:text-[11px] mb-2' : 'text-[7px] sm:text-[9px] mb-1'}`}>Hypes</p>
-              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-xl sm:text-2xl' : 'text-sm sm:text-base'}`}>
-                <Flame className={`transition-all duration-300 ${isFullscreen ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-3 h-3 sm:w-4 sm:h-4'}`} /> {hypes}
+          <div className="flex justify-around items-center bg-black/40 border border-zinc-800/50 shadow-inner" style={{ padding: '3.5cqi 0', borderRadius: '2cqi', margin: 'auto 0' }}>
+            <div className="text-center flex-1 border-r border-zinc-800/50">
+              <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Hypes</p>
+              <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
+                <Flame style={{ width: '4cqi', height: '4cqi' }} /> {hypes}
               </p>
             </div>
-            <div className="text-center w-1/4 border-r border-zinc-800/50">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[9px] sm:text-[11px] mb-2' : 'text-[7px] sm:text-[9px] mb-1'}`}>Super</p>
-              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-xl sm:text-2xl' : 'text-sm sm:text-base'}`}>
-                <Star className={`transition-all duration-300 ${isFullscreen ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-3 h-3 sm:w-4 sm:h-4'}`} /> {superHypes || 0}
+            <div className="text-center flex-1 border-r border-zinc-800/50">
+              <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Super</p>
+              <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
+                <Star style={{ width: '4cqi', height: '4cqi' }} /> {superHypes || 0}
               </p>
             </div>
-            <div className="text-center w-1/4 border-r border-zinc-800/50">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[9px] sm:text-[11px] mb-2' : 'text-[7px] sm:text-[9px] mb-1'}`}>Reacts</p>
-              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-xl sm:text-2xl' : 'text-sm sm:text-base'}`}>
-                <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className={`object-contain transition-all duration-300 ${isFullscreen ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-3 h-3 sm:w-4 sm:h-4'}`} /> {reacts}
+            <div className="text-center flex-1 border-r border-zinc-800/50">
+              <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Reacts</p>
+              <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
+                <img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="object-contain" style={{ width: '4cqi', height: '4cqi' }} /> {reacts}
               </p>
             </div>
-            <div className="text-center w-1/4">
-              <p className={`text-zinc-500 uppercase tracking-widest transition-all duration-300 ${isFullscreen ? 'text-[9px] sm:text-[11px] mb-2' : 'text-[7px] sm:text-[9px] mb-1'}`}>Reads</p>
-              <p className={`font-black text-[#fe9a00] flex items-center justify-center gap-1 transition-all duration-300 ${isFullscreen ? 'text-xl sm:text-2xl' : 'text-sm sm:text-base'}`}>
-                <BookOpen className={`transition-all duration-300 ${isFullscreen ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-3 h-3 sm:w-4 sm:h-4'}`} /> {chaptersRead}
+            <div className="text-center flex-1">
+              <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Reads</p>
+              <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
+                <BookOpen style={{ width: '4cqi', height: '4cqi' }} /> {chaptersRead}
               </p>
             </div>
           </div>
 
           <div className="flex flex-col justify-center w-full">
-            <p className={`${isFullscreen ? 'text-[11px] sm:text-[13px] mb-4' : 'text-[9px] sm:text-[10px] mb-2'} text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-1.5 transition-all`}>
-              <Star className={`${isFullscreen ? 'w-4 h-4' : 'w-3 h-3'} text-[#fe9a00]`} /> Top 5 Stickers
+            <p className="text-zinc-500 uppercase tracking-widest font-bold flex items-center" style={{ fontSize: '1.8cqi', gap: '1cqi', marginBottom: '2.5cqi' }}>
+              <Star className="text-[#fe9a00]" style={{ width: '2.5cqi', height: '2.5cqi' }} /> Top 5 Stickers
             </p>
-            <div className="flex gap-1.5 w-full justify-between items-start px-2 sm:px-4">
+            <div className="flex w-full justify-between items-start" style={{ padding: '0 4cqi' }}>
               {[0, 1, 2, 3, 4].map((i) => {
                 const slug = topFive[i];
                 const series = seriesList.find((s:any) => s.slug === slug);
                 
                 if (!series) {
                    return (
-                     <div key={i} className="flex flex-col items-center w-[18%] gap-1">
-                       <div className={`${isFullscreen ? 'w-20 h-20 sm:w-24 sm:h-24' : 'w-12 h-12 sm:w-14 sm:h-14'} rounded-full border border-dashed border-zinc-700/50 bg-black/20 m-0.5 transition-all duration-300`} />
+                     <div key={i} className="flex flex-col items-center" style={{ width: '16%' }}>
+                       <div className="rounded-full border border-dashed border-zinc-700/50 bg-black/20 transition-all duration-300" style={{ width: '100%', aspectRatio: '1/1' }} />
                      </div>
                    );
                 }
@@ -139,25 +141,23 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
                 const stickerImage = series.sticker_url || series.character_url || series.cover_url;
 
                 return (
-                  <div key={i} className="flex flex-col items-center w-[18%] gap-1.5">
+                  <div key={i} className="flex flex-col items-center" style={{ width: '16%' }}>
                     <div 
-                      className={`relative rounded-full overflow-hidden bg-[#f4f4f5] border-[#f4f4f5]
-                        ${isFullscreen ? 'w-20 h-20 sm:w-24 sm:h-24 border-[3px] sm:border-[5px]' : 'w-12 h-12 sm:w-14 sm:h-14 border-[1.5px] sm:border-[2.5px]'} 
-                        shadow-[2px_4px_8px_rgba(0,0,0,0.7)] 
-                        transform hover:scale-110 hover:rotate-6 transition-all duration-300 cursor-pointer flex-shrink-0 m-0.5
+                      className={`relative rounded-full overflow-hidden bg-[#f4f4f5] border-[#f4f4f5] shadow-[2px_4px_8px_rgba(0,0,0,0.7)] transform hover:scale-110 hover:rotate-6 transition-all duration-300 cursor-pointer flex-shrink-0
                         ${i % 2 === 0 ? '-rotate-3' : 'rotate-2'} 
-                        ${i === 2 ? '-translate-y-2' : ''}
                       `}
+                      style={{ 
+                        width: '100%', 
+                        aspectRatio: '1/1',
+                        borderWidth: '0.6cqi',
+                        marginTop: i === 2 ? '-1.5cqi' : '0' 
+                      }}
                     >
-                      <img 
-                        src={stickerImage} 
-                        className="w-full h-full object-cover object-top" 
-                        alt={`${series.title} sticker`} 
-                      />
+                      <img src={stickerImage} className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
                       <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
                     </div>
                     
-                    <span className={`${isFullscreen ? 'text-[8px] sm:text-[10px] mt-1' : 'text-[6px] sm:text-[7px]'} font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all`}>
+                    <span className="font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all" style={{ fontSize: '1.3cqi', marginTop: '1.5cqi' }}>
                       {series.title}
                     </span>
                   </div>
@@ -198,11 +198,11 @@ export const VirtualMemberCard = ({ isSubscriber, username, avatarUrl, frameId, 
 
       {isFullscreen && (
         <div className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 animate-fade-in" onClick={() => setIsFullscreen(false)}>
-          <div className="w-full max-w-2xl aspect-[1.58] [perspective:1000px] cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}>
+          <div className="w-full max-w-5xl aspect-[1.58] [perspective:1000px] cursor-pointer" onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}>
             {CardContent()}
           </div>
-          <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mt-12 animate-pulse flex items-center gap-2">
-            <RotateCcw className="w-4 h-4" /> Tap anywhere on card to flip
+          <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mt-12 animate-pulse flex items-center gap-2 md:text-sm">
+            <RotateCcw className="w-4 h-4 md:w-5 md:h-5" /> Tap anywhere on card to flip
           </p>
         </div>
       )}

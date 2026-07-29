@@ -99,13 +99,14 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             return {
               ...h,
               type: 'series',
-              target: series,
+              target: { ...series, action: 'series' }, // Explicitly tag for routing
               title: series.title,
               subtitle: `Chapter ${chap.chapter_number}`,
               image: chap.thumbnail_url || series.cover_url,
             };
           } else if (mag) {
-            const magTarget = { ...mag, publish_date: mag.publish_date || mag.publish_at };
+            // Include the action tag so the router knows to launch the MagazineDetailPage
+            const magTarget = { ...mag, publish_date: mag.publish_date || mag.publish_at, action: 'magazine' };
             return {
               ...h,
               type: 'magazine',

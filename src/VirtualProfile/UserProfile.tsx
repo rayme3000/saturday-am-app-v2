@@ -3,6 +3,7 @@ import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
+import { BASIC_FRAMES, PREMIUM_FRAMES, getFrameStyle, getOrbitStyle } from '../AmCommandCenter/AvatarFrames';
 
 // --- 1. GLOBAL FLEX CARD COMPONENT ---
 export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
@@ -10,22 +11,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const [profileStats, setProfileStats] = useState({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---" });
   const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', frameId: 'none', cardSkin: '', topFive: [null, null, null, null, null] });
   const [isFlipped, setIsFlipped] = useState(false);
-
-  const BASIC_FRAMES = [
-    { id: 'none', name: 'Original', style: 'border-2 border-zinc-800' },
-    { id: 'red', name: 'Solid Red', style: 'border-2 border-red-600' },
-    { id: 'yellow', name: 'Solid Yellow', style: 'border-2 border-yellow-500' },
-    { id: 'cyan', name: 'Solid Cyan', style: 'border-2 border-cyan-500' },
-  ];
-  
-  const PREMIUM_FRAMES = [
-    { id: 'gold', name: 'Ultra Gold', style: 'border-2 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.5)]', orbit: 'border-t-yellow-400 border-r-yellow-400 animate-[spin_3s_linear_infinite]' },
-    { id: 'appleblack', name: 'Apple Black', style: 'border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]', orbit: 'border-t-red-500 border-l-red-500 animate-[spin_2.5s_linear_infinite]' },
-    { id: 'clockstriker', name: 'Clock Striker', style: 'border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]', orbit: 'border-b-cyan-400 border-r-cyan-400 animate-[spin_3s_linear_infinite_reverse]' },
-  ];
-
-  const getFrameStyle = (id: string) => [...BASIC_FRAMES, ...PREMIUM_FRAMES].find(f => f.id === id)?.style || 'border-2 border-zinc-800';
-  const getOrbitStyle = (id: string) => PREMIUM_FRAMES.find(f => f.id === id)?.orbit || '';
 
   useEffect(() => {
     if (!isOpen) { setIsFlipped(false); return; }
@@ -87,96 +72,106 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
 
       <div className="w-[100vw] h-[100vh] flex flex-col items-center justify-center card-perspective p-4 md:p-12">
         <div 
-          className={`relative w-full max-w-4xl aspect-[1.58] cursor-pointer card-flipper ${isFlipped ? 'is-flipped' : ''}`}
+          className={`relative w-full max-w-5xl aspect-[1.58] cursor-pointer card-flipper ${isFlipped ? 'is-flipped' : ''}`}
+          style={{ containerType: 'inline-size' }}
           onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}
         >
           {/* === FRONT OF CARD === */}
-          <div className="absolute inset-0 w-full h-full bg-zinc-900 rounded-2xl md:rounded-[2rem] border-2 border-zinc-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden card-face flex flex-col justify-end">
-            <img src={userProfile.cardSkin || "https://zcadkovymrnjpjaxvnao.supabase.co/storage/v1/object/public/card-skins/skins/1781908112888_8ozh4h.jpg"} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
-            <div className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }} />
-            <div className="absolute top-4 right-4 md:top-8 md:right-8 z-20 pointer-events-none">
-              <img 
-                src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" 
-                alt="Saturday AM" 
-                className="h-8 md:h-14 object-contain drop-shadow-xl" 
-              />
+          <div className="absolute inset-0 [backface-visibility:hidden] rounded-xl overflow-hidden bg-zinc-900 flex flex-col justify-end shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700">
+            <img 
+              src={userProfile.cardSkin || "https://zcadkovymrnjpjaxvnao.supabase.co/storage/v1/object/public/card-skins/skins/1781908112888_8ozh4h.jpg"} 
+              className="absolute inset-0 w-full h-full object-cover z-0" 
+              alt="Card Skin" 
+            />
+            
+            <div 
+              className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay"
+              style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }}
+            />
+
+            <div className="absolute z-20 flex flex-col items-end pointer-events-none" style={{ top: '4cqi', right: '4cqi' }}>
+                <span className="font-black italic text-[#fe9a00] tracking-tighter drop-shadow-md" style={{ fontSize: '4.5cqi' }}>SATURDAY AM</span>
+                <span className="font-black uppercase tracking-[0.3em] text-white drop-shadow-md" style={{ fontSize: '1.2cqi', marginTop: '0.5cqi' }}>Official Member</span>
             </div>
           </div>
 
           {/* === BACK OF CARD === */}
-          <div className="absolute inset-0 w-full h-full bg-zinc-900 rounded-2xl md:rounded-[2rem] border-2 border-zinc-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col justify-between p-5 md:p-10 card-face card-back">
-            <div className="absolute inset-0 pointer-events-none z-0" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }} />
+          <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-xl bg-zinc-900 overflow-hidden flex flex-col justify-between shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700" style={{ padding: '5cqi' }}>
+            <div 
+              className="absolute inset-0 pointer-events-none z-0"
+              style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }}
+            />
             
             <div className="relative z-10 flex flex-col h-full justify-between">
               
-              <div className="flex justify-between items-start border-b border-zinc-800 pb-4 md:pb-6 pr-4">
-                <div className="flex items-center gap-3 md:gap-4">
-                  <div className="relative w-14 h-14 md:w-20 md:h-20 flex items-center justify-center flex-shrink-0">
-                    <div className={`w-12 h-12 md:w-16 md:h-16 rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(userProfile.frameId)}`}>
-                      {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="w-6 h-6 md:w-8 md:h-8 text-zinc-600" />}
+              <div className="flex justify-between items-start border-b border-zinc-800" style={{ paddingBottom: '3.5cqi', paddingRight: '2cqi' }}>
+                <div className="flex items-center" style={{ gap: '3cqi' }}>
+                  <div className="relative flex items-center justify-center flex-shrink-0" style={{ width: '14cqi', height: '14cqi' }}>
+                    <div className={`rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(userProfile.frameId)}`} style={{ width: '12cqi', height: '12cqi' }}>
+                      {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="text-zinc-600" style={{ width: '6cqi', height: '6cqi' }} />}
                     </div>
                     {getOrbitStyle(userProfile.frameId) && <div className={`absolute w-full h-full rounded-full border-2 border-transparent ${getOrbitStyle(userProfile.frameId)}`} />}
                   </div>
-                  <div className="flex flex-col truncate pt-1">
-                    <p className="font-black text-xl md:text-4xl italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none mb-1 md:mb-2">{userProfile.username}</p>
-                    <p className="text-[6px] md:text-[10px] text-[#fe9a00] font-black uppercase tracking-widest flex flex-wrap gap-x-1.5 leading-tight">
+                  <div className="flex flex-col truncate" style={{ paddingTop: '1cqi' }}>
+                    <p className="font-black italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none" style={{ fontSize: '5.5cqi', marginBottom: '1.5cqi' }}>{userProfile.username}</p>
+                    <p className="text-[#fe9a00] font-black uppercase tracking-widest flex flex-wrap leading-tight" style={{ fontSize: '1.4cqi', gap: '1.5cqi' }}>
                       <span>MEMBER SINCE OCT 2023</span>
-                      <span className="text-zinc-600 hidden sm:inline">|</span>
+                      <span className="text-zinc-600">|</span>
                       <span className="text-zinc-400">STORE DISCOUNT CODE: AMCLUB26</span>
                     </p>
                   </div>
                 </div>
 
-                <div className="flex flex-col items-end text-right justify-center pt-1 md:pt-2">
-                  <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[8px] md:text-[12px] flex items-center gap-1.5">
-                    <Trophy className="w-3 h-3 md:w-5 md:h-5" /> Fan Rank
+                <div className="flex flex-col items-end text-right justify-center" style={{ paddingTop: '1cqi' }}>
+                  <span className="text-[#fe9a00] font-black uppercase tracking-widest flex items-center" style={{ fontSize: '1.6cqi', gap: '0.8cqi' }}>
+                     <Trophy style={{ width: '2cqi', height: '2cqi' }} /> Fan Rank
                   </span>
-                  <span className="font-black italic text-white drop-shadow-[0_0_10px_rgba(254,154,0,0.5)] text-2xl md:text-5xl leading-none mt-1.5 md:mt-2">
-                    #{profileStats.rank}
+                  <span className="font-black italic text-white drop-shadow-[0_0_10px_rgba(254,154,0,0.5)] leading-none" style={{ fontSize: '6cqi', marginTop: '1.5cqi' }}>
+                     #{profileStats.rank}
                   </span>
                 </div>
               </div>
 
-              <div className="flex justify-around items-center bg-black/40 rounded-xl border border-zinc-800/50 shadow-inner p-4 md:p-6 my-auto">
-                <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
-                  <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Hypes</p>
-                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
-                    <Flame className="w-4 h-4 md:w-6 md:h-6" /> {profileStats.total_hypes.toLocaleString()}
+              <div className="flex justify-around items-center bg-black/40 border border-zinc-800/50 shadow-inner" style={{ padding: '3.5cqi 0', borderRadius: '2cqi', margin: 'auto 0' }}>
+                <div className="text-center flex-1 border-r border-zinc-800/50">
+                  <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Hypes</p>
+                  <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
+                    <Flame style={{ width: '4cqi', height: '4cqi' }} /> {profileStats.total_hypes.toLocaleString()}
                   </p>
                 </div>
-                <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
-                  <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Super</p>
-                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
-                    <Star className="w-4 h-4 md:w-6 md:h-6" /> {profileStats.super_hypes?.toLocaleString() || 0}
+                <div className="text-center flex-1 border-r border-zinc-800/50">
+                  <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Super</p>
+                  <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
+                    <Star style={{ width: '4cqi', height: '4cqi' }} /> {profileStats.super_hypes?.toLocaleString() || 0}
                   </p>
                 </div>
-                <div className="text-center flex-1 border-r border-zinc-800/50 px-1">
-                  <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Reacts</p>
-                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
-                    <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className="w-4 h-4 md:w-6 md:h-6 object-contain" /> {profileStats.quick_reacts.toLocaleString()}
+                <div className="text-center flex-1 border-r border-zinc-800/50">
+                  <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Reacts</p>
+                  <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
+                    <img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="object-contain" style={{ width: '4cqi', height: '4cqi' }} /> {profileStats.quick_reacts.toLocaleString()}
                   </p>
                 </div>
-                <div className="text-center flex-1 px-1">
-                  <p className="text-zinc-500 uppercase tracking-widest text-[8px] md:text-xs mb-1 md:mb-2">Reads</p>
-                  <p className="font-black text-[#fe9a00] flex items-center justify-center gap-1 md:gap-2 text-lg md:text-3xl">
-                    <BookOpen className="w-4 h-4 md:w-6 md:h-6" /> {profileStats.chapters_read.toLocaleString()}
+                <div className="text-center flex-1">
+                  <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Reads</p>
+                  <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
+                    <BookOpen style={{ width: '4cqi', height: '4cqi' }} /> {profileStats.chapters_read.toLocaleString()}
                   </p>
                 </div>
               </div>
 
-              <div className="flex flex-col justify-center w-full pb-2">
-                <p className="text-[10px] md:text-sm text-zinc-500 uppercase tracking-widest font-bold flex items-center gap-2 mb-3 md:mb-5">
-                  <Star className="w-4 h-4 md:w-5 md:h-5 text-[#fe9a00]" /> Top 5 Stickers
+              <div className="flex flex-col justify-center w-full">
+                <p className="text-zinc-500 uppercase tracking-widest font-bold flex items-center" style={{ fontSize: '1.8cqi', gap: '1cqi', marginBottom: '2.5cqi' }}>
+                  <Star className="text-[#fe9a00]" style={{ width: '2.5cqi', height: '2.5cqi' }} /> Top 5 Stickers
                 </p>
-                <div className="flex gap-2 md:gap-6 w-full justify-between items-start px-2 md:px-8">
+                <div className="flex w-full justify-between items-start" style={{ padding: '0 4cqi' }}>
                   {[0, 1, 2, 3, 4].map((i) => {
                     const slug = userProfile.topFive[i];
                     const series = seriesList.find((s:any) => s.slug === slug);
                     
                     if (!series) {
                        return (
-                         <div key={i} className="flex flex-col items-center w-[18%] gap-2">
-                           <div className="w-16 h-16 md:w-32 md:h-32 rounded-full border-2 border-dashed border-zinc-700/50 bg-black/20 transition-all duration-300" />
+                         <div key={i} className="flex flex-col items-center" style={{ width: '16%' }}>
+                           <div className="rounded-full border border-dashed border-zinc-700/50 bg-black/20 transition-all duration-300" style={{ width: '100%', aspectRatio: '1/1' }} />
                          </div>
                        );
                     }
@@ -184,20 +179,23 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                     const stickerImage = series.sticker_url || series.character_url || series.cover_url;
 
                     return (
-                      <div key={i} className="flex flex-col items-center w-[18%] gap-2">
+                      <div key={i} className="flex flex-col items-center" style={{ width: '16%' }}>
                         <div 
-                          className={`relative rounded-full overflow-hidden bg-[#f4f4f5] border-[#f4f4f5]
-                            w-16 h-16 md:w-32 md:h-32 border-[3px] md:border-[6px]
-                            shadow-[2px_4px_8px_rgba(0,0,0,0.7)] md:shadow-[4px_8px_16px_rgba(0,0,0,0.7)]
-                            transform hover:scale-110 transition-all duration-300 flex-shrink-0
+                          className={`relative rounded-full overflow-hidden bg-[#f4f4f5] border-[#f4f4f5] shadow-[2px_4px_8px_rgba(0,0,0,0.7)] transform hover:scale-110 hover:rotate-6 transition-all duration-300 cursor-pointer flex-shrink-0
                             ${i % 2 === 0 ? '-rotate-3' : 'rotate-2'} 
-                            ${i === 2 ? '-translate-y-2 md:-translate-y-4' : ''}
                           `}
+                          style={{ 
+                            width: '100%', 
+                            aspectRatio: '1/1',
+                            borderWidth: '0.6cqi',
+                            marginTop: i === 2 ? '-1.5cqi' : '0' 
+                          }}
                         >
-                          <img src={stickerImage} loading="lazy" className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
+                          <img src={stickerImage} className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
                           <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
                         </div>
-                        <span className="text-[8px] md:text-[12px] font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight mt-1 transition-all">
+                        
+                        <span className="font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all" style={{ fontSize: '1.3cqi', marginTop: '1.5cqi' }}>
                           {series.title}
                         </span>
                       </div>
@@ -209,7 +207,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
           </div>
         </div>
 
-        <p className="text-zinc-500 text-[10px] md:text-[12px] font-bold uppercase tracking-widest mt-12 animate-pulse flex items-center gap-2 pointer-events-none">
+        <p className="text-zinc-500 font-bold uppercase tracking-widest mt-12 animate-pulse flex items-center gap-2 pointer-events-none text-[10px] md:text-sm">
           <RotateCcw className="w-4 h-4 md:w-5 md:h-5" /> Tap anywhere on card to flip
         </p>
       </div>
@@ -254,7 +252,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   const [unlockedHunts, setUnlockedHunts] = useState(0);
   const [totalHunts, setTotalHunts] = useState(11);
 
-  // --- 1. FETCH AVATARS AND SKINS (Standalone Hook) ---
+  // --- 1. FETCH AVATARS AND SKINS ---
   useEffect(() => {
     window.scrollTo(0, 0);
     const fetchData = async () => {
@@ -417,22 +415,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     { slug: 'titan-king', title: 'Titan King', creator_name: 'Tony Gold', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/titan-king-cover.jpg' },
   ];
   const displaySeriesList = seriesList && seriesList.length > 0 ? seriesList : fallbackSeriesList;
-
-  const BASIC_FRAMES = [
-    { id: 'none', name: 'Original', style: 'border-2 border-zinc-800' },
-    { id: 'red', name: 'Solid Red', style: 'border-2 border-red-600' },
-    { id: 'yellow', name: 'Solid Yellow', style: 'border-2 border-yellow-500' },
-    { id: 'cyan', name: 'Solid Cyan', style: 'border-2 border-cyan-500' },
-  ];
-
-  const PREMIUM_FRAMES = [
-    { id: 'gold', name: 'Ultra Gold', style: 'border-2 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.5)]', orbit: 'border-t-yellow-400 border-r-yellow-400 animate-[spin_3s_linear_infinite]' },
-    { id: 'appleblack', name: 'Apple Black', style: 'border-2 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]', orbit: 'border-t-red-500 border-l-red-500 animate-[spin_2.5s_linear_infinite]' },
-    { id: 'clockstriker', name: 'Clock Striker', style: 'border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)]', orbit: 'border-b-cyan-400 border-r-cyan-400 animate-[spin_3s_linear_infinite_reverse]' },
-  ];
-
-  const getFrameStyle = (id: string) => [...BASIC_FRAMES, ...PREMIUM_FRAMES].find(f => f.id === id)?.style || 'border-2 border-zinc-800';
-  const getOrbitStyle = (id: string) => PREMIUM_FRAMES.find(f => f.id === id)?.orbit || '';
 
   const renderMiniCard = (seriesSlug: string, isEditingMode: boolean, onClick: () => void) => {
     const series = displaySeriesList.find((s: any) => s.slug === seriesSlug);
@@ -607,9 +589,15 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
             <div className="flex flex-col items-center sm:items-end sm:ml-auto border-t sm:border-t-0 sm:border-l border-zinc-800 pt-4 sm:pt-0 sm:pl-6 w-full sm:w-auto">
               <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Total Fandom Score</span>
-              <div className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
+              <div className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 mb-3">
                 <Activity className="w-4 h-4 text-[#fe9a00]" /> {profileStats.score.toLocaleString()}
               </div>
+              <button 
+                onClick={() => onNavigate({ action: 'leaderboard' })} 
+                className="w-full sm:w-auto bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-[0_0_10px_rgba(0,0,0,0.3)] hover:shadow-[0_0_15px_rgba(254,154,0,0.4)]"
+              >
+                View Leaderboard
+              </button>
             </div>
           </div>
         </div>
@@ -876,11 +864,11 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
                   )}
 
                   {activeTab === 'frames' && (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-3 sm:gap-4">
                       {BASIC_FRAMES.map(frame => (
-                        <div key={frame.id} onClick={() => setTempProfile({...tempProfile, frameId: frame.id})} className={`relative flex flex-col items-center bg-zinc-900/50 p-4 rounded-xl border transition-all ${tempProfile.frameId === frame.id ? 'border-[#fe9a00] bg-[#fe9a00]/10' : 'border-zinc-800 hover:border-zinc-600 cursor-pointer'}`}>
-                            <div className={`w-12 h-12 rounded-full z-10 flex items-center justify-center mb-3 bg-zinc-900 ${frame.style}`}><User className="w-5 h-5 text-zinc-600" /></div>
-                            <span className="text-[9px] font-black uppercase tracking-widest text-center text-zinc-400">{frame.name}</span>
+                        <div key={frame.id} onClick={() => setTempProfile({...tempProfile, frameId: frame.id})} className={`relative flex flex-col items-center bg-zinc-900/50 p-3 sm:p-4 rounded-xl border transition-all ${tempProfile.frameId === frame.id ? 'border-[#fe9a00] bg-[#fe9a00]/10' : 'border-zinc-800 hover:border-zinc-600 cursor-pointer'}`}>
+                            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full z-10 flex items-center justify-center mb-2 sm:mb-3 bg-zinc-900 ${frame.style}`}><User className="w-3 h-3 sm:w-4 sm:h-4 text-zinc-600" /></div>
+                            <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-center text-zinc-400 line-clamp-2">{frame.name}</span>
                         </div>
                       ))}
                     </div>

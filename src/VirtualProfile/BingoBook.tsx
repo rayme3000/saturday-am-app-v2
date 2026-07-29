@@ -135,18 +135,21 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
 
   useEffect(() => {
     if (isUnlocked) {
-      initCanvas();
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d');
+      // Need a slight delay to ensure the rotation CSS finishes before measuring bounds
+      setTimeout(() => {
+        initCanvas();
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
 
-      if (canvas && ctx && selectedTarget && signatures[selectedTarget.id]) {
-        const img = new Image();
-        img.onload = () => ctx.drawImage(img, 0, 0);
-        img.src = signatures[selectedTarget.id];
-        setHasDrawn(true); 
-      }
+        if (canvas && ctx && selectedTarget && signatures[selectedTarget.id]) {
+          const img = new Image();
+          img.onload = () => ctx.drawImage(img, 0, 0);
+          img.src = signatures[selectedTarget.id];
+          setHasDrawn(true); 
+        }
 
-      window.addEventListener('resize', initCanvas);
+        window.addEventListener('resize', initCanvas);
+      }, 100);
       return () => window.removeEventListener('resize', initCanvas);
     }
   }, [isUnlocked, selectedTarget, signatures]);
@@ -155,10 +158,27 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
+    
+    // Because the canvas is visually rotated 90deg, 
+    // the X and Y coordinates must be swapped and inverted!
     if (e.touches && e.touches.length > 0) {
-      return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+      const touchX = e.touches[0].clientX - rect.left;
+      const touchY = e.touches[0].clientY - rect.top;
+      
+      // Calculate true coordinate based on 90deg counter-clockwise rotation
+      return { 
+        x: touchY, 
+        y: canvas.height - touchX 
+      };
     }
-    return { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY };
+    
+    // Fallback for mouse
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    return { 
+      x: mouseY, 
+      y: canvas.height - mouseX 
+    };
   };
 
   // --- UPGRADED DRAWING LOGIC (Bézier Curves) ---
@@ -172,10 +192,10 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       ctx.strokeStyle = penColor;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.lineWidth = 5; // Slightly thicker for a nicer ink bleed feel
+      ctx.lineWidth = 5; 
       setIsDrawing(true);
       setHasDrawn(true); 
-      pointsRef.current = [{ x, y }]; // Reset curve points
+      pointsRef.current = [{ x, y }]; 
     }
   };
 
@@ -189,7 +209,6 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       const points = pointsRef.current;
       points.push({ x, y });
 
-      // We need at least 3 points to calculate a clean curve
       if (points.length > 2) {
         const controlPoint = points[points.length - 2];
         const endPoint = {
@@ -200,14 +219,11 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
         ctx.quadraticCurveTo(controlPoint.x, controlPoint.y, endPoint.x, endPoint.y);
         ctx.stroke();
         
-        // Setup the next segment
         ctx.beginPath();
         ctx.moveTo(endPoint.x, endPoint.y);
         
-        // Keep the last two points to calculate the next bend
         pointsRef.current = [endPoint, { x, y }];
       } else {
-        // Fallback for single quick taps/dots
         ctx.lineTo(x, y);
         ctx.stroke();
       }
@@ -218,7 +234,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     const ctx = canvasRef.current?.getContext('2d');
     if (ctx) ctx.closePath();
     setIsDrawing(false);
-    pointsRef.current = []; // Clear curve memory
+    pointsRef.current = []; 
   };
 
   const clearCanvas = () => {
@@ -260,9 +276,23 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const handleSave = () => {
     if (!hasDrawn || !selectedTarget) return; 
 
+    // Because the canvas is rotated visually, we need to create a temporary 
+    // off-screen canvas to rotate the actual image data before saving it
     const canvas = canvasRef.current;
     if (canvas) {
-      const dataUrl = canvas.toDataURL();
+      const tempCanvas = document.createElement('canvas');
+      // Swap width and height back to portrait for storage
+      tempCanvas.width = canvas.height;
+      tempCanvas.height = canvas.width;
+      
+      const tCtx = tempCanvas.getContext('2d');
+      if (tCtx) {
+        tCtx.translate(tempCanvas.width / 2, tempCanvas.height / 2);
+        tCtx.rotate((90 * Math.PI) / 180);
+        tCtx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
+      }
+
+      const dataUrl = tempCanvas.toDataURL();
       const newSigs = { ...signatures, [selectedTarget.id]: dataUrl };
       setSignatures(newSigs);
       localStorage.setItem('am_bingo_sigs', JSON.stringify(newSigs));
@@ -418,9 +448,20 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
 
       {/* TARGET MODAL (Auth & Canvas) */}
       {selectedTarget && (
-        <div className="fixed inset-0 z-[300] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl relative">
-            <div className="flex justify-between items-center p-4 border-b border-zinc-800 bg-zinc-900">
+        <div className={`fixed inset-0 z-[600] bg-black/95 backdrop-blur-xl flex items-center justify-center animate-fade-in ${isUnlocked ? 'p-0' : 'p-4'}`}>
+          
+          {/* 
+            If UNLOCKED, we force the container to rotate -90deg and swap width/height 
+            to fake a landscape mode screen for drawing! 
+          */}
+          <div 
+            className={`bg-zinc-950 border border-zinc-800 rounded-2xl flex flex-col shadow-2xl relative transition-all overflow-hidden ${
+              isUnlocked 
+                ? 'w-[100vh] h-[100vw] transform -rotate-90 origin-center fixed' 
+                : 'w-full max-w-2xl min-h-[400px]'
+            }`}
+          >
+            <div className="flex justify-between items-center p-4 border-b border-zinc-800 bg-zinc-900 z-50">
               <div className="flex items-center gap-3">
                 <Target className={`w-5 h-5 ${isUnlocked ? 'text-[#fe9a00]' : 'text-red-500'}`} />
                 <span className="font-black uppercase tracking-widest text-sm">{selectedTarget.name}</span>
@@ -428,7 +469,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
               <button onClick={closeTargetModal} className="text-zinc-500 hover:text-white font-black uppercase tracking-widest text-[10px]">Close</button>
             </div>
 
-            <div className="p-6 flex-1 flex flex-col min-h-[400px]">
+            <div className="p-6 flex-1 flex flex-col h-full w-full">
               {!isUnlocked ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
                   <div className="w-20 h-20 rounded-full bg-zinc-900 flex items-center justify-center border-2 border-red-500 shadow-[0_0_30px_rgba(255,0,0,0.2)]">
@@ -455,28 +496,28 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
                   <p className="text-[9px] text-zinc-600 uppercase tracking-widest">(Check workplace for PIN)</p>
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col h-full w-full relative z-40">
                   <div className="flex justify-between items-center mb-4">
                      <span className="text-xs text-[#fe9a00] font-black uppercase tracking-widest flex items-center gap-2">
                        <Unlock className="w-4 h-4" /> Canvas Unlocked
                      </span>
                      <div className="flex gap-2">
-                        <button onClick={() => setPenColor('#fe9a00')} className={`w-6 h-6 rounded-full bg-[#fe9a00] ${penColor === '#fe9a00' ? 'ring-2 ring-white ring-offset-2 ring-offset-black' : ''}`} />
-                        <button onClick={() => setPenColor('#ffffff')} className={`w-6 h-6 rounded-full bg-white ${penColor === '#ffffff' ? 'ring-2 ring-[#fe9a00] ring-offset-2 ring-offset-black' : ''}`} />
-                        <button onClick={clearCanvas} className="p-1 text-zinc-500 hover:text-red-500"><Eraser className="w-5 h-5" /></button>
+                        <button onClick={() => setPenColor('#fe9a00')} className={`w-8 h-8 sm:w-6 sm:h-6 rounded-full bg-[#fe9a00] shadow-lg ${penColor === '#fe9a00' ? 'ring-2 ring-white ring-offset-2 ring-offset-black' : ''}`} />
+                        <button onClick={() => setPenColor('#ffffff')} className={`w-8 h-8 sm:w-6 sm:h-6 rounded-full bg-white shadow-lg ${penColor === '#ffffff' ? 'ring-2 ring-[#fe9a00] ring-offset-2 ring-offset-black' : ''}`} />
+                        <button onClick={clearCanvas} className="p-2 sm:p-1 text-zinc-500 hover:text-red-500 bg-zinc-900 sm:bg-transparent rounded-full"><Eraser className="w-6 h-6 sm:w-5 sm:h-5" /></button>
                      </div>
                   </div>
 
-                  <div className="flex-1 border border-dashed border-zinc-700 rounded-xl relative overflow-hidden bg-black touch-none">
+                  <div className="flex-1 border border-dashed border-zinc-700 rounded-xl relative overflow-hidden bg-black touch-none cursor-crosshair">
                     <canvas
                       ref={canvasRef}
-                      className="w-full h-full absolute inset-0 z-10 cursor-crosshair"
+                      className="w-full h-full absolute inset-0 z-10"
                       onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing}
                       onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing}
                     />
                   </div>
                   
-                  <button onClick={handleSave} className="mt-4 w-full py-4 bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-800 rounded-xl font-black uppercase tracking-widest text-[10px] transition-colors">
+                  <button onClick={handleSave} className="mt-4 w-full py-4 sm:py-3 bg-[#fe9a00] text-black rounded-xl font-black uppercase tracking-widest text-[10px] sm:text-[10px] transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] hover:scale-[1.02]">
                     Save Signature & Return to Grid
                   </button>
                 </div>
