@@ -4,6 +4,7 @@ import { X, Eye, EyeOff, CheckCircle } from 'lucide-react';
 
 const LoginModal = ({ onClose, onSuccess }: any) => {
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isForgotPassword, setIsForgotPassword] = useState(false); // --- NEW STATE ---
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
@@ -110,6 +111,34 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     }
   };
 
+  // --- NEW: Handle Forgot Password Submission ---
+  const handleForgotPasswordSubmit = async (e: any) => {
+    e.preventDefault();
+    if (!email) {
+      setError("Please enter your email address.");
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    setSuccessMsg('');
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+
+    if (resetError) {
+      setError(resetError.message);
+    } else {
+      setSuccessMsg("If an account exists, a password reset link has been sent to that email.");
+      setTimeout(() => {
+        setIsForgotPassword(false);
+        setSuccessMsg('');
+      }, 5000);
+    }
+    setLoading(false);
+  };
+
   return (
     <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6">
       <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm relative shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar">
@@ -118,7 +147,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         </button>
         
         <h2 className="text-xl font-black italic uppercase tracking-tighter text-white mb-6">
-          {isSignUp ? 'Join the Squad' : 'Login'}
+          {isForgotPassword ? 'Reset Password' : (isSignUp ? 'Join the Squad' : 'Login')}
         </h2>
 
         {successMsg && (
@@ -128,98 +157,143 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           </div>
         )}
         
-        <form onSubmit={handleEmailSubmit} className="space-y-4">
-          {isSignUp && (
-            <>
-              <input 
-                type="text" 
-                placeholder="Choose a Username" 
-                value={username} 
-                onChange={(e) => setUsername(e.target.value)}
-                maxLength={15}
-                className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
-                required
-              />
-              
-              <select 
-                value={country} onChange={(e) => setCountry(e.target.value)}
-                className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
-                required
-              >
-                <option value="" disabled>Select your Country</option>
-                <option value="US">United States</option>
-                <option value="UK">United Kingdom</option>
-                <option value="CA">Canada</option>
-                <option value="AU">Australia</option>
-                <option value="OTHER">Other</option>
-              </select>
-
-              <select 
-                value={referral} onChange={(e) => setReferral(e.target.value)}
-                className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
-                required
-              >
-                <option value="" disabled>How did you find us?</option>
-                <option value="Youtube">YouTube</option>
-                <option value="Social Media">Instagram / TikTok / Twitter</option>
-                <option value="Live Event">Convention / Live Event</option>
-                <option value="Google">Google Search</option>
-                <option value="Friend">Recommended by a Friend</option>
-                <option value="Other">Other</option>
-              </select>
-            </>
-          )}
-
-          <input 
-            type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)}
-            className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
-            required
-          />
-          
-          <div className="relative">
+        {isForgotPassword ? (
+          // --- FORGOT PASSWORD FORM ---
+          <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+            <p className="text-xs text-zinc-400 font-bold mb-4">
+              Enter the email address associated with your account and we will send you a link to reset your password.
+            </p>
             <input 
-              type={showPassword ? "text" : "password"} 
-              placeholder="Password" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-black border border-zinc-700 p-3 pr-10 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+              type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
               required
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+            {error && <p className="text-red-500 text-[10px] font-bold">{error}</p>}
+            <button 
+              type="submit" disabled={loading}
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded mt-2 hover:bg-white transition-colors"
             >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {loading ? 'Processing...' : 'Send Reset Link'}
             </button>
-          </div>
+          </form>
+        ) : (
+          // --- STANDARD LOGIN / SIGNUP FORM ---
+          <form onSubmit={handleEmailSubmit} className="space-y-4">
+            {isSignUp && (
+              <>
+                <input 
+                  type="text" 
+                  placeholder="Choose a Username" 
+                  value={username} 
+                  onChange={(e) => setUsername(e.target.value)}
+                  maxLength={15}
+                  className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+                  required
+                />
+                
+                <select 
+                  value={country} onChange={(e) => setCountry(e.target.value)}
+                  className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
+                  required
+                >
+                  <option value="" disabled>Select your Country</option>
+                  <option value="US">United States</option>
+                  <option value="UK">United Kingdom</option>
+                  <option value="CA">Canada</option>
+                  <option value="AU">Australia</option>
+                  <option value="OTHER">Other</option>
+                </select>
 
-          {isSignUp && (
-            <p className="text-zinc-500 text-[10px] font-bold tracking-wider px-1">
-              * Password must be at least 10 characters.
-            </p>
-          )}
+                <select 
+                  value={referral} onChange={(e) => setReferral(e.target.value)}
+                  className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
+                  required
+                >
+                  <option value="" disabled>How did you find us?</option>
+                  <option value="Youtube">YouTube</option>
+                  <option value="Social Media">Instagram / TikTok / Twitter</option>
+                  <option value="Live Event">Convention / Live Event</option>
+                  <option value="Google">Google Search</option>
+                  <option value="Friend">Recommended by a Friend</option>
+                  <option value="Other">Other</option>
+                </select>
+              </>
+            )}
 
-          {error && <p className="text-red-500 text-[10px] font-bold">{error}</p>}
-          
-          <button 
-            type="submit" disabled={loading}
-            className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded mt-2 hover:bg-white transition-colors"
-          >
-            {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
-          </button>
-        </form>
+            <input 
+              type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+              required
+            />
+            
+            <div className="relative flex flex-col">
+              <div className="relative">
+                <input 
+                  type={showPassword ? "text" : "password"} 
+                  placeholder="Password" 
+                  value={password} 
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-black border border-zinc-700 p-3 pr-10 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              
+              {!isSignUp && (
+                <button 
+                  type="button" 
+                  onClick={() => { setIsForgotPassword(true); setError(''); setSuccessMsg(''); }} 
+                  className="text-[10px] text-zinc-500 hover:text-white uppercase tracking-widest text-right mt-2 transition-colors"
+                >
+                  Forgot Password?
+                </button>
+              )}
+            </div>
+
+            {isSignUp && (
+              <p className="text-zinc-500 text-[10px] font-bold tracking-wider px-1">
+                * Password must be at least 10 characters.
+              </p>
+            )}
+
+            {error && <p className="text-red-500 text-[10px] font-bold">{error}</p>}
+            
+            <button 
+              type="submit" disabled={loading}
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded mt-2 hover:bg-white transition-colors"
+            >
+              {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
+            </button>
+          </form>
+        )}
 
         <div className="mt-6 text-center border-t border-zinc-800 pt-4">
-          <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
-            {isSignUp ? 'Already have an account?' : 'Need an account?'}
-          </p>
-          <button 
-            onClick={() => { setIsSignUp(!isSignUp); setError(''); setSuccessMsg(''); }} 
-            className="text-white hover:text-[#fe9a00] text-xs font-black uppercase tracking-widest mt-2 transition-colors"
-          >
-            {isSignUp ? 'Log In Here' : 'Sign Up Here'}
-          </button>
+          {isForgotPassword ? (
+            <button 
+              onClick={() => { setIsForgotPassword(false); setError(''); setSuccessMsg(''); }} 
+              className="text-white hover:text-[#fe9a00] text-xs font-black uppercase tracking-widest mt-2 transition-colors"
+            >
+              Back to Login
+            </button>
+          ) : (
+            <>
+              <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
+                {isSignUp ? 'Already have an account?' : 'Need an account?'}
+              </p>
+              <button 
+                onClick={() => { setIsSignUp(!isSignUp); setError(''); setSuccessMsg(''); }} 
+                className="text-white hover:text-[#fe9a00] text-xs font-black uppercase tracking-widest mt-2 transition-colors"
+              >
+                {isSignUp ? 'Log In Here' : 'Sign Up Here'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
