@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { X, CreditCard, ShieldAlert } from 'lucide-react';
+import { X, CreditCard, ShieldAlert, ExternalLink } from 'lucide-react';
 
 export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser }: any) => {
   if (!isOpen) return null;
@@ -51,6 +51,16 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
             {item.name}
           </button>
         ))}
+
+        {/* --- EXTERNAL WEBSITE LINK --- */}
+        <a 
+          href="https://www.saturday-am.com/" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="flex items-center gap-4 text-3xl sm:text-4xl font-black uppercase italic tracking-tighter text-zinc-500 hover:text-white text-left transition-colors py-1 mt-2"
+        >
+          Official Website <ExternalLink className="w-6 h-6 sm:w-8 sm:h-8" />
+        </a>
 
         {/* --- ADMIN SECURE BUTTON --- */}
         {currentUser?.is_admin && (

@@ -198,7 +198,7 @@ export default function Leaderboard({ onBack, currentUser }: any) {
                     <div className="relative z-10 p-6 sm:p-10 flex flex-col justify-center h-full">
                       <div className="flex items-center gap-2 bg-[#fe9a00]/20 w-max px-3 py-1.5 rounded-full border border-[#fe9a00]/50 mb-4 backdrop-blur-md shadow-lg">
                         <Flame className="w-4 h-4 text-[#fe9a00]" />
-                        <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">Story of the Week</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">Manga of the Week</span>
                       </div>
                       <h2 className="text-3xl sm:text-5xl font-black italic uppercase tracking-tighter text-white drop-shadow-md leading-none mb-1">{big3[0]?.title || "Apple Black"}</h2>
                       <h3 className="text-lg sm:text-xl font-bold text-zinc-300 drop-shadow-md mb-6">Latest Update</h3>

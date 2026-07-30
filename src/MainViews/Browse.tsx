@@ -134,6 +134,8 @@ const Browse = ({ onNavigate }: any) => {
                   <img 
                     src={item.character_url || item.cover_url} 
                     alt={`${item.title} Character`} 
+                    loading="lazy"
+                    decoding="async"
                     className={`absolute left-1/2 -translate-x-1/2 max-w-none object-contain transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 ${
                       item.character_align === 'top' ? 'top-0' : 
                       item.character_align === 'center' ? 'top-1/2 -translate-y-1/2' : 
@@ -149,6 +151,8 @@ const Browse = ({ onNavigate }: any) => {
                     <img 
                       src={item.logo_url || (item.title === 'Apple Black' ? `${CLOUDFLARE_BASE_URL}/series-logos/apple-black-logo.png` : '')} 
                       alt={`${item.title} Logo`} 
+                      loading="lazy"
+                      decoding="async"
                       className="w-full max-h-24 object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1 drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]" 
                       style={{ width: `${item.logo_scale ?? 100}%` }}
                     />
@@ -160,6 +164,8 @@ const Browse = ({ onNavigate }: any) => {
                   <img 
                     src={item.cover_url} 
                     alt={item.title} 
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover transform transition-transform duration-500 ease-out group-hover/card:scale-105"
                   />
                 </div>

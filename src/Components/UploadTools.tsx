@@ -127,7 +127,8 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any) => {
   });
 };
 
-export const ThumbnailCropperModal = ({ imageUrl, onCropComplete, onCancel }: any) => {
+// --- FIXED: Added uploadFolder prop with a fallback ---
+export const ThumbnailCropperModal = ({ imageUrl, uploadFolder = 'misc', onCropComplete, onCancel }: any) => {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
@@ -137,7 +138,8 @@ export const ThumbnailCropperModal = ({ imageUrl, onCropComplete, onCancel }: an
     setIsProcessing(true);
     try {
       const croppedFile: any = await getCroppedImg(imageUrl, croppedAreaPixels);
-      const publicUrl = await uploadToSupabase(croppedFile, 'chapter-thumbnails');
+      // FIXED: Uses the dynamic uploadFolder prop instead of hardcoding
+      const publicUrl = await uploadToSupabase(croppedFile, uploadFolder);
       if (publicUrl) onCropComplete(publicUrl);
     } catch(e) {
       alert("Cropping failed. Please try again.");

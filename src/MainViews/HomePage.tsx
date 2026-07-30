@@ -99,13 +99,12 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             return {
               ...h,
               type: 'series',
-              target: { ...series, action: 'series' }, // Explicitly tag for routing
+              target: { ...series, action: 'series' }, 
               title: series.title,
               subtitle: `Chapter ${chap.chapter_number}`,
               image: chap.thumbnail_url || series.cover_url,
             };
           } else if (mag) {
-            // Include the action tag so the router knows to launch the MagazineDetailPage
             const magTarget = { ...mag, publish_date: mag.publish_date || mag.publish_at, action: 'magazine' };
             return {
               ...h,
@@ -305,10 +304,10 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
               <div>
                 <h3 className="text-yellow-500 font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
-                  <Crown className="w-4 h-4 text-yellow-500" /> The Big 3 & Story of the Week
+                  <Crown className="w-4 h-4 text-yellow-500" /> The Big 3 & Manga of the Week
                 </h3>
                 <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-yellow-500 pl-3">
-                  The Big 3 showcases the top 3 most-hyped manga across Saturday AM, and the #1 spot is officially crowned our <strong className="text-white">Story of the Week!</strong> Want your favorite series to take the spotlight? Rally fellow fans to drop <span className="text-[#fe9a00]">Super Hypes</span> and boost its score to the very top.
+                  These are two separate battlegrounds! <strong className="text-white">Manga of the Week</strong> crowns the single <em className="text-white">chapter</em> that earns the most hype points in a 7-day period. Meanwhile, <strong className="text-[#fe9a00]">The Big 3</strong> tracks the top 3 <em className="text-[#fe9a00]">series</em> that dominate the entire month. Want your favorite to take the spotlight? Rally fellow fans to drop <span className="text-[#fe9a00]">Super Hypes</span> and boost their scores!
                 </p>
               </div>
 
