@@ -6,6 +6,8 @@ import { MagazineUploader } from './MagazineUploader';
 import { AvatarMaker } from './AvatarMaker';
 import { StickerMaker } from './StickerMaker';
 import { CardSkinMaker } from './CardSkinMaker';
+import { FrameMaker } from './FrameMaker'; 
+import { ModerationDashboard } from './ModerationDashboard'; // <--- NEW IMPORT
 import { supabase } from '../supabase';
 
 export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any) => {
@@ -63,8 +65,10 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
     { id: 'chapter', label: 'Chapter Upload' },
     { id: 'magazine', label: 'Magazine Upload' },
     { id: 'avatars', label: 'Avatar Maker' },
+    { id: 'frames', label: 'Frame Maker' }, 
     { id: 'stickers', label: 'Sticker Maker' },
-    { id: 'cardskins', label: 'Card Skin Studio' }
+    { id: 'cardskins', label: 'Card Skin Studio' },
+    { id: 'moderation', label: 'Moderation' } // <--- ADDED TO TABS MENU HERE
   ];
 
   return (
@@ -157,8 +161,10 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
           {activeTab === 'magazine' && <MagazineUploader Dropzone={Dropzone} />}
           {activeTab === 'avatars' && <AvatarMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
+          {activeTab === 'frames' && <FrameMaker />} 
           {activeTab === 'stickers' && <StickerMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
           {activeTab === 'cardskins' && <CardSkinMaker />}
+          {activeTab === 'moderation' && <ModerationDashboard />} {/* <--- RENDERED HERE */}
         </div>
       </div>
     </div>

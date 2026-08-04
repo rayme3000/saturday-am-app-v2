@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   ArrowLeft, SkipForward, X, User, Shield, 
   RotateCcw, MoveHorizontal, MoveVertical
@@ -8,6 +8,41 @@ import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
 import { APP_ICONS } from '../appIcons';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+
+// --- PERFORMANCE OPTIMIZATION: Memoized Renderers ---
+// These components will NEVER re-render unless the actual image URL changes.
+// This prevents the 3.5s comment ticker from stuttering the image viewer.
+const MemoizedVerticalPage = React.memo(({ src, alt }: { src: string, alt: string }) => (
+  <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0">
+    <img 
+      src={src} 
+      className="w-full h-auto max-w-3xl block pointer-events-none m-0 p-0" 
+      alt={alt} 
+      loading="lazy" 
+    />
+  </div>
+));
+
+const MemoizedHorizontalImage = React.memo(({ src, alt, onInteractionStart, onTap, scaleState }: any) => (
+  <div 
+    className="w-full h-full flex items-center justify-center cursor-pointer touch-manipulation"
+    onTouchStart={(e) => {
+      if (e.touches.length === 1) onInteractionStart(e.touches[0].clientX, e.touches[0].clientY);
+    }}
+    onMouseDown={(e) => onInteractionStart(e.clientX, e.clientY)}
+    onClick={(e) => {
+      if (scaleState <= 1) onTap(e);
+    }}
+  >
+    <img 
+      src={src} 
+      className="object-contain pointer-events-none" 
+      style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
+      alt={alt} 
+      loading="lazy"
+    />
+  </div>
+));
 
 export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium, initialPage = 0 }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
@@ -28,18 +63,24 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   // Stats & End Prompt
   const [showEndPrompt, setShowEndPrompt] = useState(false);
+  const showEndPromptRef = useRef(showEndPrompt);
 
   // --- ZOOM & PROGRESS REFS ---
   const transformRef = useRef<any>(null);
   const currentPageRef = useRef(currentPage);
   const activeUserRef = useRef(userId || currentUser?.id);
   const isComponentMounted = useRef(true);
+  const touchStartPos = useRef({ x: 0, y: 0 });
 
   useEffect(() => { activeUserRef.current = userId || currentUser?.id; }, [userId, currentUser]);
 
   useEffect(() => {
     currentPageRef.current = currentPage;
   }, [currentPage]);
+
+  useEffect(() => {
+    showEndPromptRef.current = showEndPrompt;
+  }, [showEndPrompt]);
 
   // --- UNMOUNT BEACON ---
   useEffect(() => {
@@ -170,8 +211,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     fetchProgress();
   }, [chapterId, userId, isAuthLoaded, currentUser, initialPage]);
 
-  const saveProgressToDB = async (pageToSave: number) => {
-    const activeUserId = userId || currentUser?.id;
+  // --- PERFORMANCE OPTIMIZATION: Stable Callbacks for Gestures ---
+  const saveProgressToDB = useCallback(async (pageToSave: number) => {
+    const activeUserId = activeUserRef.current;
     if (!activeUserId || !chapterId || !isComponentMounted.current) return;
 
     try {
@@ -183,25 +225,78 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     } catch (error) { 
       console.error("Failed to save progress:", error); 
     }
-  };
+  }, [chapterId]);
 
   useEffect(() => {
     if (isLoadingProgress) return;
     const saveTimer = setTimeout(() => { saveProgressToDB(currentPage); }, 1000); 
     return () => clearTimeout(saveTimer);
-  }, [currentPage, isLoadingProgress, currentUser, userId, chapterId]);
+  }, [currentPage, isLoadingProgress, saveProgressToDB]);
 
-  const handleClose = async (e?: any) => {
+  const handleClose = useCallback(async (e?: any) => {
     if (e) e.stopPropagation();
     await saveProgressToDB(currentPageRef.current);
     onClose();
-  };
+  }, [onClose, saveProgressToDB]);
 
-  const handleNextChapter = async (e?: any) => {
+  const handleNextChapter = useCallback(async (e?: any) => {
     if (e) e.stopPropagation();
     await saveProgressToDB(currentPageRef.current);
     onNext();
-  };
+  }, [onNext, saveProgressToDB]);
+
+  const goNext = useCallback(async (e?: any) => {
+    if (e) e.stopPropagation(); 
+    if (currentPageRef.current >= pages.length - 1) {
+      setShowEndPrompt(true);
+      const activeUserId = activeUserRef.current;
+      if (activeUserId) {
+        try {
+          const { data: profile } = await supabase.from('profiles').select('chapters_read').eq('id', activeUserId).single();
+          if (profile) {
+            await supabase.from('profiles').update({ chapters_read: (profile.chapters_read || 0) + 1 }).eq('id', activeUserId);
+            window.dispatchEvent(new Event('profileUpdated'));
+          }
+        } catch (error) { console.error("Error saving chapter read stat:", error); }
+      }
+      return;
+    }
+    setCurrentPage((p) => p + 1);
+  }, [pages.length]);
+
+  const goPrev = useCallback((e?: any) => {
+    if (e) e.stopPropagation();
+    if (showEndPromptRef.current) { setShowEndPrompt(false); return; }
+    setCurrentPage((p) => Math.max(0, p - 1)); 
+  }, []);
+
+  const toggleUI = useCallback(() => {
+    setIsUIVisible((prev) => {
+      const nextState = !prev;
+      if (!nextState) {
+        setShowHideHint(true);
+        setTimeout(() => setShowHideHint(false), 2000); 
+      }
+      return nextState;
+    });
+  }, []);
+
+  const handleInteractionStart = useCallback((clientX: number, clientY: number) => {
+    touchStartPos.current = { x: clientX, y: clientY };
+  }, []);
+
+  const handleTap = useCallback((e: React.MouseEvent) => {
+    const deltaX = Math.abs(e.clientX - touchStartPos.current.x);
+    const deltaY = Math.abs(e.clientY - touchStartPos.current.y);
+
+    if (deltaX > 8 || deltaY > 8) return; 
+
+    const x = e.clientX;
+    const width = window.innerWidth;
+    if (x < width * 0.4) goPrev(); 
+    else if (x > width * 0.6) goNext(); 
+    else toggleUI(); 
+  }, [goPrev, goNext, toggleUI]);
 
   const handleReactSubmit = async () => {
     if (!reactText.trim() || !currentUser || !chapterId) return;
@@ -232,55 +327,15 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     } catch (err) { console.error("Failed to save react:", err); }
   };
 
-  const getUrl = (p: any) => p?.image_url || p;
-  const getId = (p: any) => p?.id || p;
+  const getUrl = useCallback((p: any) => p?.image_url || p, []);
+  const getId = useCallback((p: any) => p?.id || p, []);
 
-  const goNext = async (e?: any) => {
-    if (e) e.stopPropagation(); 
-    if (currentPage >= pages.length - 1) {
-      setShowEndPrompt(true);
-      const activeUserId = userId || currentUser?.id;
-      if (activeUserId) {
-        try {
-          const { data: profile } = await supabase.from('profiles').select('chapters_read').eq('id', activeUserId).single();
-          if (profile) {
-            await supabase.from('profiles').update({ chapters_read: (profile.chapters_read || 0) + 1 }).eq('id', activeUserId);
-            window.dispatchEvent(new Event('profileUpdated'));
-          }
-        } catch (error) { console.error("Error saving chapter read stat:", error); }
-      }
-      return;
-    }
-    setCurrentPage((p) => p + 1);
-  };
-
-  const goPrev = (e?: any) => {
-    if (e) e.stopPropagation();
-    if (showEndPrompt) { setShowEndPrompt(false); return; }
-    setCurrentPage((p) => Math.max(0, p - 1)); 
-  };
-
-  const toggleUI = () => {
-    const nextState = !isUIVisible;
-    setIsUIVisible(nextState);
-    if (!nextState) {
-      setShowHideHint(true);
-      setTimeout(() => setShowHideHint(false), 2000); 
-    }
-  };
-
-  const handleTap = (e: any) => {
-    const x = e.clientX;
-    const width = window.innerWidth;
-    if (x < width * 0.4) goPrev(); 
-    else if (x > width * 0.6) goNext(); 
-    else toggleUI(); 
-  };
-
+  // --- PERFORMANCE OPTIMIZATION: Memoized Arrays ---
   const maxPage = Math.max(1, pages.length - 1);
   const progressPercentage = (currentPage / maxPage) * 100;
-  const timelineComments = localComments.slice(-25);
-  const visibleComments = localComments.filter(c => c.pageIndex === currentPage);
+  
+  const timelineComments = useMemo(() => localComments.slice(-25), [localComments]);
+  const visibleComments = useMemo(() => localComments.filter(c => c.pageIndex === currentPage), [localComments, currentPage]);
   const activeComment = visibleComments[activeCommentIndex];
 
   useEffect(() => {
@@ -291,23 +346,28 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   useEffect(() => { setActiveCommentIndex(visibleComments.length > 0 ? visibleComments.length - 1 : 0); }, [currentPage, localComments.length]);
 
-  const handleVerticalProgressClick = (e: any) => {
+  const handleVerticalProgressClick = useCallback((e: any) => {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     const clickY = e.clientY - rect.top; 
     const percentage = clickY / rect.height;
     const newPage = Math.round(percentage * maxPage);
     setCurrentPage(Math.max(0, Math.min(newPage, maxPage)));
-  };
+  }, [maxPage]);
 
-  const handleHorizontalProgressClick = (e: any) => {
+  const handleHorizontalProgressClick = useCallback((e: any) => {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left; 
     const percentage = clickX / rect.width;
     const newPage = Math.round(percentage * maxPage);
     setCurrentPage(Math.max(0, Math.min(newPage, maxPage)));
-  };
+  }, [maxPage]);
+
+  // Memoized Item Content for Virtuoso to prevent re-renders on scroll
+  const virtuosoItemContent = useCallback((index: number, pageData: any) => (
+    <MemoizedVerticalPage src={getUrl(pageData)} alt={`Page ${index + 1}`} />
+  ), [getUrl]);
 
   if (isLoadingProgress) {
     return (
@@ -349,7 +409,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               limitToBounds={true}
               doubleClick={{ step: 2 }} 
               panning={{ velocityDisabled: true }}
-              // Removed custom pinch & wheel objects to let the library use native defaults!
             >
               {({ state }) => (
                 <div className="w-full h-full relative">
@@ -357,21 +416,13 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                     wrapperStyle={{ width: '100vw', height: '100vh' }}
                     contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    {/* ONLY using onClick here. Custom swiping logic removed so touch events bubble up to the zoom wrapper! */}
-                    <div 
-                      className="w-full h-full flex items-center justify-center cursor-pointer"
-                      onClick={(e) => {
-                        if (state.scale <= 1) handleTap(e);
-                      }}
-                    >
-                      <img 
-                        src={getUrl(pages[currentPage])} 
-                        className="object-contain pointer-events-none" 
-                        style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
-                        alt={`Page ${currentPage + 1}`} 
-                        loading="lazy"
-                      />
-                    </div>
+                    <MemoizedHorizontalImage 
+                      src={getUrl(pages[currentPage])}
+                      alt={`Page ${currentPage + 1}`}
+                      onInteractionStart={handleInteractionStart}
+                      onTap={handleTap}
+                      scaleState={state.scale}
+                    />
                   </TransformComponent>
                 </div>
               )}
@@ -394,16 +445,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             data={pages}
             initialTopMostItemIndex={currentPage}
             rangeChanged={(range) => setCurrentPage(Math.max(0, range.startIndex))}
-            itemContent={(index, pageData: any) => (
-              <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0">
-                <img 
-                  src={getUrl(pageData)} 
-                  className="w-full h-auto max-w-3xl block pointer-events-none m-0 p-0" 
-                  alt={`Page ${index + 1}`} 
-                  loading="lazy" 
-                />
-              </div>
-            )}
+            itemContent={virtuosoItemContent}
             components={{
               Footer: () => (
                 <div className="py-24 flex flex-col items-center text-center w-full max-w-sm mx-auto mt-12 mb-12 px-6" onClick={(e) => e.stopPropagation()}>
@@ -545,7 +587,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       {/* ========================================================================= */}
       {mode === 'horizontal' && (
         <div 
-          className={`absolute bottom-2 left-2 right-2 sm:bottom-3 sm:left-3 sm:right-3 h-12 sm:h-14 flex flex-row items-center z-50 transition-transform duration-300 ${isUIVisible ? 'translate-y-0' : 'translate-y-[200%]'}`}
+          className={`absolute left-2 right-2 sm:left-3 sm:right-3 h-12 sm:h-14 flex flex-row items-center z-50 transition-transform duration-300 ${isUIVisible ? 'translate-y-0' : 'translate-y-[200%]'}`}
+          style={{ bottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}
           onClick={(e) => e.stopPropagation()} 
         >
           {/* Left: Nav */}

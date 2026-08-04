@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
-import { ArrowUp, X, Lock } from 'lucide-react';
+import { ArrowUp, X, Lock, Share } from 'lucide-react'; // Added Share icon for iOS prompt
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 
@@ -10,7 +10,7 @@ import { HamburgerMenu } from './Components/HamburgerMenu';
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
 import { AdminLogin } from './Auth/AdminLogin';
-import { GlobalFlexCard } from './VirtualProfile/UserProfile';
+import { GlobalFlexCard } from './Components/GlobalFlexCard';
 
 // 2. Lazy Load the views that use Named Exports
 const HomePage = lazy(() => import('./MainViews/HomePage').then(mod => ({ default: mod.HomePage })));
@@ -48,7 +48,12 @@ const ScrollToTopButton = () => {
   if (!isVisible) return null;
 
   return (
-    <button onClick={scrollToTop} className="fixed bottom-24 sm:bottom-28 right-6 z-50 p-3 bg-[#fe9a00] text-black rounded-full shadow-[0_0_15px_rgba(254,154,0,0.4)] hover:bg-white hover:scale-110 transition-all duration-300 group" aria-label="Back to top">
+    <button 
+      onClick={scrollToTop} 
+      // Added safe-area-inset to protect against iPhone home bar
+      className="fixed right-6 z-50 p-3 bg-[#fe9a00] text-black rounded-full shadow-[0_0_15px_rgba(254,154,0,0.4)] hover:bg-white hover:scale-110 transition-all duration-300 group pb-[max(0.75rem,env(safe-area-inset-bottom))] bottom-[calc(6rem+env(safe-area-inset-bottom))]" 
+      aria-label="Back to top"
+    >
       <ArrowUp className="w-6 h-6 group-hover:-translate-y-1 transition-transform" />
     </button>
   );
@@ -90,25 +95,23 @@ export default function App() {
   // --- PWA INSTALL PROMPT STATE ---
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [showIosPrompt, setShowIosPrompt] = useState(false); // iOS specific prompt
 
   // --- HISTORY & NAVIGATION REF ---
   const isPopState = useRef(false);
 
   // --- HARDWARE BACK BUTTON INTERCEPTOR ---
   useEffect(() => {
-    // Initialize the first history entry with our current state so there's a baseline
     window.history.replaceState({ view: currentView, series: selectedSeries, magazine: selectedMagazine }, '');
 
     const handlePopState = (e: PopStateEvent) => {
-      isPopState.current = true; // Tell the next useEffect NOT to push a new state
+      isPopState.current = true; 
       
       if (e.state && e.state.view) {
-        // Retrieve the data from the history breadcrumb
         setSelectedSeries(e.state.series || null);
         setSelectedMagazine(e.state.magazine || null);
         setCurrentView(e.state.view);
       } else {
-        // Fallback to home
         setCurrentView('home');
       }
     };
@@ -117,10 +120,9 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Push new history state whenever the user navigates
   useEffect(() => {
     if (isPopState.current) {
-      isPopState.current = false; // Reset the flag, user just navigated backward natively
+      isPopState.current = false; 
     } else {
       window.history.pushState({ view: currentView, series: selectedSeries, magazine: selectedMagazine }, '');
     }
@@ -179,13 +181,22 @@ export default function App() {
       });
     };
 
-    // 1. Initial Load
     checkSessionAndFetch();
 
-    // 2. Listen for UserProfile.tsx saves to instantly update the Nav Pill!
-    window.addEventListener('profileUpdated', checkSessionAndFetch);
+    const handleProfileUpdate = (e: any) => {
+      if (e.detail) {
+        setCurrentUser((prev: any) => ({
+          ...prev,
+          frame_id: e.detail.avatar_frame_id,
+          avatar_url: e.detail.avatar_url
+        }));
+      } else {
+        checkSessionAndFetch();
+      }
+    };
+    
+    window.addEventListener('profileUpdated', handleProfileUpdate);
 
-    // 3. Listen for general Auth changes (login/logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         fetchUserProfile(session.user);
@@ -197,48 +208,76 @@ export default function App() {
 
     return () => {
       subscription.unsubscribe();
-      window.removeEventListener('profileUpdated', checkSessionAndFetch);
+      window.removeEventListener('profileUpdated', handleProfileUpdate);
     };
   }, []);
 
-  // --- PWA INSTALL LISTENER ---
+  // --- DEVICE DETECTION & PWA INSTALL LISTENER ---
   useEffect(() => {
+    // Check if device is iOS
+    const isIos = () => {
+      const userAgent = window.navigator.userAgent.toLowerCase();
+      return /iphone|ipad|ipod/.test(userAgent);
+    };
+
+    // Check if the app is already installed/running in standalone mode
+    const isInStandaloneMode = () => {
+      return ('standalone' in window.navigator) && ((window.navigator as any).standalone) || window.matchMedia('(display-mode: standalone)').matches;
+    };
+
+    // If iOS and NOT installed, show the custom iOS prompt
+    if (isIos() && !isInStandaloneMode()) {
+      const hasSeenIosPrompt = localStorage.getItem('am_ios_install_prompt_seen');
+      if (!hasSeenIosPrompt) {
+        setShowIosPrompt(true);
+        localStorage.setItem('am_ios_install_prompt_seen', 'true');
+      }
+    }
+
+    // Android / Chrome standard PWA prompt
     const handleBeforeInstallPrompt = (e: any) => {
-      // Prevent Chrome from automatically showing the default prompt
       e.preventDefault();
-      // Stash the event so it can be triggered later
       setDeferredPrompt(e);
-      // Show our custom UI
-      setShowInstallPrompt(true);
+      
+      const hasSeenPrompt = localStorage.getItem('am_install_prompt_seen');
+      if (!hasSeenPrompt) {
+        setShowInstallPrompt(true);
+        localStorage.setItem('am_install_prompt_seen', 'true');
+      }
+    };
+
+    const handleAppInstalled = () => {
+      setShowInstallPrompt(false);
+      setShowIosPrompt(false);
+      setDeferredPrompt(null);
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
     
-    // Show the native installation prompt
     deferredPrompt.prompt();
-    
-    // Wait for the user to respond to the prompt
     const { outcome } = await deferredPrompt.userChoice;
+    
     if (outcome === 'accepted') {
       console.log('User accepted the install prompt');
     }
     
-    // Clear the saved prompt since it can't be used again
     setDeferredPrompt(null);
     setShowInstallPrompt(false);
   };
 
   const handleNavigate = useCallback((data: any) => {
     if (data.action === 'home') { setCurrentView('home'); return; }
-    if (data.action === 'admin') { setCurrentView('admin'); return; } // <-- ADD THIS LINE
+    if (data.action === 'admin') { setCurrentView('admin'); return; } 
     if (data.action === 'faves') { setCurrentView('faves'); return; }
     if (data.action === 'browse') { setCurrentView('browse'); return; }
     if (data.action === 'profile') { setCurrentView('profile'); return; }
@@ -259,9 +298,8 @@ export default function App() {
 
   return (
     <>
-      {/* THIS IS THE SPLASH SCREEN BLOCK */}
       {showSplash && (
-        <div className="fixed inset-0 z-[1000] bg-white flex items-center justify-center animate-fade-out">
+        <div className="fixed inset-0 z-[1000] bg-white flex items-center justify-center animate-fade-out h-[100dvh]">
           <img 
             src={`${CLOUDFLARE_BASE_URL}/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png`} 
             className="w-64" 
@@ -270,7 +308,7 @@ export default function App() {
         </div>
       )}
       
-      {/* GLOBAL STYLES */}
+      {/* GLOBAL STYLES & iOS TWEAKS */}
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Unbounded:wght@700;800;900&display=swap');
@@ -284,7 +322,13 @@ export default function App() {
             animation: fade-out 3s forwards;
           }
           
-          body { font-family: 'Plus Jakarta Sans', sans-serif; }
+          html, body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            /* Prevent iOS Safari Rubber-Banding */
+            overscroll-behavior-y: none;
+            -webkit-overflow-scrolling: touch;
+          }
+
           h1, h2, h3, h4, h5, h6, .font-black { font-family: 'Unbounded', sans-serif !important; font-style: italic !important; letter-spacing: -0.03em !important; }
           .tracking-widest { letter-spacing: 0.15em !important; font-style: normal !important; font-family: 'Plus Jakarta Sans', sans-serif !important; font-weight: 800; }
           
@@ -301,154 +345,79 @@ export default function App() {
         `}
       </style>
 
-      {/* 1. Login Modal */}
       {showLogin && (
-        <LoginModal
-          onClose={() => setShowLogin(false)}
-          onSuccess={() => {
-            setShowLogin(false);
-          }}
-        />
+        <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => { setShowLogin(false); }} />
       )}
 
-      {/* 1.5 Global Upsell Modal */}
       {upsellConfig && (
         <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
           <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-            <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
-              <Lock className="w-8 h-8 text-[#fe9a00]" />
-            </div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
-              {upsellConfig.title}
-            </h2>
-            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
-              {upsellConfig.message}
-            </p>
-            <button 
-              onClick={() => {
-                setUpsellConfig(null);
-                handleNavigate({ action: 'sub' });
-              }} 
-              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
-            >
-              Upgrade to Pro
-            </button>
+            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
+            <button onClick={() => { setUpsellConfig(null); handleNavigate({ action: 'sub' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Upgrade to Pro</button>
           </div>
         </div>
       )}
 
-      {/* 2. Global Hamburger Menu */}
       <HamburgerMenu
-  isOpen={isMenuOpen}
-  onClose={() => setIsMenuOpen(false)}
-  onNavigate={handleNavigate}
-  onOpenFlexCard={() => setIsFlexCardOpen(true)}
-  userTier={userTier}
-  onUpsell={setUpsellConfig}
-  currentUser={currentUser}
-/>
-
-      {/* 3. Global Flex Card Overlay */}
-      <GlobalFlexCard
-        isOpen={isFlexCardOpen}
-        onClose={() => setIsFlexCardOpen(false)}
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        onNavigate={handleNavigate}
+        onOpenFlexCard={() => setIsFlexCardOpen(true)}
+        userTier={userTier}
+        onUpsell={setUpsellConfig}
+        currentUser={currentUser}
+        canInstall={!!deferredPrompt}
+        onInstall={handleInstallClick}
       />
 
-      {/* 4. Main Views */}
+      {isFlexCardOpen && (
+        <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} />
+      )}
+
       <Suspense fallback={
-        <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4 pb-20">
+        <div className="min-h-[100dvh] bg-black flex flex-col items-center justify-center gap-4 pb-20">
           <div className="w-8 h-8 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
           <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px] animate-pulse">Loading Interface...</span>
         </div>
       }>
         {currentView === 'home' && (
-          <HomePage
-            userTier={userTier}
-            currentUser={currentUser} 
-            onNavigate={handleNavigate}
-            onAdminAccess={() => setCurrentView('admin')}
-            onLoginClick={() => setShowLogin(true)}
-            onMenuToggle={() => setIsMenuOpen(true)}
-          />
+          <HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />
         )}
-
         {currentView === 'series' && (
-          <SeriesDetailPage 
-            userTier={userTier} 
-            series={selectedSeries} 
-            onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} 
-            onLoginClick={() => setShowLogin(true)} 
-          />
+          <SeriesDetailPage userTier={userTier} series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} onLoginClick={() => setShowLogin(true)} />
         )}
-
         {currentView === 'magazine' && (
-          <MagazineDetailPage 
-            userTier={userTier} 
-            magazine={selectedMagazine} 
-            onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} 
-            onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} 
-          />
+          <MagazineDetailPage userTier={userTier} magazine={selectedMagazine} onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} />
         )}
-
         {currentView === 'admin' && (
-          isAdminAuthenticated ? 
-            <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : 
-            <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />
+          isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />
         )}
-
         {currentView === 'profile' && (
           <UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />
         )}
-
         {currentView === 'sub' && (
-          <SubscriptionPage 
-            userTier={userTier} 
-            onBack={() => setCurrentView('home')} 
-            onLoginClick={() => setShowLogin(true)}
-            onNavigate={handleNavigate}
-          />
+          <SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />
         )}
-
         {currentView === 'leaderboard' && (
-          <Leaderboard 
-            userTier={userTier} 
-            currentUser={currentUser}
-            onBack={() => setCurrentView('home')} 
-          />
+          <Leaderboard userTier={userTier} currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />
         )}
-        
         {currentView === 'settings' && (
-          <SettingsPage 
-            userTier={userTier}
-            onNavigate={handleNavigate}
-            onLoginClick={() => setShowLogin(true)}
-            onBack={() => setCurrentView('home')} 
-            onSignOut={() => { setCurrentView('home'); }} 
-          />
+          <SettingsPage userTier={userTier} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onBack={() => setCurrentView('home')} onSignOut={() => { setCurrentView('home'); }} />
         )}
-        
         {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
-
         {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}
-
         {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
       </Suspense>
 
-      {/* 5. Sleek Floating Pill Navigation */}
       {['home', 'faves', 'browse', 'profile'].includes(currentView) && (
-        <FloatingPillNav 
-          currentView={currentView} 
-          onNavigate={handleNavigate} 
-          userAvatar={currentUser?.avatar_url} 
-          userFrame={currentUser?.frame_id} 
-        />
+        <FloatingPillNav currentView={currentView} onNavigate={handleNavigate} userAvatar={currentUser?.avatar_url} userFrame={currentUser?.frame_id} />
       )}
 
-      {/* 6. Custom PWA Install Banner */}
-      {showInstallPrompt && (
+      {/* --- STANDARD PWA INSTALL BANNER (Android/Chrome) --- */}
+      {showInstallPrompt && !showIosPrompt && (
         <div className="fixed top-4 sm:top-6 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-[6000] bg-zinc-900 border border-[#fe9a00] p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex items-center justify-between animate-fade-in">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-black rounded-lg border border-zinc-700 p-1 flex items-center justify-center">
@@ -466,6 +435,37 @@ export default function App() {
             <button onClick={handleInstallClick} className="bg-[#fe9a00] text-black px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">
               Install
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- CUSTOM iOS INSTALL BANNER --- */}
+      {showIosPrompt && (
+        <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-6 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-4 animate-fade-in-up pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-black rounded-xl border border-zinc-700 p-1.5 flex items-center justify-center shadow-inner">
+                <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-full h-full object-contain" alt="Logo" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-white font-black italic uppercase text-sm tracking-widest leading-tight">Install App</span>
+                <span className="text-zinc-400 text-[10px] font-bold mt-0.5 leading-snug">Get the full fullscreen experience</span>
+              </div>
+            </div>
+            <button onClick={() => setShowIosPrompt(false)} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col gap-3">
+            <p className="text-xs text-zinc-300 font-bold flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">1</span>
+              Tap the <Share className="w-4 h-4 text-[#fe9a00] mx-1" /> icon in your Safari menu bar
+            </p>
+            <p className="text-xs text-zinc-300 font-bold flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">2</span>
+              Scroll down and select <strong className="text-white">"Add to Home Screen"</strong>
+            </p>
           </div>
         </div>
       )}

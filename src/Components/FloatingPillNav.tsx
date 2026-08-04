@@ -1,87 +1,139 @@
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { Home, Heart, Search, ShoppingBag, User } from 'lucide-react';
+import { supabase } from '../supabase';
 
-const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
+// --- SHARED PILL NAV ANIMATION RENDERER ---
+const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) => {
+  if (!anim || anim === 'none') return null;
+  return (
+    <>
+      {/* Base Animations */}
+      {anim === 'orbit' && <div className="absolute w-[52px] h-[52px] rounded-full border-2 border-transparent pointer-events-none animate-[spin_3s_linear_infinite]" style={{ borderTopColor: color, borderRightColor: color }} />}
+      {anim === 'pulse' && <div className="absolute w-[40px] h-[40px] rounded-full pointer-events-none animate-ping opacity-20" style={{ backgroundColor: color }} />}
+      {anim === 'spin' && <div className="absolute w-[46px] h-[46px] rounded-full pointer-events-none animate-[spin_4s_linear_infinite]" style={{ border: `2px dashed ${color}` }} />}
 
-// --- FRAME LOGIC ---
-const BASIC_FRAMES = [
-  { id: 'none', style: 'border-transparent' },
-  { id: 'red', style: 'border-red-600' },
-  { id: 'yellow', style: 'border-yellow-500' },
-  { id: 'cyan', style: 'border-cyan-500' },
-];
+      {/* Anime Animations */}
+      {anim === 'aura-burst' && (
+        <>
+          <div className="absolute w-[48px] h-[48px] rounded-full opacity-60 animate-[ping_0.8s_ease-out_infinite]" style={{ borderColor: color, borderWidth: '2px', borderStyle: 'solid' }} />
+          <div className="absolute w-[52px] h-[52px] rounded-full blur-[2px] animate-[pulse_1s_ease-in-out_infinite]" style={{ borderColor: color, borderWidth: '3px', borderStyle: 'solid' }} />
+        </>
+      )}
+      {anim === 'evil-aura' && (
+        <>
+          <div className="absolute w-[56px] h-[56px] rounded-full blur-sm animate-[spin_3s_linear_infinite_reverse] opacity-70" style={{ borderColor: color, borderTopColor: 'transparent', borderStyle: 'solid', borderWidth: '4px' }} />
+          <div className="absolute w-[48px] h-[48px] rounded-full blur-[1px] animate-[pulse_2s_ease-in-out_infinite] opacity-80" style={{ borderColor: '#000000', borderBottomColor: color, borderStyle: 'solid', borderWidth: '2px' }} />
+        </>
+      )}
+      {anim === 'blade-slash' && (
+        <div className="absolute w-[60px] h-[60px] rounded-full border-transparent animate-[spin_0.5s_cubic-bezier(0.1,0.8,0.1,1)_infinite]" style={{ borderTopColor: color, borderRightColor: '#ffffff', borderWidth: '2px 0 0 0', borderStyle: 'solid' }} />
+      )}
+      {anim === 'chakra' && (
+        <>
+          <div className="absolute w-[48px] h-[48px] rounded-full border-transparent animate-[spin_1.5s_linear_infinite]" style={{ borderTopColor: color, borderBottomColor: color, borderWidth: '2px', borderStyle: 'solid', filter: 'blur(1px)' }} />
+          <div className="absolute w-[54px] h-[54px] rounded-full border-transparent animate-[spin_1s_linear_infinite_reverse]" style={{ borderLeftColor: color, borderRightColor: color, borderWidth: '2px', borderStyle: 'dashed' }} />
+        </>
+      )}
+      {anim === 'spirit-bomb' && (
+        <div className="absolute w-[60px] h-[60px] rounded-full bg-white/20 animate-[pulse_2s_ease-in-out_infinite]" style={{ boxShadow: `0 0 10px 3px ${color}, inset 0 0 5px 2px ${color}`, filter: 'blur(2px)' }} />
+      )}
+      {anim === 'limit-breaker' && (
+        <>
+          <div className="absolute w-[56px] h-[56px] rounded-full border-transparent animate-[spin_0.5s_linear_infinite]" style={{ borderTopColor: color, borderBottomColor: color, borderStyle: 'dashed', borderWidth: '2px', filter: `drop-shadow(0 0 5px ${color})` }} />
+          <div className="absolute w-[44px] h-[44px] rounded-full animate-[ping_1s_ease-out_infinite] opacity-40" style={{ backgroundColor: color }} />
+        </>
+      )}
+      {anim === 'hollow' && (
+        <div className="absolute w-[50px] h-[50px] rounded-full border-transparent animate-[spin_2s_linear_infinite_reverse]" style={{ borderTopColor: color, borderBottomColor: '#000000', borderWidth: '3px', borderStyle: 'dotted', filter: `drop-shadow(0 0 3px ${color})` }} />
+      )}
+    </>
+  );
+};
 
-const PREMIUM_FRAMES = [
-  { id: 'gold', style: 'border-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.5)]', orbit: 'border-t-yellow-400 border-r-yellow-400 animate-[spin_3s_linear_infinite]' },
-  { id: 'appleblack', style: 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]', orbit: 'border-t-red-500 border-l-red-500 animate-[spin_2.5s_linear_infinite]' },
-  { id: 'clockstriker', style: 'border-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.5)]', orbit: 'border-b-cyan-400 border-r-cyan-400 animate-[spin_3s_linear_infinite_reverse]' },
-];
+export const FloatingPillNav = memo(({ currentView, onNavigate }: any) => {
+  const [dbFrames, setDbFrames] = useState<any[]>([]);
+  const [navAvatar, setNavAvatar] = useState<string>('');
+  const [navFrame, setNavFrame] = useState<string>('');
 
-const getFrameStyle = (id: string) => [...BASIC_FRAMES, ...PREMIUM_FRAMES].find(f => f.id === id)?.style || 'border-transparent';
-const getOrbitStyle = (id: string) => PREMIUM_FRAMES.find(f => f.id === id)?.orbit || '';
+  useEffect(() => {
+    const fetchFrames = async () => {
+      const { data } = await supabase.from('avatar_frames').select('*').eq('is_active', true);
+      if (data) setDbFrames(data);
+    };
+    fetchFrames();
+  }, []);
 
-export const FloatingPillNav = memo(({ currentView, onNavigate, userAvatar, userFrame }: any) => {
+  useEffect(() => {
+    const fetchUserLoadout = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from('profiles').select('avatar_url, avatar_frame_id').eq('id', user.id).maybeSingle();
+        if (data) {
+          setNavAvatar(data.avatar_url || '');
+          setNavFrame(data.avatar_frame_id || '');
+        }
+      } else {
+        setNavAvatar('');
+        setNavFrame('');
+      }
+    };
+
+    fetchUserLoadout();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(() => { fetchUserLoadout(); });
+
+    const handleProfileUpdate = (e: any) => {
+      if (e.detail) {
+        if (e.detail.avatar_url !== undefined) setNavAvatar(e.detail.avatar_url);
+        if (e.detail.avatar_frame_id !== undefined) setNavFrame(e.detail.avatar_frame_id || '');
+      }
+    };
+    
+    window.addEventListener('profileUpdated', handleProfileUpdate);
+
+    return () => {
+      authListener.subscription.unsubscribe();
+      window.removeEventListener('profileUpdated', handleProfileUpdate);
+    };
+  }, []);
+
+  const dynamicFrame = dbFrames.find(f => f.id === navFrame);
+  const dynBorder = dynamicFrame ? `2px solid ${dynamicFrame.border_color}` : 'none';
+  const dynShadow = dynamicFrame?.glow_color && dynamicFrame.glow_color !== 'transparent' ? `0 0 10px ${dynamicFrame.glow_color}` : 'none';
+  const dynAnim = dynamicFrame ? dynamicFrame.animation_style : 'none';
+
   return (
     <div className="fixed bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 w-[92%] sm:w-auto sm:min-w-[400px] max-w-md z-[40] pointer-events-none">
-      
-      {/* Changed py-3 to py-1.5 to make the pill narrower height-wise */}
       <nav className="bg-black/80 backdrop-blur-md border border-[#fe9a00] rounded-full px-6 py-1.5 flex items-center justify-between shadow-[0_10px_40px_rgba(0,0,0,0.8)] pointer-events-auto">
-        
-        {/* Home Icon */}
-        <button 
-          onClick={() => onNavigate({ action: 'home' })} 
-          className="p-2 transition-transform hover:scale-110"
-        >
+        <button onClick={() => onNavigate({ action: 'home' })} className="p-2 transition-transform hover:scale-110">
           <Home className={`w-6 h-6 ${currentView === 'home' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
         </button>
 
-        {/* My Faves Icon */}
-        <button 
-          onClick={() => onNavigate({ action: 'faves' })} 
-          className="p-2 transition-transform hover:scale-110"
-        >
+        <button onClick={() => onNavigate({ action: 'faves' })} className="p-2 transition-transform hover:scale-110">
           <Heart className={`w-6 h-6 ${currentView === 'faves' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
         </button>
 
-        {/* Center Profile Avatar w/ Frame Logic */}
-        <button 
-          onClick={() => onNavigate({ action: 'profile' })} 
-          className="relative flex items-center justify-center w-12 h-12 transition-transform hover:scale-110 flex-shrink-0"
-        >
-           <div className={`w-10 h-10 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 border-2 transition-all ${
-              currentView === 'profile' 
-                ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.6)] scale-110' 
-                : getFrameStyle(userFrame)
-            }`}>
-             {userAvatar && userAvatar.trim() !== '' ? (
-               <img src={userAvatar} alt="Profile" className="w-full h-full object-cover" />
+        <button onClick={() => onNavigate({ action: 'profile' })} className="relative flex items-center justify-center w-12 h-12 transition-transform hover:scale-110 flex-shrink-0">
+           <div 
+             className={`w-10 h-10 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 transition-all ${!dynamicFrame ? 'border-2 border-transparent' : ''}`}
+             style={dynamicFrame ? { border: dynBorder, boxShadow: dynShadow } : {}}
+           >
+             {navAvatar && navAvatar.trim() !== '' ? (
+               <img src={navAvatar} alt="Profile" className="w-full h-full object-cover" />
              ) : (
                <User className="w-5 h-5 text-zinc-400" />
              )}
            </div>
-           
-           {/* Animated Premium Orbit (Only show if not actively on the profile tab) */}
-           {PREMIUM_FRAMES.some(p => p.id === userFrame) && currentView !== 'profile' && (
-             <div className={`absolute w-[52px] h-[52px] rounded-full border-2 border-transparent pointer-events-none ${getOrbitStyle(userFrame)}`} />
-           )}
+           {dynamicFrame && <RenderPillAnimations anim={dynAnim} color={dynamicFrame.border_color} />}
         </button>
 
-        {/* Browse / Search Icon */}
-        <button 
-          onClick={() => onNavigate({ action: 'browse' })} 
-          className="p-2 transition-transform hover:scale-110"
-        >
+        <button onClick={() => onNavigate({ action: 'browse' })} className="p-2 transition-transform hover:scale-110">
           <Search className={`w-6 h-6 ${currentView === 'browse' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
         </button>
 
-        {/* AM Shop Icon */}
-        <button 
-          onClick={() => onNavigate({ action: 'shop' })} 
-          className="p-2 transition-transform hover:scale-110"
-        >
+        <button onClick={() => onNavigate({ action: 'shop' })} className="p-2 transition-transform hover:scale-110">
           <ShoppingBag className={`w-6 h-6 ${currentView === 'shop' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
         </button>
-
       </nav>
     </div>
   );

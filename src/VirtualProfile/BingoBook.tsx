@@ -70,12 +70,12 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
 
     return Array.from(uniqueCreatorsMap.values())
       .sort((a: any, b: any) => a.name.localeCompare(b.name))
-      .map((creator: any, index) => ({ id: index + 1, ...creator }));
+      .map((creator: any) => ({ id: creator.name, ...creator })); // Fix: Uses creator name instead of unstable index
   }, [seriesList]);
 
-  const [unlockedCreators, setUnlockedCreators] = useState<number[]>([]);
+  const [unlockedCreators, setUnlockedCreators] = useState<string[]>([]);
   const [selectedTarget, setSelectedTarget] = useState<any | null>(null);
-  const [signatures, setSignatures] = useState<Record<number, string>>({});
+  const [signatures, setSignatures] = useState<Record<string, string>>({});
   const [hasDrawn, setHasDrawn] = useState(false);
   const [viewingAutograph, setViewingAutograph] = useState<string | null>(null);
   

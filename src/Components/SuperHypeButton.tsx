@@ -42,7 +42,12 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremiu
     setIsLoading(false);
   };
 
-  const handleSuperHype = async () => {
+  const handleSuperHype = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
     // 1. Check Auth
     if (!userId) {
       if (onRequireAuth) onRequireAuth();
@@ -56,7 +61,7 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremiu
     }
 
     // 3. Block if already hyped, loading, or completely out of hypes
-    if (hasSuperHyped || isLoading || (hypesLeft !== null && hypesLeft <= 0)) return;
+    if (hasSuperHyped || isLoading || (hypesLeft !== null && hypesLeft !== undefined && hypesLeft <= 0)) return;
 
     setIsLoading(true);
 
@@ -98,7 +103,7 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremiu
   };
 
   // Determine if the user is out of hypes to trigger the disabled UI state
-  const isOutOfHypes = isPremium && hypesLeft !== null && hypesLeft <= 0 && !hasSuperHyped;
+  const isOutOfHypes = isPremium && hypesLeft !== null && hypesLeft !== undefined && hypesLeft <= 0 && !hasSuperHyped;
 
   return (
     <button 
@@ -119,7 +124,7 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremiu
         </span>
         {!hasSuperHyped && (
           <span className="text-[9px] font-bold opacity-80 leading-tight">
-            {isPremium ? (hypesLeft !== null ? `${hypesLeft} Left this month` : 'Loading...') : 'Pro Exclusive'}
+            {isPremium ? (hypesLeft !== null && hypesLeft !== undefined ? `${hypesLeft} Left this month` : 'Loading...') : 'Pro Exclusive'}
           </span>
         )}
       </div>

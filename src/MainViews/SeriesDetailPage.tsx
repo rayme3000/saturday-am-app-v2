@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, User, Heart, Lock, X } from 'lucide-react';
+import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, User, Heart, Lock, X, MessageSquare, PenTool } from 'lucide-react';
 import { supabase } from '../supabase';
 import { MangaReader } from './MangaReader';
 import { SuperHypeButton } from '../Components/SuperHypeButton';
@@ -32,6 +32,25 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   // --- JUMP BACK IN STATES ---
   const [startPage, setStartPage] = useState(0);
   const [hasAutoOpened, setHasAutoOpened] = useState(false);
+
+  // --- NEW: SECTION REFS FOR SCROLLING ---
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const commentsRef = useRef<HTMLDivElement>(null);
+  const creatorRef = useRef<HTMLDivElement>(null);
+
+  const scrollToSection = (e: React.MouseEvent, ref: React.RefObject<HTMLDivElement>, center: boolean = false) => {
+    e.stopPropagation(); // Prevents the chapter reader from opening when clicking the icon
+    if (ref.current) {
+      if (center) {
+        // Smoothly scrolls so the element is perfectly centered vertically on the screen
+        ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        const yOffset = -50; 
+        const y = ref.current.getBoundingClientRect().top + window.scrollY + yOffset;
+        window.scrollTo({ top: y, behavior: 'smooth' });
+      }
+    }
+  };
 
   useEffect(() => {
     const checkFavoriteStatus = async () => {
@@ -387,7 +406,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             {safeSynopsis.length > 150 && (<button onClick={() => setIsExpanded(!isExpanded)} className="text-[#fe9a00] font-black tracking-widest text-[10px] mt-2 uppercase hover:text-white transition-colors">{isExpanded ? '- READ LESS' : '+ READ MORE'}</button>)}
           </div>
 
-          <div className="flex flex-wrap justify-center gap-4 mt-8 w-full">
+          {/* --- ATTACHED ACTIONS REF HERE --- */}
+          <div ref={actionsRef} className="flex flex-wrap justify-center gap-4 mt-8 w-full scroll-mt-32">
             <HypeButton 
               targetType="series" 
               targetId={localSeries.slug} 
@@ -474,6 +494,32 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 )}
 
               </div>
+              
+              {/* --- NEW QUICK JUMP ICONS --- */}
+              <div className="flex items-center gap-1 sm:gap-2 mr-1 sm:mr-4">
+                <button 
+                  onClick={(e) => scrollToSection(e, actionsRef, true)} 
+                  className="p-2 sm:p-2.5 rounded-full text-zinc-500 hover:text-[#fe9a00] hover:bg-zinc-800 transition-all"
+                  title="Jump to Support Series"
+                >
+                  <Flame className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+                <button 
+                  onClick={(e) => scrollToSection(e, commentsRef)} 
+                  className="p-2 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                  title="Jump to Comments"
+                >
+                  <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+                <button 
+                  onClick={(e) => scrollToSection(e, creatorRef)} 
+                  className="p-2 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                  title="Jump to Creator"
+                >
+                  <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              </div>
+
               <div className={`hidden sm:flex items-center justify-center w-10 h-10 rounded-full transition-colors ml-auto flex-shrink-0 ${isLocked ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-800 group-hover:bg-[#fe9a00]'}`}>
                 {isLocked ? (
                    <Lock className="w-4 h-4 text-zinc-600" />
@@ -485,14 +531,20 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           )})}
           {chapters.length === 0 && <div className="text-center py-16 text-zinc-500 font-bold tracking-widest text-xs uppercase">No chapters uploaded yet.</div>}
         </div>
-        <SeriesCommentsSection 
-          seriesSlug={localSeries?.slug} 
-          onRequireAuth={() => setUpsellConfig({ 
-            type: 'visitor', 
-            message: "Create a Free Account to join the community discussion and share your thoughts!" 
-          })} 
-        />        
-        <div className="pb-24 px-6 w-full max-w-3xl mx-auto">
+        
+        {/* --- COMMENTS SECTION REF ADDED HERE --- */}
+        <div ref={commentsRef} className="w-full max-w-3xl mx-auto pt-8">
+          <SeriesCommentsSection 
+            seriesSlug={localSeries?.slug} 
+            onRequireAuth={() => setUpsellConfig({ 
+              type: 'visitor', 
+              message: "Create a Free Account to join the community discussion and share your thoughts!" 
+            })} 
+          />        
+        </div>
+
+        {/* --- CREATOR SECTION REF ADDED HERE --- */}
+        <div ref={creatorRef} className="pb-24 px-6 w-full max-w-3xl mx-auto">
           <div className="border-t border-zinc-800 pt-12 flex flex-col items-center gap-16">
             
             {/* --- CREATOR NAME BUG FIX --- */}

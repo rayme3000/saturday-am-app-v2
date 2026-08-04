@@ -1,7 +1,7 @@
 import { memo } from 'react';
-import { X, CreditCard, ShieldAlert, ExternalLink } from 'lucide-react';
+import { X, CreditCard, ShieldAlert, ExternalLink, Download } from 'lucide-react';
 
-export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser }: any) => {
+export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser, canInstall, onInstall }: any) => {
   if (!isOpen) return null;
 
   const menuItems = [
@@ -23,6 +23,19 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
       
       <div className="flex-1 flex flex-col justify-start px-8 sm:px-12 gap-5 sm:gap-6 overflow-y-auto pt-8 pb-32 no-scrollbar">
         
+        {/* --- PWA INSTALL BUTTON --- */}
+        {canInstall && (
+          <button 
+            onClick={() => { 
+              onClose(); 
+              onInstall(); 
+            }}
+            className="flex items-center gap-4 bg-white text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:scale-105 transition-all mb-2 shadow-[0_0_20px_rgba(255,255,255,0.2)] w-max"
+          >
+            <Download className="w-6 h-6" /> Install App
+          </button>
+        )}
+
         <button 
           onClick={() => { 
             onClose(); 

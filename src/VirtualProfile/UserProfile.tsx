@@ -1,221 +1,60 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, RotateCcw, Plus, Lock, Trophy, Activity } from 'lucide-react';
+import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, Activity } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
-import { BASIC_FRAMES, PREMIUM_FRAMES, getFrameStyle, getOrbitStyle } from '../AmCommandCenter/AvatarFrames';
 
-// --- 1. GLOBAL FLEX CARD COMPONENT ---
-export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
-  const { seriesList = [] } = useSeriesData();
-  const [profileStats, setProfileStats] = useState({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---" });
-  const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', frameId: 'none', cardSkin: '', topFive: [null, null, null, null, null] });
-  const [isFlipped, setIsFlipped] = useState(false);
+// NEW: We are now importing the freshly rebuilt standalone component!
+import { GlobalFlexCard } from '../Components/GlobalFlexCard';
 
-  useEffect(() => {
-    if (!isOpen) { setIsFlipped(false); return; }
-    
-    const fetchStatsAndRank = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-      const { data: allProfiles } = await supabase.from('profiles').select('id, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read');
-      
-      let myRank: string | number = "---";
-
-      if (allProfiles) {
-        const rankedFans = allProfiles
-          .map((p) => {
-            const score = 
-              (p.total_hypes || 0) * 1 + 
-              (p.quick_reacts || 0) * 5 + 
-              (p.chapters_read || 0) * 5 + 
-              (p.super_hypes || 0) * 10 + 
-              (p.is_premium ? 20 : 0);
-            return { id: p.id, score };
-          })
-          .filter((p) => p.score > 0)
-          .sort((a, b) => b.score - a.score);
-
-        const myIndex = rankedFans.findIndex(f => f.id === user.id);
-        if (myIndex !== -1) myRank = myIndex + 1;
-      }
-
-      if (data) {
-        setProfileStats({ 
-          total_hypes: data.total_hypes || 0, 
-          super_hypes: data.super_hypes || 0, 
-          quick_reacts: data.quick_reacts || 0, 
-          chapters_read: data.chapters_read || 0, 
-          rank: myRank as string
-        });
-        setUserProfile({ 
-          username: data.username || 'Reader', 
-          avatarUrl: data.avatar_url || '', 
-          frameId: data.frame_id || 'none', 
-          cardSkin: data.card_skin || '', 
-          topFive: data.top_five || [null, null, null, null, null] 
-        });
-      }
-    };
-    fetchStatsAndRank();
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
+// --- SHARED PROFILE ANIMATION RENDERER ---
+const RenderFrameAnimations = ({ anim, color }: { anim: string, color: string }) => {
+  if (!anim || anim === 'none') return null;
   return (
-    <div className="fixed inset-0 z-[300] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 animate-fade-in" onClick={onClose}>
-      <button onClick={onClose} className="absolute top-6 right-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-[350] shadow-2xl">
-        <X className="w-6 h-6" />
-      </button>
+    <>
+      {/* Base Animations */}
+      {anim === 'orbit' && <div className="absolute rounded-full border-2 border-transparent pointer-events-none animate-[spin_3s_linear_infinite]" style={{ width: '130%', height: '130%', borderTopColor: color, borderRightColor: color }} />}
+      {anim === 'pulse' && <div className="absolute rounded-full pointer-events-none animate-ping opacity-20" style={{ width: '100%', height: '100%', backgroundColor: color }} />}
+      {anim === 'spin' && <div className="absolute rounded-full pointer-events-none animate-[spin_4s_linear_infinite]" style={{ width: '115%', height: '115%', border: `2px dashed ${color}` }} />}
 
-      <div className="w-[100vw] h-[100vh] flex flex-col items-center justify-center card-perspective p-4 md:p-12">
-        <div 
-          className={`relative w-full max-w-5xl aspect-[1.58] cursor-pointer card-flipper ${isFlipped ? 'is-flipped' : ''}`}
-          style={{ containerType: 'inline-size' }}
-          onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}
-        >
-          {/* === FRONT OF CARD === */}
-          <div className="absolute inset-0 [backface-visibility:hidden] rounded-xl overflow-hidden bg-zinc-900 flex flex-col justify-end shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700">
-            <img 
-              src={userProfile.cardSkin || "https://zcadkovymrnjpjaxvnao.supabase.co/storage/v1/object/public/card-skins/skins/1781908112888_8ozh4h.jpg"} 
-              className="absolute inset-0 w-full h-full object-cover z-0" 
-              alt="Card Skin" 
-            />
-            
-            <div 
-              className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay"
-              style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }}
-            />
-
-            <div className="absolute z-20 flex flex-col items-end pointer-events-none" style={{ top: '4cqi', right: '4cqi' }}>
-                <span className="font-black italic text-[#fe9a00] tracking-tighter drop-shadow-md" style={{ fontSize: '4.5cqi' }}>SATURDAY AM</span>
-                <span className="font-black uppercase tracking-[0.3em] text-white drop-shadow-md" style={{ fontSize: '1.2cqi', marginTop: '0.5cqi' }}>Official Member</span>
-            </div>
-          </div>
-
-          {/* === BACK OF CARD === */}
-          <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] rounded-xl bg-zinc-900 overflow-hidden flex flex-col justify-between shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700" style={{ padding: '5cqi' }}>
-            <div 
-              className="absolute inset-0 pointer-events-none z-0"
-              style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }}
-            />
-            
-            <div className="relative z-10 flex flex-col h-full justify-between">
-              
-              <div className="flex justify-between items-start border-b border-zinc-800" style={{ paddingBottom: '3.5cqi', paddingRight: '2cqi' }}>
-                <div className="flex items-center" style={{ gap: '3cqi' }}>
-                  <div className="relative flex items-center justify-center flex-shrink-0" style={{ width: '14cqi', height: '14cqi' }}>
-                    <div className={`rounded-full overflow-hidden bg-black z-10 flex items-center justify-center ${getFrameStyle(userProfile.frameId)}`} style={{ width: '12cqi', height: '12cqi' }}>
-                      {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="text-zinc-600" style={{ width: '6cqi', height: '6cqi' }} />}
-                    </div>
-                    {getOrbitStyle(userProfile.frameId) && <div className={`absolute w-full h-full rounded-full border-2 border-transparent ${getOrbitStyle(userProfile.frameId)}`} />}
-                  </div>
-                  <div className="flex flex-col truncate" style={{ paddingTop: '1cqi' }}>
-                    <p className="font-black italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none" style={{ fontSize: '5.5cqi', marginBottom: '1.5cqi' }}>{userProfile.username}</p>
-                    <p className="text-[#fe9a00] font-black uppercase tracking-widest flex flex-wrap leading-tight" style={{ fontSize: '1.4cqi', gap: '1.5cqi' }}>
-                      <span>MEMBER SINCE OCT 2023</span>
-                      <span className="text-zinc-600">|</span>
-                      <span className="text-zinc-400">STORE DISCOUNT CODE: AMCLUB26</span>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col items-end text-right justify-center" style={{ paddingTop: '1cqi' }}>
-                  <span className="text-[#fe9a00] font-black uppercase tracking-widest flex items-center" style={{ fontSize: '1.6cqi', gap: '0.8cqi' }}>
-                     <Trophy style={{ width: '2cqi', height: '2cqi' }} /> Fan Rank
-                  </span>
-                  <span className="font-black italic text-white drop-shadow-[0_0_10px_rgba(254,154,0,0.5)] leading-none" style={{ fontSize: '6cqi', marginTop: '1.5cqi' }}>
-                     #{profileStats.rank}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex justify-around items-center bg-black/40 border border-zinc-800/50 shadow-inner" style={{ padding: '3.5cqi 0', borderRadius: '2cqi', margin: 'auto 0' }}>
-                <div className="text-center flex-1 border-r border-zinc-800/50">
-                  <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Hypes</p>
-                  <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
-                    <Flame style={{ width: '4cqi', height: '4cqi' }} /> {profileStats.total_hypes.toLocaleString()}
-                  </p>
-                </div>
-                <div className="text-center flex-1 border-r border-zinc-800/50">
-                  <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Super</p>
-                  <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
-                    <Star style={{ width: '4cqi', height: '4cqi' }} /> {profileStats.super_hypes?.toLocaleString() || 0}
-                  </p>
-                </div>
-                <div className="text-center flex-1 border-r border-zinc-800/50">
-                  <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Reacts</p>
-                  <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
-                    <img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="object-contain" style={{ width: '4cqi', height: '4cqi' }} /> {profileStats.quick_reacts.toLocaleString()}
-                  </p>
-                </div>
-                <div className="text-center flex-1">
-                  <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Reads</p>
-                  <p className="font-black text-[#fe9a00] flex items-center justify-center" style={{ fontSize: '4.5cqi', gap: '1.5cqi' }}>
-                    <BookOpen style={{ width: '4cqi', height: '4cqi' }} /> {profileStats.chapters_read.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-col justify-center w-full">
-                <p className="text-zinc-500 uppercase tracking-widest font-bold flex items-center" style={{ fontSize: '1.8cqi', gap: '1cqi', marginBottom: '2.5cqi' }}>
-                  <Star className="text-[#fe9a00]" style={{ width: '2.5cqi', height: '2.5cqi' }} /> Top 5 Stickers
-                </p>
-                <div className="flex w-full justify-between items-start" style={{ padding: '0 4cqi' }}>
-                  {[0, 1, 2, 3, 4].map((i) => {
-                    const slug = userProfile.topFive[i];
-                    const series = seriesList.find((s:any) => s.slug === slug);
-                    
-                    if (!series) {
-                       return (
-                         <div key={i} className="flex flex-col items-center" style={{ width: '16%' }}>
-                           <div className="rounded-full border border-dashed border-zinc-700/50 bg-black/20 transition-all duration-300" style={{ width: '100%', aspectRatio: '1/1' }} />
-                         </div>
-                       );
-                    }
-                    
-                    const stickerImage = series.sticker_url || series.character_url || series.cover_url;
-
-                    return (
-                      <div key={i} className="flex flex-col items-center" style={{ width: '16%' }}>
-                        <div 
-                          className={`relative rounded-full overflow-hidden bg-[#f4f4f5] border-[#f4f4f5] shadow-[2px_4px_8px_rgba(0,0,0,0.7)] transform hover:scale-110 hover:rotate-6 transition-all duration-300 cursor-pointer flex-shrink-0
-                            ${i % 2 === 0 ? '-rotate-3' : 'rotate-2'} 
-                          `}
-                          style={{ 
-                            width: '100%', 
-                            aspectRatio: '1/1',
-                            borderWidth: '0.6cqi',
-                            marginTop: i === 2 ? '-1.5cqi' : '0' 
-                          }}
-                        >
-                          <img src={stickerImage} className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
-                          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
-                        </div>
-                        
-                        <span className="font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all" style={{ fontSize: '1.3cqi', marginTop: '1.5cqi' }}>
-                          {series.title}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <p className="text-zinc-500 font-bold uppercase tracking-widest mt-12 animate-pulse flex items-center gap-2 pointer-events-none text-[10px] md:text-sm">
-          <RotateCcw className="w-4 h-4 md:w-5 md:h-5" /> Tap anywhere on card to flip
-        </p>
-      </div>
-    </div>
+      {/* Anime Animations */}
+      {anim === 'aura-burst' && (
+        <>
+          <div className="absolute rounded-full border-[3px] opacity-60 animate-[ping_0.8s_ease-out_infinite]" style={{ width: '120%', height: '120%', borderColor: color }} />
+          <div className="absolute rounded-full border-[6px] blur-[2px] animate-[pulse_1s_ease-in-out_infinite]" style={{ width: '130%', height: '130%', borderColor: color }} />
+        </>
+      )}
+      {anim === 'evil-aura' && (
+        <>
+          <div className="absolute rounded-full border-[8px] blur-md animate-[spin_3s_linear_infinite_reverse] opacity-70" style={{ width: '140%', height: '140%', borderColor: color, borderTopColor: 'transparent' }} />
+          <div className="absolute rounded-full border-[4px] blur-sm animate-[pulse_2s_ease-in-out_infinite] opacity-80" style={{ width: '120%', height: '120%', borderColor: '#000000', borderBottomColor: color }} />
+        </>
+      )}
+      {anim === 'blade-slash' && (
+        <div className="absolute rounded-full border-transparent animate-[spin_0.5s_cubic-bezier(0.1,0.8,0.1,1)_infinite]" style={{ width: '150%', height: '150%', borderTopColor: color, borderRightColor: '#ffffff', borderWidth: '2px 0 0 0' }} />
+      )}
+      {anim === 'chakra' && (
+        <>
+          <div className="absolute rounded-full border-transparent animate-[spin_1.5s_linear_infinite]" style={{ width: '120%', height: '120%', borderTopColor: color, borderBottomColor: color, borderWidth: '4px', filter: 'blur(2px)' }} />
+          <div className="absolute rounded-full border-transparent animate-[spin_1s_linear_infinite_reverse]" style={{ width: '135%', height: '135%', borderLeftColor: color, borderRightColor: color, borderWidth: '2px', borderStyle: 'dashed' }} />
+        </>
+      )}
+      {anim === 'spirit-bomb' && (
+        <div className="absolute rounded-full bg-white/20 animate-[pulse_2s_ease-in-out_infinite]" style={{ width: '150%', height: '150%', boxShadow: `0 0 20px 5px ${color}, inset 0 0 15px 5px ${color}`, filter: 'blur(4px)' }} />
+      )}
+      {anim === 'limit-breaker' && (
+        <>
+          <div className="absolute rounded-full border-transparent animate-[spin_0.5s_linear_infinite]" style={{ width: '140%', height: '140%', borderTopColor: color, borderBottomColor: color, borderStyle: 'dashed', borderWidth: '4px', filter: `drop-shadow(0 0 10px ${color})` }} />
+          <div className="absolute rounded-full animate-[ping_1s_ease-out_infinite] opacity-40" style={{ width: '110%', height: '110%', backgroundColor: color }} />
+        </>
+      )}
+      {anim === 'hollow' && (
+        <div className="absolute rounded-full border-transparent animate-[spin_2s_linear_infinite_reverse]" style={{ width: '125%', height: '125%', borderTopColor: color, borderBottomColor: '#000000', borderWidth: '6px', borderStyle: 'dotted', filter: `drop-shadow(0 0 5px ${color})` }} />
+      )}
+    </>
   );
 };
 
-// --- 2. MAIN USER PROFILE COMPONENT ---
 export const UserProfile = ({ onBack, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [showFlexCard, setShowFlexCard] = useState(false);
@@ -223,6 +62,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   const [activeTab, setActiveTab] = useState('card');
   const [vaultAvatars, setVaultAvatars] = useState<any[]>([]);
   const [cardSkins, setCardSkins] = useState<any[]>([]); 
+  const [vaultFrames, setVaultFrames] = useState<any[]>([]); 
   const [selectingSlot, setSelectingSlot] = useState<number | null>(null);
   const [isSubscriber, setIsSubscriber] = useState(false); 
   const [isLoggedIn, setIsLoggedIn] = useState(false);   
@@ -230,48 +70,32 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [errorToast, setErrorToast] = useState(''); 
   
-  const [userProfile, setUserProfile] = useState({
-    username: 'Reader',
-    avatarUrl: '', 
-    frameId: 'none',
-    cardSkin: '', 
-    topFive: [null, null, null, null, null] as (string | null)[]
-  });
-
+  const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] as (string | null)[] });
   const [tempProfile, setTempProfile] = useState({...userProfile});
-
-  const [profileStats, setProfileStats] = useState({
-    total_hypes: 0,
-    super_hypes: 0,
-    quick_reacts: 0,
-    chapters_read: 0,
-    rank: "---",
-    score: 0
-  });
-
+  const [profileStats, setProfileStats] = useState({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---", score: 0 });
   const [unlockedHunts, setUnlockedHunts] = useState(0);
   const [totalHunts, setTotalHunts] = useState(11);
 
-  // --- 1. FETCH AVATARS AND SKINS ---
+  // --- 1. FETCH DATA ---
   useEffect(() => {
     window.scrollTo(0, 0);
     const fetchData = async () => {
       if (typeof supabase !== 'undefined') {
         const { data: avatars } = await supabase.from('avatars').select('*').eq('is_active', true).order('created_at', { ascending: false });
         if (avatars) setVaultAvatars(avatars);
-        
         const { data: skins } = await supabase.from('card_skins').select('*').eq('is_active', true).order('created_at', { ascending: false });
         if (skins) setCardSkins(skins);
+        const { data: frames } = await supabase.from('avatar_frames').select('*').eq('is_active', true).order('created_at', { ascending: false });
+        if (frames) setVaultFrames(frames);
       }
     };
     fetchData();
   }, []);
 
-  // --- 2. FETCH USER STATS, BINGO BOOK & GLOBAL RANK ---
+  // --- 2. FETCH USER STATS ---
   useEffect(() => {
     const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
     setUnlockedHunts(savedHunts.length);
-    
     const savedTotal = localStorage.getItem('am_bingo_total');
     if (savedTotal) setTotalHunts(parseInt(savedTotal));
 
@@ -281,97 +105,47 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
       if (user) {
         setIsLoggedIn(true);
         const fallbackName = user.user_metadata?.username || 'Reader';
-
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .maybeSingle();
-
-        if (error) console.error("Fetch profile error:", error);
-
-        // Fetch all profiles to calculate Global Rank
+        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
         const { data: allProfiles } = await supabase.from('profiles').select('id, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read');
         let myRank: string | number = "---";
         let myScore = 0;
 
         if (allProfiles) {
-          const rankedFans = allProfiles
-            .map((p) => {
-              const score = 
-                (p.total_hypes || 0) * 1 + 
-                (p.quick_reacts || 0) * 5 + 
-                (p.chapters_read || 0) * 5 + 
-                (p.super_hypes || 0) * 10 + 
-                (p.is_premium ? 20 : 0);
+          const rankedFans = allProfiles.map((p) => {
+              const score = (p.total_hypes || 0) * 1 + (p.quick_reacts || 0) * 5 + (p.chapters_read || 0) * 5 + (p.super_hypes || 0) * 10 + (p.is_premium ? 20 : 0);
               return { id: p.id, score };
-            })
-            .filter((p) => p.score > 0)
-            .sort((a, b) => b.score - a.score);
+            }).filter((p) => p.score > 0).sort((a, b) => b.score - a.score);
 
           const myIndex = rankedFans.findIndex(f => f.id === user.id);
-          if (myIndex !== -1) {
-            myRank = myIndex + 1;
-            myScore = rankedFans[myIndex].score;
-          }
+          if (myIndex !== -1) { myRank = myIndex + 1; myScore = rankedFans[myIndex].score; }
         }
 
         if (data) {
-          setProfileStats({
-            total_hypes: data.total_hypes || 0,
-            super_hypes: data.super_hypes || 0,
-            quick_reacts: data.quick_reacts || 0,
-            chapters_read: data.chapters_read || 0,
-            rank: myRank as string,
-            score: myScore
-          });
-
+          setProfileStats({ total_hypes: data.total_hypes || 0, super_hypes: data.super_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0, rank: myRank as string, score: myScore });
           setIsSubscriber(data.is_premium || false);
-
-          const loadedProfile = {
-            ...userProfile,
-            username: data.username || fallbackName,
-            topFive: data.top_five || [null, null, null, null, null],
-            cardSkin: data.card_skin || '',
-            avatarUrl: data.avatar_url || '',
-            frameId: data.frame_id || 'none'
-          };
-
+          const loadedProfile = { ...userProfile, username: data.username || fallbackName, topFive: data.top_five || [null, null, null, null, null], cardSkin: data.card_skin || '', avatarUrl: data.avatar_url || '', frameId: data.avatar_frame_id || '' };
           setUserProfile(loadedProfile);
           setTempProfile(loadedProfile);
         } else {
-          const ghostProfile = { ...userProfile, username: fallbackName };
-          setUserProfile(ghostProfile);
-          setTempProfile(ghostProfile);
+          setUserProfile({ ...userProfile, username: fallbackName });
+          setTempProfile({ ...userProfile, username: fallbackName });
         }
       } else {
         setIsLoggedIn(false);
-        setUserProfile({ username: 'Reader', avatarUrl: '', frameId: 'none', cardSkin: '', topFive: [null, null, null, null, null] });
+        setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] });
       }
     };
-
     fetchUserStats();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-        fetchUserStats();
-      }
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
+    const { data: authListener } = supabase.auth.onAuthStateChange(() => fetchUserStats());
+    return () => authListener.subscription.unsubscribe();
   }, []);
 
   const openEditor = (targetTab = 'faves', slotIndex: number | null = null) => {
     if (!isLoggedIn) {
-      setUpsellConfig({
-        title: 'create a free account',
-        message: 'Create a Free Account to customize your profile loadout, equip your favorite series, and track your stats!'
-      });
+      setUpsellConfig({ title: 'create a free account', message: 'Create a Free Account to customize your profile loadout, equip your favorite series, and track your stats!' });
       return;
     }
-
     setTempProfile({...userProfile});
     setActiveTab(targetTab);
     setSelectingSlot(slotIndex);
@@ -380,82 +154,55 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
   const saveProfile = async () => {
     const { data: { user } } = await supabase.auth.getUser();
-
     if (user) {
       const realName = user.user_metadata?.username || tempProfile.username;
-
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          username: realName, 
-          top_five: tempProfile.topFive,
-          card_skin: tempProfile.cardSkin,
-          avatar_url: tempProfile.avatarUrl,
-          frame_id: tempProfile.frameId
-        })
-        .eq('id', user.id);
-
-      if (error) {
-        console.error("Error saving profile:", error);
-        setErrorToast("Failed to save! Please check your connection.");
-        setTimeout(() => setErrorToast(''), 3000);
-        return;
-      }
+      const { error } = await supabase.from('profiles').update({
+          username: realName, top_five: tempProfile.topFive, card_skin: tempProfile.cardSkin,
+          avatar_url: tempProfile.avatarUrl, avatar_frame_id: tempProfile.frameId === '' ? null : tempProfile.frameId
+        }).eq('id', user.id);
+      if (error) { setErrorToast("Failed to save! Please check your connection."); setTimeout(() => setErrorToast(''), 3000); return; }
     }
-
     setUserProfile({...tempProfile});
     setIsEditing(false);
     setShowSuccessToast(true);
     setTimeout(() => setShowSuccessToast(false), 3000);
+    window.dispatchEvent(new CustomEvent('profileUpdated', { detail: { avatar_url: tempProfile.avatarUrl, avatar_frame_id: tempProfile.frameId === '' ? null : tempProfile.frameId } }));
   };
 
   const fallbackSeriesList = [
     { slug: 'apple-black', title: 'Apple Black', creator_name: 'Whyt Manga', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/apple-black-cover.jpg' },
-    { slug: 'clock-striker', title: 'Clock Striker', creator_name: 'Frederick Ward', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/clock-striker-cover.jpg' },
-    { slug: 'titan-king', title: 'Titan King', creator_name: 'Tony Gold', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/titan-king-cover.jpg' },
+    { slug: 'clock-striker', title: 'Clock Striker', creator_name: 'Frederick Ward', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/clock-striker-cover.jpg' }
   ];
   const displaySeriesList = seriesList && seriesList.length > 0 ? seriesList : fallbackSeriesList;
+
+  const renderAvatarWithFrame = (avatarUrl: string, frameId: string, sizeClass = "w-32 h-32 sm:w-40 sm:h-40", iconSize = "w-12 h-12") => {
+    const frame = vaultFrames.find(f => f.id === frameId);
+    const borderColor = frame ? frame.border_color : 'transparent';
+    const glowColor = frame?.glow_color && frame.glow_color !== 'transparent' ? frame.glow_color : 'transparent';
+    const animStyle = frame ? frame.animation_style : 'none';
+
+    return (
+      <div className={`relative flex items-center justify-center flex-shrink-0 ${sizeClass}`}>
+         <div className={`rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center z-10 w-full h-full transition-all shadow-xl`} style={{ border: frame ? `2px solid ${borderColor}` : '2px solid transparent', boxShadow: glowColor !== 'transparent' ? `0 0 15px ${glowColor}` : 'none' }}>
+           {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className={`${iconSize} text-zinc-500`} />}
+         </div>
+         <RenderFrameAnimations anim={animStyle} color={borderColor} />
+      </div>
+    );
+  };
 
   const renderMiniCard = (seriesSlug: string, isEditingMode: boolean, onClick: () => void) => {
     const series = displaySeriesList.find((s: any) => s.slug === seriesSlug);
     if (!series) return null;
-
-    const prefetchSeriesPage = () => {
-      import('../MainViews/SeriesDetailPage'); 
-    };
-
     return (
-      <div 
-        key={seriesSlug} 
-        onClick={onClick} 
-        onMouseEnter={prefetchSeriesPage}
-        onTouchStart={prefetchSeriesPage}
-        className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all ${
-          isEditingMode ? 'border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.4)]' : 'border border-zinc-800 shadow-lg hover:border-[#fe9a00]/50'
-        }`}
-      >
+      <div onClick={onClick} onMouseEnter={() => import('../MainViews/SeriesDetailPage')} onTouchStart={() => import('../MainViews/SeriesDetailPage')} className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all ${isEditingMode ? 'border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.4)]' : 'border border-zinc-800 shadow-lg hover:border-[#fe9a00]/50'}`}>
         <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-black z-0" />
-        <img 
-          src={series.character_url || series.cover_url} 
-          loading="lazy"
-          alt={`${series.title} Character`} 
-          className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4"
-        />
+        <img src={series.character_url || series.cover_url} loading="lazy" alt="Character" className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4" />
         <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black via-black/90 to-transparent z-20" />
         <div className="absolute bottom-3 left-0 right-0 flex justify-center z-30 px-2 h-8 sm:h-10">
-          {series.logo_url ? (
-            <img src={series.logo_url} loading="lazy" alt={series.title} className="w-full max-h-full object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1" />
-          ) : (
-            <span className="text-[7px] sm:text-[8px] font-black uppercase text-white text-center drop-shadow-md leading-tight line-clamp-2">
-              {series.title}
-            </span>
-          )}
+          {series.logo_url ? <img src={series.logo_url} loading="lazy" alt={series.title} className="w-full max-h-full object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1" /> : <span className="text-[7px] sm:text-[8px] font-black uppercase text-white text-center drop-shadow-md leading-tight line-clamp-2">{series.title}</span>}
         </div>
-        {isEditingMode && (
-          <div className="absolute inset-0 bg-black/60 z-40 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity backdrop-blur-[2px]">
-            <span className="text-[#fe9a00] font-black text-[8px] uppercase tracking-widest shadow-xl">Change</span>
-          </div>
-        )}
+        {isEditingMode && <div className="absolute inset-0 bg-black/60 z-40 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity backdrop-blur-[2px]"><span className="text-[#fe9a00] font-black text-[8px] uppercase tracking-widest shadow-xl">Change</span></div>}
       </div>
     );
   };
@@ -469,71 +216,32 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-20">
-      
-      {/* --- FIXED PARALLAX BACKGROUND --- */}
       <div className="fixed inset-0 z-[-1] bg-black">
-        <img 
-          src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" 
-          alt="Manga Collage" 
-          className="w-full h-full object-cover md:hidden"
-        />
-        <img 
-          src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" 
-          alt="Manga Collage" 
-          className="hidden md:block w-full h-full object-cover"
-        />
+        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
+        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
         <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
       </div>
 
-      {/* IN-APP SUCCESS TOAST */}
-      {showSuccessToast && (
-        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-[#fe9a00] text-black px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] animate-fade-in">
-          <Check className="w-5 h-5" /> Loadout Saved!
-        </div>
-      )}
-
-      {/* IN-APP ERROR TOAST */}
-      {errorToast && (
-        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-red-600 text-white px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-fade-in">
-          <X className="w-5 h-5" /> {errorToast}
-        </div>
-      )}
+      {showSuccessToast && <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-[#fe9a00] text-black px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] animate-fade-in"><Check className="w-5 h-5" /> Loadout Saved!</div>}
+      {errorToast && <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-red-600 text-white px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-fade-in"><X className="w-5 h-5" /> {errorToast}</div>}
 
       <button onClick={onBack} className="absolute top-6 left-6 p-3 bg-zinc-900/90 rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors z-20 transform -skew-x-12">
         <div className="transform skew-x-12 flex items-center gap-2"><ArrowLeft className="w-5 h-5" /><span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Home</span></div>
       </button>
 
-      {/* --- UPSELL MODAL OVERLAY --- */}
       {upsellConfig && (
         <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
-              <Lock className="w-8 h-8 text-[#fe9a00]" />
-            </div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
-              {upsellConfig.title}
-            </h2>
-            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
-              {upsellConfig.message}
-            </p>
-            <button 
-              onClick={() => {
-                setUpsellConfig(null);
-                onNavigate({ action: 'settings' }); 
-              }} 
-              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
-            >
-              Sign up / Subscribe
-            </button>
+            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
+            <button onClick={() => { setUpsellConfig(null); onNavigate({ action: 'settings' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Sign up / Subscribe</button>
           </div>
         </div>
       )}
 
-      {/* Header Banner - Semi-transparent so backdrop bleeds through */}
       <div className="w-full h-48 sm:h-64 bg-black/40 backdrop-blur-sm relative overflow-hidden">
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay"></div>
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
@@ -541,90 +249,44 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
       <div className="max-w-4xl mx-auto relative -mt-16 sm:-mt-24">
         
-        {/* --- USER HEADER --- */}
         <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6 mb-8 px-6">
-          <div className="relative group cursor-pointer" onClick={() => openEditor('art')}>
-            <div className={`relative w-32 h-32 sm:w-40 sm:h-40 flex items-center justify-center`}>
-              <div className={`w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden relative z-10 bg-zinc-900 flex items-center justify-center shadow-xl ${getFrameStyle(userProfile.frameId)}`}>
-                {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover rounded-full" /> : <User className="w-12 h-12 text-zinc-500" />}
-              </div>
-              {PREMIUM_FRAMES.some(p => p.id === userProfile.frameId) && ( <div className={`absolute w-32 h-32 sm:w-40 sm:h-40 rounded-full border-[3px] border-transparent pointer-events-none ${getOrbitStyle(userProfile.frameId)}`} /> )}
-            </div>
+          <div className="relative group cursor-pointer" onClick={() => openEditor('frame')}>
+            {renderAvatarWithFrame(userProfile.avatarUrl, userProfile.frameId)}
           </div>
-
           <div className="text-center sm:text-left pb-2">
-            <button 
-              onClick={() => openEditor('faves')} 
-              className="flex items-center gap-2 bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-white hover:scale-105 transition-all mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]"
-            >
-              <Settings className="w-3 h-3" /> Edit Profile
-            </button>
+            <button onClick={() => openEditor('faves')} className="flex items-center gap-2 bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-white hover:scale-105 transition-all mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]"><Settings className="w-3 h-3" /> Edit Profile</button>
             <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter drop-shadow-lg">{userProfile.username}</h1>
-            <p className={`text-xs font-black uppercase tracking-widest mt-1 italic drop-shadow-md ${isSubscriber ? 'text-purple-400' : 'text-zinc-400'}`}>
-               {isSubscriber ? 'Premium Saturday AM+ Member' : 'Standard Member'}
-            </p>
+            <p className={`text-xs font-black uppercase tracking-widest mt-1 italic drop-shadow-md ${isSubscriber ? 'text-purple-400' : 'text-zinc-400'}`}>{isSubscriber ? 'Premium Saturday AM+ Member' : 'Standard Member'}</p>
           </div>
-          
           <div className="sm:ml-auto flex items-center gap-3 mt-4 sm:mt-0">
             <button onClick={() => onNavigate({ action: 'settings' })} className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-700 p-3 rounded-full hover:border-white transition-colors group"><Settings className="w-5 h-5 text-zinc-400 group-hover:text-white" /></button>
           </div>
         </div>
 
-        {/* --- MASSIVE PROFILE RANK BANNER --- */}
         <div className="px-6 mb-10">
           <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-6 bg-gradient-to-r from-zinc-900/90 via-black/80 to-zinc-900/90 border border-zinc-800 rounded-2xl p-6 shadow-2xl backdrop-blur-md relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-[#fe9a00]/10 rounded-bl-full blur-2xl pointer-events-none" />
-            
             <div className="flex items-center gap-4">
-              <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shadow-[0_0_15px_rgba(254,154,0,0.3)]">
-                <Trophy className="w-8 h-8 sm:w-10 sm:h-10 text-[#fe9a00]" />
-              </div>
+              <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shadow-[0_0_15px_rgba(254,154,0,0.3)]"><Trophy className="w-8 h-8 sm:w-10 sm:h-10 text-[#fe9a00]" /></div>
               <div className="flex flex-col text-center sm:text-left">
                 <h3 className="text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1">Global AM Super Fan Rank</h3>
-                <div className="text-4xl sm:text-5xl font-black italic uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-[#fe9a00] drop-shadow-md">
-                  #{profileStats.rank}
-                </div>
+                <div className="text-4xl sm:text-5xl font-black italic uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-[#fe9a00] drop-shadow-md">#{profileStats.rank}</div>
               </div>
             </div>
-
             <div className="flex flex-col items-center sm:items-end sm:ml-auto border-t sm:border-t-0 sm:border-l border-zinc-800 pt-4 sm:pt-0 sm:pl-6 w-full sm:w-auto">
               <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Total Fandom Score</span>
-              <div className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 mb-3">
-                <Activity className="w-4 h-4 text-[#fe9a00]" /> {profileStats.score.toLocaleString()}
-              </div>
-              <button 
-                onClick={() => onNavigate({ action: 'leaderboard' })} 
-                className="w-full sm:w-auto bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-[0_0_10px_rgba(0,0,0,0.3)] hover:shadow-[0_0_15px_rgba(254,154,0,0.4)]"
-              >
-                View Leaderboard
-              </button>
+              <div className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 mb-3"><Activity className="w-4 h-4 text-[#fe9a00]" /> {profileStats.score.toLocaleString()}</div>
+              <button onClick={() => onNavigate({ action: 'leaderboard' })} className="w-full sm:w-auto bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-[0_0_10px_rgba(0,0,0,0.3)] hover:shadow-[0_0_15px_rgba(254,154,0,0.4)]">View Leaderboard</button>
             </div>
           </div>
         </div>
 
-        {/* --- STATS & LOADOUT --- */}
         <div className="mb-12 border-t border-zinc-800/50 pt-8 px-6">
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
-              <Flame className="w-6 h-6 text-[#fe9a00] mb-2" />
-              <span className="text-3xl font-black">{profileStats.total_hypes.toLocaleString()}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes</span>
-            </div>
-            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
-              <Star className="w-6 h-6 text-[#fe9a00] mb-2" />
-              <span className="text-3xl font-black">{profileStats.super_hypes?.toLocaleString() || 0}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes</span>
-            </div>
-            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
-              <img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" />
-              <span className="text-3xl font-black">{profileStats.quick_reacts.toLocaleString()}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Quick Reacts</span>
-            </div>
-            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
-              <BookOpen className="w-6 h-6 text-[#fe9a00] mb-2" />
-              <span className="text-3xl font-black">{profileStats.chapters_read.toLocaleString()}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Chapters Read</span>
-            </div>
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><Flame className="w-6 h-6 text-[#fe9a00] mb-2" /><span className="text-3xl font-black">{profileStats.total_hypes.toLocaleString()}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes</span></div>
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><Star className="w-6 h-6 text-[#fe9a00] mb-2" /><span className="text-3xl font-black">{profileStats.super_hypes?.toLocaleString() || 0}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes</span></div>
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" /><span className="text-3xl font-black">{profileStats.quick_reacts.toLocaleString()}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Quick Reacts</span></div>
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><BookOpen className="w-6 h-6 text-[#fe9a00] mb-2" /><span className="text-3xl font-black">{profileStats.chapters_read.toLocaleString()}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Chapters Read</span></div>
             <div className={`flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border relative overflow-hidden shadow-xl ${isSubscriber ? 'border-[#fe9a00]/30' : 'border-zinc-800 opacity-50'}`}>
               <div className={`absolute top-0 right-0 w-16 h-16 rounded-bl-full ${isSubscriber ? 'bg-[#fe9a00]/10' : 'bg-zinc-800'}`}></div>
               <Award className={`w-6 h-6 mb-2 relative z-10 ${isSubscriber ? 'text-[#fe9a00]' : 'text-zinc-500'}`} />
@@ -636,26 +298,14 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           <div className="bg-zinc-900/80 backdrop-blur-md border border-zinc-800 rounded-xl p-5 md:p-6 mb-2 mt-8 flex flex-col sm:flex-row items-center gap-6 shadow-xl">
             <div className="flex-1 w-full">
               <div className="flex justify-between items-end mb-3">
-                <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
-                  <Check className="w-4 h-4 text-[#fe9a00]" /> Bingo Book Hunts
-                </h3>
-                <span className="text-[10px] font-bold text-zinc-400 tracking-widest uppercase">
-                  <span className="text-[#fe9a00]">{unlockedHunts}</span> / {totalHunts} Completed
-                </span>
+                <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Check className="w-4 h-4 text-[#fe9a00]" /> Bingo Book Hunts</h3>
+                <span className="text-[10px] font-bold text-zinc-400 tracking-widest uppercase"><span className="text-[#fe9a00]">{unlockedHunts}</span> / {totalHunts} Completed</span>
               </div>
               <div className="w-full h-2.5 bg-black border border-zinc-800 rounded-full overflow-hidden shadow-inner">
-                <div 
-                  className="h-full bg-gradient-to-r from-[#fe9a00] to-yellow-500 rounded-full transition-all duration-1000" 
-                  style={{ width: `${Math.min(100, (unlockedHunts / Math.max(1, totalHunts)) * 100)}%` }} 
-                />
+                <div className="h-full bg-gradient-to-r from-[#fe9a00] to-yellow-500 rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, (unlockedHunts / Math.max(1, totalHunts)) * 100)}%` }} />
               </div>
             </div>
-            <button 
-              onClick={() => onNavigate({ action: 'bingobook' })} 
-              className="w-full sm:w-auto bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-6 py-3 sm:py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-[0_0_10px_rgba(0,0,0,0.3)] hover:shadow-[0_0_20px_rgba(254,154,0,0.4)]"
-            >
-              Open Bingo Book
-            </button>
+            <button onClick={() => onNavigate({ action: 'bingobook' })} className="w-full sm:w-auto bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-6 py-3 sm:py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-[0_0_10px_rgba(0,0,0,0.3)] hover:shadow-[0_0_20px_rgba(254,154,0,0.4)]">Open Bingo Book</button>
           </div>
           
           <div className="flex justify-between items-end mb-4 mt-12">
@@ -672,71 +322,41 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
         {!isSubscriber ? (
           <div className="flex flex-col items-center w-full mt-12 mb-12 px-6">
-            <div 
-              className="relative w-full max-w-sm aspect-[1.58] rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden shadow-2xl mb-6 group cursor-pointer" 
-              onClick={() => setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual AM Crew Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' })}
-            >
-              <img src="https://zcadkovymrnjpjaxvnao.supabase.co/storage/v1/object/public/card-skins/skins/1781908112888_8ozh4h.jpg" className="absolute inset-0 w-full h-full object-cover opacity-40 grayscale group-hover:scale-105 transition-transform duration-700" alt="Card Preview" />
+            <div className="relative w-full max-w-sm aspect-[1.58] rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden shadow-2xl mb-6 group cursor-pointer" onClick={() => setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual AM Crew Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' })}>
+              {/* --- NEW: HARDCODED UPSELL IMAGE REPLACED WITH CARBON BLACK --- */}
+              <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-60 mix-blend-overlay group-hover:scale-105 transition-transform duration-700" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col items-center justify-center p-6 text-center">
-                 <div className="w-14 h-14 bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]">
-                   <Lock className="w-6 h-6 text-zinc-400"/>
-                 </div>
+                 <div className="w-14 h-14 bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]"><Lock className="w-6 h-6 text-zinc-400"/></div>
                  <h3 className="text-white font-black italic text-xl uppercase tracking-widest mb-1 drop-shadow-md">AM Crew Card</h3>
-                 <p className="text-[10px] text-[#fe9a00] font-bold uppercase tracking-widest leading-relaxed drop-shadow-md">
-                   Customize and get exclusive perks!
-                 </p>
+                 <p className="text-[10px] text-[#fe9a00] font-bold uppercase tracking-widest leading-relaxed drop-shadow-md">Customize and get exclusive perks!</p>
               </div>
             </div>
-            <button 
-              onClick={() => {
-                setUpsellConfig({ 
-                  title: 'Premium Feature', 
-                  message: 'The Virtual AM Crew Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' 
-                });
-              }}
-              className="flex items-center gap-3 bg-zinc-800 text-white border border-zinc-700 px-8 py-4 rounded-full font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] hover:scale-105 transition-all shadow-lg w-full sm:w-auto justify-center"
-            >
-              <CreditCard className="w-5 h-5"/> Subscribe to Unlock
-            </button>
+            <button onClick={() => { setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual AM Crew Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' }); }} className="flex items-center gap-3 bg-zinc-800 text-white border border-zinc-700 px-8 py-4 rounded-full font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] hover:scale-105 transition-all shadow-lg w-full sm:w-auto justify-center"><CreditCard className="w-5 h-5"/> Subscribe to Unlock</button>
           </div>
         ) : (
           <div className="flex justify-center w-full mt-12 mb-8">
-            <button 
-              onClick={() => setShowFlexCard(true)}
-              className="flex items-center gap-4 bg-[#fe9a00] text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
-            >
-              <CreditCard className="w-6 h-6"/> Flex AM Crew Card
-            </button>
+            <button onClick={() => setShowFlexCard(true)} className="flex items-center gap-4 bg-[#fe9a00] text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"><CreditCard className="w-6 h-6"/> Flex AM Crew Card</button>
           </div>
         )}
-
-        <GlobalFlexCard 
-          isOpen={showFlexCard} 
-          onClose={() => setShowFlexCard(false)} 
-        />
       </div>
 
-      {/* --- PROFILE EDITOR MODAL --- */}
       {isEditing && (
         <div className="fixed inset-0 z-[300] bg-black/95 flex flex-col items-center justify-center p-4 sm:p-6 backdrop-blur-md">
           <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col max-h-[90vh] overflow-hidden shadow-2xl">
-            
             <div className="flex justify-between items-center p-6 border-b border-zinc-800 bg-black">
               <h2 className="text-xl font-black italic uppercase tracking-wider text-[#fe9a00]">Customize Loadout</h2>
               <button onClick={() => setIsEditing(false)} className="text-zinc-500 hover:text-white"><X className="w-6 h-6" /></button>
             </div>
 
             <div className="flex border-b border-zinc-800 overflow-x-auto no-scrollbar flex-shrink-0 bg-black">
-              <button onClick={() => { setActiveTab('faves'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'faves' ? 'bg-zinc-800 text-[#fe9a00]' : 'text-zinc-500 hover:text-white'}`}>Top 5 Loadout</button>
-              <button onClick={() => { setActiveTab('art'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'art' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Character Art</button>
-              <button onClick={() => { setActiveTab('frames'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'frames' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Basic Frames</button>
-              <button onClick={() => { setActiveTab('premium'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'premium' ? 'bg-purple-900/20 text-purple-400' : 'text-zinc-500 hover:text-white'}`}>Premium Frames ★</button>
+              <button onClick={() => { setActiveTab('faves'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'faves' ? 'bg-zinc-800 text-[#fe9a00]' : 'text-zinc-500 hover:text-white'}`}>Top 5</button>
+              <button onClick={() => { setActiveTab('art'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'art' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Avatar Art</button>
+              <button onClick={() => { setActiveTab('frame'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'frame' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Border Frame</button>
               <button onClick={() => { setActiveTab('card'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'card' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Club Card</button>
             </div>
 
             <div className="p-6 overflow-y-auto flex-1 bg-black/40 no-scrollbar">
               
-              {/* LOADOUT SELECTOR TAB */}
               {activeTab === 'faves' && (
                 <div className="space-y-6">
                   <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-2">Equip your favorite series to your profile</p>
@@ -776,134 +396,94 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
                 </div>
               )}
 
-              {/* CARD SKIN SELECTOR TAB */}
+              {/* --- NEW: SERIES IMAGES COMPLETELY REMOVED FROM CARD SKINS TAB --- */}
               {activeTab === 'card' && (
                 <div className="space-y-6">
                   <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-4">Select an artwork skin for your digital club card</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    
-                    {/* Free Carbon Black Base Skin */}
                     <div onClick={() => setTempProfile({...tempProfile, cardSkin: ''})} className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${!tempProfile.cardSkin ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-zinc-500'}`}>
                       <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-80 mix-blend-overlay" />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/40"><span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Carbon Black</span></div>
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/40"><span className="text-[10px] font-black uppercase tracking-widest text-white drop-shadow-md">Carbon Black</span></div>
                     </div>
-
-                    {/* Premium Custom Skins */}
-                    {displaySeriesList.map((s: any) => (
-                      <div key={s.slug} 
-                           onClick={() => {
-                              if (!isSubscriber) {
-                                setUpsellConfig({ title: 'Premium Feature', message: 'Custom AM Card Skins are exclusively for Pro members! Upgrade to customize your digital pass.' });
-                                return;
-                              }
-                              setTempProfile({...tempProfile, cardSkin: s.cover_url})
-                           }} 
-                           className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === s.cover_url ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-zinc-500'}`}>
-                        <img src={s.cover_url} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" alt={s.title} />
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 hover:opacity-100 transition-opacity"><span className="text-[10px] font-black uppercase tracking-widest text-white">{s.title}</span></div>
-                        
-                        {!isSubscriber && (
-                          <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-10">
-                            <Lock className="w-6 h-6 text-zinc-400" />
-                          </div>
-                        )}
-                      </div>
-                    ))}
 
                     {cardSkins.map((skin: any) => (
                       <div key={skin.id} 
                            onClick={() => {
-                              if (!isSubscriber) {
-                                setUpsellConfig({ title: 'Premium Feature', message: 'Custom AM Card Skins are exclusively for Pro members! Upgrade to customize your digital pass.' });
-                                return;
-                              }
+                              if (!isSubscriber) { setUpsellConfig({ title: 'Premium Feature', message: 'Custom AM Card Skins are exclusively for Pro members! Upgrade to customize your digital pass.' }); return; }
                               setTempProfile({...tempProfile, cardSkin: skin.image_url})
                            }} 
-                           className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === skin.image_url ? 'border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105' : 'border-zinc-800 hover:border-purple-500/50'}`}>
+                           className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === skin.image_url ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-[#fe9a00]/50'}`}>
                         <img src={skin.image_url} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" alt={skin.name} />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 hover:opacity-100 transition-opacity"><span className="text-[10px] font-black uppercase tracking-widest text-white text-center px-2">{skin.name}</span></div>
-                        
-                        {!isSubscriber && (
-                          <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-10">
-                            <Lock className="w-6 h-6 text-zinc-400" />
-                          </div>
-                        )}
+                        {!isSubscriber && <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-10"><Lock className="w-6 h-6 text-zinc-400" /></div>}
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* AVATAR & FRAMES TABS */}
-              {(activeTab === 'art' || activeTab === 'frames' || activeTab === 'premium') && (
+              {activeTab === 'art' && (
                 <>
                   <div className="flex items-center justify-center mb-8">
-                    <div className="relative w-24 h-24 flex items-center justify-center">
-                      <div className={`w-16 h-16 rounded-full overflow-hidden bg-zinc-900 z-10 flex items-center justify-center ${getFrameStyle(tempProfile.frameId)}`}>
-                        {tempProfile.avatarUrl ? (
-                          <img src={tempProfile.avatarUrl} className="w-full h-full object-cover rounded-full" alt="preview" />
-                        ) : (
-                          <User className="w-8 h-8 text-zinc-500" />
-                        )}
-                      </div>
-                      {PREMIUM_FRAMES.some(p => p.id === tempProfile.frameId) && <div className={`absolute w-20 h-20 rounded-full border-2 border-transparent pointer-events-none ${getOrbitStyle(tempProfile.frameId)}`} />}
-                    </div>
+                     <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center border-transparent shadow-xl">
+                       {tempProfile.avatarUrl ? <img src={tempProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-zinc-500" />}
+                     </div>
                   </div>
-
-                  {activeTab === 'art' && (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                      <div onClick={() => setTempProfile({...tempProfile, avatarUrl: ''})} className={`relative cursor-pointer rounded-full p-1 transition-all ${!tempProfile.avatarUrl ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
-                        <div className="w-full aspect-square bg-zinc-800 rounded-full border-2 border-black flex items-center justify-center"><User className="w-8 h-8 text-zinc-500" /></div>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+                    <div onClick={() => setTempProfile({...tempProfile, avatarUrl: ''})} className={`relative cursor-pointer rounded-full p-1 transition-all ${!tempProfile.avatarUrl ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
+                      <div className="w-full aspect-square bg-zinc-800 rounded-full border-2 border-black flex items-center justify-center"><User className="w-8 h-8 text-zinc-500" /></div>
+                    </div>
+                    {vaultAvatars.map(avatar => (
+                      <div key={avatar.id} onClick={() => setTempProfile({...tempProfile, avatarUrl: avatar.image_url})} className={`relative cursor-pointer rounded-full p-1 transition-all ${tempProfile.avatarUrl === avatar.image_url ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
+                        <img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" />
                       </div>
-                      {vaultAvatars.map(avatar => (
-                        <div key={avatar.id} onClick={() => setTempProfile({...tempProfile, avatarUrl: avatar.image_url})} className={`relative cursor-pointer rounded-full p-1 transition-all ${tempProfile.avatarUrl === avatar.image_url ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
-                          <img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {activeTab === 'frames' && (
-                    <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-3 sm:gap-4">
-                      {BASIC_FRAMES.map(frame => (
-                        <div key={frame.id} onClick={() => setTempProfile({...tempProfile, frameId: frame.id})} className={`relative flex flex-col items-center bg-zinc-900/50 p-3 sm:p-4 rounded-xl border transition-all ${tempProfile.frameId === frame.id ? 'border-[#fe9a00] bg-[#fe9a00]/10' : 'border-zinc-800 hover:border-zinc-600 cursor-pointer'}`}>
-                            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full z-10 flex items-center justify-center mb-2 sm:mb-3 bg-zinc-900 ${frame.style}`}><User className="w-3 h-3 sm:w-4 sm:h-4 text-zinc-600" /></div>
-                            <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-center text-zinc-400 line-clamp-2">{frame.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {activeTab === 'premium' && (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                      {PREMIUM_FRAMES.map(frame => (
-                        <div key={frame.id} 
-                             onClick={() => {
-                                if (!isSubscriber) {
-                                  setUpsellConfig({ title: 'Premium Feature', message: 'Premium Frames are exclusively for Pro members! Upgrade to equip animated frames.' });
-                                  return;
-                                }
-                                setTempProfile({...tempProfile, frameId: frame.id})
-                             }} 
-                             className={`relative flex flex-col items-center bg-zinc-900/50 p-4 rounded-xl border transition-all overflow-hidden ${tempProfile.frameId === frame.id ? 'border-purple-500 bg-purple-900/10' : 'border-zinc-800 hover:border-purple-900/50 cursor-pointer'}`}>
-                            
-                            <div className="relative w-16 h-16 flex items-center justify-center mb-3">
-                              <div className={`w-10 h-10 rounded-full bg-zinc-900 z-10 flex items-center justify-center ${frame.style}`}><User className="w-5 h-5 text-zinc-600" /></div>
-                              <div className={`absolute w-14 h-14 rounded-full border-2 border-transparent ${frame.orbit}`} />
-                            </div>
-                            <span className="text-[9px] font-black uppercase tracking-widest text-center text-purple-400">{frame.name}</span>
-
-                            {!isSubscriber && (
-                              <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-20">
-                                <Lock className="w-6 h-6 text-zinc-400" />
-                              </div>
-                            )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                    ))}
+                  </div>
                 </>
               )}
+
+              {activeTab === 'frame' && (
+                <>
+                  <div className="flex items-center justify-center mb-8">
+                     {renderAvatarWithFrame(tempProfile.avatarUrl, tempProfile.frameId, "w-24 h-24 sm:w-32 sm:h-32")}
+                  </div>
+
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+                    <div onClick={() => setTempProfile({...tempProfile, frameId: ''})} className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${!tempProfile.frameId ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'bg-black border border-zinc-800 hover:border-zinc-500'}`}>
+                      <div className="w-12 h-12 rounded-full border-2 border-zinc-700 mb-2 flex items-center justify-center"><X className="w-6 h-6 text-zinc-500" /></div>
+                      <span className="text-[9px] font-black uppercase text-zinc-400">None</span>
+                    </div>
+                    
+                    {vaultFrames.map((f: any) => (
+                      <div key={f.id} 
+                           onClick={() => {
+                             if (f.tier === 'Premium' && !isSubscriber) {
+                               setUpsellConfig({ title: 'Premium Feature', message: 'Premium Avatar Frames are exclusively for Pro members! Upgrade to equip this frame.' });
+                               return;
+                             }
+                             setTempProfile({...tempProfile, frameId: f.id});
+                           }} 
+                           className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${tempProfile.frameId === f.id ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'bg-black border border-zinc-800 hover:border-zinc-500'}`}>
+                        
+                        <div className="relative flex items-center justify-center w-12 h-12 mb-2 flex-shrink-0">
+                           <div className="rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 w-full h-full" style={{ border: `2px solid ${f.border_color}`, boxShadow: f.glow_color !== 'transparent' ? `0 0 10px ${f.glow_color}` : 'none' }} />
+                           <RenderFrameAnimations anim={f.animation_style} color={f.border_color} />
+                        </div>
+
+                        <span className="text-[9px] font-black text-white uppercase text-center leading-tight line-clamp-1">{f.name}</span>
+                        <span className={`text-[7px] font-bold uppercase mt-1 ${f.tier === 'Premium' ? 'text-purple-400' : 'text-zinc-500'}`}>{f.tier}</span>
+                        
+                        {f.tier === 'Premium' && !isSubscriber && (
+                          <div className="absolute inset-0 bg-black/50 backdrop-blur-[1px] flex items-center justify-center z-20 rounded-xl">
+                            <Lock className="w-5 h-5 text-zinc-400" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
             </div>
             
             <div className="p-6 border-t border-zinc-800 bg-black">

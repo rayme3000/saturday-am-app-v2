@@ -3,6 +3,7 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { MagazineHomeSection } from './MagazineHomeSection';
 import { SeriesSection } from './SeriesSection';
+import { DecoratedAvatar } from '../Components/DecoratedAvatar';
 import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play, Trophy, Crown, Zap } from 'lucide-react';
 
 export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, userTier }: any) => {
@@ -194,9 +195,12 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           {currentUser ? (
             <div className="flex items-center gap-3 sm:gap-6">
               <div 
-                className="hidden sm:flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity"
+                className="hidden sm:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
                 onClick={() => onNavigate({ action: 'profile' })}
               >
+                 {/* NEW AVATAR RENDER */}
+                 <DecoratedAvatar avatarUrl={currentUser.avatar_url} frameId={currentUser.frame_id} size="w-8 h-8" iconSize="w-4 h-4" />
+                 
                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#fe9a00]">
                    Welcome,{' '}
                    <span className={userTier === 'premium' ? 'text-purple-400 drop-shadow-[0_0_10px_rgba(168,85,247,0.8)] transition-colors duration-500' : 'text-[#fe9a00]'}>

@@ -6,28 +6,38 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate', // Automatically updates the app when you push new code
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'], // Optional static assets
+      registerType: 'autoUpdate',
+      injectRegister: 'auto',
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg}'],
+      },
+      devOptions: {
+        enabled: true, // This allows you to test the PWA in 'npm run dev' too!
+      },
       manifest: {
-        name: 'Saturday AM Vault',
-        short_name: 'Saturday AM',
-        description: 'The premier digital manga reader for diverse shonen-style comics.',
+        name: 'Saturday AM',
+        short_name: 'Sat AM',
+        description: 'The premier manga reading app.',
         theme_color: '#000000',
         background_color: '#000000',
-        display: 'standalone', // This is what hides the Safari/Chrome address bar!
-        orientation: 'portrait',
+        display: 'standalone',
+        start_url: '/',
         icons: [
           {
-            src: '/pwa-192x192-v2.png',
+            src: '/pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any'
+            type: 'image/png'
           },
           {
-            src: '/pwa-512x512-v2.png',
+            src: '/pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png'
+          },
+          {
+            src: '/pwa-512x512.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'maskable' // Ensures the icon looks good on Android devices
+            purpose: 'any maskable'
           }
         ]
       }
