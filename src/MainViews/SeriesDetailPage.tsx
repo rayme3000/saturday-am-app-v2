@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, User, Heart, Lock, X, MessageSquare, PenTool } from 'lucide-react';
+import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, ArrowDown, User, Heart, Lock, X, MessageSquare, PenTool } from 'lucide-react';
 import { supabase } from '../supabase';
 import { MangaReader } from './MangaReader';
 import { SuperHypeButton } from '../Components/SuperHypeButton';
@@ -33,16 +33,18 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [startPage, setStartPage] = useState(0);
   const [hasAutoOpened, setHasAutoOpened] = useState(false);
 
-  // --- NEW: SECTION REFS FOR SCROLLING ---
+  // --- NEW: PAGINATION & SORTING STATES ---
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [visibleCount, setVisibleCount] = useState(25);
+
   const actionsRef = useRef<HTMLDivElement>(null);
   const commentsRef = useRef<HTMLDivElement>(null);
   const creatorRef = useRef<HTMLDivElement>(null);
 
   const scrollToSection = (e: React.MouseEvent, ref: React.RefObject<HTMLDivElement>, center: boolean = false) => {
-    e.stopPropagation(); // Prevents the chapter reader from opening when clicking the icon
+    e.stopPropagation(); 
     if (ref.current) {
       if (center) {
-        // Smoothly scrolls so the element is perfectly centered vertically on the screen
         ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else {
         const yOffset = -50; 
@@ -82,8 +84,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         if (!targetSlug) return;
         const { data: freshSeries } = await supabase.from('series').select('*').eq('slug', targetSlug).single();
         if (freshSeries) setLocalSeries(freshSeries);
+        
+        // Always fetch chronologically ascending from the database
         const { data: chapterData } = await supabase.from('chapters').select('*').eq('series_slug', targetSlug).eq('is_published', true).order('chapter_number', { ascending: true });
         if (chapterData) setChapters(chapterData as any);
+        
         const { data: creatorData } = await supabase.from('series_creators').select('*').eq('series_slug', targetSlug).order('id', { ascending: true });
         if (creatorData && creatorData.length > 0) { setCreators(creatorData as any); } 
         else if (freshSeries) { setCreators([{ role: 'Creator', name: freshSeries.creator_name || 'Saturday AM', flag_code: freshSeries.flag_code || '', avatar_url: freshSeries.creator_avatar || '', bio: freshSeries.creator_bio || '', twitter_url: freshSeries.creator_twitter || '', instagram_url: freshSeries.creator_instagram || '', support_url: freshSeries.creator_support_link || '' }] as any); }
@@ -195,35 +200,46 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchChapterStats();
   }, [chapters, readerClosedCount]);
 
-  // --- AUTO OPEN LISTENER ---
   useEffect(() => {
-   
     if (chapters.length > 0 && series?.autoOpenChapterId && !hasAutoOpened) {
-      const index = chapters.findIndex(c => String(c.id) === String(series.autoOpenChapterId));
-      const chapter = chapters[index];
+      const absoluteIndex = chapters.findIndex(c => String(c.id) === String(series.autoOpenChapterId));
+      const chapter = chapters[absoluteIndex];
       
       if (chapter) {
-        handleReadChapter(chapter, index, series.autoOpenPage || 0);
+        handleReadChapter(chapter, absoluteIndex, series.autoOpenPage || 0);
         setHasAutoOpened(true); 
       }
     }
   }, [chapters, series, hasAutoOpened]);
+
+  // --- DYNAMIC SORTING & PAGINATION LOGIC ---
+  const sortedChapters = [...chapters].sort((a, b) => {
+    if (sortOrder === 'asc') return a.chapter_number - b.chapter_number;
+    return b.chapter_number - a.chapter_number;
+  });
+
+  const displayedChapters = sortedChapters.slice(0, visibleCount);
 
   const aggregatedSubHypes = chapters.reduce((sum: number, ch: any) => {
     const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
     return sum + (ch.hype_count || 0) + pageHypes;
   }, 0);
   
-  const checkIsLocked = (index: number) => {
+  // Safe lock checking based on absolute chronological order
+  const checkIsLocked = (chapterId: string) => {
     if (userTier === 'premium') return false; 
+    
+    // Find where the chapter sits in the main ascending chronological list
+    const absoluteIndex = chapters.findIndex(c => c.id === chapterId);
+
     if (userTier === 'free') {
-      return !(index < 3 || index === chapters.length - 1);
+      return !(absoluteIndex < 3 || absoluteIndex === chapters.length - 1);
     }
-    return index !== 0; 
+    return absoluteIndex !== 0; 
   };
 
-  const handleReadChapter = async (chapter: any, index: number, initialPage = 0) => {
-    if (checkIsLocked(index)) {
+  const handleReadChapter = async (chapter: any, absoluteIndex: number, initialPage = 0) => {
+    if (checkIsLocked(chapter.id)) {
       setUpsellConfig({
         type: userTier === 'visitor' ? 'visitor' : 'premium',
         message: userTier === 'visitor' 
@@ -298,7 +314,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   return (
     <div className="relative min-h-screen bg-black text-white">
       
-      {/* --- UPSELL MODAL OVERLAY --- */}
       {upsellConfig && (
         <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
@@ -338,6 +353,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
       {isReaderOpen && (() => {
         const activeChapterData = chapters.find(c => c.id === activeChapterId);
+        // Uses the chronological `chapters` array so Next/Prev are always accurate
         const currentIndex = chapters.findIndex(c => c.id === activeChapterId);
         const hasNext = currentIndex > -1 && currentIndex < chapters.length - 1;
         const hasPrev = currentIndex > 0;
@@ -350,17 +366,17 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             isPremium={isPremiumUser}
             title={activeChapterData ? `Chapter ${activeChapterData.chapter_number} - ${activeChapterData.title || ''}` : ''}
             subtitle={localSeries.title}
-            initialPage={startPage} // PASSED DOWN INITIAL PAGE
+            initialPage={startPage} 
             onClose={() => { 
               setIsReaderOpen(false); 
               setActiveChapterId(null);
-              setStartPage(0); // RESET
+              setStartPage(0); 
               setReaderClosedCount(c => c + 1); 
             }} 
             onHome={() => { 
               setIsReaderOpen(false); 
               setActiveChapterId(null);
-              setStartPage(0); // RESET
+              setStartPage(0); 
               setReaderClosedCount(c => c + 1); 
               onBack(); 
             }}
@@ -406,7 +422,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             {safeSynopsis.length > 150 && (<button onClick={() => setIsExpanded(!isExpanded)} className="text-[#fe9a00] font-black tracking-widest text-[10px] mt-2 uppercase hover:text-white transition-colors">{isExpanded ? '- READ LESS' : '+ READ MORE'}</button>)}
           </div>
 
-          {/* --- ATTACHED ACTIONS REF HERE --- */}
           <div ref={actionsRef} className="flex flex-wrap justify-center gap-4 mt-8 w-full scroll-mt-32">
             <HypeButton 
               targetType="series" 
@@ -427,6 +442,13 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               <Bookmark className={`w-5 h-5 ${isFavorited ? 'fill-[#fe9a00]' : ''}`} />
               <span>{isFavorited ? 'SAVED TO YOUR FAVES' : 'ADD TO FAVES'}</span>
             </button>
+            <button 
+              onClick={(e) => scrollToSection(e, commentsRef)} 
+              className="flex items-center gap-2 px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all bg-zinc-900 text-white border border-zinc-800 hover:bg-zinc-800 hover:border-zinc-600 hover:text-[#fe9a00]"
+            >
+              <MessageSquare className="w-5 h-5" />
+              <span>DISCUSS</span>
+            </button>
           </div>
         </div>
 
@@ -436,10 +458,31 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           </div>
         </div>
 
-        <div className="mt-8 px-4 sm:px-6 pb-12 w-full max-w-3xl mx-auto">
-          {chapters.map((ch: any, index: number) => {
+        <div className="mt-4 px-4 sm:px-6 pb-12 w-full max-w-3xl mx-auto">
+          
+          {/* SORTING TOGGLE HEADER */}
+          {chapters.length > 0 && (
+            <div className="flex justify-between items-center w-full mb-6 px-2">
+              <span className="text-zinc-500 font-bold text-[10px] sm:text-xs uppercase tracking-widest">
+                {chapters.length} Chapters
+              </span>
+              <button 
+                onClick={() => {
+                  setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                  setVisibleCount(25); // Reset visible count on resort
+                }}
+                className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors text-[10px] sm:text-xs font-black uppercase tracking-widest bg-zinc-900 px-4 py-2 rounded-full border border-zinc-800"
+              >
+                {sortOrder === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
+                Sort: {sortOrder === 'asc' ? 'Oldest' : 'Newest'}
+              </button>
+            </div>
+          )}
+
+          {displayedChapters.map((ch: any) => {
+            const absoluteIndex = chapters.findIndex(c => c.id === ch.id);
             const actualProgress = readProgresses[String(ch.id)] || 0;
-            const isLocked = checkIsLocked(index);
+            const isLocked = checkIsLocked(ch.id);
 
             const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
             const pageReacts = chapterStats[String(ch.id)]?.reacts || 0;
@@ -448,91 +491,111 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             const displayReacts = (ch.react_count || 0) + pageReacts;
 
             return (
-            <div key={ch.id} onClick={() => handleReadChapter(ch, index)} className="flex items-center gap-4 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
-              <div className="relative overflow-hidden rounded-lg min-w-[96px] sm:min-w-[128px]">
-                <img src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className={`w-24 h-24 sm:w-32 sm:h-32 object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`} alt="Thumbnail" />
+            <div key={ch.id} onClick={() => handleReadChapter(ch, absoluteIndex)} className="flex items-center gap-3 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-2 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
+              
+              <div className="relative overflow-hidden rounded-lg min-w-[72px] w-[72px] h-[72px] sm:min-w-[128px] sm:w-32 sm:h-32 flex-shrink-0">
+                <img src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className={`w-full h-full object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`} alt="Thumbnail" />
                 <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
                 {isLocked && (
-                  <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-md border border-zinc-700 p-1.5 rounded-md">
-                    <Lock className="w-3 h-3 text-zinc-400" />
+                  <div className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-black/80 backdrop-blur-md border border-zinc-700 p-1 sm:p-1.5 rounded-md">
+                    <Lock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-zinc-400" />
                   </div>
                 )}
               </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-1">
-                  <p className={`text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
+              
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
+                  <p className={`text-[9px] sm:text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
                   
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1.5 bg-zinc-900/80 border border-zinc-800 px-2 py-0.5 rounded-full">
-                       <Flame className="w-3 h-3 text-[#fe9a00] fill-[#fe9a00]/20" />
-                       <span className="text-[9px] text-zinc-300 font-bold">{displayHypes}</span>
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-900/80 border border-zinc-800 px-1.5 sm:px-2 py-0.5 rounded-full">
+                       <Flame className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-[#fe9a00] fill-[#fe9a00]/20" />
+                       <span className="text-[8px] sm:text-[9px] text-zinc-300 font-bold">{displayHypes}</span>
                     </div>
-                    <div className="flex items-center gap-1.5 bg-zinc-900/80 border border-zinc-800 px-2 py-0.5 rounded-full">
-                       <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-3 h-3 object-contain drop-shadow-md" />
-                       <span className="text-[9px] text-zinc-300 font-bold">{displayReacts}</span>
+                    <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-900/80 border border-zinc-800 px-1.5 sm:px-2 py-0.5 rounded-full">
+                       <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-2.5 h-2.5 sm:w-3 sm:h-3 object-contain drop-shadow-md" />
+                       <span className="text-[8px] sm:text-[9px] text-zinc-300 font-bold">{displayReacts}</span>
                     </div>
                   </div>
                 </div>
                 
-                <h3 className={`font-bold text-base sm:text-lg line-clamp-2 mb-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
+                <h3 className={`font-bold text-sm sm:text-lg truncate sm:line-clamp-2 sm:whitespace-normal mb-1.5 sm:mb-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
                 
                 {userTier !== 'visitor' && (
-                  <div className="flex flex-col gap-1 w-full max-w-[200px]">
+                  <div className="flex flex-col gap-1 w-full max-w-[150px] sm:max-w-[200px]">
                      <div className="flex items-center gap-2">
-                       <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                       <div className="flex-1 h-1 sm:h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                          <div 
                            className="h-full bg-[#fe9a00] rounded-full transition-all duration-500" 
                            style={{ width: `${isLocked ? 0 : actualProgress}%` }} 
                          />
                        </div>
-                       <span className="text-[10px] font-black text-zinc-500">{isLocked ? 0 : actualProgress}%</span>
+                       <span className="text-[8px] sm:text-[10px] font-black text-zinc-500">{isLocked ? 0 : actualProgress}%</span>
                      </div>
                      {actualProgress === 100 && !isLocked && (
-                       <span className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
+                       <span className="text-[8px] sm:text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
                      )}
                   </div>
                 )}
-
               </div>
               
-              {/* --- NEW QUICK JUMP ICONS --- */}
-              <div className="flex items-center gap-1 sm:gap-2 mr-1 sm:mr-4">
-                <button 
-                  onClick={(e) => scrollToSection(e, actionsRef, true)} 
-                  className="p-2 sm:p-2.5 rounded-full text-zinc-500 hover:text-[#fe9a00] hover:bg-zinc-800 transition-all"
-                  title="Jump to Support Series"
-                >
-                  <Flame className="w-4 h-4 sm:w-5 sm:h-5" />
-                </button>
-                <button 
-                  onClick={(e) => scrollToSection(e, commentsRef)} 
-                  className="p-2 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
-                  title="Jump to Comments"
-                >
-                  <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
-                </button>
-                <button 
-                  onClick={(e) => scrollToSection(e, creatorRef)} 
-                  className="p-2 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
-                  title="Jump to Creator"
-                >
-                  <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
-                </button>
-              </div>
+              <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <button 
+                    onClick={(e) => scrollToSection(e, actionsRef, true)} 
+                    className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-[#fe9a00] hover:bg-zinc-800 transition-all"
+                    title="Jump to Support Series"
+                  >
+                    <Flame className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+                  <button 
+                    onClick={(e) => scrollToSection(e, commentsRef)} 
+                    className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                    title="Jump to Comments"
+                  >
+                    <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+                  <button 
+                    onClick={(e) => scrollToSection(e, creatorRef)} 
+                    className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                    title="Jump to Creator"
+                  >
+                    <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+                </div>
 
-              <div className={`hidden sm:flex items-center justify-center w-10 h-10 rounded-full transition-colors ml-auto flex-shrink-0 ${isLocked ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-800 group-hover:bg-[#fe9a00]'}`}>
-                {isLocked ? (
-                   <Lock className="w-4 h-4 text-zinc-600" />
-                ) : (
-                   <Play className="w-4 h-4 text-white group-hover:text-black transition-colors ml-1" />
-                )}
+                <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full transition-colors flex-shrink-0 ${isLocked ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-800 group-hover:bg-[#fe9a00]'}`}>
+                  {isLocked ? (
+                     <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-zinc-600" />
+                  ) : (
+                     <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white group-hover:text-black transition-colors ml-0.5 sm:ml-1" />
+                  )}
+                </div>
               </div>
             </div>
           )})}
+          
           {chapters.length === 0 && <div className="text-center py-16 text-zinc-500 font-bold tracking-widest text-xs uppercase">No chapters uploaded yet.</div>}
+
+          {/* LOAD MORE BUTTONS */}
+          {visibleCount < chapters.length && (
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
+              <button 
+                onClick={() => setVisibleCount(prev => prev + 25)}
+                className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-900 border border-zinc-700 text-white text-[10px] font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors"
+              >
+                Load Next 25 Chapters
+              </button>
+              <button 
+                onClick={() => setVisibleCount(chapters.length)}
+                className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-950 border border-zinc-800 text-zinc-500 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors"
+              >
+                Load All Chapters
+              </button>
+            </div>
+          )}
         </div>
         
-        {/* --- COMMENTS SECTION REF ADDED HERE --- */}
         <div ref={commentsRef} className="w-full max-w-3xl mx-auto pt-8">
           <SeriesCommentsSection 
             seriesSlug={localSeries?.slug} 
@@ -543,11 +606,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           />        
         </div>
 
-        {/* --- CREATOR SECTION REF ADDED HERE --- */}
         <div ref={creatorRef} className="pb-24 px-6 w-full max-w-3xl mx-auto">
           <div className="border-t border-zinc-800 pt-12 flex flex-col items-center gap-16">
-            
-            {/* --- CREATOR NAME BUG FIX --- */}
             {creators.map((c: any, index) => {
               const safeName = c.name || 'Creator'; 
               return (
