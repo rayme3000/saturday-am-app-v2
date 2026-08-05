@@ -353,7 +353,13 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                               if (n.link_target.startsWith('http')) {
                                 window.open(n.link_target, '_blank');
                               } else {
-                                onNavigate({ action: n.link_target });
+                                // --- UPDATED: Pass full series object if matched ---
+                                const matchedSeries = seriesList.find((s: any) => s.slug === n.link_target);
+                                if (matchedSeries) {
+                                  onNavigate(matchedSeries);
+                                } else {
+                                  onNavigate({ action: n.link_target });
+                                }
                               }
                             }
                           }} 
