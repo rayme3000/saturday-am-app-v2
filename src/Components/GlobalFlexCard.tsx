@@ -126,37 +126,40 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const currentSkin = appliedSkin || defaultSkin;
 
   return (
-    <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 animate-fade-in" onClick={onClose}>
+    <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 md:p-12 animate-fade-in" onClick={onClose}>
       <button onClick={onClose} className="absolute top-6 right-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-[5010] shadow-2xl"><X className="w-6 h-6" /></button>
 
-      <div className="w-[100vw] h-[100vh] flex flex-col items-center justify-center card-perspective p-4 md:p-12">
+      {/* STATIC WRAPPER: Ensures WebKit rendering engine anchors the 3D perspective properly */}
+      <div className="relative w-full max-w-5xl aspect-[1.58]" style={{ perspective: '2000px', WebkitPerspective: '2000px' }}>
         {isLoading ? (
-          <div className="w-full max-w-5xl aspect-[1.58] rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center animate-pulse shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+          <div className="absolute inset-0 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center animate-pulse shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
              <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
           </div>
         ) : (
-          /* DECOUPLED WRAPPER: Handles container size independently so WebKit doesn't panic */
+          /* DECOUPLED 3D CORE: Inline explicit transforms bypass any rogue global CSS conflicts */
           <div 
-            className="relative w-full max-w-5xl aspect-[1.58] cursor-pointer"
-            style={{ containerType: 'inline-size' }}
+            className="absolute inset-0 w-full h-full cursor-pointer"
+            style={{ 
+              transformStyle: 'preserve-3d', 
+              WebkitTransformStyle: 'preserve-3d',
+              transition: 'transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1)',
+              transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+              WebkitTransform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'
+            }}
             onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}
           >
-            {/* 3D FLIPPER: Strictly manages 3D space */}
+            {/* === FRONT OF CARD === */}
             <div 
-              className={`absolute inset-0 w-full h-full card-flipper ${isFlipped ? 'is-flipped' : ''}`}
-              style={{ transformStyle: 'preserve-3d', WebkitTransformStyle: 'preserve-3d' }}
+              className="absolute inset-0 w-full h-full rounded-2xl bg-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden" 
+              style={{ 
+                backfaceVisibility: 'hidden', 
+                WebkitBackfaceVisibility: 'hidden',
+                transform: 'rotateY(0deg)',
+                WebkitTransform: 'rotateY(0deg)'
+              }}
             >
-              {/* === FRONT OF CARD === */}
-              {/* Added explicit rotateY(0deg) and translateZ(1px) anchor to fix iOS flickering */}
-              <div 
-                className="absolute inset-0 rounded-xl overflow-hidden bg-white flex flex-col justify-end shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700" 
-                style={{ 
-                  backfaceVisibility: 'hidden', 
-                  WebkitBackfaceVisibility: 'hidden',
-                  transform: 'rotateY(0deg) translateZ(1px)',
-                  WebkitTransform: 'rotateY(0deg) translateZ(1px)'
-                }}
-              >
+              {/* INNER QUARANTINE: Container-type is trapped inside the flat plane */}
+              <div className="w-full h-full relative" style={{ containerType: 'inline-size' }}>
                 <img src={currentSkin.image_url} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
                 <div className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }} />
                 
@@ -175,19 +178,19 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                   />
                 )}
               </div>
+            </div>
 
-              {/* === BACK OF CARD === */}
-              {/* Added explicit translateZ(1px) anchor to fix iOS z-fighting */}
-              <div 
-                className="absolute inset-0 rounded-xl bg-zinc-900 overflow-hidden flex flex-col justify-between shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700" 
-                style={{ 
-                  backfaceVisibility: 'hidden', 
-                  WebkitBackfaceVisibility: 'hidden', 
-                  transform: 'rotateY(180deg) translateZ(1px)', 
-                  WebkitTransform: 'rotateY(180deg) translateZ(1px)', 
-                  padding: '5cqi' 
-                }}
-              >
+            {/* === BACK OF CARD === */}
+            <div 
+              className="absolute inset-0 w-full h-full rounded-2xl bg-zinc-900 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden" 
+              style={{ 
+                backfaceVisibility: 'hidden', 
+                WebkitBackfaceVisibility: 'hidden', 
+                transform: 'rotateY(180deg)',
+                WebkitTransform: 'rotateY(180deg)'
+              }}
+            >
+              <div className="w-full h-full relative flex flex-col justify-between" style={{ containerType: 'inline-size', padding: '5cqi' }}>
                 <div className="absolute inset-0 pointer-events-none z-0" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }} />
                 <div className="relative z-10 flex flex-col h-full justify-between">
                   <div className="flex justify-between items-start border-b border-zinc-800 w-full min-w-0" style={{ paddingBottom: '3.5cqi', paddingRight: '2cqi' }}>
@@ -258,8 +261,8 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
             </div>
           </div>
         )}
-        <p className="text-zinc-500 font-bold uppercase tracking-widest mt-12 animate-pulse flex items-center gap-2 pointer-events-none text-[10px] md:text-sm"><RotateCcw className="w-4 h-4 md:w-5 md:h-5" /> Tap anywhere on card to flip</p>
       </div>
+      <p className="text-zinc-500 font-bold uppercase tracking-widest mt-8 md:mt-12 animate-pulse flex items-center gap-2 pointer-events-none text-[10px] md:text-sm"><RotateCcw className="w-4 h-4 md:w-5 md:h-5" /> Tap anywhere on card to flip</p>
     </div>
   );
 };
