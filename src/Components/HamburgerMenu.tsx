@@ -6,11 +6,11 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
 
   const menuItems = [
     { name: 'Browse Library', action: 'browse', prefetch: () => import('../MainViews/Browse.tsx') },
-    { name: 'Edit Profile', action: 'profile', prefetch: () => import('../VirtualProfile/UserProfile').then(mod => mod.UserProfile) },
+    { name: 'Profile', action: 'profile', prefetch: () => import('../VirtualProfile/UserProfile').then(mod => mod.UserProfile) },
     { name: 'My Favorites', action: 'faves', prefetch: () => import('../MainViews/MyFaves.tsx') },
     { name: 'Bingo Book', action: 'bingobook', prefetch: () => import('../VirtualProfile/BingoBook') },
     { name: 'Subscription', action: 'sub', prefetch: null },
-    { name: 'Leaderboard', action: 'leaderboard', prefetch: () => import('../MainViews/Leaderboard.tsx') },
+    { name: 'Leaderboards', action: 'leaderboard', prefetch: () => import('../MainViews/Leaderboard.tsx') },
     { name: 'Settings', action: 'settings', prefetch: () => import('../MainViews/Settings.tsx') }
   ];
 

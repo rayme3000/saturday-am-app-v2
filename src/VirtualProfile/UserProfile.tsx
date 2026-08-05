@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
 
-// NEW: We are now importing the freshly rebuilt standalone component!
+// --- NEW: Importing the standalone GlobalFlexCard component ---
 import { GlobalFlexCard } from '../Components/GlobalFlexCard';
 
 // --- SHARED PROFILE ANIMATION RENDERER ---
@@ -195,7 +195,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     const series = displaySeriesList.find((s: any) => s.slug === seriesSlug);
     if (!series) return null;
     return (
-      <div onClick={onClick} onMouseEnter={() => import('../MainViews/SeriesDetailPage')} onTouchStart={() => import('../MainViews/SeriesDetailPage')} className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all ${isEditingMode ? 'border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.4)]' : 'border border-zinc-800 shadow-lg hover:border-[#fe9a00]/50'}`}>
+      <div onClick={onClick} className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all ${isEditingMode ? 'border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.4)]' : 'border border-zinc-800 shadow-lg hover:border-[#fe9a00]/50'}`}>
         <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-black z-0" />
         <img src={series.character_url || series.cover_url} loading="lazy" alt="Character" className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4" />
         <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black via-black/90 to-transparent z-20" />
@@ -216,6 +216,10 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-20">
+      
+      {/* --- NEW: Renders the connected Flex Card component when triggered --- */}
+      <GlobalFlexCard isOpen={showFlexCard} onClose={() => setShowFlexCard(false)} />
+
       <div className="fixed inset-0 z-[-1] bg-black">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
@@ -323,7 +327,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
         {!isSubscriber ? (
           <div className="flex flex-col items-center w-full mt-12 mb-12 px-6">
             <div className="relative w-full max-w-sm aspect-[1.58] rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden shadow-2xl mb-6 group cursor-pointer" onClick={() => setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual AM Crew Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' })}>
-              {/* --- NEW: HARDCODED UPSELL IMAGE REPLACED WITH CARBON BLACK --- */}
               <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-60 mix-blend-overlay group-hover:scale-105 transition-transform duration-700" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col items-center justify-center p-6 text-center">
                  <div className="w-14 h-14 bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]"><Lock className="w-6 h-6 text-zinc-400"/></div>
@@ -335,7 +338,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           </div>
         ) : (
           <div className="flex justify-center w-full mt-12 mb-8">
-            <button onClick={() => setShowFlexCard(true)} className="flex items-center gap-4 bg-[#fe9a00] text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"><CreditCard className="w-6 h-6"/> Flex AM Crew Card</button>
+            <button onClick={() => setShowFlexCard(true)} className="flex items-center gap-4 bg-white text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)] w-max"><CreditCard className="w-6 h-6"/> Flex AM Crew Card</button>
           </div>
         )}
       </div>
@@ -396,7 +399,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
                 </div>
               )}
 
-              {/* --- NEW: SERIES IMAGES COMPLETELY REMOVED FROM CARD SKINS TAB --- */}
               {activeTab === 'card' && (
                 <div className="space-y-6">
                   <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-4">Select an artwork skin for your digital club card</p>

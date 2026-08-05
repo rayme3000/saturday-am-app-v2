@@ -60,6 +60,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] });
   const [isFlipped, setIsFlipped] = useState(false);
   const [avatarFrames, setAvatarFrames] = useState<any[]>([]);
+  const [activeSkins, setActiveSkins] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -73,8 +74,13 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
         return;
       }
 
+      // Fetch Frames
       const { data: framesData } = await supabase.from('avatar_frames').select('*').eq('is_active', true);
       if (framesData) setAvatarFrames(framesData);
+
+      // Fetch Skins to apply Command Center rules
+      const { data: skinsData } = await supabase.from('card_skins').select('*').eq('is_active', true);
+      if (skinsData) setActiveSkins(skinsData);
 
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
       const { data: allProfiles } = await supabase.from('profiles').select('id, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read');
@@ -110,6 +116,15 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const glowColor = frame?.glow_color && frame.glow_color !== 'transparent' ? frame.glow_color : 'transparent';
   const animStyle = frame ? frame.animation_style : 'none';
 
+  // Find the exact rules for the applied skin, or strictly default to Saturday White
+  const appliedSkin = activeSkins.find(s => s.image_url === userProfile.cardSkin);
+  const defaultSkin = activeSkins.find(s => s.name?.toLowerCase() === 'saturday white') || {
+    image_url: `${CLOUDFLARE_BASE_URL}/card-skins/saturday-white.png`,
+    show_icon: true,
+    icon_position: 'top-right'
+  };
+  const currentSkin = appliedSkin || defaultSkin;
+
   return (
     <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 animate-fade-in" onClick={onClose}>
       <button onClick={onClose} className="absolute top-6 right-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-[5010] shadow-2xl"><X className="w-6 h-6" /></button>
@@ -126,20 +141,25 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
             onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}
           >
             {/* === FRONT OF CARD === */}
-            <div className="absolute inset-0 rounded-xl overflow-hidden bg-zinc-900 flex flex-col justify-end shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
-              {userProfile.cardSkin ? (
-                <img src={userProfile.cardSkin} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
-              ) : (
-                <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-80 mix-blend-overlay z-0" />
-              )}
+            <div className="absolute inset-0 rounded-xl overflow-hidden bg-white flex flex-col justify-end shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}>
+              <img src={currentSkin.image_url} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
               <div className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }} />
               
-              <img 
-                src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" 
-                alt="Saturday AM Logo" 
-                className="absolute z-20 object-contain drop-shadow-[0_0_10px_rgba(0,0,0,0.8)]"
-                style={{ top: '4cqi', right: '4cqi', width: '7cqi', height: '7cqi' }}
-              />
+              {/* Overlays the foot icon dynamically based on Command Center rules */}
+              {currentSkin.show_icon !== false && (
+                <img 
+                  src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" 
+                  alt="Saturday AM Logo" 
+                  className="absolute z-20 object-contain drop-shadow-[0_0_10px_rgba(0,0,0,0.8)]"
+                  style={{ 
+                    width: '7cqi', height: '7cqi',
+                    top: currentSkin.icon_position === 'top-left' || currentSkin.icon_position === 'top-right' || !currentSkin.icon_position ? '4cqi' : 'auto',
+                    bottom: currentSkin.icon_position === 'bottom-left' || currentSkin.icon_position === 'bottom-right' ? '4cqi' : 'auto',
+                    left: currentSkin.icon_position === 'top-left' || currentSkin.icon_position === 'bottom-left' ? '4cqi' : 'auto',
+                    right: currentSkin.icon_position === 'top-right' || currentSkin.icon_position === 'bottom-right' || !currentSkin.icon_position ? '4cqi' : 'auto'
+                  }}
+                />
+              )}
             </div>
 
             {/* === BACK OF CARD === */}
