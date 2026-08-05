@@ -88,6 +88,10 @@ export default function App() {
   const [isFlexCardOpen, setIsFlexCardOpen] = useState(false);
   const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
 
+  // --- NEW: PASSWORD RESET STATE ---
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+
   // --- NEW: GLOBAL USER STATE ---
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userTier, setUserTier] = useState<'visitor' | 'free' | 'premium'>('visitor');
@@ -197,7 +201,12 @@ export default function App() {
     
     window.addEventListener('profileUpdated', handleProfileUpdate);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // --- UPDATED: Catching the PASSWORD_RECOVERY event ---
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setShowPasswordReset(true);
+      }
+      
       if (session?.user) {
         fetchUserProfile(session.user);
       } else {
@@ -347,6 +356,46 @@ export default function App() {
 
       {showLogin && (
         <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => { setShowLogin(false); }} />
+      )}
+
+      {/* --- NEW: PASSWORD RESET MODAL --- */}
+      {showPasswordReset && (
+        <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col shadow-2xl relative">
+            <button 
+              onClick={() => setShowPasswordReset(false)} 
+              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-2xl font-black italic uppercase text-[#fe9a00] mb-2">New Password</h2>
+            <p className="text-xs text-zinc-400 font-bold mb-6">Enter your new password below.</p>
+            
+            <input 
+              type="password" 
+              placeholder="New Password" 
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full bg-black border border-zinc-700 text-white px-4 py-3 rounded-lg mb-4 focus:border-[#fe9a00] outline-none font-bold"
+            />
+            
+            <button 
+              onClick={async () => {
+                const { error } = await supabase.auth.updateUser({ password: newPassword });
+                if (!error) {
+                  alert("Password updated successfully!");
+                  setShowPasswordReset(false);
+                  setNewPassword('');
+                } else {
+                  alert(error.message);
+                }
+              }}
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
+            >
+              Save Password
+            </button>
+          </div>
+        </div>
       )}
 
       {upsellConfig && (

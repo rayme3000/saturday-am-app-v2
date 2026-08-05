@@ -70,7 +70,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
 
     return Array.from(uniqueCreatorsMap.values())
       .sort((a: any, b: any) => a.name.localeCompare(b.name))
-      .map((creator: any) => ({ id: creator.name, ...creator })); // Fix: Uses creator name instead of unstable index
+      .map((creator: any) => ({ id: creator.name, ...creator })); 
   }, [seriesList]);
 
   const [unlockedCreators, setUnlockedCreators] = useState<string[]>([]);
@@ -107,11 +107,34 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     checkUser();
   }, []);
 
+  // --- NEW: AUTOMATIC LEGACY DATA CLEANUP ---
   useEffect(() => {
     if (CREATOR_TARGETS.length > 0) {
       localStorage.setItem('am_bingo_total', CREATOR_TARGETS.length.toString());
+
+      setUnlockedCreators(prev => {
+        // Filter out any ghost/legacy IDs that don't match our current creators
+        const validHunts = prev.filter(id => CREATOR_TARGETS.some(t => t.id === id));
+        
+        // If we found invalid data, clean up local storage so it never happens again
+        if (validHunts.length !== prev.length) {
+          localStorage.setItem('am_bingo_hunts', JSON.stringify(validHunts));
+          
+          setSignatures(prevSigs => {
+            const validSigs: Record<string, string> = {};
+            validHunts.forEach(id => {
+              if (prevSigs[id]) validSigs[id] = prevSigs[id];
+            });
+            localStorage.setItem('am_bingo_sigs', JSON.stringify(validSigs));
+            return validSigs;
+          });
+          
+          return validHunts;
+        }
+        return prev;
+      });
     }
-  }, [CREATOR_TARGETS.length]);
+  }, [CREATOR_TARGETS]);
 
   const initCanvas = () => {
     const canvas = canvasRef.current;

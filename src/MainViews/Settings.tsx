@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Lock, CreditCard, Bell, Smartphone, Shield, ChevronRight, LogOut, AlertTriangle, ExternalLink, UserPlus } from 'lucide-react';
+import { ArrowLeft, Lock, CreditCard, Bell, Smartphone, Shield, ChevronRight, LogOut, AlertTriangle, ExternalLink, UserPlus, X, CheckCircle } from 'lucide-react';
 import { supabase } from '../supabase';
 
 // --- ADDED onLoginClick PROP ---
@@ -8,6 +8,9 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [userId, setUserId] = useState('');
+
+  // --- NEW: IN-APP ALERT STATE ---
+  const [alertConfig, setAlertConfig] = useState<{ type: 'success' | 'error', title: string, message: string } | null>(null);
 
   const isPremium = userTier === 'premium';
   const isVisitor = userTier === 'visitor'; // --- ADDED VISITOR CHECK ---
@@ -34,16 +37,16 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
     fetchSettings();
   }, [isVisitor]);
 
-  // 2. Handle Password Reset
+  // 2. Handle Password Reset (UPDATED TO USE IN-APP ALERT)
   const handlePasswordReset = async () => {
     if (!userEmail) return;
     const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
       redirectTo: window.location.origin,
     });
     if (error) {
-      alert(error.message);
+      setAlertConfig({ type: 'error', title: 'Reset Failed', message: error.message });
     } else {
-      alert("A password reset link has been sent to your email!");
+      setAlertConfig({ type: 'success', title: 'Email Sent', message: 'A password reset link has been sent to your email!' });
     }
   };
 
@@ -249,6 +252,33 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
         </section>
 
       </div>
+
+      {/* --- NEW: IN-APP ALERT MODAL --- */}
+      {alertConfig && (
+        <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setAlertConfig(null)}>
+          <div className={`bg-zinc-950 border ${alertConfig.type === 'error' ? 'border-red-900/50' : 'border-[#fe9a00]/50'} p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative`} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setAlertConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-6 ${alertConfig.type === 'error' ? 'bg-red-900/20 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]' : 'bg-[#fe9a00]/20 border border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.3)]'}`}>
+              {alertConfig.type === 'error' ? <AlertTriangle className="w-8 h-8 text-red-500" /> : <CheckCircle className="w-8 h-8 text-[#fe9a00]" />}
+            </div>
+            <h2 className="text-xl font-black italic uppercase tracking-tighter text-white mb-2">
+              {alertConfig.title}
+            </h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
+              {alertConfig.message}
+            </p>
+            <button 
+              onClick={() => setAlertConfig(null)} 
+              className={`w-full font-black uppercase tracking-widest py-3 rounded transition-colors ${alertConfig.type === 'error' ? 'bg-red-600 text-white hover:bg-red-500' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_15px_rgba(254,154,0,0.3)]'}`}
+            >
+              Okay
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
