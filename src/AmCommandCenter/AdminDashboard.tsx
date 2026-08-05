@@ -7,8 +7,207 @@ import { AvatarMaker } from './AvatarMaker';
 import { StickerMaker } from './StickerMaker';
 import { CardSkinMaker } from './CardSkinMaker';
 import { FrameMaker } from './FrameMaker'; 
-import { ModerationDashboard } from './ModerationDashboard'; // <--- NEW IMPORT
+import { ModerationDashboard } from './ModerationDashboard';
 import { supabase } from '../supabase';
+import { Bell, Send, BookOpen, Star, Sparkles } from 'lucide-react';
+import { useSeriesData } from '../userSeriesData';
+
+// --- UPDATED: STREAMLINED NOTIFICATION CREATOR ---
+const NotificationCenter = () => {
+  const { seriesList = [] } = useSeriesData();
+  
+  const [notifType, setNotifType] = useState<'chapter' | 'feature' | 'custom'>('chapter');
+  const [selectedSeriesSlug, setSelectedSeriesSlug] = useState('');
+  
+  const [title, setTitle] = useState('New Chapter Drop!');
+  const [message, setMessage] = useState('');
+  const [thumbnailUrl, setThumbnailUrl] = useState('');
+  const [linkTarget, setLinkTarget] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Handle changing the notification workflow type
+  const handleTypeChange = (type: 'chapter' | 'feature' | 'custom') => {
+    setNotifType(type);
+    setSelectedSeriesSlug('');
+    
+    if (type === 'feature') {
+      setTitle('App Feature Update');
+      setMessage('');
+      setThumbnailUrl('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png');
+      setLinkTarget('');
+    } else if (type === 'chapter') {
+      setTitle('New Chapter Drop!');
+      setMessage('');
+      setThumbnailUrl('');
+      setLinkTarget('');
+    } else {
+      setTitle('');
+      setMessage('');
+      setThumbnailUrl('');
+      setLinkTarget('');
+    }
+  };
+
+  // Handle auto-filling data when a series is selected
+  const handleSeriesSelect = (slug: string) => {
+    setSelectedSeriesSlug(slug);
+    const series = seriesList.find((s: any) => s.slug === slug);
+    
+    if (series) {
+      setMessage(`Chapter Drop: NEW ${series.title}!`);
+      setThumbnailUrl(series.cover_url || '');
+      setLinkTarget(series.slug);
+    } else {
+      setMessage('');
+      setThumbnailUrl('');
+      setLinkTarget('');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title || !message) return alert("Title and Message are required!");
+    
+    setIsSubmitting(true);
+    const { error } = await supabase.from('app_notifications').insert([{
+      title,
+      message,
+      thumbnail_url: thumbnailUrl || null,
+      link_target: linkTarget || null
+    }]);
+    
+    setIsSubmitting(false);
+    
+    if (error) {
+      alert("Error: " + error.message);
+    } else {
+      alert("Notification Blasted Successfully!");
+      // Reset form based on current type
+      handleTypeChange(notifType);
+    }
+  };
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-2xl">
+      <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
+        <Bell className="w-6 h-6 text-[#fe9a00]" />
+        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Push Notification Blaster</h2>
+      </div>
+
+      {/* WORKFLOW SELECTOR */}
+      <div className="grid grid-cols-3 gap-3 mb-8">
+        <button 
+          onClick={() => handleTypeChange('chapter')}
+          className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'chapter' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}
+        >
+          <BookOpen className="w-5 h-5 mb-2" />
+          <span className="text-[9px] font-black uppercase tracking-widest">Chapter Drop</span>
+        </button>
+        <button 
+          onClick={() => handleTypeChange('feature')}
+          className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'feature' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}
+        >
+          <Sparkles className="w-5 h-5 mb-2" />
+          <span className="text-[9px] font-black uppercase tracking-widest">Feature Update</span>
+        </button>
+        <button 
+          onClick={() => handleTypeChange('custom')}
+          className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'custom' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}
+        >
+          <Star className="w-5 h-5 mb-2" />
+          <span className="text-[9px] font-black uppercase tracking-widest">Custom Alert</span>
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        
+        {/* SERIES DROPDOWN (Only visible if Chapter Drop is selected) */}
+        {notifType === 'chapter' && (
+          <div className="p-4 bg-black border border-zinc-800 rounded-xl mb-4">
+            <label className="block text-[#fe9a00] font-bold uppercase tracking-widest text-[10px] mb-2">Select Series to Auto-Fill</label>
+            <select 
+              value={selectedSeriesSlug}
+              onChange={(e) => handleSeriesSelect(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]"
+            >
+              <option value="">-- Choose a Series --</option>
+              {seriesList.map((series: any) => (
+                <option key={series.id} value={series.slug}>{series.title}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Notification Title</label>
+          <input 
+            type="text" 
+            value={title} 
+            onChange={e => setTitle(e.target.value)} 
+            required 
+            maxLength={50}
+            className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]" 
+            placeholder="e.g. New Chapter Drop!" 
+          />
+        </div>
+        
+        <div>
+          <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Message Body</label>
+          <textarea 
+            value={message} 
+            onChange={e => setMessage(e.target.value)} 
+            required 
+            rows={3} 
+            maxLength={150}
+            className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]" 
+            placeholder="Brief description of the update..." 
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Thumbnail URL</label>
+            <input 
+              type="url" 
+              value={thumbnailUrl} 
+              onChange={e => setThumbnailUrl(e.target.value)} 
+              className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]" 
+              placeholder="https://..." 
+            />
+          </div>
+
+          <div>
+            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Link Target</label>
+            <input 
+              type="text" 
+              value={linkTarget} 
+              onChange={e => setLinkTarget(e.target.value)} 
+              className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]" 
+              placeholder="e.g. apple-black" 
+            />
+          </div>
+        </div>
+
+        {/* THUMBNAIL PREVIEW */}
+        {thumbnailUrl && (
+          <div className="flex items-center gap-4 p-4 bg-black border border-zinc-800 rounded-xl">
+            <img src={thumbnailUrl} alt="Thumbnail Preview" className="w-12 h-12 object-cover rounded border border-zinc-700" />
+            <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Thumbnail Preview</span>
+          </div>
+        )}
+
+        <button 
+          type="submit" 
+          disabled={isSubmitting} 
+          className="mt-6 w-full flex items-center justify-center gap-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Send className="w-4 h-4" />
+          {isSubmitting ? 'Broadcasting...' : 'Blast Notification'}
+        </button>
+      </form>
+    </div>
+  );
+};
 
 export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any) => {
   const [activeTab, setActiveTab] = useState('home');
@@ -68,7 +267,8 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
     { id: 'frames', label: 'Frame Maker' }, 
     { id: 'stickers', label: 'Sticker Maker' },
     { id: 'cardskins', label: 'Card Skin Studio' },
-    { id: 'moderation', label: 'Moderation' } // <--- ADDED TO TABS MENU HERE
+    { id: 'moderation', label: 'Moderation' },
+    { id: 'notifications', label: 'Push Alerts' }
   ];
 
   return (
@@ -98,7 +298,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           ))}
         </div>
 
-{/* BINGO BOOK SETTINGS PANEL */}
+        {/* BINGO BOOK SETTINGS PANEL */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-8 shadow-lg">
           <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
             <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Bingo Book Control</h2>
@@ -164,7 +364,8 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           {activeTab === 'frames' && <FrameMaker />} 
           {activeTab === 'stickers' && <StickerMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
           {activeTab === 'cardskins' && <CardSkinMaker />}
-          {activeTab === 'moderation' && <ModerationDashboard />} {/* <--- RENDERED HERE */}
+          {activeTab === 'moderation' && <ModerationDashboard />}
+          {activeTab === 'notifications' && <NotificationCenter />}
         </div>
       </div>
     </div>

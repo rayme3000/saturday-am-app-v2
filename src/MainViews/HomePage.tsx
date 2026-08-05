@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { MagazineHomeSection } from './MagazineHomeSection';
 import { SeriesSection } from './SeriesSection';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
-import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play, Trophy, Crown, Zap } from 'lucide-react';
+import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play, Trophy, Crown, Zap, Bell, CheckCircle } from 'lucide-react';
 
 export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, userTier }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
@@ -17,7 +17,35 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [recentReads, setRecentReads] = useState<any[]>([]);
 
+  // --- NOTIFICATIONS STATE ---
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [dismissedNotifs, setDismissedNotifs] = useState<string[]>([]);
+
+  // Calculate only the notifications the user hasn't explicitly dismissed
+  const visibleNotifications = useMemo(() => {
+    return notifications.filter(n => !dismissedNotifs.includes(n.id));
+  }, [notifications, dismissedNotifs]);
+
+  // --- BULLETPROOF NOTIFICATION FETCHER ---
+  const fetchGlobalNotifications = async () => {
+    try {
+      const { data: notifData } = await supabase.from('app_notifications').select('*').order('created_at', { ascending: false }).limit(15);
+      if (notifData) {
+        // Filter out any ghost/empty rows that might have snuck in via Realtime
+        const validData = notifData.filter(n => n && n.id && n.title);
+        setNotifications(validData);
+      }
+    } catch (e) {
+      console.error("Error fetching notifs:", e);
+    }
+  };
+
   useEffect(() => {
+    // Load previously dismissed notifications from device storage
+    const savedDismissed = JSON.parse(localStorage.getItem('am_dismissed_notifs') || '[]');
+    setDismissedNotifs(savedDismissed);
+
     const fetchHomeData = async () => {
       try {
         const { data: slideData } = await supabase.from('hero_slides').select('*').order('id', { ascending: true });
@@ -28,14 +56,63 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
         const { data: magData } = await supabase.from('magazines').select('*').eq('home_section', 'Featured').order('display_order', { ascending: true });
         if (magData) setHomeMagazines(magData);
+
+        // INITIAL NOTIFICATION FETCH
+        await fetchGlobalNotifications();
       } catch (err: any) {
         console.error("Error fetching home data:", err.message);
       } finally {
         setIsLoadingSlides(false);
       }
     };
+    
     fetchHomeData();
+
+    // --- SMART REALTIME SUBSCRIPTION ---
+    const notifChannel = supabase
+      .channel('public:app_notifications')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'app_notifications' },
+        (payload) => {
+          // If RLS strips the data, payload.new might be empty `{}`
+          if (payload.new && payload.new.id && payload.new.title) {
+            setNotifications((current) => {
+              if (current.some(n => n.id === payload.new.id)) return current;
+              return [payload.new, ...current].slice(0, 15);
+            });
+          } else {
+            // THE FALLBACK: Realtime pinged us, but data was hidden. Manually fetch it!
+            fetchGlobalNotifications();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(notifChannel);
+    };
   }, []);
+
+  // Fetch fresh data EVERY time the user clicks the bell icon
+  useEffect(() => {
+    if (showNotifications) fetchGlobalNotifications();
+  }, [showNotifications]);
+
+  const handleDismissNotif = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const updated = [...dismissedNotifs, id];
+    setDismissedNotifs(updated);
+    localStorage.setItem('am_dismissed_notifs', JSON.stringify(updated));
+  };
+
+  const handleClearAllNotifs = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const allLoadedIds = notifications.map(n => n.id);
+    const updated = Array.from(new Set([...dismissedNotifs, ...allLoadedIds]));
+    setDismissedNotifs(updated);
+    localStorage.setItem('am_dismissed_notifs', JSON.stringify(updated));
+  };
 
   useEffect(() => {
     const fetchRecentReads = async () => {
@@ -94,7 +171,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           if (chap) {
             const series = seriesList.find((s: any) => s.slug === chap.series_slug);
             if (!series) {
-              console.warn("Could not find matching series for slug:", chap.series_slug);
               return null;
             }
             return {
@@ -175,8 +251,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
       </div>
 
-      {/* TOP NAVIGATION BAR */}
-      <nav className="w-full z-50 p-4 sm:p-6 flex justify-between items-center bg-black/50 backdrop-blur-md border-b border-zinc-900/50 mb-8 rounded-2xl shadow-lg">
+      {/* TOP NAVIGATION BAR - ADDED RELATIVE AND Z-100 */}
+      <nav className="relative w-full z-[100] p-4 sm:p-6 flex justify-between items-center bg-black/50 backdrop-blur-md border-b border-zinc-900/50 mb-8 rounded-2xl shadow-lg">
         
         <button onClick={onMenuToggle} className="p-2 hover:bg-zinc-800/80 rounded-full transition-colors">
            <Menu className="w-6 h-6 text-white" />
@@ -190,7 +266,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           />
         </div>
         
-        {/* RIGHT SIDE: AUTH + HELP BUTTON */}
+        {/* RIGHT SIDE: AUTH + NOTIFICATIONS + HELP */}
         <div className="flex items-center gap-2 sm:gap-4">
           {currentUser ? (
             <div className="flex items-center gap-3 sm:gap-6">
@@ -198,7 +274,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                 className="hidden sm:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
                 onClick={() => onNavigate({ action: 'profile' })}
               >
-                 {/* NEW AVATAR RENDER */}
                  <DecoratedAvatar avatarUrl={currentUser.avatar_url} frameId={currentUser.frame_id} size="w-8 h-8" iconSize="w-4 h-4" />
                  
                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#fe9a00]">
@@ -222,6 +297,91 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
               Login
             </button>
           )}
+
+          {/* IN-APP NOTIFICATIONS BELL */}
+          <div className="relative">
+            <button 
+              onClick={() => setShowNotifications(!showNotifications)} 
+              className="p-2 sm:p-2.5 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all relative"
+            >
+              <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors" />
+              {/* Only pulses the red dot if there is an un-dismissed message */}
+              {visibleNotifications.length > 0 && (
+                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-zinc-900 animate-pulse" />
+              )}
+            </button>
+            
+            {showNotifications && (
+              <>
+                <div className="fixed inset-0 z-[190]" onClick={() => setShowNotifications(false)} />
+                <div className="absolute top-full mt-2 right-0 w-72 sm:w-80 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden z-[200] animate-fade-in-up">
+                  <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-black/50">
+                    <h3 className="font-black italic uppercase text-white tracking-widest text-sm">Updates</h3>
+                    <div className="flex items-center gap-3">
+                      {visibleNotifications.length > 0 && (
+                        <button 
+                          onClick={handleClearAllNotifs} 
+                          className="text-[9px] text-zinc-500 hover:text-white uppercase tracking-widest font-black transition-colors"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => setShowNotifications(false)} 
+                        className="text-zinc-500 hover:text-white transition-colors"
+                        title="Close"
+                      >
+                        <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Min-height ensures the box never collapses to an empty sliver */}
+                  <div className="max-h-96 min-h-[120px] overflow-y-auto no-scrollbar relative bg-black/20">
+                    {visibleNotifications.length === 0 ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+                        <CheckCircle className="w-8 h-8 text-zinc-700 mb-3" />
+                        <span className="text-zinc-500 font-bold text-[10px] uppercase tracking-widest leading-relaxed">You're all caught up</span>
+                      </div>
+                    ) : (
+                      visibleNotifications.map(n => (
+                        <div 
+                          key={n.id} 
+                          onClick={() => { 
+                            setShowNotifications(false);
+                            if (n.link_target) {
+                              if (n.link_target.startsWith('http')) {
+                                window.open(n.link_target, '_blank');
+                              } else {
+                                onNavigate({ action: n.link_target });
+                              }
+                            }
+                          }} 
+                          className="relative group p-4 border-b border-zinc-800/50 hover:bg-zinc-800 cursor-pointer flex gap-4 transition-colors pr-10"
+                        >
+                          <button 
+                            onClick={(e) => handleDismissNotif(e, n.id)} 
+                            className="absolute top-2 right-2 p-1.5 text-zinc-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-black/50 z-10"
+                            title="Dismiss"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                          
+                          {n.thumbnail_url && (
+                            <img src={n.thumbnail_url} className="w-12 h-12 rounded object-cover flex-shrink-0 border border-zinc-700 bg-black" alt="Notification" />
+                          )}
+                          <div className="flex flex-col justify-center w-full min-w-0">
+                            <span className="text-white font-black text-xs uppercase tracking-wider leading-tight group-hover:text-[#fe9a00] transition-colors truncate">{n.title}</span>
+                            <span className="text-zinc-400 text-[10px] font-bold mt-1 line-clamp-2 leading-relaxed">{n.message}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
           
           <button 
             onClick={() => setShowHelpModal(true)} 
