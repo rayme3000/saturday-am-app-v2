@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, ArrowDown, User, Heart, Lock, X, MessageSquare, PenTool } from 'lucide-react';
+import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, ArrowDown, User, Heart, Lock, X, MessageSquare, PenTool, Crown } from 'lucide-react';
 import { supabase } from '../supabase';
 import { MangaReader } from './MangaReader';
 import { SuperHypeButton } from '../Components/SuperHypeButton';
@@ -33,9 +33,14 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [startPage, setStartPage] = useState(0);
   const [hasAutoOpened, setHasAutoOpened] = useState(false);
 
-  // --- NEW: PAGINATION & SORTING STATES ---
+  // --- PAGINATION & SORTING STATES ---
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [visibleCount, setVisibleCount] = useState(25);
+
+  // --- AD UNLOCK STATES ---
+  const [showAdModal, setShowAdModal] = useState(false);
+  const [targetChapter, setTargetChapter] = useState<any>(null);
+  const [unlockedChapters, setUnlockedChapters] = useState<string[]>([]);
 
   const actionsRef = useRef<HTMLDivElement>(null);
   const commentsRef = useRef<HTMLDivElement>(null);
@@ -75,6 +80,27 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
+
+  // --- FETCH TEMPORARY UNLOCKS ---
+  useEffect(() => {
+    const fetchUnlocks = async () => {
+      if (userTier === 'premium' || userTier === 'visitor') return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('temporary_unlocks')
+          .select('chapter_id');
+          
+        if (error) throw error;
+        if (data) {
+          setUnlockedChapters(data.map(d => d.chapter_id));
+        }
+      } catch (err) {
+        console.error("Error fetching temporary unlocks:", err);
+      }
+    };
+    fetchUnlocks();
+  }, [userTier, currentUserId]);
 
   useEffect(() => {
     if (!series) return;
@@ -239,13 +265,21 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   };
 
   const handleReadChapter = async (chapter: any, absoluteIndex: number, initialPage = 0) => {
-    if (checkIsLocked(chapter.id)) {
-      setUpsellConfig({
-        type: userTier === 'visitor' ? 'visitor' : 'premium',
-        message: userTier === 'visitor' 
-          ? "Create a Free Account to unlock Chapters 1-3 and read the newest release." 
-          : "This chapter is locked in the vault! Upgrade to a Premium Subscription for just $3.99/mo to get full access."
-      });
+    const isInitiallyLocked = checkIsLocked(chapter.id);
+    const hasTempUnlock = unlockedChapters.includes(chapter.id);
+
+    if (isInitiallyLocked && !hasTempUnlock) {
+      if (userTier === 'visitor') {
+        setUpsellConfig({
+          type: 'visitor',
+          message: "Create a Free Account to unlock Chapters 1-3 and read the newest release." 
+        });
+        return;
+      }
+      
+      // Target is a premium chapter, user is free, and doesn't have an active ad-unlock
+      setTargetChapter(chapter);
+      setShowAdModal(true);
       return;
     }
 
@@ -263,6 +297,35 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     } 
     else { 
       alert("No pages found for this chapter yet!"); 
+    }
+  };
+
+  // --- SECURE AD UNLOCK RPC CALL ---
+  const handleAdComplete = async () => {
+    if (!targetChapter) return;
+    
+    try {
+      const { data, error } = await supabase.rpc('unlock_chapter_with_ad', {
+        p_chapter_id: targetChapter.id
+      });
+
+      if (error) throw error;
+
+      if (data === true) {
+        alert("Chapter Unlocked for 24 Hours!");
+        setUnlockedChapters(prev => [...prev, targetChapter.id]);
+        setShowAdModal(false);
+        
+        // Automatically drop them into the reader now that it's unlocked
+        const absoluteIndex = chapters.findIndex(c => c.id === targetChapter.id);
+        handleReadChapter(targetChapter, absoluteIndex, 0);
+      } else {
+        alert("You have reached your daily ad-unlock limit! Upgrade to Pro for unlimited reading.");
+        setShowAdModal(false);
+      }
+    } catch (err) {
+      console.error("Error unlocking chapter:", err);
+      alert("An error occurred. Please try again.");
     }
   };
 
@@ -482,7 +545,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           {displayedChapters.map((ch: any) => {
             const absoluteIndex = chapters.findIndex(c => c.id === ch.id);
             const actualProgress = readProgresses[String(ch.id)] || 0;
-            const isLocked = checkIsLocked(ch.id);
+            const hasTempUnlock = unlockedChapters.includes(ch.id);
+            const isLocked = checkIsLocked(ch.id) && !hasTempUnlock;
 
             const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
             const pageReacts = chapterStats[String(ch.id)]?.reacts || 0;
@@ -520,9 +584,14 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 </div>
                 
                 <h3 className={`font-bold text-sm sm:text-lg truncate sm:line-clamp-2 sm:whitespace-normal mb-1.5 sm:mb-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
+                {hasTempUnlock && (
+                  <span className="text-green-500 text-[9px] font-black uppercase tracking-widest mt-1 block">
+                    Unlocked (24h)
+                  </span>
+                )}
                 
                 {userTier !== 'visitor' && (
-                  <div className="flex flex-col gap-1 w-full max-w-[150px] sm:max-w-[200px]">
+                  <div className="flex flex-col gap-1 w-full max-w-[150px] sm:max-w-[200px] mt-1">
                      <div className="flex items-center gap-2">
                        <div className="flex-1 h-1 sm:h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                          <div 
@@ -652,6 +721,51 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
         </div>
       </div>
+      
+      {/* WATCH TO UNLOCK MODAL */}
+      {showAdModal && (
+        <div className="fixed inset-0 z-[6000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
+            <button 
+              onClick={() => setShowAdModal(false)} 
+              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            
+            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <Lock className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+            
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+              Chapter Locked
+            </h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
+              This is a Premium chapter! Upgrade to Pro for unlimited access, or watch a quick video to unlock it for 24 hours.
+            </p>
+            
+            <div className="flex flex-col gap-3 w-full">
+              <button 
+                onClick={handleAdComplete} 
+                className="w-full bg-white text-black font-black uppercase tracking-widest py-3 rounded-xl hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2"
+              >
+                <Play className="w-4 h-4" /> Watch Ad to Unlock
+              </button>
+              
+              <button 
+                onClick={() => { 
+                  setShowAdModal(false); 
+                  alert("Navigating to Subscription Page..."); 
+                }} 
+                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] flex items-center justify-center gap-2"
+              >
+                <Crown className="w-4 h-4" /> Upgrade to Pro
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

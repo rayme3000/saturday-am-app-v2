@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
-import { MagazineHomeSection } from './MagazineHomeSection';
+import { MagazineHomeSection } from "../MainViews/MagazineHomeSection";
 import { SeriesSection } from './SeriesSection';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
 import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play, Trophy, Crown, Zap, Bell, CheckCircle, User, LogOut, Settings } from 'lucide-react';
