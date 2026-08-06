@@ -251,51 +251,42 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
       </div>
 
-      {/* TOP NAVIGATION BAR - ADDED RELATIVE AND Z-100 */}
+      {/* TOP NAVIGATION BAR - ENLARGED CENTER LOGO */}
       <nav className="relative w-full z-[100] p-4 sm:p-6 flex justify-between items-center bg-black/50 backdrop-blur-md border-b border-zinc-900/50 mb-8 rounded-2xl shadow-lg">
         
-        <button onClick={onMenuToggle} className="p-2 hover:bg-zinc-800/80 rounded-full transition-colors">
-           <Menu className="w-6 h-6 text-white" />
-        </button>
+        {/* LEFT: HAMBURGER */}
+        <div className="flex-1 flex justify-start">
+          <button onClick={onMenuToggle} className="p-2 hover:bg-zinc-800/80 rounded-full transition-colors">
+             <Menu className="w-6 h-6 text-white" />
+          </button>
+        </div>
         
-        <div className="flex items-center gap-4 cursor-pointer" onClick={() => onNavigate({ action: 'home' })}>
+        {/* CENTER: ENLARGED LOGO */}
+        <div className="flex items-center justify-center cursor-pointer flex-shrink-0" onClick={() => onNavigate({ action: 'home' })}>
           <img 
             src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png" 
             alt="Saturday AM" 
-            className="h-8 md:h-10 object-contain drop-shadow-md hover:scale-105 transition-transform" 
+            className="h-12 md:h-16 object-contain drop-shadow-md hover:scale-105 transition-transform" 
           />
         </div>
         
-        {/* RIGHT SIDE: AUTH + NOTIFICATIONS + HELP */}
-        <div className="flex items-center gap-2 sm:gap-4">
-          {currentUser ? (
-            <div className="flex items-center gap-3 sm:gap-6">
-              <div 
-                className="hidden sm:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={() => onNavigate({ action: 'profile' })}
-              >
-                 <DecoratedAvatar avatarUrl={currentUser.avatar_url} frameId={currentUser.frame_id} size="w-8 h-8" iconSize="w-4 h-4" />
-                 
-                 <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#fe9a00]">
-                   Welcome,{' '}
-                   <span className={userTier === 'premium' ? 'text-purple-400 drop-shadow-[0_0_10px_rgba(168,85,247,0.8)] transition-colors duration-500' : 'text-[#fe9a00]'}>
-                     {currentUser.username || 'Reader'}
-                   </span>
+        {/* RIGHT: AUTH PROFILE + NOTIFICATIONS + HELP */}
+        <div className="flex-1 flex items-center justify-end gap-2 sm:gap-4">
+          {currentUser && (
+            <div className="hidden sm:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity mr-2" onClick={() => onNavigate({ action: 'profile' })}>
+               <DecoratedAvatar avatarUrl={currentUser.avatar_url} frameId={currentUser.frame_id} size="w-8 h-8" iconSize="w-4 h-4" />
+               
+               <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#fe9a00]">
+                 <span className={userTier === 'premium' ? 'text-purple-400 drop-shadow-[0_0_10px_rgba(168,85,247,0.8)] transition-colors duration-500' : 'text-[#fe9a00]'}>
+                   {currentUser.username || 'Reader'}
                  </span>
-                 {userTier === 'premium' && (
-                   <span className="bg-purple-900/40 border border-purple-500 text-purple-400 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black tracking-widest uppercase ml-1 animate-fade-in">
-                     PRO
-                   </span>
-                 )}
-              </div>
-              <button onClick={handleLogout} className="bg-zinc-900 border border-zinc-700 text-white px-4 sm:px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-sm hover:bg-red-600 hover:border-red-600 transition-all">
-                Logout
-              </button>
+               </span>
+               {userTier === 'premium' && (
+                 <span className="bg-purple-900/40 border border-purple-500 text-purple-400 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black tracking-widest uppercase ml-1 animate-fade-in">
+                   PRO
+                 </span>
+               )}
             </div>
-          ) : (
-            <button onClick={onLoginClick} className="bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-sm hover:bg-white hover:shadow-[0_0_15px_rgba(254,154,0,0.4)] transition-all">
-              Login
-            </button>
           )}
 
           {/* IN-APP NOTIFICATIONS BELL */}

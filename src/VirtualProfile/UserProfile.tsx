@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, Activity } from 'lucide-react';
+import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, Activity, LogOut } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
-
-// --- NEW: Importing the standalone GlobalFlexCard component ---
 import { GlobalFlexCard } from '../Components/GlobalFlexCard';
 
 // --- SHARED PROFILE ANIMATION RENDERER ---
@@ -55,7 +53,7 @@ const RenderFrameAnimations = ({ anim, color }: { anim: string, color: string })
   );
 };
 
-export const UserProfile = ({ onBack, onNavigate }: any) => {
+export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [showFlexCard, setShowFlexCard] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -241,7 +239,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
             <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
             <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
             <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
-            <button onClick={() => { setUpsellConfig(null); onNavigate({ action: 'settings' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Sign up / Subscribe</button>
+            <button onClick={() => { setUpsellConfig(null); onLoginClick ? onLoginClick() : onNavigate({ action: 'settings' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Sign up / Subscribe</button>
           </div>
         </div>
       )}
@@ -257,8 +255,16 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           <div className="relative group cursor-pointer" onClick={() => openEditor('frame')}>
             {renderAvatarWithFrame(userProfile.avatarUrl, userProfile.frameId)}
           </div>
-          <div className="text-center sm:text-left pb-2">
-            <button onClick={() => openEditor('faves')} className="flex items-center gap-2 bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-white hover:scale-105 transition-all mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]"><Settings className="w-3 h-3" /> Edit Profile</button>
+          <div className="text-center sm:text-left pb-2 w-full sm:w-auto">
+            {/* --- DYNAMIC LOGIN/LOGOUT LOGIC --- */}
+            {isLoggedIn ? (
+              <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 mb-3">
+                <button onClick={() => openEditor('faves')} className="flex items-center justify-center gap-2 bg-[#fe9a00] text-black px-6 py-2.5 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-white hover:scale-105 transition-all shadow-[0_0_15px_rgba(254,154,0,0.3)] w-full sm:w-auto"><Settings className="w-3 h-3" /> Edit Profile</button>
+                <button onClick={async () => { await supabase.auth.signOut(); onBack(); }} className="flex items-center justify-center gap-2 bg-zinc-900 border border-zinc-700 text-white px-6 py-2.5 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-red-600 hover:border-red-600 hover:scale-105 transition-all shadow-lg w-full sm:w-auto"><LogOut className="w-3 h-3" /> Log Out</button>
+              </div>
+            ) : (
+              <button onClick={() => onLoginClick ? onLoginClick() : onNavigate({ action: 'settings' })} className="flex items-center justify-center gap-2 bg-[#fe9a00] text-black px-8 py-3 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-xs hover:bg-white hover:scale-105 transition-all mb-3 shadow-[0_0_15px_rgba(254,154,0,0.4)]"><User className="w-4 h-4" /> Log In / Sign Up</button>
+            )}
             <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter drop-shadow-lg">{userProfile.username}</h1>
             <p className={`text-xs font-black uppercase tracking-widest mt-1 italic drop-shadow-md ${isSubscriber ? 'text-purple-400' : 'text-zinc-400'}`}>{isSubscriber ? 'Premium Saturday AM+ Member' : 'Standard Member'}</p>
           </div>

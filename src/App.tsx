@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
-import { ArrowUp, X, Lock, Share } from 'lucide-react'; // Added Share icon for iOS prompt
+import { ArrowUp, X, Lock, Share } from 'lucide-react'; 
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 
@@ -420,6 +420,7 @@ export default function App() {
         currentUser={currentUser}
         canInstall={!!deferredPrompt}
         onInstall={handleInstallClick}
+        onLoginClick={() => setShowLogin(true)}
       />
 
       {isFlexCardOpen && (
@@ -445,7 +446,7 @@ export default function App() {
           isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />
         )}
         {currentView === 'profile' && (
-          <UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />
+          <UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} />
         )}
         {currentView === 'sub' && (
           <SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />

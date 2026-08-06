@@ -1,8 +1,14 @@
 import { memo } from 'react';
-import { X, CreditCard, ShieldAlert, ExternalLink, Download } from 'lucide-react';
+import { X, CreditCard, ShieldAlert, ExternalLink, Download, User, LogOut } from 'lucide-react';
+import { supabase } from '../supabase';
 
-export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser, canInstall, onInstall }: any) => {
+export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser, canInstall, onInstall, onLoginClick }: any) => {
   if (!isOpen) return null;
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    onClose();
+  };
 
   const menuItems = [
     { name: 'Browse Library', action: 'browse', prefetch: () => import('../MainViews/Browse.tsx') },
@@ -15,7 +21,7 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
   ];
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black animate-fade-in flex flex-col">
+    <div className="fixed inset-0 z-[200] bg-black animate-fade-in flex flex-col">
       <div className="p-6 flex justify-between items-center border-b border-zinc-900">
         <span className="text-[#fe9a00] font-black uppercase tracking-widest text-xs">Menu</span>
         <button onClick={onClose} className="p-2 text-white hover:text-[#fe9a00]"><X className="w-8 h-8" /></button>
@@ -23,6 +29,26 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
       
       <div className="flex-1 flex flex-col justify-start px-8 sm:px-12 gap-5 sm:gap-6 overflow-y-auto pt-8 pb-32 no-scrollbar">
         
+        {/* --- DYNAMIC LOGIN/LOGOUT BUTTON --- */}
+        {!currentUser ? (
+          <button 
+            onClick={() => { 
+              onClose(); 
+              if (onLoginClick) onLoginClick(); 
+            }}
+            className="flex items-center gap-4 bg-[#fe9a00] text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all mb-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
+          >
+            <User className="w-6 h-6" /> Log In / Sign Up
+          </button>
+        ) : (
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-4 bg-zinc-900 text-white border border-zinc-700 px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-red-600 hover:border-red-600 hover:scale-105 transition-all mb-2 shadow-lg w-max"
+          >
+            <LogOut className="w-6 h-6" /> Log Out
+          </button>
+        )}
+
         {/* --- PWA INSTALL BUTTON --- */}
         {canInstall && (
           <button 
@@ -36,6 +62,7 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
           </button>
         )}
 
+        {/* --- AM CREW CARD --- */}
         <button 
           onClick={() => { 
             onClose(); 
