@@ -4,7 +4,7 @@ import { useSeriesData } from '../userSeriesData';
 import { MagazineHomeSection } from './MagazineHomeSection';
 import { SeriesSection } from './SeriesSection';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
-import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play, Trophy, Crown, Zap, Bell, CheckCircle } from 'lucide-react';
+import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play, Trophy, Crown, Zap, Bell, CheckCircle, User, LogOut, Settings } from 'lucide-react';
 
 export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, userTier }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
@@ -344,7 +344,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                               if (n.link_target.startsWith('http')) {
                                 window.open(n.link_target, '_blank');
                               } else {
-                                // --- UPDATED: Pass full series object if matched ---
+                                // Pass full series object if matched
                                 const matchedSeries = seriesList.find((s: any) => s.slug === n.link_target);
                                 if (matchedSeries) {
                                   onNavigate(matchedSeries);
@@ -417,6 +417,14 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                   Binge read chapters by individual series.
                 </p>
               </div>
+              
+              {/* --- AM NEWS SECTION MENTION --- */}
+              <div>
+                <h3 className="text-white font-black uppercase tracking-widest text-sm mb-1">AM News</h3>
+                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
+                  Stay up to date with the latest creator interviews, anime announcements, and app updates. <span className="text-[#fe9a00]">(Psst... checking this daily boosts your Fandom Score!)</span>
+                </p>
+              </div>
 
               <div>
                 <h3 className="text-white font-black uppercase tracking-widest text-sm mb-1">Profile Loadout</h3>
@@ -458,6 +466,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                   <ul className="list-disc list-inside text-[#fe9a00] ml-2 space-y-1">
                     <li><span className="text-zinc-300">Reading chapters and dropping Quick Reacts build your foundation.</span></li>
                     <li><span className="text-zinc-300">Dropping Super Hypes carries significantly more weight!</span></li>
+                    <li><span className="text-zinc-300">Staying up to date with the latest <strong className="text-white">AM News</strong> daily earns you bonus points.</span></li>
                     <li><span className="text-purple-400">Pro subscribers get a permanent ranking multiplier.</span></li>
                   </ul>
                 </div>

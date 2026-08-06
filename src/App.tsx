@@ -19,13 +19,14 @@ const MagazineDetailPage = lazy(() => import('./MainViews/MagazineDetailPage').t
 const AdminDashboard = lazy(() => import('./AmCommandCenter/AdminDashboard').then(mod => ({ default: mod.AdminDashboard })));
 const UserProfile = lazy(() => import('./VirtualProfile/UserProfile').then(mod => ({ default: mod.UserProfile })));
 const SubscriptionPage = lazy(() => import('./MainViews/Subscription.tsx').then(mod => ({ default: mod.Subscription })));
-const Leaderboard = lazy(() => import('./MainViews/Leaderboard.tsx'));
+const AMNewsPage = lazy(() => import('./MainViews/AMNewsPage').then(mod => ({ default: mod.AMNewsPage })));
 
 // 3. Lazy Load the views that use Default Exports
 const SettingsPage = lazy(() => import('./MainViews/Settings.tsx'));
 const BingoBook = lazy(() => import('./VirtualProfile/BingoBook'));
 const Favorites = lazy(() => import('./MainViews/MyFaves.tsx'));
 const Browse = lazy(() => import('./MainViews/Browse.tsx'));
+const Leaderboard = lazy(() => import('./MainViews/Leaderboard.tsx'));
 
 // --- Cloudflare Base URL ---
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
@@ -88,11 +89,11 @@ export default function App() {
   const [isFlexCardOpen, setIsFlexCardOpen] = useState(false);
   const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
 
-  // --- NEW: PASSWORD RESET STATE ---
+  // --- PASSWORD RESET STATE ---
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [newPassword, setNewPassword] = useState('');
 
-  // --- NEW: GLOBAL USER STATE ---
+  // --- GLOBAL USER STATE ---
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userTier, setUserTier] = useState<'visitor' | 'free' | 'premium'>('visitor');
 
@@ -201,7 +202,7 @@ export default function App() {
     
     window.addEventListener('profileUpdated', handleProfileUpdate);
 
-    // --- UPDATED: Catching the PASSWORD_RECOVERY event ---
+    // Catching the PASSWORD_RECOVERY event
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setShowPasswordReset(true);
@@ -295,6 +296,7 @@ export default function App() {
     if (data.action === 'bingobook') { setCurrentView('bingobook'); return; }
     if (data.action === 'sub') { setCurrentView('sub'); return; }
     if (data.action === 'leaderboard') { setCurrentView('leaderboard'); return; }
+    if (data.action === 'news') { setCurrentView('news'); return; }
     
     if (data.publish_date) {
       setSelectedMagazine(data);
@@ -358,7 +360,7 @@ export default function App() {
         <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => { setShowLogin(false); }} />
       )}
 
-      {/* --- NEW: PASSWORD RESET MODAL --- */}
+      {/* PASSWORD RESET MODAL */}
       {showPasswordReset && (
         <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col shadow-2xl relative">
@@ -456,6 +458,9 @@ export default function App() {
         )}
         {currentView === 'settings' && (
           <SettingsPage userTier={userTier} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onBack={() => setCurrentView('home')} onSignOut={() => { setCurrentView('home'); }} />
+        )}
+        {currentView === 'news' && (
+          <AMNewsPage onBack={() => setCurrentView('home')} />
         )}
         {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
         {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}

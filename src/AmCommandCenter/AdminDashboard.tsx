@@ -9,14 +9,14 @@ import { CardSkinMaker } from './CardSkinMaker';
 import { FrameMaker } from './FrameMaker'; 
 import { ModerationDashboard } from './ModerationDashboard';
 import { supabase } from '../supabase';
-import { Bell, Send, BookOpen, Star, Sparkles } from 'lucide-react';
+import { Bell, Send, BookOpen, Star, Sparkles, Newspaper } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 // --- UPDATED: STREAMLINED NOTIFICATION CREATOR ---
 const NotificationCenter = () => {
   const { seriesList = [] } = useSeriesData();
   
-  const [notifType, setNotifType] = useState<'chapter' | 'feature' | 'custom'>('chapter');
+  const [notifType, setNotifType] = useState<'chapter' | 'feature' | 'news' | 'custom'>('chapter');
   const [selectedSeriesSlug, setSelectedSeriesSlug] = useState('');
   
   const [title, setTitle] = useState('New Chapter Drop!');
@@ -26,7 +26,7 @@ const NotificationCenter = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Handle changing the notification workflow type
-  const handleTypeChange = (type: 'chapter' | 'feature' | 'custom') => {
+  const handleTypeChange = (type: 'chapter' | 'feature' | 'news' | 'custom') => {
     setNotifType(type);
     setSelectedSeriesSlug('');
     
@@ -35,6 +35,11 @@ const NotificationCenter = () => {
       setMessage('');
       setThumbnailUrl('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png');
       setLinkTarget('');
+    } else if (type === 'news') {
+      setTitle('Saturday AM News');
+      setMessage('News from Saturday AM');
+      setThumbnailUrl('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png');
+      setLinkTarget('news');
     } else if (type === 'chapter') {
       setTitle('New Chapter Drop!');
       setMessage('');
@@ -95,27 +100,34 @@ const NotificationCenter = () => {
       </div>
 
       {/* WORKFLOW SELECTOR */}
-      <div className="grid grid-cols-3 gap-3 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
         <button 
           onClick={() => handleTypeChange('chapter')}
           className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'chapter' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}
         >
           <BookOpen className="w-5 h-5 mb-2" />
-          <span className="text-[9px] font-black uppercase tracking-widest">Chapter Drop</span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-center">Chapter</span>
         </button>
         <button 
           onClick={() => handleTypeChange('feature')}
           className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'feature' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}
         >
           <Sparkles className="w-5 h-5 mb-2" />
-          <span className="text-[9px] font-black uppercase tracking-widest">Feature Update</span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-center">Update</span>
+        </button>
+        <button 
+          onClick={() => handleTypeChange('news')}
+          className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'news' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}
+        >
+          <Newspaper className="w-5 h-5 mb-2" />
+          <span className="text-[9px] font-black uppercase tracking-widest text-center">AM News</span>
         </button>
         <button 
           onClick={() => handleTypeChange('custom')}
           className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'custom' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}
         >
           <Star className="w-5 h-5 mb-2" />
-          <span className="text-[9px] font-black uppercase tracking-widest">Custom Alert</span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-center">Custom</span>
         </button>
       </div>
 
