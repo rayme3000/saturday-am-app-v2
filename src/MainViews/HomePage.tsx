@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
-import { MagazineHomeSection } from './MagazineHomeSection';
-import { SeriesSection } from './SeriesSection';
+import { MagazineHomeSection } from "./MagazineHomeSection";
+import { SeriesSection } from "./SeriesSection";
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
 import { Menu, HelpCircle, X, MoveHorizontal, MoveVertical, Flame, Play, Trophy, Crown, Zap, Bell, CheckCircle, User, LogOut, Settings } from 'lucide-react';
 
@@ -17,22 +17,18 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [recentReads, setRecentReads] = useState<any[]>([]);
 
-  // --- NOTIFICATIONS STATE ---
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [dismissedNotifs, setDismissedNotifs] = useState<string[]>([]);
 
-  // Calculate only the notifications the user hasn't explicitly dismissed
   const visibleNotifications = useMemo(() => {
     return notifications.filter(n => !dismissedNotifs.includes(n.id));
   }, [notifications, dismissedNotifs]);
 
-  // --- BULLETPROOF NOTIFICATION FETCHER ---
   const fetchGlobalNotifications = async () => {
     try {
       const { data: notifData } = await supabase.from('app_notifications').select('*').order('created_at', { ascending: false }).limit(15);
       if (notifData) {
-        // Filter out any ghost/empty rows that might have snuck in via Realtime
         const validData = notifData.filter(n => n && n.id && n.title);
         setNotifications(validData);
       }
@@ -42,7 +38,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   };
 
   useEffect(() => {
-    // Load previously dismissed notifications from device storage
     const savedDismissed = JSON.parse(localStorage.getItem('am_dismissed_notifs') || '[]');
     setDismissedNotifs(savedDismissed);
 
@@ -57,7 +52,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         const { data: magData } = await supabase.from('magazines').select('*').eq('home_section', 'Featured').order('display_order', { ascending: true });
         if (magData) setHomeMagazines(magData);
 
-        // INITIAL NOTIFICATION FETCH
         await fetchGlobalNotifications();
       } catch (err: any) {
         console.error("Error fetching home data:", err.message);
@@ -68,21 +62,18 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     
     fetchHomeData();
 
-    // --- SMART REALTIME SUBSCRIPTION ---
     const notifChannel = supabase
       .channel('public:app_notifications')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'app_notifications' },
         (payload) => {
-          // If RLS strips the data, payload.new might be empty `{}`
           if (payload.new && payload.new.id && payload.new.title) {
             setNotifications((current) => {
               if (current.some(n => n.id === payload.new.id)) return current;
               return [payload.new, ...current].slice(0, 15);
             });
           } else {
-            // THE FALLBACK: Realtime pinged us, but data was hidden. Manually fetch it!
             fetchGlobalNotifications();
           }
         }
@@ -94,7 +85,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     };
   }, []);
 
-  // Fetch fresh data EVERY time the user clicks the bell icon
   useEffect(() => {
     if (showNotifications) fetchGlobalNotifications();
   }, [showNotifications]);
@@ -119,8 +109,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       if (isLoading) return;
       
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        // FIXED: Instantly use the local prop instead of pinging the server!
+        if (!currentUser) {
           setRecentReads([]);
           return;
         }
@@ -128,7 +118,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         const { data: history, error: historyError } = await supabase
           .from('reading_history')
           .select('*')
-          .eq('user_id', user.id)
+          .eq('user_id', currentUser.id)
           .order('updated_at', { ascending: false })
           .limit(10);
 
@@ -230,7 +220,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     await supabase.auth.signOut();
   };
 
-  if (isLoading) return <div className="min-h-screen bg-black text-[#fe9a00] flex items-center justify-center font-black tracking-widest">Loading Vault...</div>;
+  if (isLoading || isLoadingSlides) return <div className="min-h-screen bg-black text-[#fe9a00] flex items-center justify-center font-black tracking-widest">Loading Vault...</div>;
 
   return (
     <div className="relative min-h-screen bg-transparent text-white p-6 pb-24">
@@ -251,17 +241,13 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
       </div>
 
-      {/* TOP NAVIGATION BAR - ENLARGED CENTER LOGO */}
       <nav className="relative w-full z-[100] p-4 sm:p-6 flex justify-between items-center bg-black/50 backdrop-blur-md border-b border-zinc-900/50 mb-8 rounded-2xl shadow-lg">
-        
-        {/* LEFT: HAMBURGER */}
         <div className="flex-1 flex justify-start">
           <button onClick={onMenuToggle} className="p-2 hover:bg-zinc-800/80 rounded-full transition-colors">
              <Menu className="w-6 h-6 text-white" />
           </button>
         </div>
         
-        {/* CENTER: ENLARGED LOGO */}
         <div className="flex items-center justify-center cursor-pointer flex-shrink-0" onClick={() => onNavigate({ action: 'home' })}>
           <img 
             src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png" 
@@ -270,12 +256,10 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           />
         </div>
         
-        {/* RIGHT: AUTH PROFILE + NOTIFICATIONS + HELP */}
         <div className="flex-1 flex items-center justify-end gap-2 sm:gap-4">
           {currentUser && (
             <div className="hidden sm:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity mr-2" onClick={() => onNavigate({ action: 'profile' })}>
                <DecoratedAvatar avatarUrl={currentUser.avatar_url} frameId={currentUser.frame_id} size="w-8 h-8" iconSize="w-4 h-4" />
-               
                <span className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-[#fe9a00]">
                  <span className={userTier === 'premium' ? 'text-purple-400 drop-shadow-[0_0_10px_rgba(168,85,247,0.8)] transition-colors duration-500' : 'text-[#fe9a00]'}>
                    {currentUser.username || 'Reader'}
@@ -289,14 +273,12 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             </div>
           )}
 
-          {/* IN-APP NOTIFICATIONS BELL */}
           <div className="relative">
             <button 
               onClick={() => setShowNotifications(!showNotifications)} 
               className="p-2 sm:p-2.5 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all relative"
             >
               <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors" />
-              {/* Only pulses the red dot if there is an un-dismissed message */}
               {visibleNotifications.length > 0 && (
                 <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-zinc-900 animate-pulse" />
               )}
@@ -327,7 +309,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                     </div>
                   </div>
                   
-                  {/* Min-height ensures the box never collapses to an empty sliver */}
                   <div className="max-h-96 min-h-[120px] overflow-y-auto no-scrollbar relative bg-black/20">
                     {visibleNotifications.length === 0 ? (
                       <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
@@ -344,7 +325,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                               if (n.link_target.startsWith('http')) {
                                 window.open(n.link_target, '_blank');
                               } else {
-                                // Pass full series object if matched
                                 const matchedSeries = seriesList.find((s: any) => s.slug === n.link_target);
                                 if (matchedSeries) {
                                   onNavigate(matchedSeries);
@@ -390,140 +370,25 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         </div>
       </nav>
 
-      {/* FEATURE GUIDE MODAL */}
       {showHelpModal && (
         <div className="fixed inset-0 z-[6000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in" onClick={() => setShowHelpModal(false)}>
           <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg shadow-2xl relative flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
-            
             <div className="flex justify-between items-center p-6 border-b border-zinc-800 bg-zinc-900 rounded-t-2xl">
               <h2 className="text-xl font-black italic uppercase tracking-wider text-[#fe9a00]">Feature Guide</h2>
               <button onClick={() => setShowHelpModal(false)} className="text-zinc-500 hover:text-white transition-colors">
                 <X className="w-6 h-6" />
               </button>
             </div>
-            
             <div className="p-6 overflow-y-auto no-scrollbar space-y-8 bg-black rounded-b-2xl">
-              
               <div>
                 <h3 className="text-white font-black uppercase tracking-widest text-sm mb-1">Magazines</h3>
-                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                  The latest storylines of our serialized series. Publications range from bi-weekly to monthly.
-                </p>
+                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">The latest storylines of our serialized series. Publications range from bi-weekly to monthly.</p>
               </div>
-
-              <div>
-                <h3 className="text-white font-black uppercase tracking-widest text-sm mb-1">Series Chapters</h3>
-                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                  Binge read chapters by individual series.
-                </p>
-              </div>
-              
-              {/* --- AM NEWS SECTION MENTION --- */}
-              <div>
-                <h3 className="text-white font-black uppercase tracking-widest text-sm mb-1">AM News</h3>
-                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                  Stay up to date with the latest creator interviews, anime announcements, and app updates. <span className="text-[#fe9a00]">(Psst... checking this daily boosts your Fandom Score!)</span>
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-white font-black uppercase tracking-widest text-sm mb-1">Profile Loadout</h3>
-                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                  No boring profiles allowed! Choose your avatar, frame color, favorite series, and more to reflect your AM fandom. More art and options will constantly be updated. <span className="text-[#fe9a00]">(Free account required)</span>
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-white font-black uppercase tracking-widest text-sm mb-3">Choose Your Reading Style</h3>
-                <div className="flex flex-col gap-3 pl-3">
-                  <div className="flex items-center gap-4 text-zinc-400 text-xs font-bold">
-                    <div className="bg-zinc-900 border border-zinc-800 p-2 rounded shadow-md"><MoveHorizontal className="w-4 h-4 text-[#fe9a00]" /></div>
-                    Classic horizontal scroll
-                  </div>
-                  <div className="flex items-center gap-4 text-zinc-400 text-xs font-bold">
-                    <div className="bg-zinc-900 border border-zinc-800 p-2 rounded shadow-md"><MoveVertical className="w-4 h-4 text-[#fe9a00]" /></div>
-                    Vertical scroll
-                  </div>
-                </div>
-              </div>
-
-              {/* LEADERBOARD & SUPERFAN RANKING */}
-              <div className="pt-6 border-t border-zinc-800">
-                <h3 className="text-[#fe9a00] font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
-                  <Trophy className="w-4 h-4 text-[#fe9a00]" /> Leaderboard & Rankings
-                </h3>
-                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                  Compete globally to become an S-Class Superfan! The leaderboard tracks real-time community activity and highlights the top fans on the platform.
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-white font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-[#fe9a00]" /> How to Rank Up
-                </h3>
-                <div className="pl-3 space-y-2 text-zinc-400 text-xs font-bold leading-relaxed">
-                  <p>Your ranking score is calculated based on how you interact with the app. Activities are weighted to reward high engagement:</p>
-                  <ul className="list-disc list-inside text-[#fe9a00] ml-2 space-y-1">
-                    <li><span className="text-zinc-300">Reading chapters and dropping Quick Reacts build your foundation.</span></li>
-                    <li><span className="text-zinc-300">Dropping Super Hypes carries significantly more weight!</span></li>
-                    <li><span className="text-zinc-300">Staying up to date with the latest <strong className="text-white">AM News</strong> daily earns you bonus points.</span></li>
-                    <li><span className="text-purple-400">Pro subscribers get a permanent ranking multiplier.</span></li>
-                  </ul>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-yellow-500 font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
-                  <Crown className="w-4 h-4 text-yellow-500" /> The Big 3 & Manga of the Week
-                </h3>
-                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-yellow-500 pl-3">
-                  These are two separate battlegrounds! <strong className="text-white">Manga of the Week</strong> crowns the single <em className="text-white">chapter</em> that earns the most hype points in a 7-day period. Meanwhile, <strong className="text-[#fe9a00]">The Big 3</strong> tracks the top 3 <em className="text-[#fe9a00]">series</em> that dominate the entire month. Want your favorite to take the spotlight? Rally fellow fans to drop <span className="text-[#fe9a00]">Super Hypes</span> and boost their scores!
-                </p>
-              </div>
-
-              <div className="pt-6 border-t border-zinc-800">
-                <h3 className="text-purple-400 font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
-                  AM Bingo Book <span className="text-[8px] bg-purple-900/30 border border-purple-900 px-2 py-0.5 rounded text-purple-400">Subscriber Only</span>
-                </h3>
-                <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-purple-500 pl-3">
-                  Track down Saturday AM creators at live shows and conventions to collect their exclusive digital autographs in your virtual Bingo Book!
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-purple-400 font-black uppercase tracking-widest text-sm mb-3 flex items-center gap-2">
-                  Quick Reacts <span className="text-[8px] bg-purple-900/30 border border-purple-900 px-2 py-0.5 rounded text-purple-400">Subscriber Only</span>
-                </h3>
-                <div className="flex gap-4 items-start pl-3">
-                  <div className="bg-zinc-900 border border-zinc-800 p-1.5 rounded shadow-md flex-shrink-0 mt-0.5">
-                    <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-5 h-5 object-contain" />
-                  </div>
-                  <p className="text-zinc-400 text-xs font-bold leading-relaxed">
-                    Drop real-time, 30-character hype messages directly onto your favorite manga pages for everyone to see.
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-purple-400 font-black uppercase tracking-widest text-sm mb-3 flex items-center gap-2">
-                  Super Hypes <span className="text-[8px] bg-purple-900/30 border border-purple-900 px-2 py-0.5 rounded text-purple-400">Subscriber Only</span>
-                </h3>
-                <div className="flex gap-4 items-start pl-3">
-                  <div className="bg-gradient-to-br from-yellow-500 to-[#fe9a00] p-1.5 rounded shadow-[0_0_10px_rgba(254,154,0,0.3)] flex-shrink-0 mt-0.5">
-                    <Flame className="w-5 h-5 text-black" />
-                  </div>
-                  <p className="text-zinc-400 text-xs font-bold leading-relaxed">
-                    When a normal hype is not enough. Let the world know which series is not just good, but GOATED! Subscribers only get 5 of these a month, so use them carefully.
-                  </p>
-                </div>
-              </div>
-
             </div>
           </div>
         </div>
       )}
 
-      {/* HERO SLIDES */}
       <div className="mb-8 w-full flex flex-col items-center">
         <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900/80 border border-zinc-800/50 shadow-xl backdrop-blur-sm">
           {heroSlides.map((slide, index) => (
@@ -542,45 +407,24 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         </div>
       </div>
       
-      {/* JUMP BACK IN CAROUSEL */}
       {recentReads.length > 0 && (
         <div className="mb-12 animate-fade-in">
-          <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-wider text-white mb-4 px-2 drop-shadow-md">
-            Jump Back In
-          </h2>
+          <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-wider text-white mb-4 px-2 drop-shadow-md">Jump Back In</h2>
           <div className="flex gap-4 overflow-x-auto pb-4 px-2 no-scrollbar">
             {recentReads.map((read) => (
               <div 
                 key={read.id} 
-                onClick={() => onNavigate({ 
-                  ...read.target, 
-                  autoOpenChapterId: read.chapter_id, 
-                  autoOpenPage: read.page_index 
-                })}
+                onClick={() => onNavigate({ ...read.target, autoOpenChapterId: read.chapter_id, autoOpenPage: read.page_index })}
                 className="relative min-w-[140px] w-[140px] md:min-w-[180px] md:w-[180px] aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group border border-zinc-800 hover:border-[#fe9a00] transition-all shadow-lg flex-shrink-0"
               >
-                <img 
-                  src={read.image} 
-                  alt={read.title} 
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
-                />
-                
-                {/* Title & Stats Overlay */}
+                <img src={read.image} alt={read.title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-3 z-10">
-                  <h3 className="text-white font-black uppercase text-xs md:text-sm leading-tight line-clamp-1 drop-shadow-md">
-                    {read.title}
-                  </h3>
+                  <h3 className="text-white font-black uppercase text-xs md:text-sm leading-tight line-clamp-1 drop-shadow-md">{read.title}</h3>
                   <div className="flex justify-between items-center mt-1">
-                    <p className="text-[#fe9a00] font-bold text-[9px] md:text-[10px] uppercase tracking-widest drop-shadow-md">
-                      {read.subtitle}
-                    </p>
-                    <p className="text-zinc-300 font-bold text-[8px] md:text-[9px] uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded border border-zinc-700 backdrop-blur-sm">
-                      Pg. {read.page_index + 1}
-                    </p>
+                    <p className="text-[#fe9a00] font-bold text-[9px] md:text-[10px] uppercase tracking-widest drop-shadow-md">{read.subtitle}</p>
+                    <p className="text-zinc-300 font-bold text-[8px] md:text-[9px] uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded border border-zinc-700 backdrop-blur-sm">Pg. {read.page_index + 1}</p>
                   </div>
                 </div>
-
-                {/* Play Button Hover Overlay */}
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-[2px] z-20">
                   <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-[#fe9a00] flex items-center justify-center shadow-[0_0_20px_rgba(254,154,0,0.6)] transform scale-75 group-hover:scale-100 transition-transform duration-300">
                     <Play className="w-5 h-5 md:w-6 md:h-6 text-black ml-1" />
