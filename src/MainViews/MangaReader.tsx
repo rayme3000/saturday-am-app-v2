@@ -9,9 +9,6 @@ import { HypeButton } from '../Components/HypeButton';
 import { APP_ICONS } from '../appIcons';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 
-// --- PERFORMANCE OPTIMIZATION: Memoized Renderers ---
-// These components will NEVER re-render unless the actual image URL changes.
-// This prevents the 3.5s comment ticker from stuttering the image viewer.
 const MemoizedVerticalPage = React.memo(({ src, alt }: { src: string, alt: string }) => (
   <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0">
     <img 
@@ -34,12 +31,12 @@ const MemoizedHorizontalImage = React.memo(({ src, alt, onInteractionStart, onTa
       if (scaleState <= 1) onTap(e);
     }}
   >
+    {/* OPTIMIZATION: Removed loading="lazy" so the active page renders instantly! */}
     <img 
       src={src} 
       className="object-contain pointer-events-none" 
       style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
       alt={alt} 
-      loading="lazy"
     />
   </div>
 ));
@@ -71,6 +68,27 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const activeUserRef = useRef(userId || currentUser?.id);
   const isComponentMounted = useRef(true);
   const touchStartPos = useRef({ x: 0, y: 0 });
+
+  const getUrl = useCallback((p: any) => p?.image_url || p, []);
+  const getId = useCallback((p: any) => p?.id || p, []);
+
+  // --- OPTIMIZATION: PREDICTIVE PRE-FETCHING ---
+  // Silently download the next two pages into memory while the user reads the current one
+  useEffect(() => {
+    if (!pages || pages.length === 0) return;
+    
+    const pagesToPreload = [currentPage + 1, currentPage + 2];
+    
+    pagesToPreload.forEach(index => {
+      if (index < pages.length) {
+        const imgUrl = getUrl(pages[index]);
+        if (imgUrl) {
+          const img = new Image();
+          img.src = imgUrl;
+        }
+      }
+    });
+  }, [currentPage, pages, getUrl]);
 
   useEffect(() => { activeUserRef.current = userId || currentUser?.id; }, [userId, currentUser]);
 
@@ -327,10 +345,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     } catch (err) { console.error("Failed to save react:", err); }
   };
 
-  const getUrl = useCallback((p: any) => p?.image_url || p, []);
-  const getId = useCallback((p: any) => p?.id || p, []);
-
-  // --- PERFORMANCE OPTIMIZATION: Memoized Arrays ---
   const maxPage = Math.max(1, pages.length - 1);
   const progressPercentage = (currentPage / maxPage) * 100;
   
@@ -364,7 +378,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     setCurrentPage(Math.max(0, Math.min(newPage, maxPage)));
   }, [maxPage]);
 
-  // Memoized Item Content for Virtuoso to prevent re-renders on scroll
   const virtuosoItemContent = useCallback((index: number, pageData: any) => (
     <MemoizedVerticalPage src={getUrl(pageData)} alt={`Page ${index + 1}`} />
   ), [getUrl]);
@@ -393,14 +406,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
       `}</style>
 
-      {/* ========================================================================= */}
-      {/* --- HORIZONTAL READER (WITH NATIVE PINCH & ROLL ZOOM ENABLED) ---         */}
-      {/* ========================================================================= */}
       {mode === 'horizontal' && (
         <div className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center">
           {pages[currentPage] ? (
             <TransformWrapper
-              key={`zoom-wrapper-${currentPage}`} // FORCES ZOOM RESET EVERY TURN
               ref={transformRef}
               initialScale={1}
               minScale={1}
@@ -433,7 +442,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         </div>
       )}
 
-      {/* --- VERTICAL READER --- */}
       {mode === 'vertical' && (
         <div 
           className="absolute inset-0 w-full h-full select-none overflow-x-hidden bg-[#0a0a0a] z-0" 
@@ -467,7 +475,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         </div>
       )}
 
-      {/* END PROMPT (HORIZONTAL ONLY) */}
       {showEndPrompt && mode === 'horizontal' && (
         <div className="absolute inset-0 z-[150] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
           <h2 className="text-4xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-2">End of Chapter</h2>
@@ -494,36 +501,28 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
          </div>
       </div>
 
-      {/* --- TRANSLUCENT TOP-RIGHT INFO PILL --- */}
       <div className={`absolute top-2 right-2 sm:top-3 sm:right-3 bg-black/40 backdrop-blur-md border border-white/5 rounded-full px-4 py-2 z-50 flex flex-col items-end pointer-events-none transition-all duration-300 shadow-xl ${isUIVisible ? 'translate-y-0 opacity-100' : '-translate-y-8 opacity-0'}`}>
         <span className="text-white/90 text-[10px] font-bold tracking-wider">{title || 'Reading'}</span>
         <span className="text-[#fe9a00] text-[9px] font-black uppercase tracking-widest mt-0.5">Page {currentPage + 1} / {pages.length}</span>
       </div>
 
-
-      {/* ========================================================================= */}
-      {/* --- UI BLOCK: VERTICAL MODE (LEFT STACK) ---                              */}
-      {/* ========================================================================= */}
       {mode === 'vertical' && (
         <div 
           className={`absolute top-2 bottom-2 left-2 sm:top-3 sm:bottom-3 sm:left-3 w-12 sm:w-14 flex flex-col items-center py-2 z-50 transition-transform duration-300 ${isUIVisible ? 'translate-x-0' : '-translate-x-[200%]'}`}
           onClick={(e) => e.stopPropagation()} 
         >
-          {/* Top: Nav */}
           <div className="flex flex-col items-center w-full">
             <button onClick={handleClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
               <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
 
-          {/* Middle: Vertical Track */}
           <div className="flex-1 w-full my-6 relative flex justify-center group" onClick={handleVerticalProgressClick}>
             <div className="absolute inset-y-0 -inset-x-4 cursor-pointer z-10" />
             <div className="w-1.5 h-full bg-black/40 backdrop-blur-md rounded-full overflow-hidden relative pointer-events-none shadow-inner border border-white/5">
               <div className="absolute top-0 left-0 w-full bg-[#fe9a00] transition-all duration-300" style={{ height: `${progressPercentage}%` }} />
             </div>
 
-            {/* Pinned Avatars (Y-Axis) */}
             {timelineComments.map((comment) => (
               <div 
                 key={comment.id}
@@ -540,7 +539,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               </div>
             ))}
 
-            {/* Active Comment Popup (Right slide) */}
             {activeComment && (
               <div 
                 key={activeComment.id} 
@@ -562,7 +560,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             )}
           </div>
 
-          {/* Bottom: Tools */}
           <div className="flex flex-col items-center gap-3 w-full">
             <button onClick={() => setMode('horizontal')} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Switch to Horizontal Reader">
               <MoveHorizontal className="w-3 h-3 sm:w-4 sm:h-4" />
@@ -581,31 +578,24 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         </div>
       )}
 
-
-      {/* ========================================================================= */}
-      {/* --- UI BLOCK: HORIZONTAL MODE (BOTTOM BAR) ---                            */}
-      {/* ========================================================================= */}
       {mode === 'horizontal' && (
         <div 
           className={`absolute left-2 right-2 sm:left-3 sm:right-3 h-12 sm:h-14 flex flex-row items-center z-50 transition-transform duration-300 ${isUIVisible ? 'translate-y-0' : 'translate-y-[200%]'}`}
           style={{ bottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}
           onClick={(e) => e.stopPropagation()} 
         >
-          {/* Left: Nav */}
           <div className="flex flex-row items-center">
             <button onClick={handleClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
               <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
 
-          {/* Middle: Horizontal Track */}
           <div className="flex-1 h-full mx-4 sm:mx-6 relative flex items-center group" onClick={handleHorizontalProgressClick}>
             <div className="absolute inset-x-0 -inset-y-4 cursor-pointer z-10" />
             <div className="w-full h-1.5 bg-black/40 backdrop-blur-md rounded-full overflow-hidden relative pointer-events-none shadow-inner border border-white/5">
               <div className="absolute top-0 left-0 h-full bg-[#fe9a00] transition-all duration-300" style={{ width: `${progressPercentage}%` }} />
             </div>
 
-            {/* Pinned Avatars (X-Axis) */}
             {timelineComments.map((comment) => (
               <div 
                 key={comment.id}
@@ -622,7 +612,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               </div>
             ))}
 
-            {/* Active Comment Popup (Up slide) */}
             {activeComment && (
               <div 
                 key={activeComment.id} 
@@ -644,7 +633,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             )}
           </div>
 
-          {/* Right: Tools */}
           <div className="flex flex-row items-center gap-2 sm:gap-3">
             <button onClick={() => setMode('vertical')} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Switch to Vertical Scroll">
               <MoveVertical className="w-3 h-3 sm:w-4 sm:h-4" />
@@ -663,7 +651,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         </div>
       )}
 
-      {/* --- TRANSLUCENT QUICK REACT INPUT POPUP --- */}
       <div 
         className={`absolute z-[110] flex w-[calc(100%-16px)] sm:w-full max-w-sm pointer-events-none transition-all duration-300 ${mode === 'vertical' ? 'bottom-4 left-16 sm:left-20 justify-start' : 'bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 justify-center'}`} 
         onClick={(e) => e.stopPropagation()}
