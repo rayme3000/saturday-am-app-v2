@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
 import { registerSW } from 'virtual:pwa-register';
+import { SeriesProvider } from './userSeriesData'; // <-- Import the new caching provider
 
 // Initializes the service worker for offline caching and installation
 const updateSW = registerSW({
@@ -13,8 +14,11 @@ const updateSW = registerSW({
     console.log('App is ready to work offline!');
   },
 });
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <SeriesProvider>
+      <App />
+    </SeriesProvider>
   </React.StrictMode>,
 )

@@ -6,7 +6,6 @@ import { APP_ICONS } from '../appIcons';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
-// --- SEPARATED CARD ANIMATION RENDERER ---
 const RenderCardAnimations = ({ anim, color }: { anim: string, color: string }) => {
   if (!anim || anim === 'none') return null;
   const sBorder = { borderWidth: '0.4cqi', borderStyle: 'solid' };
@@ -74,30 +73,20 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
         return;
       }
 
-      // Fetch Frames
       const { data: framesData } = await supabase.from('avatar_frames').select('*').eq('is_active', true);
       if (framesData) setAvatarFrames(framesData);
 
-      // Fetch Skins to apply Command Center rules
       const { data: skinsData } = await supabase.from('card_skins').select('*').eq('is_active', true);
       if (skinsData) setActiveSkins(skinsData);
 
       const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-      const { data: allProfiles } = await supabase.from('profiles').select('id, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read');
       
       let myRank: string | number = "---";
 
-      if (allProfiles) {
-        const rankedFans = allProfiles
-          .map((p) => {
-            const score = (p.total_hypes || 0) * 1 + (p.quick_reacts || 0) * 5 + (p.chapters_read || 0) * 5 + (p.super_hypes || 0) * 10 + (p.is_premium ? 20 : 0);
-            return { id: p.id, score };
-          })
-          .filter((p) => p.score > 0)
-          .sort((a, b) => b.score - a.score);
-
-        const myIndex = rankedFans.findIndex(f => f.id === user.id);
-        if (myIndex !== -1) myRank = myIndex + 1;
+      // --- FRESH RPC FOR FLEX CARD RANK ---
+      const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: user.id });
+      if (myRankData && myRankData.length > 0) {
+        myRank = Number(myRankData[0].rank);
       }
 
       if (data) {
@@ -116,7 +105,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const glowColor = frame?.glow_color && frame.glow_color !== 'transparent' ? frame.glow_color : 'transparent';
   const animStyle = frame ? frame.animation_style : 'none';
 
-  // Find the exact rules for the applied skin, or strictly default to Saturday White
   const appliedSkin = activeSkins.find(s => s.image_url === userProfile.cardSkin);
   const defaultSkin = activeSkins.find(s => s.name?.toLowerCase() === 'saturday white') || {
     image_url: `${CLOUDFLARE_BASE_URL}/card-skins/saturday-white.png`,
@@ -129,14 +117,12 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
     <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 md:p-12 animate-fade-in" onClick={onClose}>
       <button onClick={onClose} className="absolute top-6 right-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-[5010] shadow-2xl"><X className="w-6 h-6" /></button>
 
-      {/* STATIC WRAPPER: Ensures WebKit rendering engine anchors the 3D perspective properly */}
       <div className="relative w-full max-w-5xl aspect-[1.58]" style={{ perspective: '2000px', WebkitPerspective: '2000px' }}>
         {isLoading ? (
           <div className="absolute inset-0 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center animate-pulse shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
              <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
           </div>
         ) : (
-          /* DECOUPLED 3D CORE: Inline explicit transforms bypass any rogue global CSS conflicts */
           <div 
             className="absolute inset-0 w-full h-full cursor-pointer"
             style={{ 
@@ -148,7 +134,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
             }}
             onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}
           >
-            {/* === FRONT OF CARD === */}
             <div 
               className="absolute inset-0 w-full h-full rounded-2xl bg-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden" 
               style={{ 
@@ -158,7 +143,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                 WebkitTransform: 'rotateY(0deg)'
               }}
             >
-              {/* INNER QUARANTINE: Container-type is trapped inside the flat plane */}
               <div className="w-full h-full relative" style={{ containerType: 'inline-size' }}>
                 <img src={currentSkin.image_url} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
                 <div className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }} />
@@ -180,7 +164,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
               </div>
             </div>
 
-            {/* === BACK OF CARD === */}
             <div 
               className="absolute inset-0 w-full h-full rounded-2xl bg-zinc-900 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden" 
               style={{ 

@@ -3,6 +3,10 @@ import { ArrowLeft, Target, Lock, Unlock, Eraser, CheckCircle, X } from 'lucide-
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 
+// --- MODULE-LEVEL MEMORY CACHE ---
+// Survives component unmounts so we don't query Supabase for Premium status every time!
+let memIsSubscriber: boolean | null = null;
+
 const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
 
@@ -92,22 +96,32 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
 
   const progressPercentage = CREATOR_TARGETS.length > 0 ? (unlockedCreators.length / CREATOR_TARGETS.length) * 100 : 0;
   
-  const [isSubscriber, setIsSubscriber] = useState<boolean | null>(null);
+  // Initialize with our memory cache so there is no flicker
+  const [isSubscriber, setIsSubscriber] = useState<boolean | null>(memIsSubscriber);
 
   useEffect(() => {
     const checkUser = async () => {
+      // OPTIMIZATION: If we already verified the subscription in memory, skip the network request entirely
+      if (memIsSubscriber !== null) {
+        setIsSubscriber(memIsSubscriber);
+        return;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data } = await supabase.from('profiles').select('is_premium').eq('id', user.id).single();
-        setIsSubscriber(data?.is_premium || false);
+        const isPremium = data?.is_premium || false;
+        setIsSubscriber(isPremium);
+        memIsSubscriber = isPremium; // Save to global memory
       } else {
         setIsSubscriber(false);
+        memIsSubscriber = false; // Save to global memory
       }
     };
     checkUser();
   }, []);
 
-  // --- NEW: AUTOMATIC LEGACY DATA CLEANUP ---
+  // --- AUTOMATIC LEGACY DATA CLEANUP ---
   useEffect(() => {
     if (CREATOR_TARGETS.length > 0) {
       localStorage.setItem('am_bingo_total', CREATOR_TARGETS.length.toString());
@@ -261,6 +275,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     }
   };
 
+  // NOTE: The PIN check MUST hit the database every time so if you change it mid-convention, it updates instantly!
   const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -287,7 +302,6 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     setPinInput('');
   };
 
-  // --- FIXED NATIVE SAVING (No offscreen canvas rotation needed) ---
   const handleSave = () => {
     if (!hasDrawn || !selectedTarget) return; 
 
@@ -317,7 +331,6 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
 
   if (isSubscriber === null) return <div className="min-h-screen bg-black" />;
 
-  // --- FULL PAGE LOCK SCREEN FOR FREE USERS ---
   if (isSubscriber === false) {
     return (
       <div className="min-h-screen bg-black text-white relative z-[200] flex flex-col">

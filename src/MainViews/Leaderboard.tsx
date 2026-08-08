@@ -19,50 +19,38 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
       setIsLoading(true);
 
       try {
-        // 1. FETCH REAL SUPER FANS
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, username, avatar_url, frame_id, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read');
+        // 1. FETCH TOP 10 FANS VIA BULLETPROOF RPC
+        const { data: topFans, error: fansError } = await supabase.rpc('fetch_top_ten_fans');
 
-        if (profiles) {
-          // The Hidden Algorithm (Calculates score on the fly)
-          const rankedFans = profiles
-            .map((p) => {
-              const score = 
-                (p.total_hypes || 0) * 1 + 
-                (p.quick_reacts || 0) * 5 + 
-                (p.chapters_read || 0) * 5 + 
-                (p.super_hypes || 0) * 10 + 
-                (p.is_premium ? 20 : 0); // Bonus for being a subscriber
-              return { ...p, score };
-            })
-            .filter((p) => p.score > 0) // Filters out visitors and inactive accounts
-            .sort((a, b) => b.score - a.score);
-
-          // Assign Ranks and Classes to the Top 10
-          const top10 = rankedFans.slice(0, 10).map((fan, index) => {
+        if (topFans && !fansError) {
+          const formattedTop10 = topFans.map((fan: any, index: number) => {
             let rankClass = 'C-Class Rank';
             if (index < 3) rankClass = 'S-Class Rank';
             else if (index < 6) rankClass = 'A-Class Rank';
             else if (index < 9) rankClass = 'B-Class Rank';
             
-            return { ...fan, rank: index + 1, class: rankClass };
+            return { ...fan, class: rankClass, score: Number(fan.score) };
           });
 
-          setSuperFans(top10);
+          setSuperFans(formattedTop10);
+        } else if (fansError) {
+          console.error("Supabase RPC Error:", fansError);
+        }
 
-          // Find current logged-in user's rank
-          if (currentUser) {
-            const myIndex = rankedFans.findIndex(f => f.id === currentUser.id);
-            if (myIndex !== -1) {
-              const myData = rankedFans[myIndex];
-              let myClass = 'C-Class Rank';
-              if (myIndex < 3) myClass = 'S-Class Rank';
-              else if (myIndex < 10) myClass = 'A-Class Rank';
-              else if (myIndex < 50) myClass = 'B-Class Rank';
-              
-              setUserRank({ rank: myIndex + 1, score: myData.score, class: myClass });
-            }
+        // Fetch current logged-in user's rank
+        if (currentUser) {
+          const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: currentUser.id });
+          
+          if (myRankData && myRankData.length > 0) {
+            const score = Number(myRankData[0].score);
+            const rank = Number(myRankData[0].rank);
+            let myClass = 'C-Class Rank';
+            
+            if (rank <= 3) myClass = 'S-Class Rank';
+            else if (rank <= 10) myClass = 'A-Class Rank';
+            else if (rank <= 50) myClass = 'B-Class Rank';
+            
+            setUserRank({ rank, score, class: myClass });
           }
         }
 
@@ -81,7 +69,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
               hypeScore: hypeCounts[s.slug] || 0
             }))
             .sort((a: any, b: any) => b.hypeScore - a.hypeScore)
-            .slice(0, 3); // Get Top 3
+            .slice(0, 3);
 
           setBig3(rankedSeries);
         }
@@ -96,7 +84,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
     fetchLeaderboard();
   }, [seriesList, currentUser]);
 
-  // Bulletproof Navigation Handler
   const handleRouteToSeries = (e: React.MouseEvent, seriesObj: any) => {
     e.preventDefault();
     e.stopPropagation();
@@ -107,15 +94,12 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-32">
-      
-      {/* FIXED PARALLAX BACKGROUND */}
       <div className="fixed inset-0 z-[-1] bg-black pointer-events-none">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="w-full h-full object-cover opacity-50" />
         <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/80 to-transparent" />
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/95 to-transparent" />
       </div>
 
-      {/* HEADER NAV */}
       <div className="sticky top-0 z-50 w-full bg-black/80 backdrop-blur-lg border-b border-zinc-800/50 pt-6 pb-4 px-6 sm:pt-8 sm:px-8">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <button onClick={onBack} className="p-3 bg-zinc-900/90 backdrop-blur-md rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors transform -skew-x-12 shadow-xl">
@@ -131,8 +115,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-4 relative z-10">
-
-        {/* CUSTOM TOGGLE TABS */}
         <div className="flex bg-zinc-900/60 backdrop-blur-md p-1 rounded-full mb-8 border border-zinc-800 shadow-xl max-w-sm mx-auto">
           <button onClick={() => setActiveTab('fans')} className={`flex-1 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'fans' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>AM Super Fans</button>
           <button onClick={() => setActiveTab('series')} className={`flex-1 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'series' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>Top Series</button>
@@ -147,8 +129,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           <>
             {activeTab === 'series' && (
               <div className="animate-fade-in space-y-12">
-                
-                {/* NEW STICKER PODIUM LAYOUT FOR THE BIG 3 */}
                 <div className="flex flex-col items-center mt-8">
                   <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2 mb-12 drop-shadow-lg">
                     <Crown className="w-6 h-6 text-yellow-500" /> The Big 3
@@ -156,8 +136,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
                   {big3.length === 3 ? (
                     <div className="flex items-end justify-center gap-4 sm:gap-8 w-full px-2">
-                      
-                      {/* RANK 2 */}
                       <button 
                         type="button"
                         className="flex flex-col items-center w-[30%] opacity-90 hover:opacity-100 transition-all hover:-translate-y-2 group cursor-pointer bg-transparent border-none p-0 focus:outline-none"
@@ -173,7 +151,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                         </div>
                       </button>
 
-                      {/* RANK 1 */}
                       <button 
                         type="button"
                         className="flex flex-col items-center w-[35%] z-30 hover:-translate-y-4 transition-all group pb-8 cursor-pointer relative"
@@ -189,7 +166,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                         </div>
                       </button>
 
-                      {/* RANK 3 */}
                       <button 
                         type="button"
                         className="flex flex-col items-center w-[30%] opacity-90 hover:opacity-100 transition-all hover:-translate-y-2 group cursor-pointer bg-transparent border-none p-0 focus:outline-none"
@@ -204,14 +180,12 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                           <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3[2].title}</span>
                         </div>
                       </button>
-
                     </div>
                   ) : (
                     <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">Not enough data to calculate The Big 3 yet.</p>
                   )}
                 </div>
 
-                {/* MANGA OF THE WEEK */}
                 <div className="mt-16 pt-12 border-t border-zinc-800">
                   <button 
                     type="button"
@@ -241,13 +215,11 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                     </div>
                   </button>
                 </div>
-
               </div>
             )}
 
             {activeTab === 'fans' && (
               <div className="animate-fade-in">
-                
                 <div className="flex items-center justify-between mb-6 border-b border-zinc-800 pb-4">
                   <h2 className="text-xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2 pointer-events-none">
                     <Zap className="w-5 h-5 text-[#fe9a00]" /> Top 10 Super Fans
@@ -258,15 +230,12 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                 <div className="flex flex-col gap-3">
                   {superFans.length > 0 ? superFans.map((fan) => (
                     <div key={fan.id} className="flex items-center gap-4 bg-zinc-900/80 backdrop-blur-md p-4 rounded-xl border border-zinc-800 shadow-lg hover:border-zinc-600 transition-colors pointer-events-none">
-                      
                       <div className="w-8 flex justify-center">
                         <span className={`text-2xl font-black italic ${fan.rank <= 3 ? 'text-[#fe9a00] drop-shadow-[0_0_10px_rgba(254,154,0,0.5)]' : 'text-zinc-600'}`}>
                           {fan.rank}
                         </span>
                       </div>
-
                       <DecoratedAvatar avatarUrl={fan.avatar_url} frameId={fan.frame_id} size="w-12 h-12" iconSize="w-5 h-5" />
-
                       <div className="flex flex-col flex-1 truncate">
                         <div className="flex items-center gap-2">
                           <span className="font-black text-white uppercase tracking-wider truncate text-sm sm:text-base">{fan.username}</span>
@@ -276,7 +245,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                           <Activity className="w-3 h-3 text-[#fe9a00]" /> Score: {fan.score.toLocaleString()}
                         </span>
                       </div>
-                      
                       <div className="hidden sm:flex flex-col items-end pl-4 border-l border-zinc-800">
                          <span className={`text-[10px] font-black uppercase tracking-widest ${fan.rank <= 3 ? 'text-yellow-500' : 'text-zinc-500'}`}>{fan.class}</span>
                       </div>
@@ -288,7 +256,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   )}
                 </div>
 
-                {/* Current User Personal Rank Hook */}
                 {currentUser && userRank && (
                   <div className="mt-8 pt-6 border-t border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-4 bg-[#fe9a00]/10 border border-[#fe9a00]/30 rounded-xl p-4 sm:p-6 backdrop-blur-md pointer-events-none">
                     <div className="flex items-center gap-4">
@@ -304,12 +271,10 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                     </div>
                   </div>
                 )}
-                
               </div>
             )}
           </>
         )}
-
       </div>
     </div>
   );

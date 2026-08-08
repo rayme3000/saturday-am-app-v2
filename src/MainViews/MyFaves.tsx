@@ -41,11 +41,14 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
           let chapters: any[] = [];
           let magazines: any[] = [];
 
-          const { data: chData } = await supabase.from('chapters').select('id, series_slug, chapter_number, title, thumbnail_url').in('id', chapterIds);
-          if (chData) chapters = chData;
+          // --- OPTIMIZED: PROMISE.ALL FOR CONCURRENT FETCHING ---
+          const [chaptersResponse, magazinesResponse] = await Promise.all([
+            supabase.from('chapters').select('id, series_slug, chapter_number, title, thumbnail_url').in('id', chapterIds),
+            supabase.from('magazines').select('*').in('id', chapterIds)
+          ]);
 
-          const { data: magData } = await supabase.from('magazines').select('*').in('id', chapterIds);
-          if (magData) magazines = magData;
+          if (chaptersResponse.data) chapters = chaptersResponse.data;
+          if (magazinesResponse.data) magazines = magazinesResponse.data;
 
           const combined = history.map((h: any) => {
             const chap = chapters.find((c: any) => String(c.id) === String(h.chapter_id));

@@ -3,21 +3,19 @@ import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
-
-// --- NEW: Importing the standalone GlobalFlexCard component ---
 import { GlobalFlexCard } from '../Components/GlobalFlexCard';
 
-// --- SHARED PROFILE ANIMATION RENDERER ---
+// --- MODULE-LEVEL MEMORY CACHE ---
+let memProfileStats: any = null;
+let memUserProfile: any = null;
+
 const RenderFrameAnimations = ({ anim, color }: { anim: string, color: string }) => {
   if (!anim || anim === 'none') return null;
   return (
     <>
-      {/* Base Animations */}
       {anim === 'orbit' && <div className="absolute rounded-full border-2 border-transparent pointer-events-none animate-[spin_3s_linear_infinite]" style={{ width: '130%', height: '130%', borderTopColor: color, borderRightColor: color }} />}
       {anim === 'pulse' && <div className="absolute rounded-full pointer-events-none animate-ping opacity-20" style={{ width: '100%', height: '100%', backgroundColor: color }} />}
       {anim === 'spin' && <div className="absolute rounded-full pointer-events-none animate-[spin_4s_linear_infinite]" style={{ width: '115%', height: '115%', border: `2px dashed ${color}` }} />}
-
-      {/* Anime Animations */}
       {anim === 'aura-burst' && (
         <>
           <div className="absolute rounded-full border-[3px] opacity-60 animate-[ping_0.8s_ease-out_infinite]" style={{ width: '120%', height: '120%', borderColor: color }} />
@@ -56,13 +54,12 @@ const RenderFrameAnimations = ({ anim, color }: { anim: string, color: string })
 };
 
 export const UserProfile = ({ onBack, onNavigate }: any) => {
-  const { seriesList = [] } = useSeriesData();
+  // OPTIMIZATION: Pull assets directly from global cache
+  const { seriesList = [], vaultAvatars = [], cardSkins = [], vaultFrames = [] } = useSeriesData();
+  
   const [showFlexCard, setShowFlexCard] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('card');
-  const [vaultAvatars, setVaultAvatars] = useState<any[]>([]);
-  const [cardSkins, setCardSkins] = useState<any[]>([]); 
-  const [vaultFrames, setVaultFrames] = useState<any[]>([]); 
   const [selectingSlot, setSelectingSlot] = useState<number | null>(null);
   const [isSubscriber, setIsSubscriber] = useState(false); 
   const [isLoggedIn, setIsLoggedIn] = useState(false);   
@@ -70,29 +67,17 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [errorToast, setErrorToast] = useState(''); 
   
-  const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] as (string | null)[] });
+  const [userProfile, setUserProfile] = useState(memUserProfile || { username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] as (string | null)[] });
   const [tempProfile, setTempProfile] = useState({...userProfile});
-  const [profileStats, setProfileStats] = useState({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---", score: 0 });
+  const [profileStats, setProfileStats] = useState(memProfileStats || { total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---", score: 0 });
+  
   const [unlockedHunts, setUnlockedHunts] = useState(0);
   const [totalHunts, setTotalHunts] = useState(11);
 
-  // --- 1. FETCH DATA ---
   useEffect(() => {
     window.scrollTo(0, 0);
-    const fetchData = async () => {
-      if (typeof supabase !== 'undefined') {
-        const { data: avatars } = await supabase.from('avatars').select('*').eq('is_active', true).order('created_at', { ascending: false });
-        if (avatars) setVaultAvatars(avatars);
-        const { data: skins } = await supabase.from('card_skins').select('*').eq('is_active', true).order('created_at', { ascending: false });
-        if (skins) setCardSkins(skins);
-        const { data: frames } = await supabase.from('avatar_frames').select('*').eq('is_active', true).order('created_at', { ascending: false });
-        if (frames) setVaultFrames(frames);
-      }
-    };
-    fetchData();
   }, []);
 
-  // --- 2. FETCH USER STATS ---
   useEffect(() => {
     const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
     setUnlockedHunts(savedHunts.length);
@@ -100,32 +85,39 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     if (savedTotal) setTotalHunts(parseInt(savedTotal));
 
     const fetchUserStats = async () => {
+      // If we have memory cache, skip the database call!
+      if (memProfileStats && memUserProfile) {
+        setIsLoggedIn(true);
+        return;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
 
       if (user) {
         setIsLoggedIn(true);
         const fallbackName = user.user_metadata?.username || 'Reader';
         const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-        const { data: allProfiles } = await supabase.from('profiles').select('id, is_premium, total_hypes, super_hypes, quick_reacts, chapters_read');
+        
         let myRank: string | number = "---";
         let myScore = 0;
 
-        if (allProfiles) {
-          const rankedFans = allProfiles.map((p) => {
-              const score = (p.total_hypes || 0) * 1 + (p.quick_reacts || 0) * 5 + (p.chapters_read || 0) * 5 + (p.super_hypes || 0) * 10 + (p.is_premium ? 20 : 0);
-              return { id: p.id, score };
-            }).filter((p) => p.score > 0).sort((a, b) => b.score - a.score);
-
-          const myIndex = rankedFans.findIndex(f => f.id === user.id);
-          if (myIndex !== -1) { myRank = myIndex + 1; myScore = rankedFans[myIndex].score; }
+        const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: user.id });
+        if (myRankData && myRankData.length > 0) {
+          myRank = Number(myRankData[0].rank);
+          myScore = Number(myRankData[0].score);
         }
 
         if (data) {
-          setProfileStats({ total_hypes: data.total_hypes || 0, super_hypes: data.super_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0, rank: myRank as string, score: myScore });
+          const newStats = { total_hypes: data.total_hypes || 0, super_hypes: data.super_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0, rank: myRank as string, score: myScore };
+          setProfileStats(newStats);
+          memProfileStats = newStats; // Save to cache
+          
           setIsSubscriber(data.is_premium || false);
+          
           const loadedProfile = { ...userProfile, username: data.username || fallbackName, topFive: data.top_five || [null, null, null, null, null], cardSkin: data.card_skin || '', avatarUrl: data.avatar_url || '', frameId: data.avatar_frame_id || '' };
           setUserProfile(loadedProfile);
           setTempProfile(loadedProfile);
+          memUserProfile = loadedProfile; // Save to cache
         } else {
           setUserProfile({ ...userProfile, username: fallbackName });
           setTempProfile({ ...userProfile, username: fallbackName });
@@ -163,6 +155,8 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
       if (error) { setErrorToast("Failed to save! Please check your connection."); setTimeout(() => setErrorToast(''), 3000); return; }
     }
     setUserProfile({...tempProfile});
+    memUserProfile = {...tempProfile}; // Update cache on save
+    
     setIsEditing(false);
     setShowSuccessToast(true);
     setTimeout(() => setShowSuccessToast(false), 3000);
@@ -176,7 +170,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   const displaySeriesList = seriesList && seriesList.length > 0 ? seriesList : fallbackSeriesList;
 
   const renderAvatarWithFrame = (avatarUrl: string, frameId: string, sizeClass = "w-32 h-32 sm:w-40 sm:h-40", iconSize = "w-12 h-12") => {
-    const frame = vaultFrames.find(f => f.id === frameId);
+    const frame = vaultFrames.find((f: any) => f.id === frameId);
     const borderColor = frame ? frame.border_color : 'transparent';
     const glowColor = frame?.glow_color && frame.glow_color !== 'transparent' ? frame.glow_color : 'transparent';
     const animStyle = frame ? frame.animation_style : 'none';
@@ -216,8 +210,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-20">
-      
-      {/* --- NEW: Renders the connected Flex Card component when triggered --- */}
       <GlobalFlexCard isOpen={showFlexCard} onClose={() => setShowFlexCard(false)} />
 
       <div className="fixed inset-0 z-[-1] bg-black">
@@ -252,7 +244,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
       </div>
 
       <div className="max-w-4xl mx-auto relative -mt-16 sm:-mt-24">
-        
         <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6 mb-8 px-6">
           <div className="relative group cursor-pointer" onClick={() => openEditor('frame')}>
             {renderAvatarWithFrame(userProfile.avatarUrl, userProfile.frameId)}
@@ -435,7 +426,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
                     <div onClick={() => setTempProfile({...tempProfile, avatarUrl: ''})} className={`relative cursor-pointer rounded-full p-1 transition-all ${!tempProfile.avatarUrl ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
                       <div className="w-full aspect-square bg-zinc-800 rounded-full border-2 border-black flex items-center justify-center"><User className="w-8 h-8 text-zinc-500" /></div>
                     </div>
-                    {vaultAvatars.map(avatar => (
+                    {vaultAvatars.map((avatar: any) => (
                       <div key={avatar.id} onClick={() => setTempProfile({...tempProfile, avatarUrl: avatar.image_url})} className={`relative cursor-pointer rounded-full p-1 transition-all ${tempProfile.avatarUrl === avatar.image_url ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
                         <img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" />
                       </div>

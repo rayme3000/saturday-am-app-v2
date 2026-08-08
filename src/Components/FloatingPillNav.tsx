@@ -1,18 +1,20 @@
 import React, { memo, useState, useEffect } from 'react';
 import { Home, Heart, Search, ShoppingBag, User } from 'lucide-react';
 import { supabase } from '../supabase';
+import { useSeriesData } from '../userSeriesData';
 
-// --- SHARED PILL NAV ANIMATION RENDERER ---
+// --- OPTIMIZATION: Module-level Cache ---
+// This memory survives even when React completely destroys the Nav component!
+let memoryCacheProfile: any = null;
+let memoryCacheFrame: any = null;
+
 const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) => {
   if (!anim || anim === 'none') return null;
   return (
     <>
-      {/* Base Animations */}
       {anim === 'orbit' && <div className="absolute w-[52px] h-[52px] rounded-full border-2 border-transparent pointer-events-none animate-[spin_3s_linear_infinite]" style={{ borderTopColor: color, borderRightColor: color }} />}
       {anim === 'pulse' && <div className="absolute w-[40px] h-[40px] rounded-full pointer-events-none animate-ping opacity-20" style={{ backgroundColor: color }} />}
       {anim === 'spin' && <div className="absolute w-[46px] h-[46px] rounded-full pointer-events-none animate-[spin_4s_linear_infinite]" style={{ border: `2px dashed ${color}` }} />}
-
-      {/* Anime Animations */}
       {anim === 'aura-burst' && (
         <>
           <div className="absolute w-[48px] h-[48px] rounded-full opacity-60 animate-[ping_0.8s_ease-out_infinite]" style={{ borderColor: color, borderWidth: '2px', borderStyle: 'solid' }} />
@@ -51,53 +53,54 @@ const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) 
 };
 
 export const FloatingPillNav = memo(({ currentView, onNavigate }: any) => {
-  const [dbFrames, setDbFrames] = useState<any[]>([]);
-  const [navAvatar, setNavAvatar] = useState<string>('');
-  const [navFrame, setNavFrame] = useState<string>('');
-
-  useEffect(() => {
-    const fetchFrames = async () => {
-      const { data } = await supabase.from('avatar_frames').select('*').eq('is_active', true);
-      if (data) setDbFrames(data);
-    };
-    fetchFrames();
-  }, []);
+  const { vaultFrames = [] } = useSeriesData();
+  
+  // Use memory cache as the initial state so there's zero flicker
+  const [navAvatar, setNavAvatar] = useState<string>(memoryCacheProfile || '');
+  const [navFrame, setNavFrame] = useState<string>(memoryCacheFrame || '');
 
   useEffect(() => {
     const fetchUserLoadout = async () => {
+      // If we already have the cache, skip the database entirely!
+      if (memoryCacheProfile !== null) return;
+
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const { data } = await supabase.from('profiles').select('avatar_url, avatar_frame_id').eq('id', user.id).maybeSingle();
         if (data) {
-          setNavAvatar(data.avatar_url || '');
-          setNavFrame(data.avatar_frame_id || '');
+          const av = data.avatar_url || '';
+          const fr = data.avatar_frame_id || '';
+          
+          setNavAvatar(av);
+          setNavFrame(fr);
+          
+          // Save it to memory for the next tab switch
+          memoryCacheProfile = av;
+          memoryCacheFrame = fr;
         }
-      } else {
-        setNavAvatar('');
-        setNavFrame('');
       }
     };
 
     fetchUserLoadout();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(() => { fetchUserLoadout(); });
-
     const handleProfileUpdate = (e: any) => {
       if (e.detail) {
-        if (e.detail.avatar_url !== undefined) setNavAvatar(e.detail.avatar_url);
-        if (e.detail.avatar_frame_id !== undefined) setNavFrame(e.detail.avatar_frame_id || '');
+        if (e.detail.avatar_url !== undefined) {
+          setNavAvatar(e.detail.avatar_url);
+          memoryCacheProfile = e.detail.avatar_url;
+        }
+        if (e.detail.avatar_frame_id !== undefined) {
+          setNavFrame(e.detail.avatar_frame_id || '');
+          memoryCacheFrame = e.detail.avatar_frame_id || '';
+        }
       }
     };
     
     window.addEventListener('profileUpdated', handleProfileUpdate);
-
-    return () => {
-      authListener.subscription.unsubscribe();
-      window.removeEventListener('profileUpdated', handleProfileUpdate);
-    };
+    return () => window.removeEventListener('profileUpdated', handleProfileUpdate);
   }, []);
 
-  const dynamicFrame = dbFrames.find(f => f.id === navFrame);
+  const dynamicFrame = vaultFrames.find((f: any) => f.id === navFrame);
   const dynBorder = dynamicFrame ? `2px solid ${dynamicFrame.border_color}` : 'none';
   const dynShadow = dynamicFrame?.glow_color && dynamicFrame.glow_color !== 'transparent' ? `0 0 10px ${dynamicFrame.glow_color}` : 'none';
   const dynAnim = dynamicFrame ? dynamicFrame.animation_style : 'none';

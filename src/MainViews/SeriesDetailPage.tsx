@@ -111,7 +111,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         const { data: freshSeries } = await supabase.from('series').select('*').eq('slug', targetSlug).single();
         if (freshSeries) setLocalSeries(freshSeries);
         
-        // Always fetch chronologically ascending from the database
         const { data: chapterData } = await supabase.from('chapters').select('*').eq('series_slug', targetSlug).eq('is_published', true).order('chapter_number', { ascending: true });
         if (chapterData) setChapters(chapterData as any);
         
@@ -164,67 +163,33 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchReadingProgress();
   }, [currentUserId, chapters, readerClosedCount]);
 
+  // --- OPTIMIZED RPC CALL FOR CHAPTER STATS ---
   useEffect(() => {
-    if (chapters.length === 0) return;
+    if (chapters.length === 0 || !localSeries?.slug) return;
 
     const fetchChapterStats = async () => {
       try {
-        const chapterIds = chapters.map(c => String(c.id));
-        const newStats: any = {};
-        
-        chapterIds.forEach(id => { newStats[id] = { hypes: 0, reacts: 0 }; });
+        const { data: statsData, error } = await supabase.rpc('get_series_chapter_stats', { 
+          p_series_slug: localSeries.slug 
+        });
 
-        const { data: reactsData } = await supabase
-          .from('page_reacts')
-          .select('chapter_id')
-          .in('chapter_id', chapterIds);
-
-        if (reactsData) {
-          reactsData.forEach((r: any) => {
-            const cId = String(r.chapter_id);
-            if (newStats[cId]) newStats[cId].reacts += 1;
+        if (statsData && !error) {
+          const newStats: any = {};
+          statsData.forEach((stat: any) => {
+            newStats[stat.chapter_id] = {
+              hypes: Number(stat.total_hypes),
+              reacts: Number(stat.total_reacts)
+            };
           });
+          setChapterStats(newStats);
         }
-
-        const { data: pagesData } = await supabase
-          .from('pages')
-          .select('id, chapter_id')
-          .in('chapter_id', chapterIds);
-
-        if (pagesData && pagesData.length > 0) {
-          const pageIds = pagesData.map((p: any) => String(p.id));
-          const pageToChapter: any = {};
-          pagesData.forEach((p: any) => { pageToChapter[String(p.id)] = String(p.chapter_id); });
-          
-          let allHypes: any[] = [];
-          
-          for (let i = 0; i < pageIds.length; i += 200) {
-            const chunk = pageIds.slice(i, i + 200);
-            const { data: chunkData } = await supabase
-              .from('hypes')
-              .select('target_id')
-              .eq('target_type', 'page')
-              .in('target_id', chunk);
-            
-            if (chunkData) allHypes = [...allHypes, ...chunkData];
-          }
-
-          allHypes.forEach((h: any) => {
-            const cId = pageToChapter[String(h.target_id)];
-            if (cId && newStats[cId]) {
-              newStats[cId].hypes += 1;
-            }
-          });
-        }
-
-        setChapterStats({ ...newStats });
       } catch (err) {
         console.error("Failed to fetch chapter stats:", err);
       }
     };
 
     fetchChapterStats();
-  }, [chapters, readerClosedCount]);
+  }, [chapters, readerClosedCount, localSeries?.slug]);
 
   useEffect(() => {
     if (chapters.length > 0 && series?.autoOpenChapterId && !hasAutoOpened) {
@@ -416,7 +381,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
       {isReaderOpen && (() => {
         const activeChapterData = chapters.find(c => c.id === activeChapterId);
-        // Uses the chronological `chapters` array so Next/Prev are always accurate
         const currentIndex = chapters.findIndex(c => c.id === activeChapterId);
         const hasNext = currentIndex > -1 && currentIndex < chapters.length - 1;
         const hasPrev = currentIndex > 0;
@@ -523,7 +487,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
         <div className="mt-4 px-4 sm:px-6 pb-12 w-full max-w-3xl mx-auto">
           
-          {/* SORTING TOGGLE HEADER */}
           {chapters.length > 0 && (
             <div className="flex justify-between items-center w-full mb-6 px-2">
               <span className="text-zinc-500 font-bold text-[10px] sm:text-xs uppercase tracking-widest">
@@ -532,7 +495,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               <button 
                 onClick={() => {
                   setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-                  setVisibleCount(25); // Reset visible count on resort
+                  setVisibleCount(25);
                 }}
                 className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors text-[10px] sm:text-xs font-black uppercase tracking-widest bg-zinc-900 px-4 py-2 rounded-full border border-zinc-800"
               >
@@ -646,7 +609,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           
           {chapters.length === 0 && <div className="text-center py-16 text-zinc-500 font-bold tracking-widest text-xs uppercase">No chapters uploaded yet.</div>}
 
-          {/* LOAD MORE BUTTONS */}
           {visibleCount < chapters.length && (
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
               <button 
@@ -722,7 +684,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         </div>
       </div>
       
-      {/* WATCH TO UNLOCK MODAL */}
       {showAdModal && (
         <div className="fixed inset-0 z-[6000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in">
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
