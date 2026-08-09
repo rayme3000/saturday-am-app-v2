@@ -36,15 +36,20 @@ export const MagazineHomeSection = ({ magazines, onMagazineClick }: any) => {
           <ChevronLeft className="w-8 h-8 text-white hover:text-[#fe9a00] transition-colors drop-shadow-md" />
         </button>
 
-        <div ref={scrollRef} className="flex overflow-x-auto gap-4 pb-4 scroll-smooth snap-x no-scrollbar">
+        <div ref={scrollRef} className="flex overflow-x-auto gap-4 pb-4 pt-1 scroll-smooth snap-x no-scrollbar">
           {magazines.map((m: any) => (
             <div key={m.id} className="w-[45%] sm:w-1/3 md:w-1/4 flex-shrink-0 snap-start cursor-pointer group/card" onClick={() => onMagazineClick(m)}>
-              <div className="relative overflow-hidden rounded-lg cursor-pointer aspect-[1424/2000] bg-zinc-900 border border-zinc-800 shadow-lg hover:border-[#fe9a00] transition-colors duration-300 mb-2">
+              
+              {/* --- NEO-BRUTALIST MAGAZINE CARD --- */}
+              <div className="relative overflow-hidden rounded-lg cursor-pointer aspect-[1424/2000] bg-zinc-900 border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3">
                 <img src={m.cover_url} alt={m.title} className="w-full h-full object-cover transform transition-transform duration-500 group-hover/card:scale-105" />
               </div>
-              <div className="px-1 text-left">
+              
+              {/* Blurred Text Backdrop */}
+              <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg mt-1 p-1">
                 <h3 className="text-white font-bold text-xs truncate tracking-wide group-hover/card:text-[#fe9a00] transition-colors">{m.title}</h3>
               </div>
+
             </div>
           ))}
         </div>

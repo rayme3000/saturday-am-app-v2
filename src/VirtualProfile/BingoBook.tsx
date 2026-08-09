@@ -1,11 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { ArrowLeft, Target, Lock, Unlock, Eraser, CheckCircle, X } from 'lucide-react';
+import { ArrowLeft, Target, Lock, Unlock, Eraser, X } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
-
-// --- MODULE-LEVEL MEMORY CACHE ---
-// Survives component unmounts so we don't query Supabase for Premium status every time!
-let memIsSubscriber: boolean | null = null;
 
 const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
@@ -96,41 +92,13 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
 
   const progressPercentage = CREATOR_TARGETS.length > 0 ? (unlockedCreators.length / CREATOR_TARGETS.length) * 100 : 0;
   
-  // Initialize with our memory cache so there is no flicker
-  const [isSubscriber, setIsSubscriber] = useState<boolean | null>(memIsSubscriber);
-
-  useEffect(() => {
-    const checkUser = async () => {
-      // OPTIMIZATION: If we already verified the subscription in memory, skip the network request entirely
-      if (memIsSubscriber !== null) {
-        setIsSubscriber(memIsSubscriber);
-        return;
-      }
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase.from('profiles').select('is_premium').eq('id', user.id).single();
-        const isPremium = data?.is_premium || false;
-        setIsSubscriber(isPremium);
-        memIsSubscriber = isPremium; // Save to global memory
-      } else {
-        setIsSubscriber(false);
-        memIsSubscriber = false; // Save to global memory
-      }
-    };
-    checkUser();
-  }, []);
-
   // --- AUTOMATIC LEGACY DATA CLEANUP ---
   useEffect(() => {
     if (CREATOR_TARGETS.length > 0) {
       localStorage.setItem('am_bingo_total', CREATOR_TARGETS.length.toString());
 
       setUnlockedCreators(prev => {
-        // Filter out any ghost/legacy IDs that don't match our current creators
         const validHunts = prev.filter(id => CREATOR_TARGETS.some(t => t.id === id));
-        
-        // If we found invalid data, clean up local storage so it never happens again
         if (validHunts.length !== prev.length) {
           localStorage.setItem('am_bingo_hunts', JSON.stringify(validHunts));
           
@@ -190,7 +158,6 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     }
   }, [isUnlocked, selectedTarget, signatures]);
 
-  // --- FIXED 1:1 TOUCH TRACKING COORDINATES ---
   const getCoordinates = (e: any) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -275,7 +242,6 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     }
   };
 
-  // NOTE: The PIN check MUST hit the database every time so if you change it mid-convention, it updates instantly!
   const handlePinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -329,12 +295,18 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     pointsRef.current = [];
   };
 
-  if (isSubscriber === null) return <div className="min-h-screen bg-black" />;
-
-  if (isSubscriber === false) {
+  if (userTier !== 'premium') {
     return (
-      <div className="min-h-screen bg-black text-white relative z-[200] flex flex-col">
-        <div className="absolute top-6 left-6 z-50">
+      <div className="min-h-screen bg-transparent text-white relative flex flex-col">
+        {/* GLOBAL BACKDROP */}
+        <div className="fixed inset-0 z-[-1] bg-black">
+          <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
+          <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
+          <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
+          <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
+        </div>
+
+        <div className="absolute top-6 left-6 z-40">
           <button onClick={onBack} className="p-3 bg-zinc-900 hover:bg-zinc-800 rounded-full transition-colors shadow-lg">
             <ArrowLeft className="w-5 h-5 text-white" />
           </button>
@@ -345,7 +317,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
             <Lock className="w-10 h-10 text-[#fe9a00]" />
           </div>
           <h1 className="text-3xl md:text-4xl font-black uppercase italic tracking-widest text-white mb-4">Bingo <span className="text-red-600">Book</span></h1>
-          <p className="text-zinc-400 font-bold max-w-md mb-8 leading-relaxed">
+          <p className="text-zinc-400 font-bold max-w-md mb-8 leading-relaxed bg-black/40 p-4 rounded-xl backdrop-blur-sm border border-zinc-800">
             The Bingo Book hunt is exclusively for Saturday AM Pro Members. Upgrade your account to collect digital autographs from your favorite creators at live events!
           </p>
           <button 
@@ -360,9 +332,18 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white pb-24 animate-fade-in relative z-[200]">
+    <div className="min-h-screen bg-transparent text-white pb-24 animate-fade-in relative">
+      
+      {/* GLOBAL BACKDROP */}
+      <div className="fixed inset-0 z-[-1] bg-black">
+        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
+        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
+        <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
+      </div>
+
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-black/95 backdrop-blur-xl border-b border-zinc-900 p-6 flex items-center justify-between">
+      <div className="sticky top-0 z-40 bg-black/95 backdrop-blur-xl border-b border-zinc-900 p-6 flex items-center justify-between pr-16 sm:pr-20">
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-3 bg-zinc-900 hover:bg-zinc-800 rounded-full transition-colors shadow-lg">
             <ArrowLeft className="w-5 h-5 text-white" />
@@ -376,7 +357,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
 
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Mission Briefing */}
-        <div className="mb-8 bg-gradient-to-r from-zinc-900 to-black border-2 border-[#fe9a00]/60 rounded-2xl p-6 md:p-8 shadow-[0_0_40px_rgba(254,154,0,0.35)] relative overflow-hidden">
+        <div className="mb-8 bg-gradient-to-r from-zinc-900/90 to-black/90 backdrop-blur-sm border-2 border-[#fe9a00]/60 rounded-2xl p-6 md:p-8 shadow-[0_0_40px_rgba(254,154,0,0.35)] relative overflow-hidden">
           <div className="absolute top-0 left-0 w-2 h-full bg-[#fe9a00] shadow-[0_0_20px_rgba(254,154,0,0.8)]"></div>
           <h2 className="text-[#fe9a00] text-lg md:text-xl font-black uppercase tracking-[0.2em] mb-3 flex items-center gap-3 drop-shadow-[0_2px_10px_rgba(254,154,0,0.5)]">
             <Target className="w-6 h-6 md:w-7 md:h-7" /> The Mission
@@ -387,7 +368,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
         </div>
 
         {/* Progress Tracker */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-10 shadow-lg">
+        <div className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-2xl p-6 mb-10 shadow-lg">
           <div className="flex justify-between items-end mb-2">
             <h2 className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400">Hunt Progress</h2>
             <span className="text-xl font-black italic text-[#fe9a00]">{unlockedCreators.length} / {CREATOR_TARGETS.length}</span>

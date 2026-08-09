@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
-import { ArrowUp, X, Lock, Share } from 'lucide-react'; 
+import { ArrowUp, X, Lock, Share, Menu } from 'lucide-react'; 
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 
@@ -479,8 +479,20 @@ export default function App() {
         {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
       </Suspense>
 
-      {['home', 'faves', 'browse', 'profile'].includes(currentView) && (
+      {/* --- GLOBAL FLOATING PILL NAV --- */}
+      {!['settings', 'admin', 'sub'].includes(currentView) && (
         <FloatingPillNav currentView={currentView} onNavigate={handleNavigate} userAvatar={currentUser?.avatar_url} userFrame={currentUser?.frame_id} />
+      )}
+
+      {/* --- GLOBAL FLOATING HAMBURGER FOR SUB-PAGES --- */}
+      {!['home', 'settings', 'admin', 'sub'].includes(currentView) && (
+        <button 
+          onClick={() => setIsMenuOpen(true)}
+          className="fixed top-4 sm:top-6 right-4 sm:right-6 z-[150] p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] shadow-lg transition-all group"
+          aria-label="Open Menu"
+        >
+          <Menu className="w-5 h-5 sm:w-6 sm:h-6 group-hover:scale-110 transition-transform" />
+        </button>
       )}
 
       {/* --- STANDARD PWA INSTALL BANNER (Android/Chrome) --- */}

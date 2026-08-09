@@ -64,14 +64,22 @@ export const AMNewsPage = ({ onBack }: any) => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-black text-white p-6 pb-24">
+    <div className="relative min-h-screen bg-transparent text-white p-6 pb-24">
+      {/* GLOBAL BACKDROP */}
+      <div className="fixed inset-0 z-[-1] bg-black">
+        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
+        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
+        <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
+      </div>
+
       <div className="max-w-5xl mx-auto mt-4 sm:mt-10">
         
-        <button onClick={onBack} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors mb-8 font-black uppercase tracking-widest text-[10px]">
+        <button onClick={onBack} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-8 font-black uppercase tracking-widest text-[10px]">
           <ArrowLeft className="w-4 h-4" /> Back to Home
         </button>
 
-        <div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-6">
+        <div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-6 bg-black/40 backdrop-blur-sm p-4 rounded-t-2xl">
           <h2 className="text-3xl md:text-4xl font-black italic uppercase tracking-wider text-white drop-shadow-md flex items-center gap-4">
             <BookOpen className="w-8 h-8 text-[#fe9a00]" /> AM News
           </h2>
@@ -86,7 +94,7 @@ export const AMNewsPage = ({ onBack }: any) => {
         </div>
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-32 gap-4">
+          <div className="flex flex-col items-center justify-center py-32 gap-4 bg-black/40 backdrop-blur-sm rounded-b-2xl">
             <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin" />
             <span className="text-zinc-500 font-bold tracking-widest text-xs uppercase animate-pulse">Loading Transmissions...</span>
           </div>

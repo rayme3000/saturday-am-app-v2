@@ -54,7 +54,6 @@ const RenderFrameAnimations = ({ anim, color }: { anim: string, color: string })
 };
 
 export const UserProfile = ({ onBack, onNavigate }: any) => {
-  // OPTIMIZATION: Pull assets directly from global cache
   const { seriesList = [], vaultAvatars = [], cardSkins = [], vaultFrames = [] } = useSeriesData();
   
   const [showFlexCard, setShowFlexCard] = useState(false);
@@ -85,7 +84,6 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     if (savedTotal) setTotalHunts(parseInt(savedTotal));
 
     const fetchUserStats = async () => {
-      // If we have memory cache, skip the database call!
       if (memProfileStats && memUserProfile) {
         setIsLoggedIn(true);
         return;
@@ -110,14 +108,14 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
         if (data) {
           const newStats = { total_hypes: data.total_hypes || 0, super_hypes: data.super_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0, rank: myRank as string, score: myScore };
           setProfileStats(newStats);
-          memProfileStats = newStats; // Save to cache
+          memProfileStats = newStats; 
           
           setIsSubscriber(data.is_premium || false);
           
           const loadedProfile = { ...userProfile, username: data.username || fallbackName, topFive: data.top_five || [null, null, null, null, null], cardSkin: data.card_skin || '', avatarUrl: data.avatar_url || '', frameId: data.avatar_frame_id || '' };
           setUserProfile(loadedProfile);
           setTempProfile(loadedProfile);
-          memUserProfile = loadedProfile; // Save to cache
+          memUserProfile = loadedProfile; 
         } else {
           setUserProfile({ ...userProfile, username: fallbackName });
           setTempProfile({ ...userProfile, username: fallbackName });
@@ -155,7 +153,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
       if (error) { setErrorToast("Failed to save! Please check your connection."); setTimeout(() => setErrorToast(''), 3000); return; }
     }
     setUserProfile({...tempProfile});
-    memUserProfile = {...tempProfile}; // Update cache on save
+    memUserProfile = {...tempProfile}; 
     
     setIsEditing(false);
     setShowSuccessToast(true);
@@ -189,7 +187,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     const series = displaySeriesList.find((s: any) => s.slug === seriesSlug);
     if (!series) return null;
     return (
-      <div onClick={onClick} className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all ${isEditingMode ? 'border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.4)]' : 'border border-zinc-800 shadow-lg hover:border-[#fe9a00]/50'}`}>
+      <div onClick={onClick} className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all duration-300 mb-3 ${isEditingMode ? 'border-[3px] border-[#fe9a00] shadow-[5px_5px_0px_0px_#fe9a00] -translate-y-1 -translate-x-1' : 'border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] hover:shadow-[8px_8px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1'}`}>
         <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-black z-0" />
         <img src={series.character_url || series.cover_url} loading="lazy" alt="Character" className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4" />
         <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black via-black/90 to-transparent z-20" />
@@ -202,9 +200,9 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   };
 
   const renderEmptySlot = (onClick: () => void) => (
-    <div onClick={onClick} className="w-24 sm:w-28 flex-shrink-0 aspect-[2/3] border-2 border-dashed border-zinc-800 rounded-md flex flex-col items-center justify-center cursor-pointer hover:border-[#fe9a00] hover:shadow-[0_0_15px_rgba(254,154,0,0.2)] bg-black/50 hover:bg-zinc-900/50 transition-all group">
-      <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-full group-hover:bg-[#fe9a00] transition-colors mb-2 shadow-lg"><Plus className="w-5 h-5 text-zinc-500 group-hover:text-black transition-colors" /></div>
-      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600 group-hover:text-[#fe9a00] transition-colors">Choose a series</span>
+    <div onClick={onClick} className="w-24 sm:w-28 flex-shrink-0 aspect-[2/3] border-[3px] border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-white hover:shadow-[5px_5px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1 bg-black/50 hover:bg-zinc-900/50 transition-all duration-300 group mb-3">
+      <div className="p-3 bg-zinc-900 border-[2px] border-zinc-700 rounded-full group-hover:bg-[#fe9a00] group-hover:border-black transition-colors mb-2"><Plus className="w-5 h-5 text-zinc-500 group-hover:text-black transition-colors" /></div>
+      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600 group-hover:text-white transition-colors">Choose a series</span>
     </div>
   );
 
@@ -222,22 +220,20 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
       {showSuccessToast && <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-[#fe9a00] text-black px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] animate-fade-in"><Check className="w-5 h-5" /> Loadout Saved!</div>}
       {errorToast && <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-red-600 text-white px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-fade-in"><X className="w-5 h-5" /> {errorToast}</div>}
 
-      <button onClick={onBack} className="absolute top-6 left-6 p-3 bg-zinc-900/90 rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors z-20 transform -skew-x-12">
-        <div className="transform skew-x-12 flex items-center gap-2"><ArrowLeft className="w-5 h-5" /><span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Home</span></div>
-      </button>
+      <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-xl px-4 pt-6 pb-4 border-b border-zinc-800">
+        <button 
+          onClick={onBack} 
+          className="mb-4 flex items-center gap-2 text-zinc-400 hover:text-white transition-colors"
+        >
+          <ArrowLeft className="w-5 h-5" />
+          <span className="text-[10px] font-black uppercase tracking-widest">Back</span>
+        </button>
+        <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white pr-16">
+          Profile
+        </h1>
+      </div>
 
-      {upsellConfig && (
-        <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
-          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
-            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
-            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
-            <button onClick={() => { setUpsellConfig(null); onNavigate({ action: 'settings' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Sign up / Subscribe</button>
-          </div>
-        </div>
-      )}
-
+      {/* Decorative Banner Background */}
       <div className="w-full h-48 sm:h-64 bg-black/40 backdrop-blur-sm relative overflow-hidden">
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay"></div>
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
@@ -333,6 +329,18 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
           </div>
         )}
       </div>
+
+      {upsellConfig && (
+        <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
+          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
+            <button onClick={() => { setUpsellConfig(null); onNavigate({ action: 'settings' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Sign up / Subscribe</button>
+          </div>
+        </div>
+      )}
 
       {isEditing && (
         <div className="fixed inset-0 z-[300] bg-black/95 flex flex-col items-center justify-center p-4 sm:p-6 backdrop-blur-md">

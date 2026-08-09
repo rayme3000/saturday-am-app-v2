@@ -57,11 +57,20 @@ const Browse = ({ onNavigate }: any) => {
   const activeData = activeTab === 'series' ? sortedSeries : sortedMagazines;
 
   return (
-    <div className="min-h-screen bg-black text-white pb-24 relative px-4 pt-6">
+    <div className="min-h-screen bg-transparent text-white pb-24 relative px-4 pt-6">
       
+      {/* GLOBAL BACKDROP */}
+      <div className="fixed inset-0 z-[-1] bg-black">
+        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
+        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
+        <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
+      </div>
+
       {/* Fixed Header & Search */}
       <div className="sticky top-0 z-40 bg-black/90 backdrop-blur-md pb-2 pt-2 mb-4">
-        <div className="flex justify-between items-end mb-4">
+        
+        <div className="flex justify-between items-end mb-4 pr-16 sm:pr-20">
           <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white">
             The Vault
           </h1>
@@ -105,11 +114,11 @@ const Browse = ({ onNavigate }: any) => {
 
       {/* Grid Content */}
       {activeData.length === 0 ? (
-        <div className="text-center text-zinc-500 py-16 font-bold uppercase tracking-widest text-xs border-2 border-dashed border-zinc-800 rounded-xl mt-8">
+        <div className="text-center text-zinc-500 py-16 font-bold uppercase tracking-widest text-xs border-2 border-dashed border-zinc-800 rounded-xl mt-8 bg-black/40 backdrop-blur-sm">
           No {activeTab} found matching "{searchQuery}".
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mt-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 gap-y-6 mt-6 pb-8">
           {activeData.map((item: any) => (
             <div 
               key={item.id} 
@@ -125,9 +134,9 @@ const Browse = ({ onNavigate }: any) => {
               }}
             >
               {activeTab === 'series' ? (
-                // --- SERIES CARD LAYOUT ---
+                // --- NEO-BRUTALIST SERIES CARD LAYOUT ---
                 <div 
-                  className="relative overflow-hidden rounded-lg aspect-[2/3] border border-zinc-800 shadow-lg group-hover/card:border-[#fe9a00]/50 transition-colors duration-300 mb-2"
+                  className="relative overflow-hidden rounded-lg aspect-[2/3] border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
                   style={getPatternStyle(item.card_color, item.card_pattern)}
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
@@ -159,8 +168,8 @@ const Browse = ({ onNavigate }: any) => {
                   </div>
                 </div>
               ) : (
-                // --- MAGAZINE CARD LAYOUT ---
-                <div className="relative overflow-hidden rounded-lg aspect-[3/4] bg-zinc-900 border border-zinc-800 shadow-lg group-hover/card:border-[#fe9a00]/50 transition-colors duration-300 mb-2">
+                // --- NEO-BRUTALIST MAGAZINE CARD LAYOUT ---
+                <div className="relative overflow-hidden rounded-lg aspect-[3/4] bg-zinc-900 border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3">
                   <img 
                     src={item.cover_url} 
                     alt={item.title} 
@@ -172,7 +181,7 @@ const Browse = ({ onNavigate }: any) => {
               )}
               
               {/* Title & Creator / Date Info */}
-              <div className="px-1 text-left">
+              <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg p-1">
                 <h3 className="text-white font-bold text-xs truncate tracking-wide group-hover/card:text-[#fe9a00] transition-colors">
                   {item.title}
                 </h3>

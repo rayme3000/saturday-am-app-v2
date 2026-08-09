@@ -106,7 +106,7 @@ export const FloatingPillNav = memo(({ currentView, onNavigate }: any) => {
   const dynAnim = dynamicFrame ? dynamicFrame.animation_style : 'none';
 
   return (
-    <div className="fixed bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 w-[92%] sm:w-auto sm:min-w-[400px] max-w-md z-[40] pointer-events-none">
+    <div className="fixed bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 w-[92%] sm:w-auto sm:min-w-[400px] max-w-md z-[150] pointer-events-none">
       <nav className="bg-black/80 backdrop-blur-md border border-[#fe9a00] rounded-full px-6 py-1.5 flex items-center justify-between shadow-[0_10px_40px_rgba(0,0,0,0.8)] pointer-events-auto">
         <button onClick={() => onNavigate({ action: 'home' })} className="p-2 transition-transform hover:scale-110">
           <Home className={`w-6 h-6 ${currentView === 'home' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
