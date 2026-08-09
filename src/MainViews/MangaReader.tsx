@@ -20,31 +20,12 @@ const MemoizedVerticalPage = React.memo(({ src, alt }: { src: string, alt: strin
   </div>
 ));
 
-const MemoizedHorizontalImage = React.memo(({ src, alt, onInteractionStart, onInteractionEnd, onTap, scaleState }: any) => (
-  <div 
-    className="w-full h-full flex items-center justify-center cursor-pointer touch-manipulation"
-    onTouchStart={(e) => {
-      if (e.touches.length === 1) onInteractionStart(e.touches[0].clientX, e.touches[0].clientY);
-    }}
-    onTouchEnd={(e) => {
-      if (scaleState <= 1 && e.changedTouches.length === 1) {
-        onInteractionEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-      }
-    }}
-    onMouseDown={(e) => onInteractionStart(e.clientX, e.clientY)}
-    onMouseUp={(e) => {
-      if (scaleState <= 1) {
-        onInteractionEnd(e.clientX, e.clientY);
-      }
-    }}
-    onClick={(e) => {
-      if (scaleState <= 1) onTap(e);
-    }}
-  >
+const MemoizedHorizontalImage = React.memo(({ src, alt }: any) => (
+  <div className="w-full h-full flex items-center justify-center">
     <img 
       src={src} 
       className="object-contain pointer-events-none" 
-      style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
+      style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }}
       alt={alt} 
     />
   </div>
@@ -59,6 +40,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
   const [isAuthLoaded, setIsAuthLoaded] = useState(false);
   const [internalIsPremium, setInternalIsPremium] = useState(isPremium);
+
+  // Gesture physics state for smooth swipe
+  const [dragOffset, setDragOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isAnimatingPage, setIsAnimatingPage] = useState(false);
 
   // Comments & Ticker
   const [activeCommentIndex, setActiveCommentIndex] = useState(0);
@@ -76,7 +62,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const currentPageRef = useRef(currentPage);
   const activeUserRef = useRef(userId || currentUser?.id);
   const isComponentMounted = useRef(true);
+  
+  // Touch tracking refs
   const touchStartPos = useRef({ x: 0, y: 0 });
+  const touchCurrentPos = useRef({ x: 0, y: 0 });
+  const currentScaleRef = useRef(1);
 
   const getUrl = useCallback((p: any) => p?.image_url || p, []);
   const getId = useCallback((p: any) => p?.id || p, []);
@@ -305,40 +295,81 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     });
   }, []);
 
-  const handleInteractionStart = useCallback((clientX: number, clientY: number) => {
+  // --- REAL-TIME TOUCH & SWIPE PHYSICS (CAPTURE PHASE) ---
+  const handleTouchStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
+    if (isAnimatingPage) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    
     touchStartPos.current = { x: clientX, y: clientY };
-  }, []);
+    touchCurrentPos.current = { x: clientX, y: clientY };
+    setIsDragging(true);
+  }, [isAnimatingPage]);
 
-  // --- NEW SWIPE HANDLER ---
-  const handleInteractionEnd = useCallback((clientX: number, clientY: number) => {
+  const handleTouchMove = useCallback((e: React.TouchEvent | React.MouseEvent) => {
+    // Don't drag the page if zoomed in!
+    if (!isDragging || currentScaleRef.current > 1.05 || isAnimatingPage) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    
+    touchCurrentPos.current = { x: clientX, y: clientY };
     const deltaX = clientX - touchStartPos.current.x;
     const deltaY = Math.abs(clientY - touchStartPos.current.y);
-    const SWIPE_THRESHOLD = 50; // Minimum pixels to count as a swipe
 
-    // If movement was largely horizontal and long enough, trigger a swipe!
-    if (Math.abs(deltaX) > SWIPE_THRESHOLD && deltaY < 100) {
-      if (deltaX < 0) {
-        goNext(); // Swiped left -> Go Next
-      } else {
-        goPrev(); // Swiped right -> Go Prev
-      }
+    if (Math.abs(deltaX) > deltaY) {
+      setDragOffset(deltaX);
     }
-  }, [goNext, goPrev]);
+  }, [isDragging, isAnimatingPage]);
 
-  // --- EXISTING TAP HANDLER ---
-  const handleTap = useCallback((e: React.MouseEvent) => {
-    const deltaX = Math.abs(e.clientX - touchStartPos.current.x);
-    const deltaY = Math.abs(e.clientY - touchStartPos.current.y);
+  const handleTouchEnd = useCallback((e: React.TouchEvent | React.MouseEvent) => {
+    if (!isDragging) return;
+    setIsDragging(false);
 
-    // If it was a swipe, the delta will be large, so we abort the tap logic to prevent double-firing!
-    if (deltaX > 8 || deltaY > 8) return; 
+    const clientX = 'changedTouches' in e ? e.changedTouches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'changedTouches' in e ? e.changedTouches[0].clientY : (e as React.MouseEvent).clientY;
 
-    const x = e.clientX;
-    const width = window.innerWidth;
-    if (x < width * 0.4) goPrev(); 
-    else if (x > width * 0.6) goNext(); 
-    else toggleUI(); 
-  }, [goPrev, goNext, toggleUI]);
+    const deltaX = clientX - touchStartPos.current.x;
+    const deltaY = Math.abs(clientY - touchStartPos.current.y);
+    const SWIPE_THRESHOLD = 60; 
+
+    // Pure tap detection (Works instantly, even when tapping directly on the manga page)
+    if (Math.abs(deltaX) <= 8 && deltaY <= 8) {
+      setDragOffset(0);
+      const x = touchStartPos.current.x;
+      const width = window.innerWidth;
+      if (x < width * 0.4) goPrev(); 
+      else if (x > width * 0.6) goNext(); 
+      else toggleUI(); 
+      return;
+    }
+    
+    // If we are zoomed in, let the library handle panning, do NOT swipe the page
+    if (currentScaleRef.current > 1.05) return;
+
+    // Swipe completed past threshold
+    if (Math.abs(deltaX) > SWIPE_THRESHOLD && deltaY < 120) {
+      setIsAnimatingPage(true);
+      const direction = deltaX < 0 ? -1 : 1; 
+
+      // Slide off screen
+      setDragOffset(direction * window.innerWidth);
+
+      setTimeout(() => {
+        if (direction === -1) {
+          goNext();
+        } else {
+          goPrev();
+        }
+        setDragOffset(0);
+        setIsAnimatingPage(false);
+      }, 200); 
+    } else {
+      // Spring back if drag wasn't far enough
+      setIsAnimatingPage(true);
+      setDragOffset(0);
+      setTimeout(() => setIsAnimatingPage(false), 200);
+    }
+  }, [isDragging, goNext, goPrev, toggleUI]);
 
   const handleReactSubmit = async () => {
     if (!reactText.trim() || !currentUser || !chapterId) return;
@@ -408,7 +439,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   if (isLoadingProgress) {
     return (
-      <div className="fixed inset-0 z-[1000] bg-[#0a0a0a] flex items-center justify-center" style={{ width: '100vw', height: '100vh' }}>
+      <div className="fixed inset-0 z-[1000] bg-[#0a0a0a] flex items-center justify-center" style={{ width: '100vw', height: '100dvh' }}>
         <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
       </div>
     );
@@ -417,7 +448,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   return (
     <div 
       className="fixed inset-0 z-[1000] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans"
-      style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
+      style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }}
     >
       <style>{`
         @keyframes slide-right-fade { 0% { opacity: 0; transform: translateX(-10px); } 100% { opacity: 1; transform: translateX(0); } }
@@ -431,7 +462,20 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       `}</style>
 
       {mode === 'horizontal' && (
-        <div className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center">
+        <div 
+          className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center touch-none select-none"
+          // We use Capture listeners to grab taps BEFORE the zoom library intercepts them!
+          onTouchStartCapture={handleTouchStart}
+          onTouchMoveCapture={handleTouchMove}
+          onTouchEndCapture={handleTouchEnd}
+          onMouseDownCapture={handleTouchStart}
+          onMouseMoveCapture={handleTouchMove}
+          onMouseUpCapture={handleTouchEnd}
+          style={{
+            transform: `translateX(${dragOffset}px)`,
+            transition: isAnimatingPage ? 'transform 0.2s cubic-bezier(0.25, 1, 0.5, 1)' : 'none'
+          }}
+        >
           {pages[currentPage] ? (
             <TransformWrapper
               ref={transformRef}
@@ -440,22 +484,21 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               maxScale={4}
               centerOnInit={true}
               limitToBounds={true}
-              doubleClick={{ step: 2 }} 
-              panning={{ velocityDisabled: true }}
+              doubleClick={{ step: 2 }}
+              panning={{ disabled: currentScaleRef.current <= 1.05 }}
+              onTransformed={(ref) => {
+                currentScaleRef.current = ref.state.scale;
+              }}
             >
-              {({ state }) => (
+              {() => (
                 <div className="w-full h-full relative">
                   <TransformComponent 
-                    wrapperStyle={{ width: '100vw', height: '100vh' }}
+                    wrapperStyle={{ width: '100vw', height: '100dvh' }}
                     contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
                     <MemoizedHorizontalImage 
                       src={getUrl(pages[currentPage])}
                       alt={`Page ${currentPage + 1}`}
-                      onInteractionStart={handleInteractionStart}
-                      onInteractionEnd={handleInteractionEnd}
-                      onTap={handleTap}
-                      scaleState={state.scale}
                     />
                   </TransformComponent>
                 </div>
@@ -471,7 +514,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         <div 
           className="absolute inset-0 w-full h-full select-none overflow-x-hidden bg-[#0a0a0a] z-0" 
           onClick={toggleUI}
-          style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
+          style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }}
         >
           <Virtuoso
             style={{ height: '100%', width: '100%' }}

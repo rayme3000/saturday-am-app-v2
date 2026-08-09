@@ -233,7 +233,6 @@ export default function App() {
     setIsIOSDevice(isIOS);
 
     if (isIOS) {
-      // Changed to only hide if EXPLICITLY dismissed
       const hasDismissed = localStorage.getItem('am_ios_prompt_dismissed');
       if (!hasDismissed) {
         const timer = setTimeout(() => setShowIosPrompt(true), 3000);
@@ -244,7 +243,6 @@ export default function App() {
         e.preventDefault();
         setDeferredPrompt(e);
         
-        // Changed to only hide if EXPLICITLY dismissed
         const hasDismissed = localStorage.getItem('am_install_prompt_dismissed');
         if (!hasDismissed) {
           setShowInstallPrompt(true);
@@ -253,7 +251,6 @@ export default function App() {
 
       window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-      // Failsafe catch from index.html script
       if ((window as any).deferredPrompt) {
         handleBeforeInstallPrompt((window as any).deferredPrompt);
       }
@@ -276,7 +273,7 @@ export default function App() {
 
   const handleInstallClick = async () => {
     if (isIOSDevice) {
-      setShowIosPrompt(true); // Menu trigger for iOS
+      setShowIosPrompt(true); 
     } else if (deferredPrompt) {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
@@ -504,7 +501,7 @@ export default function App() {
             </div>
             <div className="flex flex-col">
               <span className="text-white font-black italic uppercase text-sm tracking-widest leading-tight">Saturday AM</span>
-              <span className="text-zinc-400 text-[9px] font-bold uppercase tracking-widest mt-0.5">Install the official app</span>
+              <span className="text-[#fe9a00] text-[9px] font-bold uppercase tracking-widest mt-0.5">For the best experience, install the app</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -528,7 +525,7 @@ export default function App() {
               </div>
               <div className="flex flex-col">
                 <span className="text-white font-black italic uppercase text-sm tracking-widest leading-tight">Install App</span>
-                <span className="text-zinc-400 text-[10px] font-bold mt-0.5 leading-snug">Get the full fullscreen experience</span>
+                <span className="text-[#fe9a00] text-[10px] font-bold mt-0.5 leading-snug">For the best reading experience, install the app.</span>
               </div>
             </div>
             <button onClick={dismissIosPrompt} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors">
