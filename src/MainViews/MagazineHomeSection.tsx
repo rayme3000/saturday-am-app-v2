@@ -17,12 +17,13 @@ export const MagazineHomeSection = ({ magazines, onMagazineClick }: any) => {
   return (
     <div className="mb-10 relative group">
       
-      {/* Double Slanted Accent */}
       <div className="flex items-center gap-3 mb-4">
-        <div className="flex gap-1 transform -skew-x-[16deg] h-6 ml-1">
-          <div className="w-2.5 h-full bg-[#fe9a00]"></div>
-          <div className="w-1 h-full bg-[#fe9a00] opacity-40"></div>
-        </div>
+        {/* THE 3-PANEL SLICE SVG ACCENT */}
+        <svg className="w-5 h-5 text-[#fe9a00] ml-1" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="0,0 8,0 8,24 0,24" />
+          <polygon points="10,0 24,0 24,14 10,8" />
+          <polygon points="10,10 24,16 24,24 10,24" />
+        </svg>
         <h2 className="text-xl font-black text-white tracking-wider text-left">
           Latest Issues
         </h2>
@@ -40,12 +41,11 @@ export const MagazineHomeSection = ({ magazines, onMagazineClick }: any) => {
           {magazines.map((m: any) => (
             <div key={m.id} className="w-[45%] sm:w-1/3 md:w-1/4 flex-shrink-0 snap-start cursor-pointer group/card" onClick={() => onMagazineClick(m)}>
               
-              {/* --- NEO-BRUTALIST MAGAZINE CARD --- */}
-              <div className="relative overflow-hidden rounded-lg cursor-pointer aspect-[1424/2000] bg-zinc-900 border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3">
+              {/* --- 1px NEO-BRUTALIST MAGAZINE CARD --- */}
+              <div className="relative overflow-hidden rounded-lg cursor-pointer aspect-[1424/2000] bg-zinc-900 border border-white/70 shadow-[4px_4px_0px_0px_#fe9a00] group-hover/card:shadow-[6px_6px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3">
                 <img src={m.cover_url} alt={m.title} className="w-full h-full object-cover transform transition-transform duration-500 group-hover/card:scale-105" />
               </div>
               
-              {/* Blurred Text Backdrop */}
               <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg mt-1 p-1">
                 <h3 className="text-white font-bold text-xs truncate tracking-wide group-hover/card:text-[#fe9a00] transition-colors">{m.title}</h3>
               </div>

@@ -28,10 +28,12 @@ export const SeriesSection = ({ title, series, onSeriesClick }: any) => {
     <div className="mb-10 relative group">
       
       <div className="flex items-center gap-3 mb-4">
-        <div className="flex gap-1 transform -skew-x-[16deg] h-6 ml-1">
-          <div className="w-2.5 h-full bg-[#fe9a00]"></div>
-          <div className="w-1 h-full bg-[#fe9a00] opacity-40"></div>
-        </div>
+        {/* THE 3-PANEL SLICE SVG ACCENT */}
+        <svg className="w-5 h-5 text-[#fe9a00] ml-1" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="0,0 8,0 8,24 0,24" />
+          <polygon points="10,0 24,0 24,14 10,8" />
+          <polygon points="10,10 24,16 24,24 10,24" />
+        </svg>
         <h2 className="text-xl font-black text-white tracking-wider text-left">
           {title}
         </h2>
