@@ -187,7 +187,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     const series = displaySeriesList.find((s: any) => s.slug === seriesSlug);
     if (!series) return null;
     return (
-      <div onClick={onClick} className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all duration-300 mb-3 ${isEditingMode ? 'border-[3px] border-[#fe9a00] shadow-[5px_5px_0px_0px_#fe9a00] -translate-y-1 -translate-x-1' : 'border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] hover:shadow-[8px_8px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1'}`}>
+      <div onClick={onClick} className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all duration-300 mb-3 ${isEditingMode ? 'border-[1px] border-[#fe9a00] shadow-[5px_5px_0px_0px_#fe9a00] -translate-y-1 -translate-x-1' : 'border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] hover:shadow-[8px_8px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1'}`}>
         <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-black z-0" />
         <img src={series.character_url || series.cover_url} loading="lazy" alt="Character" className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4" />
         <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black via-black/90 to-transparent z-20" />
@@ -200,7 +200,7 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
   };
 
   const renderEmptySlot = (onClick: () => void) => (
-    <div onClick={onClick} className="w-24 sm:w-28 flex-shrink-0 aspect-[2/3] border-[3px] border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-white hover:shadow-[5px_5px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1 bg-black/50 hover:bg-zinc-900/50 transition-all duration-300 group mb-3">
+    <div onClick={onClick} className="w-24 sm:w-28 flex-shrink-0 aspect-[2/3] border-[1px] border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-white hover:shadow-[5px_5px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1 bg-black/50 hover:bg-zinc-900/50 transition-all duration-300 group mb-3">
       <div className="p-3 bg-zinc-900 border-[2px] border-zinc-700 rounded-full group-hover:bg-[#fe9a00] group-hover:border-black transition-colors mb-2"><Plus className="w-5 h-5 text-zinc-500 group-hover:text-black transition-colors" /></div>
       <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600 group-hover:text-white transition-colors">Choose a series</span>
     </div>

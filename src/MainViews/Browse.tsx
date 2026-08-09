@@ -134,9 +134,9 @@ const Browse = ({ onNavigate }: any) => {
               }}
             >
               {activeTab === 'series' ? (
-                // --- NEO-BRUTALIST SERIES CARD LAYOUT ---
+                // --- NEO-BRUTALIST SERIES CARD LAYOUT (1px Border) ---
                 <div 
-                  className="relative overflow-hidden rounded-lg aspect-[2/3] border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
+                  className="relative overflow-hidden rounded-lg aspect-[2/3] border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
                   style={getPatternStyle(item.card_color, item.card_pattern)}
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
@@ -168,8 +168,8 @@ const Browse = ({ onNavigate }: any) => {
                   </div>
                 </div>
               ) : (
-                // --- NEO-BRUTALIST MAGAZINE CARD LAYOUT ---
-                <div className="relative overflow-hidden rounded-lg aspect-[3/4] bg-zinc-900 border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3">
+                // --- NEO-BRUTALIST MAGAZINE CARD LAYOUT (1px Border) ---
+                <div className="relative overflow-hidden rounded-lg aspect-[3/4] bg-zinc-900 border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3">
                   <img 
                     src={item.cover_url} 
                     alt={item.title} 
@@ -181,7 +181,7 @@ const Browse = ({ onNavigate }: any) => {
               )}
               
               {/* Title & Creator / Date Info */}
-              <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg p-1">
+              <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg mt-1 p-1">
                 <h3 className="text-white font-bold text-xs truncate tracking-wide group-hover/card:text-[#fe9a00] transition-colors">
                   {item.title}
                 </h3>

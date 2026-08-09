@@ -3,6 +3,22 @@ import { Heart, Search, ChevronRight, ArrowLeft, Play } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 
+const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
+
+// --- CSS PATTERN GENERATOR (Synced from Browse/Home) ---
+const getPatternStyle = (color: string, pattern: string) => {
+  const baseColor = color || '#18181b';
+  const overlay = 'rgba(0,0,0,0.2)'; 
+  if (pattern === 'dots') return { backgroundColor: baseColor, backgroundImage: `radial-gradient(${overlay} 2px, transparent 2px)`, backgroundSize: '12px 12px' };
+  if (pattern === 'lines') return { backgroundColor: baseColor, backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 5px, ${overlay} 5px, ${overlay} 10px)` };
+  if (pattern === 'grid') return { backgroundColor: baseColor, backgroundImage: `linear-gradient(${overlay} 1px, transparent 1px), linear-gradient(90deg, ${overlay} 1px, transparent 1px)`, backgroundSize: '20px 20px' };
+  if (pattern === 'pinstripes') return { backgroundColor: baseColor, backgroundImage: `repeating-linear-gradient(45deg, ${overlay} 0, ${overlay} 1px, transparent 1px, transparent 8px)` };
+  if (pattern === 'mesh') return { backgroundColor: baseColor, backgroundImage: `linear-gradient(${overlay} 1px, transparent 1px), linear-gradient(90deg, ${overlay} 1px, transparent 1px)`, backgroundSize: '14px 14px' };
+  if (pattern === 'glow') return { backgroundColor: baseColor, backgroundImage: `radial-gradient(circle at 50% 0%, rgba(255,255,255,0.15) 0%, transparent 70%)` };
+  if (pattern === 'cut') return { backgroundColor: baseColor, backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.04) 50%, transparent 50%)` };
+  return { backgroundColor: baseColor }; 
+};
+
 const Favorites = ({ setActiveTab, onNavigate }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
   const [myFaves, setMyFaves] = useState<any[]>([]); 
@@ -10,7 +26,6 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
   const [currentUser, setCurrentUser] = useState<any>(null);
 
   const suggestedSeries = seriesList.slice(0, 4);
-  const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -106,7 +121,7 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
                 <div 
                   key={read.id} 
                   onClick={() => onNavigate ? onNavigate(read.target) : null} 
-                  className="relative min-w-[140px] w-[140px] md:min-w-[180px] md:w-[180px] aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] hover:shadow-[8px_8px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1 transition-all duration-300 flex-shrink-0 mb-3"
+                  className="relative min-w-[140px] w-[140px] md:min-w-[180px] md:w-[180px] aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] hover:shadow-[8px_8px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1 transition-all duration-300 flex-shrink-0 mb-3"
                 >
                   <img src={read.image} alt={read.title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-3 z-10">
@@ -150,19 +165,39 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
                 className="flex-shrink-0 cursor-pointer group/card"
                 onClick={() => onNavigate ? onNavigate(s) : null}
               >
-                <div className="relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] bg-zinc-900 border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3">
-                  <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-black z-0" />
+                {/* DYNAMIC CARD ALIGNMENT UPDATED HERE */}
+                <div 
+                  className="relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
+                  style={getPatternStyle(s.card_color, s.card_pattern)}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
+                  
                   <img 
                     src={s.character_url || s.cover_url} 
                     alt={`${s.title} Character`} 
-                    className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4"
+                    loading="lazy"
+                    decoding="async"
+                    className={`absolute left-1/2 -translate-x-1/2 max-w-none object-contain transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 ${
+                      s.character_align === 'top' ? 'top-0' : 
+                      s.character_align === 'center' ? 'top-1/2 -translate-y-1/2' : 
+                      'bottom-0'
+                    }`}
+                    style={{ width: `${s.character_scale || 140}%`, height: '120%' }}
                   />
-                  <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black via-black/90 to-transparent z-20" />
-                  <div className="absolute bottom-4 left-0 right-0 flex justify-center z-30 px-3">
+                  
+                  <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black via-black/80 to-transparent z-20" />
+                  
+                  <div 
+                    className="absolute left-0 right-0 flex justify-center z-30 px-3 transition-all duration-300"
+                    style={{ bottom: `${s.logo_offset ?? 16}px` }}
+                  >
                     <img 
                       src={s.logo_url || (s.title === 'Apple Black' ? `${CLOUDFLARE_BASE_URL}/series-logos/apple-black-logo.png` : '')} 
                       alt={`${s.title} Logo`} 
-                      className="w-full max-h-24 object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1" 
+                      loading="lazy"
+                      decoding="async"
+                      className="w-full max-h-24 object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1 drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]" 
+                      style={{ width: `${s.logo_scale ?? 100}%` }}
                     />
                   </div>
                 </div>
@@ -197,19 +232,39 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
                   className="w-1/3 sm:w-1/4 md:w-1/5 flex-shrink-0 snap-start cursor-pointer group/card"
                   onClick={() => onNavigate ? onNavigate(s) : null}
                 >
-                  <div className="relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] bg-zinc-900 border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3">
-                    <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-black z-0" />
+                  {/* DYNAMIC CARD ALIGNMENT UPDATED HERE */}
+                  <div 
+                    className="relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
+                    style={getPatternStyle(s.card_color, s.card_pattern)}
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
+                    
                     <img 
                       src={s.character_url || s.cover_url} 
                       alt={`${s.title} Character`} 
-                      className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4"
+                      loading="lazy"
+                      decoding="async"
+                      className={`absolute left-1/2 -translate-x-1/2 max-w-none object-contain transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 ${
+                        s.character_align === 'top' ? 'top-0' : 
+                        s.character_align === 'center' ? 'top-1/2 -translate-y-1/2' : 
+                        'bottom-0'
+                      }`}
+                      style={{ width: `${s.character_scale || 140}%`, height: '120%' }}
                     />
-                    <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black via-black/90 to-transparent z-20" />
-                    <div className="absolute bottom-4 left-0 right-0 flex justify-center z-30 px-3">
+                    
+                    <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black via-black/80 to-transparent z-20" />
+                    
+                    <div 
+                      className="absolute left-0 right-0 flex justify-center z-30 px-3 transition-all duration-300"
+                      style={{ bottom: `${s.logo_offset ?? 16}px` }}
+                    >
                       <img 
                         src={s.logo_url || (s.title === 'Apple Black' ? `${CLOUDFLARE_BASE_URL}/series-logos/apple-black-logo.png` : '')} 
                         alt={`${s.title} Logo`} 
-                        className="w-full max-h-24 object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1" 
+                        loading="lazy"
+                        decoding="async"
+                        className="w-full max-h-24 object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1 drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]" 
+                        style={{ width: `${s.logo_scale ?? 100}%` }}
                       />
                     </div>
                   </div>
