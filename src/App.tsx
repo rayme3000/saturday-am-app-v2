@@ -100,7 +100,8 @@ export default function App() {
   // --- PWA INSTALL PROMPT STATE ---
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
-  const [showIosPrompt, setShowIosPrompt] = useState(false); // iOS specific prompt
+  const [showIosPrompt, setShowIosPrompt] = useState(false); 
+  const [isIOSDevice, setIsIOSDevice] = useState(false);
 
   // --- HISTORY & NAVIGATION REF ---
   const isPopState = useRef(false);
@@ -224,65 +225,76 @@ export default function App() {
 
   // --- DEVICE DETECTION & PWA INSTALL LISTENER ---
   useEffect(() => {
-    // Check if device is iOS
-    const isIos = () => {
-      const userAgent = window.navigator.userAgent.toLowerCase();
-      return /iphone|ipad|ipod/.test(userAgent);
-    };
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || ('standalone' in navigator && (navigator as any).standalone);
+    if (isStandalone) return; 
 
-    // Check if the app is already installed/running in standalone mode
-    const isInStandaloneMode = () => {
-      return ('standalone' in window.navigator) && ((window.navigator as any).standalone) || window.matchMedia('(display-mode: standalone)').matches;
-    };
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(userAgent);
+    setIsIOSDevice(isIOS);
 
-    // If iOS and NOT installed, show the custom iOS prompt
-    if (isIos() && !isInStandaloneMode()) {
-      const hasSeenIosPrompt = localStorage.getItem('am_ios_install_prompt_seen');
-      if (!hasSeenIosPrompt) {
-        setShowIosPrompt(true);
-        localStorage.setItem('am_ios_install_prompt_seen', 'true');
+    if (isIOS) {
+      // Changed to only hide if EXPLICITLY dismissed
+      const hasDismissed = localStorage.getItem('am_ios_prompt_dismissed');
+      if (!hasDismissed) {
+        const timer = setTimeout(() => setShowIosPrompt(true), 3000);
+        return () => clearTimeout(timer);
       }
+    } else {
+      const handleBeforeInstallPrompt = (e: any) => {
+        e.preventDefault();
+        setDeferredPrompt(e);
+        
+        // Changed to only hide if EXPLICITLY dismissed
+        const hasDismissed = localStorage.getItem('am_install_prompt_dismissed');
+        if (!hasDismissed) {
+          setShowInstallPrompt(true);
+        }
+      };
+
+      window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+      // Failsafe catch from index.html script
+      if ((window as any).deferredPrompt) {
+        handleBeforeInstallPrompt((window as any).deferredPrompt);
+      }
+
+      return () => {
+        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      };
     }
+  }, []);
 
-    // Android / Chrome standard PWA prompt
-    const handleBeforeInstallPrompt = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      
-      const hasSeenPrompt = localStorage.getItem('am_install_prompt_seen');
-      if (!hasSeenPrompt) {
-        setShowInstallPrompt(true);
-        localStorage.setItem('am_install_prompt_seen', 'true');
-      }
-    };
-
+  useEffect(() => {
     const handleAppInstalled = () => {
       setShowInstallPrompt(false);
       setShowIosPrompt(false);
       setDeferredPrompt(null);
     };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-    };
+    return () => window.removeEventListener('appinstalled', handleAppInstalled);
   }, []);
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    
-    if (outcome === 'accepted') {
-      console.log('User accepted the install prompt');
+    if (isIOSDevice) {
+      setShowIosPrompt(true); // Menu trigger for iOS
+    } else if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setShowInstallPrompt(false);
+      }
+      setDeferredPrompt(null);
     }
-    
-    setDeferredPrompt(null);
+  };
+
+  const dismissInstallPrompt = () => {
     setShowInstallPrompt(false);
+    localStorage.setItem('am_install_prompt_dismissed', 'true');
+  };
+
+  const dismissIosPrompt = () => {
+    setShowIosPrompt(false);
+    localStorage.setItem('am_ios_prompt_dismissed', 'true');
   };
 
   const handleNavigate = useCallback((data: any) => {
@@ -420,7 +432,7 @@ export default function App() {
         userTier={userTier}
         onUpsell={setUpsellConfig}
         currentUser={currentUser}
-        canInstall={!!deferredPrompt}
+        canInstall={!!deferredPrompt || isIOSDevice}
         onInstall={handleInstallClick}
         onLoginClick={() => setShowLogin(true)}
       />
@@ -484,7 +496,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setShowInstallPrompt(false)} className="p-2 text-zinc-500 hover:text-white transition-colors">
+            <button onClick={dismissInstallPrompt} className="p-2 text-zinc-500 hover:text-white transition-colors">
               <X className="w-4 h-4" />
             </button>
             <button onClick={handleInstallClick} className="bg-[#fe9a00] text-black px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">
@@ -507,7 +519,7 @@ export default function App() {
                 <span className="text-zinc-400 text-[10px] font-bold mt-0.5 leading-snug">Get the full fullscreen experience</span>
               </div>
             </div>
-            <button onClick={() => setShowIosPrompt(false)} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors">
+            <button onClick={dismissIosPrompt} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors">
               <X className="w-4 h-4" />
             </button>
           </div>
