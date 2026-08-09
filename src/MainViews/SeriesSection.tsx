@@ -53,12 +53,11 @@ export const SeriesSection = ({ title, series, onSeriesClick }: any) => {
           {series.map((s: any) => (
             <div key={s.id} className="w-1/3 sm:w-1/4 md:w-1/5 flex-shrink-0 snap-start cursor-pointer group/card" onClick={() => onSeriesClick(s)}>
               
-              {/* --- NEO-BRUTALIST SERIES CARD --- */}
+              {/* --- 1px NEO-BRUTALIST SERIES CARD --- */}
               <div 
-                className="relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] border-[3px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
+                className="relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] border border-white/70 shadow-[4px_4px_0px_0px_#fe9a00] group-hover/card:shadow-[6px_6px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
                 style={getPatternStyle(s.card_color, s.card_pattern)}
               >
-                {/* Subtle dark gradient overlay to ensure art pops against bright custom colors */}
                 <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
                 
                 <img 
@@ -72,7 +71,6 @@ export const SeriesSection = ({ title, series, onSeriesClick }: any) => {
                   style={{ width: `${s.character_scale || 140}%`, height: '120%' }}
                 />
                 
-                {/* Bottom gradient fade for text/logo readability */}
                 <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black via-black/80 to-transparent z-20" />
                 
                 <div 
@@ -88,7 +86,6 @@ export const SeriesSection = ({ title, series, onSeriesClick }: any) => {
                 </div>
               </div>
               
-              {/* Blurred Text Backdrop */}
               <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg mt-1 p-1">
                 <h3 className="text-white font-bold text-xs truncate tracking-wide group-hover/card:text-[#fe9a00] transition-colors">
                   {s.title}
