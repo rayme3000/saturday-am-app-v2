@@ -20,18 +20,27 @@ const MemoizedVerticalPage = React.memo(({ src, alt }: { src: string, alt: strin
   </div>
 ));
 
-const MemoizedHorizontalImage = React.memo(({ src, alt, onInteractionStart, onTap, scaleState }: any) => (
+const MemoizedHorizontalImage = React.memo(({ src, alt, onInteractionStart, onInteractionEnd, onTap, scaleState }: any) => (
   <div 
     className="w-full h-full flex items-center justify-center cursor-pointer touch-manipulation"
     onTouchStart={(e) => {
       if (e.touches.length === 1) onInteractionStart(e.touches[0].clientX, e.touches[0].clientY);
     }}
+    onTouchEnd={(e) => {
+      if (scaleState <= 1 && e.changedTouches.length === 1) {
+        onInteractionEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+      }
+    }}
     onMouseDown={(e) => onInteractionStart(e.clientX, e.clientY)}
+    onMouseUp={(e) => {
+      if (scaleState <= 1) {
+        onInteractionEnd(e.clientX, e.clientY);
+      }
+    }}
     onClick={(e) => {
       if (scaleState <= 1) onTap(e);
     }}
   >
-    {/* OPTIMIZATION: Removed loading="lazy" so the active page renders instantly! */}
     <img 
       src={src} 
       className="object-contain pointer-events-none" 
@@ -73,7 +82,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const getId = useCallback((p: any) => p?.id || p, []);
 
   // --- OPTIMIZATION: PREDICTIVE PRE-FETCHING ---
-  // Silently download the next two pages into memory while the user reads the current one
   useEffect(() => {
     if (!pages || pages.length === 0) return;
     
@@ -149,7 +157,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
   }, []);
 
-  // Failsafe to ensure zoom resets
   useEffect(() => {
     if (transformRef.current) {
       transformRef.current.resetTransform(0); 
@@ -229,7 +236,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     fetchProgress();
   }, [chapterId, userId, isAuthLoaded, currentUser, initialPage]);
 
-  // --- PERFORMANCE OPTIMIZATION: Stable Callbacks for Gestures ---
   const saveProgressToDB = useCallback(async (pageToSave: number) => {
     const activeUserId = activeUserRef.current;
     if (!activeUserId || !chapterId || !isComponentMounted.current) return;
@@ -303,10 +309,28 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     touchStartPos.current = { x: clientX, y: clientY };
   }, []);
 
+  // --- NEW SWIPE HANDLER ---
+  const handleInteractionEnd = useCallback((clientX: number, clientY: number) => {
+    const deltaX = clientX - touchStartPos.current.x;
+    const deltaY = Math.abs(clientY - touchStartPos.current.y);
+    const SWIPE_THRESHOLD = 50; // Minimum pixels to count as a swipe
+
+    // If movement was largely horizontal and long enough, trigger a swipe!
+    if (Math.abs(deltaX) > SWIPE_THRESHOLD && deltaY < 100) {
+      if (deltaX < 0) {
+        goNext(); // Swiped left -> Go Next
+      } else {
+        goPrev(); // Swiped right -> Go Prev
+      }
+    }
+  }, [goNext, goPrev]);
+
+  // --- EXISTING TAP HANDLER ---
   const handleTap = useCallback((e: React.MouseEvent) => {
     const deltaX = Math.abs(e.clientX - touchStartPos.current.x);
     const deltaY = Math.abs(e.clientY - touchStartPos.current.y);
 
+    // If it was a swipe, the delta will be large, so we abort the tap logic to prevent double-firing!
     if (deltaX > 8 || deltaY > 8) return; 
 
     const x = e.clientX;
@@ -384,7 +408,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   if (isLoadingProgress) {
     return (
-      <div className="fixed inset-0 z-[100] bg-[#0a0a0a] flex items-center justify-center" style={{ width: '100vw', height: '100vh' }}>
+      <div className="fixed inset-0 z-[1000] bg-[#0a0a0a] flex items-center justify-center" style={{ width: '100vw', height: '100vh' }}>
         <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
       </div>
     );
@@ -392,7 +416,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   return (
     <div 
-      className="fixed inset-0 z-[100] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans"
+      className="fixed inset-0 z-[1000] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans"
       style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh' }}
     >
       <style>{`
@@ -429,6 +453,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                       src={getUrl(pages[currentPage])}
                       alt={`Page ${currentPage + 1}`}
                       onInteractionStart={handleInteractionStart}
+                      onInteractionEnd={handleInteractionEnd}
                       onTap={handleTap}
                       scaleState={state.scale}
                     />
