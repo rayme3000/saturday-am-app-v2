@@ -1,12 +1,6 @@
-import React, { memo, useState, useEffect } from 'react';
+import React, { memo } from 'react';
 import { Home, Heart, Search, ShoppingBag, User } from 'lucide-react';
-import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
-
-// --- OPTIMIZATION: Module-level Cache ---
-// This memory survives even when React completely destroys the Nav component!
-let memoryCacheProfile: any = null;
-let memoryCacheFrame: any = null;
 
 const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) => {
   if (!anim || anim === 'none') return null;
@@ -52,53 +46,12 @@ const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) 
   );
 };
 
-export const FloatingPillNav = memo(({ currentView, onNavigate }: any) => {
+export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser }: any) => {
   const { vaultFrames = [] } = useSeriesData();
   
-  // Use memory cache as the initial state so there's zero flicker
-  const [navAvatar, setNavAvatar] = useState<string>(memoryCacheProfile || '');
-  const [navFrame, setNavFrame] = useState<string>(memoryCacheFrame || '');
-
-  useEffect(() => {
-    const fetchUserLoadout = async () => {
-      // If we already have the cache, skip the database entirely!
-      if (memoryCacheProfile !== null) return;
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase.from('profiles').select('avatar_url, avatar_frame_id').eq('id', user.id).maybeSingle();
-        if (data) {
-          const av = data.avatar_url || '';
-          const fr = data.avatar_frame_id || '';
-          
-          setNavAvatar(av);
-          setNavFrame(fr);
-          
-          // Save it to memory for the next tab switch
-          memoryCacheProfile = av;
-          memoryCacheFrame = fr;
-        }
-      }
-    };
-
-    fetchUserLoadout();
-
-    const handleProfileUpdate = (e: any) => {
-      if (e.detail) {
-        if (e.detail.avatar_url !== undefined) {
-          setNavAvatar(e.detail.avatar_url);
-          memoryCacheProfile = e.detail.avatar_url;
-        }
-        if (e.detail.avatar_frame_id !== undefined) {
-          setNavFrame(e.detail.avatar_frame_id || '');
-          memoryCacheFrame = e.detail.avatar_frame_id || '';
-        }
-      }
-    };
-    
-    window.addEventListener('profileUpdated', handleProfileUpdate);
-    return () => window.removeEventListener('profileUpdated', handleProfileUpdate);
-  }, []);
+  // Checking BOTH possible database keys to be absolutely bulletproof
+  const navAvatar = currentUser?.avatar_url || '';
+  const navFrame = currentUser?.avatar_frame_id || currentUser?.frame_id || '';
 
   const dynamicFrame = vaultFrames.find((f: any) => f.id === navFrame);
   const dynBorder = dynamicFrame ? `2px solid ${dynamicFrame.border_color}` : 'none';
@@ -106,7 +59,7 @@ export const FloatingPillNav = memo(({ currentView, onNavigate }: any) => {
   const dynAnim = dynamicFrame ? dynamicFrame.animation_style : 'none';
 
   return (
-    <div className="fixed bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 w-[92%] sm:w-auto sm:min-w-[400px] max-w-md z-[150] pointer-events-none">
+    <div className="fixed bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 w-[92%] sm:w-auto sm:min-w-[400px] max-w-md z-[150] pointer-events-none pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <nav className="bg-black/80 backdrop-blur-md border border-[#fe9a00] rounded-full px-6 py-1.5 flex items-center justify-between shadow-[0_10px_40px_rgba(0,0,0,0.8)] pointer-events-auto">
         <button onClick={() => onNavigate({ action: 'home' })} className="p-2 transition-transform hover:scale-110">
           <Home className={`w-6 h-6 ${currentView === 'home' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
@@ -116,15 +69,15 @@ export const FloatingPillNav = memo(({ currentView, onNavigate }: any) => {
           <Heart className={`w-6 h-6 ${currentView === 'faves' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
         </button>
 
-        <button onClick={() => onNavigate({ action: 'profile' })} className="relative flex items-center justify-center w-12 h-12 transition-transform hover:scale-110 flex-shrink-0">
+        <button onClick={() => onNavigate({ action: 'profile' })} className="relative flex items-center justify-center w-12 h-12 transition-transform hover:scale-110 flex-shrink-0 mx-1">
            <div 
-             className={`w-10 h-10 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 transition-all ${!dynamicFrame ? 'border-2 border-transparent' : ''}`}
+             className={`w-10 h-10 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 transition-all ${!dynamicFrame ? 'border-[1.5px] border-zinc-700' : ''} ${currentView === 'profile' && !dynamicFrame ? 'border-[#fe9a00]' : ''}`}
              style={dynamicFrame ? { border: dynBorder, boxShadow: dynShadow } : {}}
            >
              {navAvatar && navAvatar.trim() !== '' ? (
                <img src={navAvatar} alt="Profile" className="w-full h-full object-cover" />
              ) : (
-               <User className="w-5 h-5 text-zinc-400" />
+               <User className={`w-5 h-5 ${currentView === 'profile' ? 'text-[#fe9a00]' : 'text-zinc-400'}`} />
              )}
            </div>
            {dynamicFrame && <RenderPillAnimations anim={dynAnim} color={dynamicFrame.border_color} />}

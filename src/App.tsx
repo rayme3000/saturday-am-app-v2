@@ -180,8 +180,11 @@ export default function App() {
     const checkSessionAndFetch = () => {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
+          // OPTIMISTIC UI: Render placeholder instantly while DB fetches
+          setCurrentUser((prev: any) => prev || { username: session.user.user_metadata?.username || 'Reader', avatar_url: '', frame_id: 'none' });
           fetchUserProfile(session.user);
         } else {
+          setCurrentUser(null);
           setUserTier('visitor');
         }
       });
@@ -193,7 +196,9 @@ export default function App() {
       if (e.detail) {
         setCurrentUser((prev: any) => ({
           ...prev,
+          // We must explicitly overwrite both keys to prevent the old avatar_frame_id from clinging on
           frame_id: e.detail.avatar_frame_id,
+          avatar_frame_id: e.detail.avatar_frame_id, 
           avatar_url: e.detail.avatar_url
         }));
       } else {
@@ -201,7 +206,13 @@ export default function App() {
       }
     };
     
+    const handleInstantLogout = () => {
+      setCurrentUser(null);
+      setUserTier('visitor');
+    };
+
     window.addEventListener('profileUpdated', handleProfileUpdate);
+    window.addEventListener('instantLogout', handleInstantLogout);
 
     // Catching the PASSWORD_RECOVERY event
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -209,7 +220,12 @@ export default function App() {
         setShowPasswordReset(true);
       }
       
-      if (session?.user) {
+      if (event === 'SIGNED_OUT') {
+        setCurrentUser(null);
+        setUserTier('visitor');
+      } else if (session?.user) {
+        // OPTIMISTIC UI: Instantly swap login button for avatar
+        setCurrentUser((prev: any) => prev || { username: session.user.user_metadata?.username || 'Reader', avatar_url: '', frame_id: 'none' });
         fetchUserProfile(session.user);
       } else {
         setCurrentUser(null);
@@ -220,6 +236,7 @@ export default function App() {
     return () => {
       subscription.unsubscribe();
       window.removeEventListener('profileUpdated', handleProfileUpdate);
+      window.removeEventListener('instantLogout', handleInstantLogout);
     };
   }, []);
 
@@ -478,7 +495,7 @@ export default function App() {
 
       {/* --- GLOBAL FLOATING PILL NAV --- */}
       {!['settings', 'admin', 'sub'].includes(currentView) && (
-        <FloatingPillNav currentView={currentView} onNavigate={handleNavigate} userAvatar={currentUser?.avatar_url} userFrame={currentUser?.frame_id} />
+        <FloatingPillNav currentView={currentView} onNavigate={handleNavigate} currentUser={currentUser} />
       )}
 
       {/* --- GLOBAL FLOATING HAMBURGER FOR SUB-PAGES --- */}

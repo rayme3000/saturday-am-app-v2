@@ -53,7 +53,7 @@ const RenderFrameAnimations = ({ anim, color }: { anim: string, color: string })
   );
 };
 
-export const UserProfile = ({ onBack, onNavigate }: any) => {
+export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
   const { seriesList = [], vaultAvatars = [], cardSkins = [], vaultFrames = [] } = useSeriesData();
   
   const [showFlexCard, setShowFlexCard] = useState(false);
@@ -161,6 +161,12 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
     window.dispatchEvent(new CustomEvent('profileUpdated', { detail: { avatar_url: tempProfile.avatarUrl, avatar_frame_id: tempProfile.frameId === '' ? null : tempProfile.frameId } }));
   };
 
+  // INSTANT LOGOUT LOGIC
+  const handleLogout = async () => {
+    window.dispatchEvent(new Event('instantLogout'));
+    await supabase.auth.signOut();
+  };
+
   const fallbackSeriesList = [
     { slug: 'apple-black', title: 'Apple Black', creator_name: 'Whyt Manga', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/apple-black-cover.jpg' },
     { slug: 'clock-striker', title: 'Clock Striker', creator_name: 'Frederick Ward', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/clock-striker-cover.jpg' }
@@ -233,24 +239,37 @@ export const UserProfile = ({ onBack, onNavigate }: any) => {
         </h1>
       </div>
 
-      {/* Decorative Banner Background */}
-      <div className="w-full h-48 sm:h-64 bg-black/40 backdrop-blur-sm relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay"></div>
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
-      </div>
-
-      <div className="max-w-4xl mx-auto relative -mt-16 sm:-mt-24">
+      {/* Profile Container with Smart Margins */}
+      <div className={`max-w-4xl mx-auto relative pt-6 sm:pt-8`}>
         <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6 mb-8 px-6">
           <div className="relative group cursor-pointer" onClick={() => openEditor('frame')}>
             {renderAvatarWithFrame(userProfile.avatarUrl, userProfile.frameId)}
           </div>
           <div className="text-center sm:text-left pb-2">
-            <button onClick={() => openEditor('faves')} className="flex items-center gap-2 bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-white hover:scale-105 transition-all mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]"><Settings className="w-3 h-3" /> Edit Profile</button>
+            <button onClick={() => openEditor('faves')} className="flex items-center gap-2 bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-white hover:scale-105 transition-all mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)] mx-auto sm:mx-0"><Settings className="w-3 h-3" /> Edit Profile</button>
             <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter drop-shadow-lg">{userProfile.username}</h1>
             <p className={`text-xs font-black uppercase tracking-widest mt-1 italic drop-shadow-md ${isSubscriber ? 'text-purple-400' : 'text-zinc-400'}`}>{isSubscriber ? 'Premium Saturday AM+ Member' : 'Standard Member'}</p>
           </div>
-          <div className="sm:ml-auto flex items-center gap-3 mt-4 sm:mt-0">
-            <button onClick={() => onNavigate({ action: 'settings' })} className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-700 p-3 rounded-full hover:border-white transition-colors group"><Settings className="w-5 h-5 text-zinc-400 group-hover:text-white" /></button>
+          
+          <div className="sm:ml-auto flex items-center justify-center gap-3 mt-4 sm:mt-0">
+            {isLoggedIn ? (
+              <button 
+                onClick={handleLogout} 
+                className="bg-zinc-900 border border-zinc-700 text-white px-4 sm:px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-xs hover:bg-red-600 hover:border-red-600 transition-all shadow-md"
+              >
+                Logout
+              </button>
+            ) : (
+              <button 
+                onClick={onLoginClick} 
+                className="bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-xs hover:bg-white transition-all shadow-[0_0_15px_rgba(254,154,0,0.3)]"
+              >
+                Log In
+              </button>
+            )}
+            <button onClick={() => onNavigate({ action: 'settings' })} className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-700 p-3 rounded-full hover:border-white transition-colors group">
+              <Settings className="w-5 h-5 text-zinc-400 group-hover:text-white" />
+            </button>
           </div>
         </div>
 
