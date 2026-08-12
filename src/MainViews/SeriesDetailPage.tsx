@@ -5,10 +5,11 @@ import { MangaReader } from './MangaReader';
 import { SuperHypeButton } from '../Components/SuperHypeButton';
 import { HypeButton } from '../Components/HypeButton';
 import { SeriesCommentsSection } from '../Components/SeriesCommentsSection';
+import { PromoModal } from '../Components/PromoModal'; // <-- IMPORT THE PROMO MODAL
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
-export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLoginClick }: any) => {
+export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLoginClick, onNavigate }: any) => {
   const [localSeries, setLocalSeries] = useState(series);
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('chapters');
@@ -29,6 +30,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [isFavorited, setIsFavorited] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
+  // --- PROMO TRACKER ---
+  const [showPromo, setShowPromo] = useState(false);
+
   // --- JUMP BACK IN STATES ---
   const [startPage, setStartPage] = useState(0);
   const [hasAutoOpened, setHasAutoOpened] = useState(false);
@@ -242,7 +246,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         return;
       }
       
-      // Target is a premium chapter, user is free, and doesn't have an active ad-unlock
       setTargetChapter(chapter);
       setShowAdModal(true);
       return;
@@ -259,6 +262,19 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       setActiveChapterId(chapter.id);
       setStartPage(initialPage); 
       setIsReaderOpen(true); 
+      
+      // --- THE PROMO TRACKER ---
+      if (userTier !== 'premium') {
+        let reads = parseInt(sessionStorage.getItem('am_read_counter') || '0');
+        reads += 1;
+        if (reads >= 3) {
+          setShowPromo(true);
+          sessionStorage.setItem('am_read_counter', '0');
+        } else {
+          sessionStorage.setItem('am_read_counter', reads.toString());
+        }
+      }
+
     } 
     else { 
       alert("No pages found for this chapter yet!"); 
@@ -342,6 +358,22 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   return (
     <div className="relative min-h-screen bg-black text-white">
       
+      {/* --- PROMO MODAL OVERLAY --- */}
+      {showPromo && (
+        <PromoModal 
+          userTier={userTier} 
+          onClose={() => setShowPromo(false)} 
+          onAction={() => {
+            setShowPromo(false);
+            if (userTier === 'visitor') {
+              if (onLoginClick) onLoginClick();
+            } else {
+              if (onNavigate) onNavigate({ action: 'sub' });
+            }
+          }} 
+        />
+      )}
+
       {upsellConfig && (
         <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
@@ -369,7 +401,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               </button>
             ) : (
               <button 
-                onClick={() => setUpsellConfig(null)} 
+                onClick={() => {
+                  setUpsellConfig(null);
+                  if (onNavigate) onNavigate({ action: 'sub' });
+                }} 
                 className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors"
               >
                 Explore Premium
@@ -716,7 +751,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               <button 
                 onClick={() => { 
                   setShowAdModal(false); 
-                  alert("Navigating to Subscription Page..."); 
+                  if (onNavigate) onNavigate({ action: 'sub' });
                 }} 
                 className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] flex items-center justify-center gap-2"
               >

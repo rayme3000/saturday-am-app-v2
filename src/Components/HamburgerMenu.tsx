@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { X, CreditCard, ShieldAlert, ExternalLink, Download, User, LogOut } from 'lucide-react';
+import { X, CreditCard, ShieldAlert, ExternalLink, Download, User, LogOut, Crown } from 'lucide-react';
 import { supabase } from '../supabase';
 
 export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser, canInstall, onInstall, onLoginClick }: any) => {
@@ -11,6 +11,7 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
   };
 
   const menuItems = [
+    { name: 'AM Shop', action: 'shop', prefetch: () => import('../MainViews/Shop').then(mod => mod.Shop) },
     { name: 'Browse Library', action: 'browse', prefetch: () => import('../MainViews/Browse.tsx') },
     { name: 'Profile', action: 'profile', prefetch: () => import('../VirtualProfile/UserProfile').then(mod => mod.UserProfile) },
     { name: 'My Favorites', action: 'faves', prefetch: () => import('../MainViews/MyFaves.tsx') },
@@ -18,6 +19,7 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
     { name: 'Subscription', action: 'sub', prefetch: null },
     { name: 'AM News', action: 'news', prefetch: () => import('../MainViews/AMNewsPage').then(mod => mod.AMNewsPage) },
     { name: 'Leaderboards', action: 'leaderboard', prefetch: () => import('../MainViews/Leaderboard.tsx') },
+    { name: 'Legal & Privacy', action: 'legal', prefetch: () => import('../MainViews/LegalPages').then(mod => mod.LegalPages) },
     { name: 'Settings', action: 'settings', prefetch: () => import('../MainViews/Settings.tsx') }
   ];
 
@@ -42,12 +44,27 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
             <User className="w-6 h-6" /> Log In / Sign Up
           </button>
         ) : (
-          <button 
-            onClick={handleLogout}
-            className="flex items-center gap-4 bg-zinc-900 text-white border border-zinc-700 px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-red-600 hover:border-red-600 hover:scale-105 transition-all mb-2 shadow-lg w-max"
-          >
-            <LogOut className="w-6 h-6" /> Log Out
-          </button>
+          <>
+            <button 
+              onClick={handleLogout}
+              className="flex items-center gap-4 bg-zinc-900 text-white border border-zinc-700 px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-red-600 hover:border-red-600 hover:scale-105 transition-all mb-2 shadow-lg w-max"
+            >
+              <LogOut className="w-6 h-6" /> Log Out
+            </button>
+
+            {/* --- UPGRADE TO PRO (FREE USERS ONLY) --- */}
+            {userTier === 'free' && (
+              <button 
+                onClick={() => { 
+                  onClose(); 
+                  onNavigate({ action: 'sub' }); 
+                }}
+                className="flex items-center gap-4 bg-gradient-to-r from-[#fe9a00] to-yellow-500 text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:from-white hover:to-white hover:scale-105 transition-all mb-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max"
+              >
+                <Crown className="w-6 h-6" /> Upgrade to Pro
+              </button>
+            )}
+          </>
         )}
 
         {/* --- PWA INSTALL BUTTON --- */}

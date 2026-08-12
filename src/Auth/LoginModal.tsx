@@ -4,12 +4,14 @@ import { X, Eye, EyeOff, CheckCircle } from 'lucide-react';
 
 const LoginModal = ({ onClose, onSuccess }: any) => {
   const [isSignUp, setIsSignUp] = useState(false);
-  const [isForgotPassword, setIsForgotPassword] = useState(false); // --- NEW STATE ---
+  const [isForgotPassword, setIsForgotPassword] = useState(false); 
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [country, setCountry] = useState('');
   const [referral, setReferral] = useState('');
+  
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -71,13 +73,14 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         return;
       }
 
-      const { error: signUpError } = await supabase.auth.signUp({
-        email,
+      // 1. Create the secure Auth account
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
         password,
         options: {
           data: {
             username: username.trim(),
-            country: country,
+            county: country, // Maps to your new 'county' database column
             referral_source: referral
           }
         }
@@ -90,6 +93,17 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           setError(signUpError.message);
         }
       } else {
+        // 2. Instantly push the data to the public.profiles table so it's not NULL
+        if (authData?.user) {
+          await supabase.from('profiles').upsert({
+            id: authData.user.id,
+            username: username.trim(),
+            email: email.trim(),
+            county: country,
+            referral_source: referral
+          }, { onConflict: 'id' });
+        }
+
         setSuccessMsg("Account created! Please check your email inbox to confirm your registration.");
         setIsSignUp(false); 
         setPassword('');
@@ -98,7 +112,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
 
     } else {
       const { error: loginError } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim(),
         password,
       });
 
@@ -111,7 +125,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     }
   };
 
-  // --- NEW: Handle Forgot Password Submission ---
   const handleForgotPasswordSubmit = async (e: any) => {
     e.preventDefault();
     if (!email) {
@@ -123,7 +136,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     setError('');
     setSuccessMsg('');
 
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: window.location.origin,
     });
 
@@ -158,7 +171,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         )}
         
         {isForgotPassword ? (
-          // --- FORGOT PASSWORD FORM ---
           <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
             <p className="text-xs text-zinc-400 font-bold mb-4">
               Enter the email address associated with your account and we will send you a link to reset your password.
@@ -177,7 +189,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
             </button>
           </form>
         ) : (
-          // --- STANDARD LOGIN / SIGNUP FORM ---
           <form onSubmit={handleEmailSubmit} className="space-y-4">
             {isSignUp && (
               <>
@@ -197,11 +208,25 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                   required
                 >
                   <option value="" disabled>Select your Country</option>
-                  <option value="US">United States</option>
-                  <option value="UK">United Kingdom</option>
-                  <option value="CA">Canada</option>
-                  <option value="AU">Australia</option>
-                  <option value="OTHER">Other</option>
+                  <option value="United States">United States</option>
+                  <option value="United Kingdom">United Kingdom</option>
+                  <option value="Canada">Canada</option>
+                  <option value="Australia">Australia</option>
+                  <option value="New Zealand">New Zealand</option>
+                  <option value="Ireland">Ireland</option>
+                  <option value="Mexico">Mexico</option>
+                  <option value="Brazil">Brazil</option>
+                  <option value="France">France</option>
+                  <option value="Germany">Germany</option>
+                  <option value="Italy">Italy</option>
+                  <option value="Spain">Spain</option>
+                  <option value="Japan">Japan</option>
+                  <option value="South Korea">South Korea</option>
+                  <option value="India">India</option>
+                  <option value="Philippines">Philippines</option>
+                  <option value="Nigeria">Nigeria</option>
+                  <option value="South Africa">South Africa</option>
+                  <option value="Other">Other</option>
                 </select>
 
                 <select 

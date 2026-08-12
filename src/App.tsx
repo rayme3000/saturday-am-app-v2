@@ -20,6 +20,8 @@ const AdminDashboard = lazy(() => import('./AmCommandCenter/AdminDashboard').the
 const UserProfile = lazy(() => import('./VirtualProfile/UserProfile').then(mod => ({ default: mod.UserProfile })));
 const SubscriptionPage = lazy(() => import('./MainViews/Subscription.tsx').then(mod => ({ default: mod.Subscription })));
 const AMNewsPage = lazy(() => import('./MainViews/AMNewsPage').then(mod => ({ default: mod.AMNewsPage })));
+const Shop = lazy(() => import('./MainViews/Shop').then(mod => ({ default: mod.Shop }))); 
+const LegalPages = lazy(() => import('./MainViews/LegalPages').then(mod => ({ default: mod.LegalPages }))); 
 
 // 3. Lazy Load the views that use Default Exports
 const SettingsPage = lazy(() => import('./MainViews/Settings.tsx'));
@@ -323,6 +325,8 @@ export default function App() {
     if (data.action === 'sub') { setCurrentView('sub'); return; }
     if (data.action === 'leaderboard') { setCurrentView('leaderboard'); return; }
     if (data.action === 'news') { setCurrentView('news'); return; }
+    if (data.action === 'shop') { setCurrentView('shop'); return; }
+    if (data.action === 'legal') { setCurrentView('legal'); return; }
     
     if (data.publish_date) {
       setSelectedMagazine(data);
@@ -465,7 +469,13 @@ export default function App() {
           <HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />
         )}
         {currentView === 'series' && (
-          <SeriesDetailPage userTier={userTier} series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} onLoginClick={() => setShowLogin(true)} />
+          <SeriesDetailPage 
+            userTier={userTier} 
+            series={selectedSeries} 
+            onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} 
+            onLoginClick={() => setShowLogin(true)} 
+            onNavigate={handleNavigate}
+          />
         )}
         {currentView === 'magazine' && (
           <MagazineDetailPage userTier={userTier} magazine={selectedMagazine} onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} />
@@ -491,6 +501,8 @@ export default function App() {
         {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
         {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}
         {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
+        {currentView === 'shop' && (<Shop userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+        {currentView === 'legal' && (<LegalPages onBack={() => setCurrentView('home')} />)}
       </Suspense>
 
       {/* --- GLOBAL FLOATING PILL NAV --- */}
@@ -499,7 +511,7 @@ export default function App() {
       )}
 
       {/* --- GLOBAL FLOATING HAMBURGER FOR SUB-PAGES --- */}
-      {!['home', 'settings', 'admin', 'sub'].includes(currentView) && (
+      {!['home', 'settings', 'admin', 'sub', 'shop', 'legal'].includes(currentView) && (
         <button 
           onClick={() => setIsMenuOpen(true)}
           className="fixed top-4 sm:top-6 right-4 sm:right-6 z-[150] p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] shadow-lg transition-all group"
