@@ -15,7 +15,6 @@ import { GlobalFlexCard } from './Components/GlobalFlexCard';
 // 2. Lazy Load the views that use Named Exports
 const HomePage = lazy(() => import('./MainViews/HomePage').then(mod => ({ default: mod.HomePage })));
 const SeriesDetailPage = lazy(() => import('./MainViews/SeriesDetailPage').then(mod => ({ default: mod.SeriesDetailPage })));
-const MagazineDetailPage = lazy(() => import('./MainViews/MagazineDetailPage').then(mod => ({ default: mod.MagazineDetailPage })));
 const AdminDashboard = lazy(() => import('./AmCommandCenter/AdminDashboard').then(mod => ({ default: mod.AdminDashboard })));
 const UserProfile = lazy(() => import('./VirtualProfile/UserProfile').then(mod => ({ default: mod.UserProfile })));
 const SubscriptionPage = lazy(() => import('./MainViews/Subscription.tsx').then(mod => ({ default: mod.Subscription })));
@@ -53,7 +52,6 @@ const ScrollToTopButton = () => {
   return (
     <button 
       onClick={scrollToTop} 
-      // Added safe-area-inset to protect against iPhone home bar
       className="fixed right-6 z-50 p-3 bg-[#fe9a00] text-black rounded-full shadow-[0_0_15px_rgba(254,154,0,0.4)] hover:bg-white hover:scale-110 transition-all duration-300 group pb-[max(0.75rem,env(safe-area-inset-bottom))] bottom-[calc(6rem+env(safe-area-inset-bottom))]" 
       aria-label="Back to top"
     >
@@ -70,11 +68,6 @@ export default function App() {
 
   const [selectedSeries, setSelectedSeries] = useState(() => {
     const saved = sessionStorage.getItem('selectedSeries');
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  const [selectedMagazine, setSelectedMagazine] = useState(() => {
-    const saved = sessionStorage.getItem('selectedMagazine');
     return saved ? JSON.parse(saved) : null;
   });
 
@@ -110,14 +103,13 @@ export default function App() {
 
   // --- HARDWARE BACK BUTTON INTERCEPTOR ---
   useEffect(() => {
-    window.history.replaceState({ view: currentView, series: selectedSeries, magazine: selectedMagazine }, '');
+    window.history.replaceState({ view: currentView, series: selectedSeries }, '');
 
     const handlePopState = (e: PopStateEvent) => {
       isPopState.current = true; 
       
       if (e.state && e.state.view) {
         setSelectedSeries(e.state.series || null);
-        setSelectedMagazine(e.state.magazine || null);
         setCurrentView(e.state.view);
       } else {
         setCurrentView('home');
@@ -132,9 +124,9 @@ export default function App() {
     if (isPopState.current) {
       isPopState.current = false; 
     } else {
-      window.history.pushState({ view: currentView, series: selectedSeries, magazine: selectedMagazine }, '');
+      window.history.pushState({ view: currentView, series: selectedSeries }, '');
     }
-  }, [currentView, selectedSeries, selectedMagazine]);
+  }, [currentView, selectedSeries]);
 
   // --- SESSION STORAGE SYNC ---
   useEffect(() => {
@@ -145,13 +137,7 @@ export default function App() {
     } else {
       sessionStorage.removeItem('selectedSeries');
     }
-
-    if (selectedMagazine) {
-      sessionStorage.setItem('selectedMagazine', JSON.stringify(selectedMagazine));
-    } else {
-      sessionStorage.removeItem('selectedMagazine');
-    }
-  }, [currentView, selectedSeries, selectedMagazine]);
+  }, [currentView, selectedSeries]);
 
   useEffect(() => { 
     if (showSplash) {
@@ -182,7 +168,6 @@ export default function App() {
     const checkSessionAndFetch = () => {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
-          // OPTIMISTIC UI: Render placeholder instantly while DB fetches
           setCurrentUser((prev: any) => prev || { username: session.user.user_metadata?.username || 'Reader', avatar_url: '', frame_id: 'none' });
           fetchUserProfile(session.user);
         } else {
@@ -198,7 +183,6 @@ export default function App() {
       if (e.detail) {
         setCurrentUser((prev: any) => ({
           ...prev,
-          // We must explicitly overwrite both keys to prevent the old avatar_frame_id from clinging on
           frame_id: e.detail.avatar_frame_id,
           avatar_frame_id: e.detail.avatar_frame_id, 
           avatar_url: e.detail.avatar_url
@@ -216,7 +200,6 @@ export default function App() {
     window.addEventListener('profileUpdated', handleProfileUpdate);
     window.addEventListener('instantLogout', handleInstantLogout);
 
-    // Catching the PASSWORD_RECOVERY event
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setShowPasswordReset(true);
@@ -226,7 +209,6 @@ export default function App() {
         setCurrentUser(null);
         setUserTier('visitor');
       } else if (session?.user) {
-        // OPTIMISTIC UI: Instantly swap login button for avatar
         setCurrentUser((prev: any) => prev || { username: session.user.user_metadata?.username || 'Reader', avatar_url: '', frame_id: 'none' });
         fetchUserProfile(session.user);
       } else {
@@ -314,27 +296,13 @@ export default function App() {
   };
 
   const handleNavigate = useCallback((data: any) => {
-    if (data.action === 'home') { setCurrentView('home'); return; }
-    if (data.action === 'admin') { setCurrentView('admin'); return; } 
-    if (data.action === 'faves') { setCurrentView('faves'); return; }
-    if (data.action === 'browse') { setCurrentView('browse'); return; }
-    if (data.action === 'profile') { setCurrentView('profile'); return; }
-    if (data.action === 'account') { setCurrentView('account'); return; }
-    if (data.action === 'settings') { setCurrentView('settings'); return; }
-    if (data.action === 'bingobook') { setCurrentView('bingobook'); return; }
-    if (data.action === 'sub') { setCurrentView('sub'); return; }
-    if (data.action === 'leaderboard') { setCurrentView('leaderboard'); return; }
-    if (data.action === 'news') { setCurrentView('news'); return; }
-    if (data.action === 'shop') { setCurrentView('shop'); return; }
-    if (data.action === 'legal') { setCurrentView('legal'); return; }
-    
-    if (data.publish_date) {
-      setSelectedMagazine(data);
-      setCurrentView('magazine');
-    } else {
-      setSelectedSeries(data);
-      setCurrentView('series');
+    if (data.action) {
+      setCurrentView(data.action);
+      return;
     }
+    // Default fallback to Series
+    setSelectedSeries(data);
+    setCurrentView('series');
   }, []);
 
   return (
@@ -365,7 +333,6 @@ export default function App() {
           
           html, body { 
             font-family: 'Plus Jakarta Sans', sans-serif; 
-            /* Prevent iOS Safari Rubber-Banding */
             overscroll-behavior-y: none;
             -webkit-overflow-scrolling: touch;
           }
@@ -373,11 +340,9 @@ export default function App() {
           h1, h2, h3, h4, h5, h6, .font-black { font-family: 'Unbounded', sans-serif !important; font-style: italic !important; letter-spacing: -0.03em !important; }
           .tracking-widest { letter-spacing: 0.15em !important; font-style: normal !important; font-family: 'Plus Jakarta Sans', sans-serif !important; font-weight: 800; }
           
-          /* HIDES THE UGLY GREY SCROLLBARS */
           .no-scrollbar::-webkit-scrollbar { display: none; }
           .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
           
-          /* Bulletproof 3D Flip Animation */
           .card-perspective { perspective: 1000px; }
           .card-flipper { transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform-style: preserve-3d; }
           .card-flipper.is-flipped { transform: rotateY(180deg); }
@@ -390,7 +355,6 @@ export default function App() {
         <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => { setShowLogin(false); }} />
       )}
 
-      {/* PASSWORD RESET MODAL */}
       {showPasswordReset && (
         <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col shadow-2xl relative">
@@ -476,9 +440,6 @@ export default function App() {
             onLoginClick={() => setShowLogin(true)} 
             onNavigate={handleNavigate}
           />
-        )}
-        {currentView === 'magazine' && (
-          <MagazineDetailPage userTier={userTier} magazine={selectedMagazine} onBack={() => { setCurrentView('home'); setSelectedMagazine(null); }} onMagazineSelect={(newMag: any) => { setSelectedMagazine(newMag); }} />
         )}
         {currentView === 'admin' && (
           isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />

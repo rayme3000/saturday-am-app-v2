@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, X, ChevronLeft, ChevronRight, Crop, Calendar } from 'lucide-react';
+import { BookOpen, X, ChevronLeft, ChevronRight, Crop, Calendar, Image as ImageIcon } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { MangaReader } from '../MainViews/MangaReader';
@@ -13,6 +13,9 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [cropSourceImage, setCropSourceImage] = useState<string | null>(null);
+  
+  // NEW STATE: For the Page Selection Modal
+  const [showPageSelector, setShowPageSelector] = useState(false);
 
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
   const [draggedItem, setDraggedItem] = useState<number | null>(null);
@@ -203,6 +206,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
       {/* Reader Preview defaults to LTR */}
       {isPreviewOpen && <MangaReader pages={formData.pages} readingDirection="ltr" onClose={() => setIsPreviewOpen(false)} />}
       
+      {/* Thumbnail Cropper Modal */}
       {cropSourceImage && (
         <ThumbnailCropperModal 
           imageUrl={cropSourceImage} 
@@ -213,6 +217,46 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
           }} 
           onCancel={() => setCropSourceImage(null)} 
         />
+      )}
+
+      {/* NEW: Page Selector Modal for Thumbnail Cropping */}
+      {showPageSelector && (
+        <div className="fixed inset-0 z-[6000] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-6 animate-fade-in" onClick={() => setShowPageSelector(false)}>
+          <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl w-full max-w-5xl flex flex-col shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <ImageIcon className="w-6 h-6 text-[#fe9a00]" />
+                <h3 className="text-lg sm:text-xl font-black uppercase text-white tracking-widest">Select Thumbnail Source</h3>
+              </div>
+              <button onClick={() => setShowPageSelector(false)} className="text-zinc-500 hover:text-white p-2"><X className="w-6 h-6" /></button>
+            </div>
+            
+            {formData.pages.length === 0 ? (
+              <div className="text-center py-16 text-zinc-500 font-bold uppercase tracking-widest text-xs border-2 border-dashed border-zinc-800 rounded-xl">
+                No pages uploaded yet. Upload your chapter pages first!
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4 overflow-y-auto max-h-[60vh] custom-scrollbar p-2">
+                {formData.pages.map((url, i) => (
+                  <div 
+                    key={i} 
+                    onClick={() => { setCropSourceImage(url); setShowPageSelector(false); }} 
+                    className="relative aspect-[2/3] rounded-lg overflow-hidden cursor-pointer border-2 border-zinc-800 hover:border-[#fe9a00] group transition-all"
+                  >
+                    <div className="absolute top-1 left-1 bg-black/90 text-white text-[10px] font-black px-1.5 py-0.5 rounded border border-zinc-700 z-10">
+                      PG {i+1}
+                    </div>
+                    <img src={url} className="w-full h-full object-cover group-hover:scale-105 transition-transform" alt={`Pg ${i+1}`} />
+                    <div className="absolute inset-0 bg-[#fe9a00]/20 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center backdrop-blur-[2px]">
+                      <Crop className="w-8 h-8 text-white drop-shadow-md mb-2" />
+                      <span className="bg-black text-white text-[10px] font-black px-2 py-1 rounded uppercase tracking-widest">Crop Page</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Editor Mode Selector */}
@@ -265,14 +309,27 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                       alt="Thumb" 
                     />
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center pointer-events-none transition-opacity">
-                      <button onClick={() => setCropSourceImage(formData.thumbnailUrl)} className="p-3 bg-black border border-zinc-700 text-[#fe9a00] rounded-full pointer-events-auto hover:bg-zinc-800 transition-colors"><Crop className="w-5 h-5" /></button>
+                      <button onClick={() => setCropSourceImage(formData.thumbnailUrl)} className="p-3 bg-black border border-zinc-700 text-[#fe9a00] rounded-full pointer-events-auto hover:bg-zinc-800 transition-colors" title="Re-crop Thumbnail"><Crop className="w-5 h-5" /></button>
                     </div>
                   </div>
                 )}
                 
-                <Dropzone label={formData.thumbnailUrl ? "Replace Thumb" : "+ Upload Thumb"} height="p-4" folderPath="chapter-thumbnails" onUploadComplete={(url: any) => { setFormData({...formData, thumbnailUrl: url}); if (onDirty) onDirty(); }} />
+                {/* NEW DROPZONE + PAGE SELECTOR ROW */}
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Dropzone label={formData.thumbnailUrl ? "Replace Thumb" : "+ Upload Thumb"} height="p-4" folderPath="chapter-thumbnails" onUploadComplete={(url: any) => { setFormData({...formData, thumbnailUrl: url}); if (onDirty) onDirty(); }} />
+                  </div>
+                  <button 
+                    onClick={() => setShowPageSelector(true)}
+                    className="flex-shrink-0 flex flex-col items-center justify-center px-3 bg-black border border-zinc-700 text-zinc-400 rounded-lg hover:bg-zinc-800 hover:text-[#fe9a00] transition-colors"
+                    title="Crop from an uploaded page"
+                  >
+                    <BookOpen className="w-4 h-4 mb-1" />
+                    <span className="text-[8px] font-black uppercase tracking-widest text-center leading-tight">From<br/>Pages</span>
+                  </button>
+                </div>
                 
-                {/* NEW THUMBNAIL FINE TUNE SLIDERS */}
+                {/* THUMBNAIL FINE TUNE SLIDERS */}
                 {formData.thumbnailUrl && (
                   <div className="bg-black border border-zinc-800 p-3 rounded-xl mt-4 space-y-3">
                      <h4 className="text-[9px] font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-800 pb-1">Fine-Tune Thumb</h4>
@@ -311,12 +368,12 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                           <img src={url} alt={`Pg ${i+1}`} draggable={false} className="w-full h-full object-cover pointer-events-none" />
                           <div className="absolute inset-0 bg-black/80 opacity-0 group-hover/page:opacity-100 flex flex-col justify-between p-1">
                             <div className="flex justify-between w-full">
-                              <button onClick={() => setCropSourceImage(url)} className="p-1 hover:text-[#fe9a00] text-zinc-300"><Crop className="w-3 h-3" /></button>
-                              <button onClick={() => removePage(i)} className="p-1 hover:text-red-500 text-zinc-300"><X className="w-3 h-3" /></button>
+                              <button onClick={() => setCropSourceImage(url)} className="p-1 hover:text-[#fe9a00] text-zinc-300" title="Crop this page"><Crop className="w-3 h-3" /></button>
+                              <button onClick={() => removePage(i)} className="p-1 hover:text-red-500 text-zinc-300" title="Delete page"><X className="w-3 h-3" /></button>
                             </div>
                             <div className="flex justify-between w-full">
-                              <button onClick={() => movePage(i, 'left')} className="p-1 hover:text-[#fe9a00] text-zinc-300"><ChevronLeft className="w-3 h-3" /></button>
-                              <button onClick={() => movePage(i, 'right')} className="p-1 hover:text-[#fe9a00] text-zinc-300"><ChevronRight className="w-3 h-3" /></button>
+                              <button onClick={() => movePage(i, 'left')} className="p-1 hover:text-[#fe9a00] text-zinc-300" title="Move Left"><ChevronLeft className="w-3 h-3" /></button>
+                              <button onClick={() => movePage(i, 'right')} className="p-1 hover:text-[#fe9a00] text-zinc-300" title="Move Right"><ChevronRight className="w-3 h-3" /></button>
                             </div>
                           </div>
                         </div>

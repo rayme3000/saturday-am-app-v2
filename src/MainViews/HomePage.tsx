@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
-import { MagazineHomeSection } from "./MagazineHomeSection";
 import { SeriesSection } from "./SeriesSection";
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
 import { Menu, HelpCircle, X, Bell, CheckCircle, Play, MoveHorizontal, MoveVertical, Trophy, Zap, Crown, Flame } from 'lucide-react';
@@ -12,12 +11,12 @@ let memRecentReads: any = null;
 let memNotifications: any = null;
 
 export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, userTier }: any) => {
-  const { seriesList = [], magazines = [], isLoading } = useSeriesData();
+  const { seriesList = [], isLoading } = useSeriesData();
   
   const [currentSlide, setCurrentSlide] = useState(0);
   const [heroSlides, setHeroSlides] = useState<any[]>(memHeroSlides || []);
   const [homeSections, setHomeSections] = useState<any[]>(memHomeSections || []);
-  const [homeMagazines, setHomeMagazines] = useState<any[]>([]);
+  const [latestChapters, setLatestChapters] = useState<any[]>([]);
   const [isLoadingSlides, setIsLoadingSlides] = useState(!memHeroSlides);
   
   const [showHelpModal, setShowHelpModal] = useState(false);
@@ -45,20 +44,11 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   };
 
   useEffect(() => {
-    if (magazines && magazines.length > 0) {
-      const featured = magazines
-        .filter((m: any) => m.home_section === 'Featured')
-        .sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99));
-      setHomeMagazines(featured);
-    }
-  }, [magazines]);
-
-  useEffect(() => {
     const savedDismissed = JSON.parse(localStorage.getItem('am_dismissed_notifs') || '[]');
     setDismissedNotifs(savedDismissed);
 
     const fetchHomeData = async () => {
-      if (memHeroSlides && memHomeSections) {
+      if (memHeroSlides && memHomeSections && latestChapters.length > 0) {
         setIsLoadingSlides(false);
         return;
       }
@@ -74,6 +64,22 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         if (sectionData) {
           setHomeSections(sectionData);
           memHomeSections = sectionData;
+        }
+
+        // Fetch the 10 most recently published chapters (DIAGNOSTIC MODE)
+        const { data: chapData, error: chapError } = await supabase
+          .from('chapters')
+          .select('*')
+          // .eq('is_published', true) // <-- Commented out to test if the flag is missing/false
+          .order('created_at', { ascending: false }) // <-- Changed to created_at just in case publish_date is missing
+          .limit(10);
+          
+        // Log the results so we can see exactly what is happening in the browser console!
+        console.log("DEBUG - Chapter Data:", chapData);
+        console.log("DEBUG - Chapter Error:", chapError);
+          
+        if (chapData) {
+          setLatestChapters(chapData);
         }
 
         await fetchGlobalNotifications();
@@ -100,7 +106,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       }).subscribe();
 
     return () => { supabase.removeChannel(notifChannel); };
-  }, []);
+  }, [latestChapters.length]);
 
   useEffect(() => {
     if (showNotifications && !memNotifications) fetchGlobalNotifications();
@@ -146,15 +152,11 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
         const combined = history.map((h: any) => {
           const chap = chapters.find((c: any) => String(c.id) === String(h.chapter_id));
-          const mag = magazines.find((m: any) => String(m.id) === String(h.chapter_id));
 
           if (chap) {
             const series = seriesList.find((s: any) => s.slug === chap.series_slug);
             if (!series) return null;
             return { ...h, type: 'series', target: { ...series, action: 'series' }, title: series.title, subtitle: `Chapter ${chap.chapter_number}`, image: chap.thumbnail_url || series.cover_url };
-          } else if (mag) {
-            const magTarget = { ...mag, publish_date: mag.publish_date || mag.publish_at, action: 'magazine' };
-            return { ...h, type: 'magazine', target: magTarget, title: mag.title, subtitle: `Magazine Issue`, image: mag.cover_url };
           }
           return null;
         }).filter(Boolean);
@@ -167,7 +169,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     };
 
     fetchRecentReads();
-  }, [seriesList, magazines, isLoading, currentUser]);
+  }, [seriesList, isLoading, currentUser]);
 
   useEffect(() => {
     const timer = setInterval(() => { setCurrentSlide((prev) => (heroSlides.length > 0 ? (prev + 1) % heroSlides.length : 0)); }, 5000);
@@ -181,11 +183,9 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       const matchedSeries = seriesList.find((s: any) => s.slug === slide.link_target);
       if (matchedSeries) onNavigate(matchedSeries); 
     }
-    else if (slide.link_type === 'magazine') onNavigate({ publish_date: slide.link_target, action: 'magazine' });
   };
 
   const handleLogout = async () => {
-    // Instantly wipe the UI without waiting for the network request!
     window.dispatchEvent(new Event('instantLogout'));
     await supabase.auth.signOut();
   };
@@ -282,16 +282,9 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
               </div>
               <div className="p-6 overflow-y-auto no-scrollbar space-y-8 bg-black rounded-b-2xl">
                 <div>
-                  <h3 className="text-white font-black uppercase tracking-widest text-sm mb-1">Magazines</h3>
-                  <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                    The latest storylines of our serialized series. Publications range from bi-weekly to monthly.
-                  </p>
-                </div>
-
-                <div>
                   <h3 className="text-white font-black uppercase tracking-widest text-sm mb-1">Series Chapters</h3>
                   <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                    Binge read chapters by individual series.
+                    Binge read chapters by individual series directly from our vault. 
                   </p>
                 </div>
 
@@ -316,7 +309,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                   </div>
                 </div>
 
-                {/* LEADERBOARD & SUPERFAN RANKING */}
                 <div className="pt-6 border-t border-zinc-800">
                   <h3 className="text-[#fe9a00] font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
                     <Trophy className="w-4 h-4 text-[#fe9a00]" /> Leaderboard & Rankings
@@ -342,10 +334,10 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
                 <div>
                   <h3 className="text-yellow-500 font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
-                    <Crown className="w-4 h-4 text-yellow-500" /> The Big 3 & Manga of the Week
+                    <Crown className="w-4 h-4 text-yellow-500" /> The Big 3 & Chapter of the Week
                   </h3>
                   <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-yellow-500 pl-3">
-                    These are two separate battlegrounds! <strong className="text-white">Manga of the Week</strong> crowns the single <em className="text-white">chapter</em> that earns the most hype points in a 7-day period. Meanwhile, <strong className="text-[#fe9a00]">The Big 3</strong> tracks the top 3 <em className="text-[#fe9a00]">series</em> that dominate the entire month. Want your favorite to take the spotlight? Rally fellow fans to drop <span className="text-[#fe9a00]">Super Hypes</span> and boost their scores!
+                    These are two separate battlegrounds! <strong className="text-white">Chapter of the Week</strong> crowns the single <em className="text-white">chapter</em> that earns the most hype points in a 7-day period. Meanwhile, <strong className="text-[#fe9a00]">The Big 3</strong> tracks the top 3 <em className="text-[#fe9a00]">series</em> that dominate the entire month. Want your favorite to take the spotlight? Rally fellow fans to drop <span className="text-[#fe9a00]">Super Hypes</span> and boost their scores!
                   </p>
                 </div>
 
@@ -432,7 +424,54 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           </div>
         )}
         
-        <MagazineHomeSection magazines={homeMagazines} onMagazineClick={onNavigate} />
+        {/* NEW LATEST CHAPTERS FEED - AT THE VERY TOP */}
+        {latestChapters.length > 0 && (
+          <div className="mb-10 relative group px-2">
+            <div className="flex items-center gap-3 mb-4">
+              <svg className="w-5 h-5 text-[#fe9a00] ml-1" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="0,0 8,0 8,24 0,24" />
+                <polygon points="10,0 24,0 24,14 10,8" />
+                <polygon points="10,10 24,16 24,24 10,24" />
+              </svg>
+              <h2 className="text-xl font-black text-white tracking-wider uppercase">Latest Chapters</h2>
+            </div>
+            
+            <div className="flex overflow-x-auto gap-4 pb-4 snap-x no-scrollbar">
+              {latestChapters.map((chapter) => {
+                const seriesData = seriesList.find(s => s.slug === chapter.series_slug) || {};
+                return (
+                <div key={chapter.id} onClick={() => onNavigate(seriesData)} className="w-[60%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start">
+                  
+                  {/* Aspect-square to properly frame Chapter Thumbnails */}
+                  <div className="relative overflow-hidden rounded-lg aspect-[16/9] sm:aspect-square border-[1px] border-white shadow-[4px_4px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 group-hover/card:shadow-[6px_6px_0px_0px_#fe9a00] transition-all duration-300">
+                    <img 
+                      src={chapter.thumbnail_url || seriesData.cover_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} 
+                      className="w-full h-full object-cover" 
+                      alt="Chapter Thumbnail" 
+                    />
+                    
+                    {/* Dark gradient overlay for the text */}
+                    <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
+                      <p className="text-[#fe9a00] font-black text-[10px] uppercase tracking-widest drop-shadow-md">
+                        CH. {chapter.chapter_number}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-2 px-1">
+                    <h3 className="text-white font-bold text-xs truncate group-hover/card:text-[#fe9a00] transition-colors">
+                      {seriesData.title}
+                    </h3>
+                    <p className="text-zinc-400 text-[10px] font-bold truncate mt-0.5">
+                      {chapter.title || `Chapter ${chapter.chapter_number}`}
+                    </p>
+                  </div>
+
+                </div>
+              )})}
+            </div>
+          </div>
+        )}
 
         {homeSections.map((section) => {
           const seriesInSection = seriesList.filter((s: any) => s.home_section === section.title).sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99));

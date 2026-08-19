@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { HomeEditor } from './HomeEditor';
 import { SeriesEditor } from './SeriesEditor';
 import { ChapterUploader } from './ChapterUploader';
-import { MagazineUploader } from './MagazineUploader';
 import { AvatarMaker } from './AvatarMaker';
 import { StickerMaker } from './StickerMaker';
 import { CardSkinMaker } from './CardSkinMaker';
@@ -274,7 +273,6 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
     { id: 'home', label: 'Home Editor' },
     { id: 'series', label: 'Series Page Editor' },
     { id: 'chapter', label: 'Chapter Upload' },
-    { id: 'magazine', label: 'Magazine Upload' },
     { id: 'avatars', label: 'Avatar Maker' },
     { id: 'frames', label: 'Frame Maker' }, 
     { id: 'stickers', label: 'Sticker Maker' },
@@ -371,7 +369,6 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           {activeTab === 'home' && <HomeEditor Dropzone={Dropzone} />}
           {activeTab === 'series' && <SeriesEditor Dropzone={Dropzone} />}
           {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
-          {activeTab === 'magazine' && <MagazineUploader Dropzone={Dropzone} />}
           {activeTab === 'avatars' && <AvatarMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
           {activeTab === 'frames' && <FrameMaker />} 
           {activeTab === 'stickers' && <StickerMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
