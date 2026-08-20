@@ -66,17 +66,12 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           memHomeSections = sectionData;
         }
 
-        // Fetch the 10 most recently published chapters (DIAGNOSTIC MODE)
+        // Fetch the 10 most recently published chapters
         const { data: chapData, error: chapError } = await supabase
           .from('chapters')
           .select('*')
-          // .eq('is_published', true) // <-- Commented out to test if the flag is missing/false
-          .order('created_at', { ascending: false }) // <-- Changed to created_at just in case publish_date is missing
+          .order('created_at', { ascending: false }) 
           .limit(10);
-          
-        // Log the results so we can see exactly what is happening in the browser console!
-        console.log("DEBUG - Chapter Data:", chapData);
-        console.log("DEBUG - Chapter Error:", chapError);
           
         if (chapData) {
           setLatestChapters(chapData);
@@ -440,10 +435,10 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
               {latestChapters.map((chapter) => {
                 const seriesData = seriesList.find(s => s.slug === chapter.series_slug) || {};
                 return (
-                <div key={chapter.id} onClick={() => onNavigate(seriesData)} className="w-[60%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start">
+                <div key={chapter.id} onClick={() => onNavigate(seriesData)} className="w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start">
                   
-                  {/* Aspect-square to properly frame Chapter Thumbnails */}
-                  <div className="relative overflow-hidden rounded-lg aspect-[16/9] sm:aspect-square border-[1px] border-white shadow-[4px_4px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 group-hover/card:shadow-[6px_6px_0px_0px_#fe9a00] transition-all duration-300">
+                  {/* Aspect-square applied universally to perfectly frame Chapter Thumbnails */}
+                  <div className="relative overflow-hidden rounded-lg aspect-square border-[1px] border-white shadow-[4px_4px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 group-hover/card:shadow-[6px_6px_0px_0px_#fe9a00] transition-all duration-300">
                     <img 
                       src={chapter.thumbnail_url || seriesData.cover_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} 
                       className="w-full h-full object-cover" 
