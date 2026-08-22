@@ -1,15 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 export const SplashIntro = ({ onComplete }: { onComplete: () => void }) => {
   const [isFading, setIsFading] = useState(false);
+  const isFinished = useRef(false);
 
   const handleFinish = () => {
+    if (isFinished.current) return;
+    isFinished.current = true;
     setIsFading(true);
-    // Wait for the fade-out CSS animation to finish before removing the component
+    
+    // Wait for the fade-out CSS animation to finish before unmounting
     setTimeout(() => {
       onComplete();
     }, 800); 
   };
+
+  // THE FAILSAFE: If the video freezes or takes longer than 6 seconds, force it to skip.
+  useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      console.warn("Splash video took too long. Auto-skipping.");
+      handleFinish();
+    }, 6000); 
+
+    return () => clearTimeout(safetyTimer);
+  }, []);
 
   return (
     <div 
@@ -18,11 +32,13 @@ export const SplashIntro = ({ onComplete }: { onComplete: () => void }) => {
       }`}
     >
       <video
-        src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/app%20splash%20intro.mp4" 
+        src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/splash-final.mp4.mp4" 
         autoPlay
         muted={true}
         playsInline
+        preload="auto"
         onEnded={handleFinish}
+        onError={handleFinish}
         className="w-full h-full object-contain md:object-cover"
       />
       
