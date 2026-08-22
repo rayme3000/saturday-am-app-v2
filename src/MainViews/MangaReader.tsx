@@ -58,7 +58,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const qr = useQuickReacts(chapterId, currentPage, currentUser);
 
   // --- ROBUST SHARE FALLBACK ---
-  // In case SeriesDetailPage doesn't explicitly pass these, we generate them from existing props
   const fallbackSeries = series || { 
     title: subtitle || 'Saturday AM Series', 
     slug: subtitle?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || '' 
@@ -600,6 +599,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       >
         {qr.isReactInputOpen && isUIVisible && (
            <QuickReactInputOverlay
+             isReactInputOpen={qr.isReactInputOpen} 
              setIsReactInputOpen={qr.setIsReactInputOpen}
              reactText={qr.reactText}
              setReactText={qr.setReactText}

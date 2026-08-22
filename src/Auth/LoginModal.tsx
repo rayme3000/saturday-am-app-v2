@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { X, Eye, EyeOff, CheckCircle } from 'lucide-react';
-import { containsProfanity } from '../profanityFilter'; // <-- IMPORT FILTER
+import { containsProfanity } from '../profanityFilter'; 
 
 const LoginModal = ({ onClose, onSuccess }: any) => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -37,15 +37,16 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     setError('');
     setSuccessMsg('');
 
+    // RUTHLESS EMAIL SCRUBBING: Removes all spaces (including zero-width) and forces lowercase
+    const cleanEmail = email.replace(/\s+/g, '').toLowerCase();
+
     if (isSignUp) {
-      // Basic client-side check for password length
       if (password.length < 10) {
         setError("Password must be at least 10 characters long.");
         setLoading(false);
         return;
       }
 
-      // Check username against the dynamic profanity dictionary
       const isVulgar = containsProfanity(username);
       if (isVulgar) {
         setError("That username is not allowed. Please choose another one.");
@@ -65,14 +66,13 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         return;
       }
 
-      // 1. Create the secure Auth account
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: cleanEmail,
         password,
         options: {
           data: {
             username: username.trim(),
-            county: country, // Maps to your new 'county' database column
+            county: country, 
             referral_source: referral
           }
         }
@@ -85,12 +85,11 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           setError(signUpError.message);
         }
       } else {
-        // 2. Instantly push the data to the public.profiles table so it's not NULL
         if (authData?.user) {
           await supabase.from('profiles').upsert({
             id: authData.user.id,
             username: username.trim(),
-            email: email.trim(),
+            email: cleanEmail,
             county: country,
             referral_source: referral
           }, { onConflict: 'id' });
@@ -104,7 +103,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
 
     } else {
       const { error: loginError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: cleanEmail,
         password,
       });
 
@@ -128,7 +127,10 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     setError('');
     setSuccessMsg('');
 
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    // Apply the same ruthless scrubbing here
+    const cleanEmail = email.replace(/\s+/g, '').toLowerCase();
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
       redirectTo: window.location.origin,
     });
 
