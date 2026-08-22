@@ -5,7 +5,7 @@ import { MangaReader } from './MangaReader';
 import { SuperHypeButton } from '../Components/SuperHypeButton';
 import { HypeButton } from '../Components/HypeButton';
 import { SeriesCommentsSection } from '../Components/SeriesCommentsSection';
-import { PromoModal } from '../Components/PromoModal'; // <-- IMPORT THE PROMO MODAL
+import { PromoModal } from '../Components/PromoModal'; 
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -36,6 +36,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   // --- JUMP BACK IN STATES ---
   const [startPage, setStartPage] = useState(0);
   const [hasAutoOpened, setHasAutoOpened] = useState(false);
+  const [isAutoLoading, setIsAutoLoading] = useState(!!series?.autoOpenChapterId);
 
   // --- PAGINATION & SORTING STATES ---
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -195,15 +196,24 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchChapterStats();
   }, [chapters, readerClosedCount, localSeries?.slug]);
 
+  // --- SAFE AUTO-OPEN FIX ---
   useEffect(() => {
     if (chapters.length > 0 && series?.autoOpenChapterId && !hasAutoOpened) {
       const absoluteIndex = chapters.findIndex(c => String(c.id) === String(series.autoOpenChapterId));
-      const chapter = chapters[absoluteIndex];
-      
-      if (chapter) {
-        handleReadChapter(chapter, absoluteIndex, series.autoOpenPage || 0);
-        setHasAutoOpened(true); 
+      if (absoluteIndex !== -1) {
+        const chapter = chapters[absoluteIndex];
+        if (chapter && chapter.id) {
+          // Patiently wait 100ms for UI to settle before firing overlay
+          setTimeout(() => {
+            handleReadChapter(chapter, absoluteIndex, series.autoOpenPage || 0);
+          }, 100);
+        } else {
+          setIsAutoLoading(false); // Failsafe
+        }
+      } else {
+        setIsAutoLoading(false); // Failsafe
       }
+      setHasAutoOpened(true); // Flag as fired so it doesn't loop
     }
   }, [chapters, series, hasAutoOpened]);
 
@@ -238,6 +248,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     const hasTempUnlock = unlockedChapters.includes(chapter.id);
 
     if (isInitiallyLocked && !hasTempUnlock) {
+      setIsAutoLoading(false); // Drop loader if blocked
       if (userTier === 'visitor') {
         setUpsellConfig({
           type: 'visitor',
@@ -262,6 +273,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       setActiveChapterId(chapter.id);
       setStartPage(initialPage); 
       setIsReaderOpen(true); 
+      setIsAutoLoading(false); // Drop the loader, reader is open!
       
       // --- THE PROMO TRACKER ---
       if (userTier !== 'premium') {
@@ -277,6 +289,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
     } 
     else { 
+      setIsAutoLoading(false); // Drop loader on error
       alert("No pages found for this chapter yet!"); 
     }
   };
@@ -356,8 +369,18 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const safeSynopsis = localSeries.synopsis || '';
 
   return (
-    <div className="relative min-h-screen bg-black text-white">
+    <div className="relative min-h-screen bg-transparent text-white">
       
+      {/* --- SEAMLESS AUTO-LOADER --- */}
+      {isAutoLoading && (
+        <div className="fixed inset-0 z-[6000] bg-black flex flex-col items-center justify-center">
+          <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin mb-4"></div>
+          <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px] animate-pulse">
+            Loading Chapter...
+          </span>
+        </div>
+      )}
+
       {/* --- PROMO MODAL OVERLAY --- */}
       {showPromo && (
         <PromoModal 
@@ -446,6 +469,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             onPrev={() => { if (hasPrev) handleReadChapter(chapters[currentIndex - 1], currentIndex - 1); }}
             hasNext={hasNext}
             hasPrev={hasPrev}
+            onNavigate={onNavigate} 
           />
         );
       })()}
@@ -456,7 +480,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         <button onClick={onBack} className="absolute top-4 left-4 p-2 bg-black/50 rounded-full backdrop-blur-sm hover:bg-black/70 transition-colors z-20"><ArrowLeft className="w-6 h-6" /></button>
       </div>
 
-      <div className="relative z-10 bg-black min-h-screen w-full [mask-image:linear-gradient(to_bottom,transparent,black_40px)]">
+      {/* FIXED: Re-added the mask-image but added -mt-12 and pt-12 so it securely overlaps the hero banner without revealing the background! */}
+      <div className="relative z-10 bg-black min-h-screen w-full -mt-12 pt-12 [mask-image:linear-gradient(to_bottom,transparent,black_48px)]">
         <div className="px-6 pt-8 flex flex-col items-center w-full max-w-4xl mx-auto">
           <div className="flex items-center justify-center gap-4 mb-6">
             {localSeries.logo_url && <img src={localSeries.logo_url} alt="Logo" className="w-full max-w-[280px] sm:max-w-[350px] h-auto object-contain drop-shadow-2xl" />}

@@ -65,14 +65,6 @@ export const AMNewsPage = ({ onBack }: any) => {
 
   return (
     <div className="relative min-h-screen bg-transparent text-white p-6 pb-24">
-      {/* GLOBAL BACKDROP */}
-      <div className="fixed inset-0 z-[-1] bg-black">
-        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
-        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
-        <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
-        <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
-      </div>
-
       <div className="max-w-5xl mx-auto mt-4 sm:mt-10">
         
         <button onClick={onBack} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-8 font-black uppercase tracking-widest text-[10px]">

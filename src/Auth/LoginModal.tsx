@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { X, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { containsProfanity } from '../profanityFilter'; // <-- IMPORT FILTER
 
 const LoginModal = ({ onClose, onSuccess }: any) => {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -30,16 +31,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     };
   }, [onSuccess]);
 
-  const checkProfanity = async (text: string) => {
-    try {
-      const res = await fetch(`https://www.purgomalum.com/service/containsprofanity?text=${encodeURIComponent(text)}`);
-      const hasProfanity = await res.text();
-      return hasProfanity === 'true';
-    } catch (e) {
-      return false;
-    }
-  };
-
   const handleEmailSubmit = async (e: any) => {
     e.preventDefault();
     setLoading(true);
@@ -54,7 +45,8 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         return;
       }
 
-      const isVulgar = await checkProfanity(username);
+      // Check username against the dynamic profanity dictionary
+      const isVulgar = containsProfanity(username);
       if (isVulgar) {
         setError("That username is not allowed. Please choose another one.");
         setLoading(false);

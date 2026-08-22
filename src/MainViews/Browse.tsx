@@ -34,23 +34,15 @@ const Browse = ({ onNavigate }: any) => {
 
   return (
     <div className="min-h-screen bg-transparent text-white pb-24 relative px-4 pt-6">
-      
-      {/* GLOBAL BACKDROP */}
-      <div className="fixed inset-0 z-[-1] bg-black">
-        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
-        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
-        <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
-        <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
-      </div>
 
       {/* Fixed Header & Search */}
-      <div className="sticky top-0 z-40 bg-black/90 backdrop-blur-md pb-4 pt-2 mb-4 border-b border-zinc-800">
+      <div className="sticky top-0 z-40 bg-black/80 backdrop-blur-xl pb-4 pt-2 mb-4 border-b border-zinc-800 rounded-b-2xl px-2">
         
         <div className="flex justify-between items-end mb-4 pr-16 sm:pr-20">
-          <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white">
+          <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white drop-shadow-md">
             The Vault
           </h1>
-          <div className="flex items-center gap-2 text-zinc-500">
+          <div className="flex items-center gap-2 text-zinc-400 bg-zinc-900/80 px-3 py-1.5 rounded-full border border-zinc-800">
             <Library className="w-4 h-4" />
             <span className="text-[10px] font-black uppercase tracking-widest">
               {activeData.length} Series
@@ -65,7 +57,7 @@ const Browse = ({ onNavigate }: any) => {
             placeholder="Search series..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 text-white pl-10 pr-4 py-3 rounded-lg text-sm focus:outline-none focus:border-[#fe9a00] transition-colors shadow-inner"
+            className="w-full bg-zinc-900/90 backdrop-blur-sm border border-zinc-800 text-white pl-10 pr-4 py-3 rounded-xl text-sm focus:outline-none focus:border-[#fe9a00] transition-colors shadow-inner"
           />
         </div>
       </div>
@@ -120,7 +112,7 @@ const Browse = ({ onNavigate }: any) => {
               </div>
               
               {/* Title & Creator Info */}
-              <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg mt-1 p-1">
+              <div className="px-1 text-left bg-black/60 backdrop-blur-[2px] rounded-lg mt-1 p-2 border border-zinc-800/50">
                 <h3 className="text-white font-bold text-xs truncate tracking-wide group-hover/card:text-[#fe9a00] transition-colors">
                   {item.title}
                 </h3>

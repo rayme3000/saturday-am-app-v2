@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
 import { ArrowUp, X, Lock, Share, Menu } from 'lucide-react'; 
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
@@ -31,6 +31,24 @@ const Leaderboard = lazy(() => import('./MainViews/Leaderboard.tsx'));
 
 // --- Cloudflare Base URL ---
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
+
+// --- GLOBAL ERROR BOUNDARY ---
+class AppErrorBoundary extends React.Component<any, any> {
+  constructor(props: any) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
+          <h2 className="text-[#fe9a00] font-black text-3xl italic uppercase tracking-tighter mb-4">System Glitch</h2>
+          <p className="text-zinc-400 font-bold mb-8 max-w-md">{this.state.error?.message || "An unexpected error occurred."}</p>
+          <button onClick={() => window.location.reload()} className="bg-[#fe9a00] text-black px-8 py-3 rounded-full font-black uppercase tracking-widest hover:bg-white transition-colors">Reboot Interface</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const ScrollToTopButton = () => {
   const [isVisible, setIsVisible] = useState(false);
@@ -296,11 +314,12 @@ export default function App() {
   };
 
   const handleNavigate = useCallback((data: any) => {
-    if (data.action) {
+    if (data.action && data.action !== 'series') {
       setCurrentView(data.action);
       return;
     }
-    // Default fallback to Series
+    
+    // Default fallback to Series Page (Handles standard clicks & "Jump Back In" auto-opens)
     setSelectedSeries(data);
     setCurrentView('series');
   }, []);
@@ -335,6 +354,7 @@ export default function App() {
             font-family: 'Plus Jakarta Sans', sans-serif; 
             overscroll-behavior-y: none;
             -webkit-overflow-scrolling: touch;
+            background-color: #000000;
           }
 
           h1, h2, h3, h4, h5, h6, .font-black { font-family: 'Unbounded', sans-serif !important; font-style: italic !important; letter-spacing: -0.03em !important; }
@@ -348,8 +368,27 @@ export default function App() {
           .card-flipper.is-flipped { transform: rotateY(180deg); }
           .card-face { -webkit-backface-visibility: hidden; backface-visibility: hidden; }
           .card-back { transform: rotateY(180deg); }
+
+          /* --- MAGICAL BACKDROP REVEAL HACK --- */
+          /* 1. We strip the solid background explicitly from the root of all routed pages */
+          #main-app-container > div {
+            background-color: transparent !important;
+          }
+          
+          /* 2. We kill the old hardcoded local backdrops on the Home page so they don't double-stack */
+          .z-\\[-1\\].bg-black.fixed.inset-0 {
+            display: none !important;
+          }
         `}
       </style>
+
+      {/* --- TRULY GLOBAL BACKDROP (Dialed up the opacity to 100%) --- */}
+      <div className="fixed inset-0 z-0 bg-black pointer-events-none">
+        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden opacity-100" />
+        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover opacity-100" />
+        <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black/90 via-black/40 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black/90 via-black/60 to-transparent pointer-events-none" />
+      </div>
 
       {showLogin && (
         <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => { setShowLogin(false); }} />
@@ -423,48 +462,52 @@ export default function App() {
         <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} />
       )}
 
-      <Suspense fallback={
-        <div className="min-h-[100dvh] bg-black flex flex-col items-center justify-center gap-4 pb-20">
-          <div className="w-8 h-8 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
-          <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px] animate-pulse">Loading Interface...</span>
-        </div>
-      }>
-        {currentView === 'home' && (
-          <HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />
-        )}
-        {currentView === 'series' && (
-          <SeriesDetailPage 
-            userTier={userTier} 
-            series={selectedSeries} 
-            onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} 
-            onLoginClick={() => setShowLogin(true)} 
-            onNavigate={handleNavigate}
-          />
-        )}
-        {currentView === 'admin' && (
-          isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />
-        )}
-        {currentView === 'profile' && (
-          <UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} />
-        )}
-        {currentView === 'sub' && (
-          <SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />
-        )}
-        {currentView === 'leaderboard' && (
-          <Leaderboard userTier={userTier} currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />
-        )}
-        {currentView === 'settings' && (
-          <SettingsPage userTier={userTier} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onBack={() => setCurrentView('home')} onSignOut={() => { setCurrentView('home'); }} />
-        )}
-        {currentView === 'news' && (
-          <AMNewsPage onBack={() => setCurrentView('home')} />
-        )}
-        {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
-        {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}
-        {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
-        {currentView === 'shop' && (<Shop userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
-        {currentView === 'legal' && (<LegalPages onBack={() => setCurrentView('home')} />)}
-      </Suspense>
+      <AppErrorBoundary>
+        <Suspense fallback={
+          <div className="min-h-[100dvh] bg-transparent flex flex-col items-center justify-center gap-4 pb-20">
+            <div className="w-8 h-8 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
+            <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px] animate-pulse">Loading Interface...</span>
+          </div>
+        }>
+          <div id="main-app-container" className="relative z-10 min-h-screen w-full bg-transparent">
+            {currentView === 'home' && (
+              <HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />
+            )}
+            {currentView === 'series' && (
+              <SeriesDetailPage 
+                userTier={userTier} 
+                series={selectedSeries} 
+                onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} 
+                onLoginClick={() => setShowLogin(true)} 
+                onNavigate={handleNavigate}
+              />
+            )}
+            {currentView === 'admin' && (
+              isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />
+            )}
+            {currentView === 'profile' && (
+              <UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} />
+            )}
+            {currentView === 'sub' && (
+              <SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />
+            )}
+            {currentView === 'leaderboard' && (
+              <Leaderboard userTier={userTier} currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />
+            )}
+            {currentView === 'settings' && (
+              <SettingsPage userTier={userTier} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onBack={() => setCurrentView('home')} onSignOut={() => { setCurrentView('home'); }} />
+            )}
+            {currentView === 'news' && (
+              <AMNewsPage onBack={() => setCurrentView('home')} />
+            )}
+            {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+            {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}
+            {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
+            {currentView === 'shop' && (<Shop userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+            {currentView === 'legal' && (<LegalPages onBack={() => setCurrentView('home')} />)}
+          </div>
+        </Suspense>
+      </AppErrorBoundary>
 
       {/* --- GLOBAL FLOATING PILL NAV --- */}
       {!['settings', 'admin', 'sub'].includes(currentView) && (

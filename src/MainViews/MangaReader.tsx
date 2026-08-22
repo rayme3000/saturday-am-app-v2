@@ -1,37 +1,28 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { 
-  ArrowLeft, SkipForward, X, User, Shield, 
-  RotateCcw, MoveHorizontal, MoveVertical
-} from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
-import { APP_ICONS } from '../appIcons';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+import { 
+  useQuickReacts, QuickReactDrawer, QuickReactTimeline, 
+  QuickReactToggleButton, QuickReactViewAllButton, QuickReactInputOverlay, QuickReactToast 
+} from '../Components/QuickReacts';
 
 const MemoizedVerticalPage = React.memo(({ src, alt }: { src: string, alt: string }) => (
   <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0">
-    <img 
-      src={src} 
-      className="w-full h-auto max-w-3xl block pointer-events-none m-0 p-0" 
-      alt={alt} 
-      loading="lazy" 
-    />
+    <img src={src} className="w-full h-auto max-w-3xl block pointer-events-none m-0 p-0" alt={alt} loading="lazy" />
   </div>
 ));
 
 const MemoizedHorizontalImage = React.memo(({ src, alt }: any) => (
   <div className="w-full h-full flex items-center justify-center">
-    <img 
-      src={src} 
-      className="object-contain pointer-events-none" 
-      style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }}
-      alt={alt} 
-    />
+    <img src={src} className="object-contain pointer-events-none" style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }} alt={alt} />
   </div>
 ));
 
-export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium, initialPage = 0 }: any) => {
+export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium, initialPage = 0, onNavigate }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [mode, setMode] = useState<'horizontal' | 'vertical'>('horizontal'); 
   const [isUIVisible, setIsUIVisible] = useState(true);
@@ -40,30 +31,20 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
   const [isAuthLoaded, setIsAuthLoaded] = useState(false);
   const [internalIsPremium, setInternalIsPremium] = useState(isPremium);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
-  // Gesture physics state for smooth swipe
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isAnimatingPage, setIsAnimatingPage] = useState(false);
 
-  // Comments & Ticker
-  const [activeCommentIndex, setActiveCommentIndex] = useState(0);
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [localComments, setLocalComments] = useState<any[]>([]); 
-  const [isReactInputOpen, setIsReactInputOpen] = useState(false);
-  const [reactText, setReactText] = useState('');
-
-  // Stats & End Prompt
   const [showEndPrompt, setShowEndPrompt] = useState(false);
   const showEndPromptRef = useRef(showEndPrompt);
 
-  // --- ZOOM & PROGRESS REFS ---
   const transformRef = useRef<any>(null);
   const currentPageRef = useRef(currentPage);
   const activeUserRef = useRef(userId || currentUser?.id);
   const isComponentMounted = useRef(true);
   
-  // Touch tracking refs
   const touchStartPos = useRef({ x: 0, y: 0 });
   const touchCurrentPos = useRef({ x: 0, y: 0 });
   const currentScaleRef = useRef(1);
@@ -71,34 +52,24 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const getUrl = useCallback((p: any) => p?.image_url || p, []);
   const getId = useCallback((p: any) => p?.id || p, []);
 
-  // --- OPTIMIZATION: PREDICTIVE PRE-FETCHING ---
+  // --- CONNECT OUR NEW HOOK ---
+  const qr = useQuickReacts(chapterId, currentPage, currentUser);
+
   useEffect(() => {
     if (!pages || pages.length === 0) return;
-    
     const pagesToPreload = [currentPage + 1, currentPage + 2];
-    
     pagesToPreload.forEach(index => {
       if (index < pages.length) {
         const imgUrl = getUrl(pages[index]);
-        if (imgUrl) {
-          const img = new Image();
-          img.src = imgUrl;
-        }
+        if (imgUrl) { const img = new Image(); img.src = imgUrl; }
       }
     });
   }, [currentPage, pages, getUrl]);
 
   useEffect(() => { activeUserRef.current = userId || currentUser?.id; }, [userId, currentUser]);
+  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
+  useEffect(() => { showEndPromptRef.current = showEndPrompt; }, [showEndPrompt]);
 
-  useEffect(() => {
-    currentPageRef.current = currentPage;
-  }, [currentPage]);
-
-  useEffect(() => {
-    showEndPromptRef.current = showEndPrompt;
-  }, [showEndPrompt]);
-
-  // --- UNMOUNT BEACON ---
   useEffect(() => {
     isComponentMounted.current = true;
     return () => {
@@ -125,7 +96,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
   }, [chapterId]);
 
-  // Prevents mobile browsers from zooming the entire UI instead of just the image
   useEffect(() => {
     let viewportMeta = document.querySelector('meta[name="viewport"]');
     let originalContent = '';
@@ -141,16 +111,12 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     }
 
     return () => {
-      if (viewportMeta && originalContent) {
-        viewportMeta.setAttribute('content', originalContent);
-      }
+      if (viewportMeta && originalContent) viewportMeta.setAttribute('content', originalContent);
     };
   }, []);
 
   useEffect(() => {
-    if (transformRef.current) {
-      transformRef.current.resetTransform(0); 
-    }
+    if (transformRef.current) transformRef.current.resetTransform(0); 
   }, [currentPage, mode]);
 
   useEffect(() => {
@@ -165,33 +131,21 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   }, []);
 
   useEffect(() => {
-    if (!chapterId) return;
-    const fetchReacts = async () => {
-      const { data, error } = await supabase.from('page_reacts').select('*').eq('chapter_id', chapterId).order('created_at', { ascending: true });
-      if (error) console.error("Supabase Error fetching reacts:", error.message);
-      
-      if (data) {
-        setLocalComments(data.map((r: any) => ({ id: r.id, pageIndex: r.page_index, user: r.user_name, avatar: r.avatar_url, text: r.text })));
-      }
-    };
-    fetchReacts();
-  }, [chapterId]);
-
-  useEffect(() => {
     if (!chapterId || !isAuthLoaded) {
       if (!chapterId) setIsLoadingProgress(false);
       return;
     }
     
     setShowEndPrompt(false);
-    setIsReactInputOpen(false);
+    qr.setIsReactInputOpen(false);
     setIsUIVisible(true); 
 
     const activeUserId = userId || currentUser?.id;
 
     const fetchProgress = async () => {
       if (initialPage > 0) {
-        setCurrentPage(initialPage);
+        const safePage = Math.min(initialPage, Math.max(0, pages.length - 1));
+        setCurrentPage(safePage);
         setIsLoadingProgress(false);
         return;
       }
@@ -203,20 +157,14 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       }
 
       try {
-        const { data } = await supabase
-          .from('reading_history')
-          .select('page_index')
-          .eq('user_id', activeUserId)
-          .eq('chapter_id', chapterId)
-          .maybeSingle();
-
+        const { data } = await supabase.from('reading_history').select('page_index').eq('user_id', activeUserId).eq('chapter_id', chapterId).maybeSingle();
         if (data && typeof data.page_index === 'number') {
-          setCurrentPage(data.page_index);
+          const safePage = Math.min(data.page_index, Math.max(0, pages.length - 1));
+          setCurrentPage(safePage);
         } else {
           setCurrentPage(0);
         }
       } catch (err) {
-        console.error("No saved progress found, starting at 0");
         setCurrentPage(0);
       } finally {
         setIsLoadingProgress(false);
@@ -224,21 +172,18 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     };
 
     fetchProgress();
-  }, [chapterId, userId, isAuthLoaded, currentUser, initialPage]);
+  }, [chapterId, userId, isAuthLoaded, currentUser, initialPage, pages.length]);
 
   const saveProgressToDB = useCallback(async (pageToSave: number) => {
     const activeUserId = activeUserRef.current;
     if (!activeUserId || !chapterId || !isComponentMounted.current) return;
-
     try {
       await supabase.from('reading_history').upsert(
         { user_id: activeUserId, chapter_id: chapterId, page_index: pageToSave, updated_at: new Date().toISOString() },
         { onConflict: 'user_id, chapter_id' }
       );
       window.dispatchEvent(new Event('progressUpdated'));
-    } catch (error) { 
-      console.error("Failed to save progress:", error); 
-    }
+    } catch (error) { console.error("Failed to save progress:", error); }
   }, [chapterId]);
 
   useEffect(() => {
@@ -271,7 +216,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             await supabase.from('profiles').update({ chapters_read: (profile.chapters_read || 0) + 1 }).eq('id', activeUserId);
             window.dispatchEvent(new Event('profileUpdated'));
           }
-        } catch (error) { console.error("Error saving chapter read stat:", error); }
+        } catch (error) {}
       }
       return;
     }
@@ -295,30 +240,23 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     });
   }, []);
 
-  // --- REAL-TIME TOUCH & SWIPE PHYSICS (CAPTURE PHASE) ---
   const handleTouchStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
     if (isAnimatingPage) return;
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-    
     touchStartPos.current = { x: clientX, y: clientY };
     touchCurrentPos.current = { x: clientX, y: clientY };
     setIsDragging(true);
   }, [isAnimatingPage]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent | React.MouseEvent) => {
-    // Don't drag the page if zoomed in!
     if (!isDragging || currentScaleRef.current > 1.05 || isAnimatingPage) return;
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-    
     touchCurrentPos.current = { x: clientX, y: clientY };
     const deltaX = clientX - touchStartPos.current.x;
     const deltaY = Math.abs(clientY - touchStartPos.current.y);
-
-    if (Math.abs(deltaX) > deltaY) {
-      setDragOffset(deltaX);
-    }
+    if (Math.abs(deltaX) > deltaY) setDragOffset(deltaX);
   }, [isDragging, isAnimatingPage]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent | React.MouseEvent) => {
@@ -327,12 +265,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
     const clientX = 'changedTouches' in e ? e.changedTouches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'changedTouches' in e ? e.changedTouches[0].clientY : (e as React.MouseEvent).clientY;
-
     const deltaX = clientX - touchStartPos.current.x;
     const deltaY = Math.abs(clientY - touchStartPos.current.y);
-    const SWIPE_THRESHOLD = 60; 
 
-    // Pure tap detection (Works instantly, even when tapping directly on the manga page)
     if (Math.abs(deltaX) <= 8 && deltaY <= 8) {
       setDragOffset(0);
       const x = touchStartPos.current.x;
@@ -343,77 +278,26 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       return;
     }
     
-    // If we are zoomed in, let the library handle panning, do NOT swipe the page
     if (currentScaleRef.current > 1.05) return;
 
-    // Swipe completed past threshold
-    if (Math.abs(deltaX) > SWIPE_THRESHOLD && deltaY < 120) {
+    if (Math.abs(deltaX) > 60 && deltaY < 120) {
       setIsAnimatingPage(true);
       const direction = deltaX < 0 ? -1 : 1; 
-
-      // Slide off screen
       setDragOffset(direction * window.innerWidth);
-
       setTimeout(() => {
-        if (direction === -1) {
-          goNext();
-        } else {
-          goPrev();
-        }
+        if (direction === -1) goNext(); else goPrev();
         setDragOffset(0);
         setIsAnimatingPage(false);
       }, 200); 
     } else {
-      // Spring back if drag wasn't far enough
       setIsAnimatingPage(true);
       setDragOffset(0);
       setTimeout(() => setIsAnimatingPage(false), 200);
     }
   }, [isDragging, goNext, goPrev, toggleUI]);
 
-  const handleReactSubmit = async () => {
-    if (!reactText.trim() || !currentUser || !chapterId) return;
-
-    const newReactPayload = {
-      chapter_id: chapterId,
-      page_index: currentPage,
-      user_id: currentUser.id,
-      user_name: currentUser.name,
-      avatar_url: currentUser.avatar,
-      text: reactText.trim()
-    };
-    
-    const tempId = Date.now();
-    setLocalComments([...localComments, { id: tempId, pageIndex: currentPage, user: currentUser.name, avatar: currentUser.avatar, text: reactText.trim() }]);
-    setReactText('');
-    setIsReactInputOpen(false);
-
-    try {
-      const { error } = await supabase.from('page_reacts').insert([newReactPayload]);
-      if (error) throw error;
-      
-      const { data: profile } = await supabase.from('profiles').select('quick_reacts').eq('id', currentUser.id).single();
-      if (profile) {
-        await supabase.from('profiles').update({ quick_reacts: (profile.quick_reacts || 0) + 1 }).eq('id', currentUser.id);
-        window.dispatchEvent(new Event('profileUpdated'));
-      }
-    } catch (err) { console.error("Failed to save react:", err); }
-  };
-
   const maxPage = Math.max(1, pages.length - 1);
   const progressPercentage = (currentPage / maxPage) * 100;
-  
-  const timelineComments = useMemo(() => localComments.slice(-25), [localComments]);
-  const visibleComments = useMemo(() => localComments.filter(c => c.pageIndex === currentPage), [localComments, currentPage]);
-  const activeComment = visibleComments[activeCommentIndex];
-
-  useEffect(() => {
-    if (visibleComments.length <= 1) return;
-    const interval = setInterval(() => { setActiveCommentIndex((prev) => (prev + 1) % visibleComments.length); }, 3500);
-    return () => clearInterval(interval);
-  }, [visibleComments.length, currentPage]);
-
-  useEffect(() => { setActiveCommentIndex(visibleComments.length > 0 ? visibleComments.length - 1 : 0); }, [currentPage, localComments.length]);
 
   const handleVerticalProgressClick = useCallback((e: any) => {
     e.stopPropagation();
@@ -437,20 +321,31 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     <MemoizedVerticalPage src={getUrl(pageData)} alt={`Page ${index + 1}`} />
   ), [getUrl]);
 
+  // PORTAL 1: Loading State
   if (isLoadingProgress) {
-    return (
-      <div className="fixed inset-0 z-[1000] bg-[#0a0a0a] flex items-center justify-center" style={{ width: '100vw', height: '100dvh' }}>
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] bg-[#0a0a0a] flex items-center justify-center" style={{ width: '100vw', height: '100dvh' }}>
         <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
-      </div>
+      </div>,
+      document.body
     );
   }
 
-  return (
+  // PORTAL 2: Reader Content
+  const readerContent = (
     <div 
-      className="fixed inset-0 z-[1000] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans"
+      className="fixed inset-0 z-[9999] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans"
       style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }}
     >
       <style>{`
+        /* AGGRESSIVELY hide global hamburger when reader is open */
+        button[aria-label="Open Menu"] { 
+            display: none !important; 
+            opacity: 0 !important; 
+            pointer-events: none !important; 
+            visibility: hidden !important; 
+        }
+
         @keyframes slide-right-fade { 0% { opacity: 0; transform: translateX(-10px); } 100% { opacity: 1; transform: translateX(0); } }
         .animate-slide-right-fade { animation: slide-right-fade 0.3s ease-out forwards; }
         
@@ -461,10 +356,21 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
       `}</style>
 
+      {/* --- QUICK REACT TOAST --- */}
+      <QuickReactToast toastConfig={qr.toastConfig} />
+
+      <QuickReactDrawer
+        showAllReacts={qr.showAllReacts}
+        setShowAllReacts={qr.setShowAllReacts}
+        localComments={qr.localComments}
+        setCurrentPage={setCurrentPage}
+        handleReportReact={qr.reportReact}
+        reportedReacts={qr.reportedReacts}
+      />
+
       {mode === 'horizontal' && (
         <div 
           className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center touch-none select-none"
-          // We use Capture listeners to grab taps BEFORE the zoom library intercepts them!
           onTouchStartCapture={handleTouchStart}
           onTouchMoveCapture={handleTouchMove}
           onTouchEndCapture={handleTouchEnd}
@@ -486,9 +392,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               limitToBounds={true}
               doubleClick={{ step: 2 }}
               panning={{ disabled: currentScaleRef.current <= 1.05 }}
-              onTransformed={(ref) => {
-                currentScaleRef.current = ref.state.scale;
-              }}
+              onTransformed={(ref) => { currentScaleRef.current = ref.state.scale; }}
             >
               {() => (
                 <div className="w-full h-full relative">
@@ -496,10 +400,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                     wrapperStyle={{ width: '100vw', height: '100dvh' }}
                     contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    <MemoizedHorizontalImage 
-                      src={getUrl(pages[currentPage])}
-                      alt={`Page ${currentPage + 1}`}
-                    />
+                    <MemoizedHorizontalImage src={getUrl(pages[currentPage])} alt={`Page ${currentPage + 1}`} />
                   </TransformComponent>
                 </div>
               )}
@@ -591,41 +492,14 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               <div className="absolute top-0 left-0 w-full bg-[#fe9a00] transition-all duration-300" style={{ height: `${progressPercentage}%` }} />
             </div>
 
-            {timelineComments.map((comment) => (
-              <div 
-                key={comment.id}
-                className="absolute left-1/2 pointer-events-none transition-transform group-hover:scale-110 drop-shadow-md"
-                style={{ top: `${(comment.pageIndex / maxPage) * 100}%`, transform: 'translate(-50%, -50%)', zIndex: comment.pageIndex === currentPage ? 5 : 1 }}
-              >
-                {comment.avatar && !comment.avatar.includes('pravatar') ? (
-                  <img src={comment.avatar} className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full object-cover shadow-lg transition-all ${comment.pageIndex === currentPage ? 'border-2 border-[#fe9a00] scale-125 opacity-100' : 'opacity-50 grayscale-[50%]'}`} alt="" />
-                ) : (
-                  <div className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full bg-zinc-800/90 flex items-center justify-center shadow-lg transition-all ${comment.pageIndex === currentPage ? 'border-2 border-[#fe9a00] scale-125 opacity-100' : 'opacity-50 grayscale-[50%]'}`}>
-                    <User className="w-2 h-2 sm:w-3 sm:h-3 text-zinc-400" />
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {activeComment && (
-              <div 
-                key={activeComment.id} 
-                className="absolute left-full ml-3 sm:ml-4 flex items-center pointer-events-none z-20"
-                style={{ top: `${(currentPage / maxPage) * 100}%`, transform: 'translateY(-50%)' }}
-              >
-                <div className="animate-slide-right-fade flex items-center">
-                  <div className="w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-r-[5px] border-r-black/70 -mr-[1px]" />
-                  <div className="bg-black/70 backdrop-blur-md text-white px-3 py-2 rounded-lg shadow-2xl max-w-[180px] sm:max-w-[250px] border border-white/5 flex flex-col items-start">
-                    <span className="text-[#fe9a00] font-semibold uppercase text-[8px] mb-0.5 w-full truncate">
-                      {activeComment.user.length > 15 ? `${activeComment.user.slice(0, 15)}...` : activeComment.user}
-                    </span>
-                    <span className="text-[10px] sm:text-[11px] leading-tight break-words text-left whitespace-normal">
-                      {activeComment.text}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
+            <QuickReactTimeline 
+              mode={mode}
+              localComments={qr.localComments}
+              maxPage={maxPage}
+              currentPage={currentPage}
+              activeCommentIndex={qr.activeCommentIndex}
+              onOpenDrawer={() => qr.setShowAllReacts(true)}
+            />
           </div>
 
           <div className="flex flex-col items-center gap-3 w-full">
@@ -633,15 +507,15 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               <MoveHorizontal className="w-3 h-3 sm:w-4 sm:h-4" />
             </button>
             
+            <QuickReactViewAllButton setShowAllReacts={qr.setShowAllReacts} />
+
             {currentUser?.id && pages[currentPage] && (
               <div className="scale-75 sm:scale-90 drop-shadow-md">
                 <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={currentUser.id} variant="icon" />
               </div>
             )}
 
-            <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2.5 sm:p-3 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
-              <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
-            </button>
+            <QuickReactToggleButton isReactInputOpen={qr.isReactInputOpen} setIsReactInputOpen={qr.setIsReactInputOpen} />
           </div>
         </div>
       )}
@@ -664,41 +538,14 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               <div className="absolute top-0 left-0 h-full bg-[#fe9a00] transition-all duration-300" style={{ width: `${progressPercentage}%` }} />
             </div>
 
-            {timelineComments.map((comment) => (
-              <div 
-                key={comment.id}
-                className="absolute top-1/2 pointer-events-none transition-transform group-hover:scale-110 drop-shadow-md"
-                style={{ left: `${(comment.pageIndex / maxPage) * 100}%`, transform: 'translate(-50%, -50%)', zIndex: comment.pageIndex === currentPage ? 5 : 1 }}
-              >
-                {comment.avatar && !comment.avatar.includes('pravatar') ? (
-                  <img src={comment.avatar} className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full object-cover shadow-lg transition-all ${comment.pageIndex === currentPage ? 'border-2 border-[#fe9a00] scale-125 opacity-100' : 'opacity-50 grayscale-[50%]'}`} alt="" />
-                ) : (
-                  <div className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full bg-zinc-800/90 flex items-center justify-center shadow-lg transition-all ${comment.pageIndex === currentPage ? 'border-2 border-[#fe9a00] scale-125 opacity-100' : 'opacity-50 grayscale-[50%]'}`}>
-                    <User className="w-2 h-2 sm:w-3 sm:h-3 text-zinc-400" />
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {activeComment && (
-              <div 
-                key={activeComment.id} 
-                className="absolute bottom-full mb-3 sm:mb-4 flex flex-col items-center pointer-events-none z-20"
-                style={{ left: `${(currentPage / maxPage) * 100}%`, transform: 'translateX(-50%)' }}
-              >
-                <div className="animate-slide-up-fade flex flex-col items-center">
-                  <div className="bg-black/70 backdrop-blur-md text-white px-3 py-2 rounded-lg shadow-2xl max-w-[180px] sm:max-w-[250px] border border-white/5 flex flex-col items-start">
-                    <span className="text-[#fe9a00] font-semibold uppercase text-[8px] mb-0.5 w-full truncate">
-                      {activeComment.user.length > 15 ? `${activeComment.user.slice(0, 15)}...` : activeComment.user}
-                    </span>
-                    <span className="text-[10px] sm:text-[11px] leading-tight break-words text-left whitespace-normal">
-                      {activeComment.text}
-                    </span>
-                  </div>
-                  <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[5px] border-t-black/70 -mt-[1px]" />
-                </div>
-              </div>
-            )}
+            <QuickReactTimeline 
+              mode={mode}
+              localComments={qr.localComments}
+              maxPage={maxPage}
+              currentPage={currentPage}
+              activeCommentIndex={qr.activeCommentIndex}
+              onOpenDrawer={() => qr.setShowAllReacts(true)}
+            />
           </div>
 
           <div className="flex flex-row items-center gap-2 sm:gap-3">
@@ -706,15 +553,15 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               <MoveVertical className="w-3 h-3 sm:w-4 sm:h-4" />
             </button>
             
+            <QuickReactViewAllButton setShowAllReacts={qr.setShowAllReacts} />
+
             {currentUser?.id && pages[currentPage] && (
               <div className="scale-75 sm:scale-90 drop-shadow-md">
                 <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={currentUser.id} variant="icon" />
               </div>
             )}
 
-            <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2.5 sm:p-3 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
-              <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
-            </button>
+            <QuickReactToggleButton isReactInputOpen={qr.isReactInputOpen} setIsReactInputOpen={qr.setIsReactInputOpen} />
           </div>
         </div>
       )}
@@ -723,45 +570,19 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         className={`absolute z-[110] flex w-[calc(100%-16px)] sm:w-full max-w-sm pointer-events-none transition-all duration-300 ${mode === 'vertical' ? 'bottom-4 left-16 sm:left-20 justify-start' : 'bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 justify-center'}`} 
         onClick={(e) => e.stopPropagation()}
       >
-        {isReactInputOpen && isUIVisible && (
-           <div className="w-full bg-black/60 backdrop-blur-xl border border-white/10 p-2 rounded-2xl shadow-2xl animate-fade-in pointer-events-auto">
-              {internalIsPremium ? (
-                <div className="flex flex-col gap-2">
-                  <div className="flex justify-between items-center px-2 pt-1 pb-1 sm:pb-2 border-b border-white/10">
-                    <span className="text-[9px] sm:text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Quick React</span>
-                    <button onClick={() => setIsReactInputOpen(false)} className="text-white/50 hover:text-white"><X className="w-3 h-3 sm:w-4 sm:h-4" /></button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      autoFocus
-                      type="text"
-                      maxLength={30}
-                      value={reactText}
-                      onChange={(e) => setReactText(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleReactSubmit(); }}
-                      placeholder="Drop a react..."
-                      className="bg-black/50 border border-white/10 text-white text-[10px] sm:text-xs px-3 py-2 sm:py-2.5 rounded-xl flex-1 focus:outline-none focus:border-[#fe9a00]"
-                    />
-                    <button onClick={handleReactSubmit} disabled={!reactText.trim()} className="bg-[#fe9a00] text-black px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest hover:bg-white disabled:opacity-50">
-                      Send
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between px-3 py-2">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-[#fe9a00]" />
-                    <div className="flex flex-col">
-                      <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[9px] sm:text-[10px]">Subscriber Exclusive</span>
-                      <span className="text-white/70 text-[8px] sm:text-[9px] font-bold tracking-widest">Join to leave quick reacts.</span>
-                    </div>
-                  </div>
-                  <button onClick={() => setIsReactInputOpen(false)} className="bg-white/10 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-[9px] sm:text-[10px] font-black uppercase hover:bg-white/20">Close</button>
-                </div>
-              )}
-           </div>
+        {qr.isReactInputOpen && isUIVisible && (
+           <QuickReactInputOverlay
+             setIsReactInputOpen={qr.setIsReactInputOpen}
+             reactText={qr.reactText}
+             setReactText={qr.setReactText}
+             submitReact={qr.submitReact}
+             isPremium={internalIsPremium}
+             onNavigate={onNavigate}
+           />
         )}
       </div>
     </div>
   );
+
+  return createPortal(readerContent, document.body);
 };

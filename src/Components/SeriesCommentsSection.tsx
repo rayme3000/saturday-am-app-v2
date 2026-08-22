@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Lock, Flame, Flag, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { DecoratedAvatar } from './DecoratedAvatar'; 
+import { cleanText } from '../profanityFilter'; // <-- IMPORT FILTER
 
 export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlug: string, onRequireAuth: () => void }) => {
   const [commentText, setCommentText] = useState('');
@@ -146,12 +147,16 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
     if (!commentText.trim() || commentText.length > MAX_CHARS) return;
     
     setIsSubmitting(true);
+    
+    // Clean the text before saving
+    const safeText = cleanText(commentText.trim());
+
     const newComment = { 
       series_slug: seriesSlug, 
       user_id: currentUser.id, 
       user_name: currentUser.name, 
       avatar_url: currentUser.avatar, 
-      text: commentText.trim(),
+      text: safeText, // Saved as scrubbed text
       parent_id: null
     };
     
