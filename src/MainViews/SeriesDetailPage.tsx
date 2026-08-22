@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, ArrowDown, User, Heart, Lock, X, MessageSquare, PenTool, Crown } from 'lucide-react';
+import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, ArrowDown, User, Heart, Lock, X, MessageSquare, PenTool, Crown, Share2 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { MangaReader } from './MangaReader';
 import { SuperHypeButton } from '../Components/SuperHypeButton';
 import { HypeButton } from '../Components/HypeButton';
 import { SeriesCommentsSection } from '../Components/SeriesCommentsSection';
 import { PromoModal } from '../Components/PromoModal'; 
+import { ShareModal } from '../Components/ShareModal';
+import { useTelemetry } from '../Components/useTelemetry'; // <-- IMPORTED TELEMETRY
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -30,8 +32,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [isFavorited, setIsFavorited] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
-  // --- PROMO TRACKER ---
+  // --- TELEMETRY TRACKER ---
+  const { trackEvent } = useTelemetry(currentUserId || undefined);
+
+  // --- MODAL STATES ---
   const [showPromo, setShowPromo] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   // --- JUMP BACK IN STATES ---
   const [startPage, setStartPage] = useState(0);
@@ -63,6 +69,13 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       }
     }
   };
+
+  // --- RECORD SERIES PAGE VISIT ---
+  useEffect(() => {
+    if (localSeries?.slug) {
+      trackEvent('series_page_visit', { series_slug: localSeries.slug });
+    }
+  }, [localSeries?.slug, trackEvent]);
 
   useEffect(() => {
     const checkFavoriteStatus = async () => {
@@ -168,7 +181,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchReadingProgress();
   }, [currentUserId, chapters, readerClosedCount]);
 
-  // --- OPTIMIZED RPC CALL FOR CHAPTER STATS ---
   useEffect(() => {
     if (chapters.length === 0 || !localSeries?.slug) return;
 
@@ -196,28 +208,25 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchChapterStats();
   }, [chapters, readerClosedCount, localSeries?.slug]);
 
-  // --- SAFE AUTO-OPEN FIX ---
   useEffect(() => {
     if (chapters.length > 0 && series?.autoOpenChapterId && !hasAutoOpened) {
       const absoluteIndex = chapters.findIndex(c => String(c.id) === String(series.autoOpenChapterId));
       if (absoluteIndex !== -1) {
         const chapter = chapters[absoluteIndex];
         if (chapter && chapter.id) {
-          // Patiently wait 100ms for UI to settle before firing overlay
           setTimeout(() => {
             handleReadChapter(chapter, absoluteIndex, series.autoOpenPage || 0);
           }, 100);
         } else {
-          setIsAutoLoading(false); // Failsafe
+          setIsAutoLoading(false);
         }
       } else {
-        setIsAutoLoading(false); // Failsafe
+        setIsAutoLoading(false);
       }
-      setHasAutoOpened(true); // Flag as fired so it doesn't loop
+      setHasAutoOpened(true); 
     }
   }, [chapters, series, hasAutoOpened]);
 
-  // --- DYNAMIC SORTING & PAGINATION LOGIC ---
   const sortedChapters = [...chapters].sort((a, b) => {
     if (sortOrder === 'asc') return a.chapter_number - b.chapter_number;
     return b.chapter_number - a.chapter_number;
@@ -230,13 +239,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return sum + (ch.hype_count || 0) + pageHypes;
   }, 0);
   
-  // Safe lock checking based on absolute chronological order
   const checkIsLocked = (chapterId: string) => {
     if (userTier === 'premium') return false; 
-    
-    // Find where the chapter sits in the main ascending chronological list
     const absoluteIndex = chapters.findIndex(c => c.id === chapterId);
-
     if (userTier === 'free') {
       return !(absoluteIndex < 3 || absoluteIndex === chapters.length - 1);
     }
@@ -248,7 +253,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     const hasTempUnlock = unlockedChapters.includes(chapter.id);
 
     if (isInitiallyLocked && !hasTempUnlock) {
-      setIsAutoLoading(false); // Drop loader if blocked
+      setIsAutoLoading(false);
       if (userTier === 'visitor') {
         setUpsellConfig({
           type: 'visitor',
@@ -273,44 +278,35 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       setActiveChapterId(chapter.id);
       setStartPage(initialPage); 
       setIsReaderOpen(true); 
-      setIsAutoLoading(false); // Drop the loader, reader is open!
+      setIsAutoLoading(false); 
       
-      // --- THE PROMO TRACKER ---
       if (userTier !== 'premium') {
         let reads = parseInt(sessionStorage.getItem('am_read_counter') || '0');
         reads += 1;
-        if (reads >= 3) {
-          setShowPromo(true);
-          sessionStorage.setItem('am_read_counter', '0');
-        } else {
-          sessionStorage.setItem('am_read_counter', reads.toString());
+        if (reads % 5 === 0) {
+          setShowShareModal(true); 
         }
+        sessionStorage.setItem('am_read_counter', reads.toString());
       }
-
     } 
     else { 
-      setIsAutoLoading(false); // Drop loader on error
+      setIsAutoLoading(false);
       alert("No pages found for this chapter yet!"); 
     }
   };
 
-  // --- SECURE AD UNLOCK RPC CALL ---
   const handleAdComplete = async () => {
     if (!targetChapter) return;
-    
     try {
       const { data, error } = await supabase.rpc('unlock_chapter_with_ad', {
         p_chapter_id: targetChapter.id
       });
-
       if (error) throw error;
 
       if (data === true) {
         alert("Chapter Unlocked for 24 Hours!");
         setUnlockedChapters(prev => [...prev, targetChapter.id]);
         setShowAdModal(false);
-        
-        // Automatically drop them into the reader now that it's unlocked
         const absoluteIndex = chapters.findIndex(c => c.id === targetChapter.id);
         handleReadChapter(targetChapter, absoluteIndex, 0);
       } else {
@@ -354,12 +350,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
       const { error } = await supabase.from('profiles').update({ favorites: currentFaves }).eq('id', currentUserId);
       if (error) {
-        console.error("Supabase Error:", error.message);
         throw error;
       }
       
     } catch (err) {
-      console.error("Failed to update favorites:", err);
       setIsFavorited(previousState);
     }
   };
@@ -371,7 +365,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   return (
     <div className="relative min-h-screen bg-transparent text-white">
       
-      {/* --- SEAMLESS AUTO-LOADER --- */}
       {isAutoLoading && (
         <div className="fixed inset-0 z-[6000] bg-black flex flex-col items-center justify-center">
           <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin mb-4"></div>
@@ -381,7 +374,14 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         </div>
       )}
 
-      {/* --- PROMO MODAL OVERLAY --- */}
+      <ShareModal 
+        isOpen={showShareModal} 
+        onClose={() => setShowShareModal(false)} 
+        series={localSeries} 
+        chapter={chapters.find(c => c.id === activeChapterId)}
+        currentUser={{ id: currentUserId }}
+      />
+
       {showPromo && (
         <PromoModal 
           userTier={userTier} 
@@ -478,9 +478,14 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         <img src={localSeries.cover_url} className="w-full h-full object-cover opacity-60" alt="Hero Banner" />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
         <button onClick={onBack} className="absolute top-4 left-4 p-2 bg-black/50 rounded-full backdrop-blur-sm hover:bg-black/70 transition-colors z-20"><ArrowLeft className="w-6 h-6" /></button>
+        <button 
+          onClick={() => setShowShareModal(true)} 
+          className="absolute top-4 right-4 p-2 bg-black/50 rounded-full backdrop-blur-sm hover:bg-[#fe9a00] hover:text-black transition-colors z-20"
+        >
+          <Share2 className="w-5 h-5" />
+        </button>
       </div>
 
-      {/* FIXED: Re-added the mask-image but added -mt-12 and pt-12 so it securely overlaps the hero banner without revealing the background! */}
       <div className="relative z-10 bg-black min-h-screen w-full -mt-12 pt-12 [mask-image:linear-gradient(to_bottom,transparent,black_48px)]">
         <div className="px-6 pt-8 flex flex-col items-center w-full max-w-4xl mx-auto">
           <div className="flex items-center justify-center gap-4 mb-6">

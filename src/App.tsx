@@ -6,6 +6,8 @@ import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 // --- IMPORT OUR COMPONENTS ---
 import { FloatingPillNav } from './Components/FloatingPillNav';
 import { HamburgerMenu } from './Components/HamburgerMenu';
+import { ShareModal } from './Components/ShareModal';
+import { SplashIntro } from './Components/SplashIntro'; // <-- NEW SPLASH INTRO
 
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
@@ -28,9 +30,6 @@ const BingoBook = lazy(() => import('./VirtualProfile/BingoBook'));
 const Favorites = lazy(() => import('./MainViews/MyFaves.tsx'));
 const Browse = lazy(() => import('./MainViews/Browse.tsx'));
 const Leaderboard = lazy(() => import('./MainViews/Leaderboard.tsx'));
-
-// --- Cloudflare Base URL ---
-const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
 // --- GLOBAL ERROR BOUNDARY ---
 class AppErrorBoundary extends React.Component<any, any> {
@@ -89,9 +88,9 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
 
-  // Only show splash screen if there is no saved session (first visit)
-  const [showSplash, setShowSplash] = useState(() => {
-    return !sessionStorage.getItem('currentView');
+  // <-- NEW INTRO STATE -->
+  const [showIntro, setShowIntro] = useState(() => {
+    return !localStorage.getItem('am_has_seen_intro');
   });
 
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
@@ -101,6 +100,9 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isFlexCardOpen, setIsFlexCardOpen] = useState(false);
   const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
+  
+  // GLOBAL SHARE OVERLAY
+  const [showGlobalShareModal, setShowGlobalShareModal] = useState(false);
 
   // --- PASSWORD RESET STATE ---
   const [showPasswordReset, setShowPasswordReset] = useState(false);
@@ -157,12 +159,10 @@ export default function App() {
     }
   }, [currentView, selectedSeries]);
 
-  useEffect(() => { 
-    if (showSplash) {
-      const timer = setTimeout(() => setShowSplash(false), 3000); 
-      return () => clearTimeout(timer); 
-    }
-  }, [showSplash]);
+  const handleIntroComplete = () => {
+    localStorage.setItem('am_has_seen_intro', 'true');
+    setShowIntro(false);
+  };
 
   // --- SUPABASE AUTH LISTENER ---
   useEffect(() => {
@@ -326,15 +326,8 @@ export default function App() {
 
   return (
     <>
-      {showSplash && (
-        <div className="fixed inset-0 z-[1000] bg-white flex items-center justify-center animate-fade-out h-[100dvh]">
-          <img 
-            src={`${CLOUDFLARE_BASE_URL}/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png`} 
-            className="w-64" 
-            alt="Logo" 
-          />
-        </div>
-      )}
+      {/* --- RENDER SPLASH INTRO IF FIRST VISIT --- */}
+      {showIntro && <SplashIntro onComplete={handleIntroComplete} />}
       
       {/* GLOBAL STYLES & iOS TWEAKS */}
       <style>
@@ -393,6 +386,14 @@ export default function App() {
       {showLogin && (
         <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => { setShowLogin(false); }} />
       )}
+
+      {/* --- APP-WIDE SHARE MODAL OVERLAY --- */}
+      <ShareModal 
+        isOpen={showGlobalShareModal} 
+        onClose={() => setShowGlobalShareModal(false)} 
+        currentUser={currentUser}
+        series={null} // Null triggers the generic "App Share" text in the modal
+      />
 
       {showPasswordReset && (
         <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
@@ -456,6 +457,7 @@ export default function App() {
         canInstall={!!deferredPrompt || isIOSDevice}
         onInstall={handleInstallClick}
         onLoginClick={() => setShowLogin(true)}
+        onShareClick={() => setShowGlobalShareModal(true)}
       />
 
       {isFlexCardOpen && (

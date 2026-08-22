@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical } from 'lucide-react';
+import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
+import { ShareModal } from '../Components/ShareModal';
 import { 
   useQuickReacts, QuickReactDrawer, QuickReactTimeline, 
   QuickReactToggleButton, QuickReactViewAllButton, QuickReactInputOverlay, QuickReactToast 
@@ -22,11 +23,12 @@ const MemoizedHorizontalImage = React.memo(({ src, alt }: any) => (
   </div>
 ));
 
-export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium, initialPage = 0, onNavigate }: any) => {
+export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium, initialPage = 0, onNavigate, series, chapter }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [mode, setMode] = useState<'horizontal' | 'vertical'>('horizontal'); 
   const [isUIVisible, setIsUIVisible] = useState(true);
   const [showHideHint, setShowHideHint] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
   const [isAuthLoaded, setIsAuthLoaded] = useState(false);
@@ -54,6 +56,16 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   // --- CONNECT OUR NEW HOOK ---
   const qr = useQuickReacts(chapterId, currentPage, currentUser);
+
+  // --- ROBUST SHARE FALLBACK ---
+  // In case SeriesDetailPage doesn't explicitly pass these, we generate them from existing props
+  const fallbackSeries = series || { 
+    title: subtitle || 'Saturday AM Series', 
+    slug: subtitle?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || '' 
+  };
+  const fallbackChapter = chapter || { 
+    chapter_number: title?.match(/\d+/)?.[0] || '1' 
+  };
 
   useEffect(() => {
     if (!pages || pages.length === 0) return;
@@ -356,8 +368,16 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
       `}</style>
 
-      {/* --- QUICK REACT TOAST --- */}
+      {/* --- NOTIFICATION COMPONENTS --- */}
       <QuickReactToast toastConfig={qr.toastConfig} />
+      
+      <ShareModal 
+        isOpen={showShareModal} 
+        onClose={() => setShowShareModal(false)} 
+        series={fallbackSeries} 
+        chapter={fallbackChapter}
+        currentUser={{ id: currentUser?.id }}
+      />
 
       <QuickReactDrawer
         showAllReacts={qr.showAllReacts}
@@ -507,6 +527,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               <MoveHorizontal className="w-3 h-3 sm:w-4 sm:h-4" />
             </button>
             
+            <button onClick={() => setShowShareModal(true)} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Share Page">
+              <Share2 className="w-3 h-3 sm:w-4 sm:h-4" />
+            </button>
+
             <QuickReactViewAllButton setShowAllReacts={qr.setShowAllReacts} />
 
             {currentUser?.id && pages[currentPage] && (
@@ -553,6 +577,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               <MoveVertical className="w-3 h-3 sm:w-4 sm:h-4" />
             </button>
             
+            <button onClick={() => setShowShareModal(true)} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Share Page">
+              <Share2 className="w-3 h-3 sm:w-4 sm:h-4" />
+            </button>
+
             <QuickReactViewAllButton setShowAllReacts={qr.setShowAllReacts} />
 
             {currentUser?.id && pages[currentPage] && (

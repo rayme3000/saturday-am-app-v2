@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AnalyticsDashboard } from './AnalyticsDashboard';
 import { HomeEditor } from './HomeEditor';
 import { SeriesEditor } from './SeriesEditor';
 import { ChapterUploader } from './ChapterUploader';
@@ -221,7 +222,7 @@ const NotificationCenter = () => {
 };
 
 export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any) => {
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState('analytics'); // Changed default tab to analytics
 
   // --- BINGO BOOK ADMIN STATES ---
   const [activePin, setActivePin] = useState('Loading...');
@@ -270,6 +271,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   };
 
   const tabs = [
+    { id: 'analytics', label: 'Analytics' }, // Added Analytics tab
     { id: 'home', label: 'Home Editor' },
     { id: 'series', label: 'Series Page Editor' },
     { id: 'chapter', label: 'Chapter Upload' },
@@ -366,6 +368,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
 
         {/* Dynamic Content Rendering */}
         <div className="mt-6">
+          {activeTab === 'analytics' && <AnalyticsDashboard />}
           {activeTab === 'home' && <HomeEditor Dropzone={Dropzone} />}
           {activeTab === 'series' && <SeriesEditor Dropzone={Dropzone} />}
           {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}

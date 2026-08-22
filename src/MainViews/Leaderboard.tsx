@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Trophy, Flame, Crown, Medal, Star, Zap, Activity } from 'lucide-react';
+import { ArrowLeft, Trophy, Flame, Crown, Medal, Star, Zap, Activity, Play } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
@@ -13,6 +13,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
   const [superFans, setSuperFans] = useState<any[]>([]);
   const [big3, setBig3] = useState<any[]>([]);
   const [userRank, setUserRank] = useState<any>(null);
+  const [cotw, setCotw] = useState<any>(null); // Chapter of the Week State
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
@@ -33,11 +34,9 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           });
 
           setSuperFans(formattedTop10);
-        } else if (fansError) {
-          console.error("Supabase RPC Error:", fansError);
         }
 
-        // Fetch current logged-in user's rank
+        // 2. Fetch current logged-in user's rank
         if (currentUser) {
           const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: currentUser.id });
           
@@ -54,7 +53,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           }
         }
 
-        // 2. FETCH REAL BIG 3 SERIES 
+        // 3. FETCH REAL BIG 3 SERIES 
         const { data: hypes } = await supabase.from('super_hypes').select('series_slug');
         
         if (hypes && seriesList.length > 0) {
@@ -74,6 +73,16 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setBig3(rankedSeries);
         }
 
+        // 4. FETCH CHAPTER OF THE WEEK
+        const { data: cotwData } = await supabase.rpc('get_chapter_of_the_week');
+        if (cotwData && cotwData.length > 0 && seriesList.length > 0) {
+          const chapter = cotwData[0];
+          const matchedSeries = seriesList.find((s: any) => s.slug === chapter.series_slug);
+          if (matchedSeries) {
+            setCotw({ ...chapter, series: matchedSeries });
+          }
+        }
+
       } catch (error) {
         console.error("Error fetching leaderboard:", error);
       } finally {
@@ -89,6 +98,16 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
     e.stopPropagation();
     if (seriesObj && onNavigate) {
       onNavigate({ ...seriesObj, action: 'series' });
+    }
+  };
+
+  const handleRouteToCotw = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (cotw && cotw.series && onNavigate) {
+      onNavigate({ ...cotw.series, action: 'series', autoOpenChapterId: cotw.chapter_id });
+    } else if (big3[0] && onNavigate) {
+      onNavigate({ ...big3[0], action: 'series' }); // Fallback
     }
   };
 
@@ -189,28 +208,45 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                 <div className="mt-16 pt-12 border-t border-zinc-800">
                   <button 
                     type="button"
-                    className="relative w-full rounded-3xl overflow-hidden border border-zinc-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)] group cursor-pointer z-20 block text-left p-0 w-full"
-                    onClick={(e) => handleRouteToSeries(e, big3[0])}
+                    className="relative w-full rounded-3xl overflow-hidden border border-zinc-700 shadow-[0_20px_50px_rgba(0,0,0,0.5)] group cursor-pointer z-20 block text-left p-0"
+                    onClick={handleRouteToCotw}
                   >
                     <div className="pointer-events-none">
                       <img 
-                        src={big3[0]?.cover_url || "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/apple-black-cover.jpg"} 
+                        src={cotw?.thumbnail_url || cotw?.series?.cover_url || big3[0]?.cover_url || "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/apple-black-cover.jpg"} 
                         className="absolute inset-0 w-full h-full object-cover opacity-80 group-hover:scale-105 group-hover:opacity-100 transition-all duration-700" 
-                        alt="Manga of the Week" 
+                        alt="Chapter of the Week" 
                       />
-                      <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/60 to-transparent" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-black/95 via-black/80 to-transparent" />
                       
                       <div className="relative z-10 p-6 sm:p-10 flex flex-col justify-center h-full">
                         <div className="flex items-center gap-2 bg-[#fe9a00]/20 w-max px-3 py-1.5 rounded-full border border-[#fe9a00]/50 mb-4 backdrop-blur-md shadow-lg">
                           <Flame className="w-4 h-4 text-[#fe9a00]" />
-                          <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">Manga of the Week</span>
+                          <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">Chapter of the Week</span>
                         </div>
-                        <h2 className="text-3xl sm:text-5xl font-black italic uppercase tracking-tighter text-white drop-shadow-md leading-none mb-1">{big3[0]?.title || "Apple Black"}</h2>
-                        <h3 className="text-lg sm:text-xl font-bold text-zinc-300 drop-shadow-md mb-6">Latest Update</h3>
+                        <h2 className="text-3xl sm:text-5xl font-black italic uppercase tracking-tighter text-white drop-shadow-md leading-none mb-1">
+                          {cotw?.series?.title || big3[0]?.title || "Saturday AM"}
+                        </h2>
+                        
+                        <div className="flex items-center gap-3 mb-6 mt-2">
+                           <span className="bg-white text-black px-2 py-0.5 rounded font-black text-[10px] tracking-widest uppercase">
+                             Ch. {cotw?.chapter_number || "1"}
+                           </span>
+                           <h3 className="text-lg sm:text-xl font-bold text-zinc-300 drop-shadow-md truncate max-w-sm">
+                             {cotw?.title || "Latest Release"}
+                           </h3>
+                        </div>
                         
                         <p className="text-[10px] sm:text-xs text-zinc-400 font-bold uppercase tracking-widest max-w-sm leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                          This series generated the highest volume of unique readers and super hypes this week!
+                          This chapter generated the highest volume of unique readers, hypes, and quick reacts this week!
                         </p>
+
+                        <div className="mt-8 flex items-center gap-2">
+                           <div className="w-10 h-10 bg-[#fe9a00] rounded-full flex items-center justify-center group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(254,154,0,0.5)]">
+                             <Play className="w-5 h-5 text-black ml-1" />
+                           </div>
+                           <span className="text-[10px] font-black text-white uppercase tracking-widest ml-2 group-hover:text-[#fe9a00] transition-colors">Read Now</span>
+                        </div>
                       </div>
                     </div>
                   </button>

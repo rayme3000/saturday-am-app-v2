@@ -3,7 +3,9 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { SeriesSection } from "./SeriesSection";
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
-import { Menu, HelpCircle, X, Bell, CheckCircle, Play, MoveHorizontal, MoveVertical, Trophy, Zap, Crown, Flame } from 'lucide-react';
+import { ShareModal } from '../Components/ShareModal';
+import { Menu, X, Bell, CheckCircle, Play, Share2 } from 'lucide-react';
+import { useTelemetry } from '../Components/useTelemetry'; // <-- IMPORTED TELEMETRY
 
 let memHeroSlides: any = null;
 let memHomeSections: any = null;
@@ -13,13 +15,16 @@ let memNotifications: any = null;
 export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, userTier }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
   
+  // <-- INITIALIZE TELEMETRY 
+  const { trackEvent } = useTelemetry(currentUser?.id);
+  
   const [currentSlide, setCurrentSlide] = useState(0);
   const [heroSlides, setHeroSlides] = useState<any[]>(memHeroSlides || []);
   const [homeSections, setHomeSections] = useState<any[]>(memHomeSections || []);
   const [latestChapters, setLatestChapters] = useState<any[]>([]);
   const [isLoadingSlides, setIsLoadingSlides] = useState(!memHeroSlides);
   
-  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [recentReads, setRecentReads] = useState<any[]>(memRecentReads || []);
 
   const [notifications, setNotifications] = useState<any[]>(memNotifications || []);
@@ -66,8 +71,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           memHomeSections = sectionData;
         }
 
-        // Fetch the 10 most recently published chapters
-        const { data: chapData, error: chapError } = await supabase
+        const { data: chapData } = await supabase
           .from('chapters')
           .select('*')
           .order('created_at', { ascending: false }) 
@@ -171,7 +175,10 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     return () => clearInterval(timer);
   }, [heroSlides.length]);
 
+  // <-- UPDATED SLIDE CLICK TO TRACK BANNER TAPS
   const handleSlideClick = (slide: any) => {
+    trackEvent('banner_click', { target: slide.link_target, link_type: slide.link_type });
+    
     if (!slide.link_target) return;
     if (slide.link_type === 'external') window.open(slide.link_target, '_blank', 'noopener,noreferrer'); 
     else if (slide.link_type === 'series') {
@@ -189,7 +196,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
   return (
     <div className="relative min-h-screen bg-transparent text-white pb-24">
-      {/* GLOBAL BACKDROP */}
+      <ShareModal isOpen={showShareModal} onClose={() => setShowShareModal(false)} currentUser={currentUser} />
+
       <div className="fixed inset-0 z-[-1] bg-black">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
@@ -262,121 +270,11 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                 </>
               )}
             </div>
-            <button onClick={() => setShowHelpModal(true)} className="p-2 sm:p-2.5 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all"><HelpCircle className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors" /></button>
+            <button onClick={() => setShowShareModal(true)} className="p-2 sm:p-2.5 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all" title="Share Saturday AM">
+              <Share2 className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors" />
+            </button>
           </div>
         </nav>
-
-        {showHelpModal && (
-          <div className="fixed inset-0 z-[6000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in" onClick={() => setShowHelpModal(false)}>
-            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg shadow-2xl relative flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
-              <div className="flex justify-between items-center p-6 border-b border-zinc-800 bg-zinc-900 rounded-t-2xl">
-                <h2 className="text-xl font-black italic uppercase tracking-wider text-[#fe9a00]">Feature Guide</h2>
-                <button onClick={() => setShowHelpModal(false)} className="text-zinc-500 hover:text-white transition-colors">
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-              <div className="p-6 overflow-y-auto no-scrollbar space-y-8 bg-black rounded-b-2xl">
-                <div>
-                  <h3 className="text-white font-black uppercase tracking-widest text-sm mb-1">Series Chapters</h3>
-                  <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                    Binge read chapters by individual series directly from our vault. 
-                  </p>
-                </div>
-
-                <div>
-                  <h3 className="text-white font-black uppercase tracking-widest text-sm mb-1">Profile Loadout</h3>
-                  <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                    No boring profiles allowed! Choose your avatar, frame color, favorite series, and more to reflect your AM fandom. More art and options will constantly be updated. <span className="text-[#fe9a00]">(Free account required)</span>
-                  </p>
-                </div>
-
-                <div>
-                  <h3 className="text-white font-black uppercase tracking-widest text-sm mb-3">Choose Your Reading Style</h3>
-                  <div className="flex flex-col gap-3 pl-3">
-                    <div className="flex items-center gap-4 text-zinc-400 text-xs font-bold">
-                      <div className="bg-zinc-900 border border-zinc-800 p-2 rounded shadow-md"><MoveHorizontal className="w-4 h-4 text-[#fe9a00]" /></div>
-                      Classic horizontal scroll
-                    </div>
-                    <div className="flex items-center gap-4 text-zinc-400 text-xs font-bold">
-                      <div className="bg-zinc-900 border border-zinc-800 p-2 rounded shadow-md"><MoveVertical className="w-4 h-4 text-[#fe9a00]" /></div>
-                      Vertical scroll
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-zinc-800">
-                  <h3 className="text-[#fe9a00] font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-[#fe9a00]" /> Leaderboard & Rankings
-                  </h3>
-                  <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-[#fe9a00] pl-3">
-                    Compete globally to become an S-Class Superfan! The leaderboard tracks real-time community activity and highlights the top fans on the platform.
-                  </p>
-                </div>
-
-                <div>
-                  <h3 className="text-white font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-[#fe9a00]" /> How to Rank Up
-                  </h3>
-                  <div className="pl-3 space-y-2 text-zinc-400 text-xs font-bold leading-relaxed">
-                    <p>Your ranking score is calculated based on how you interact with the app. Activities are weighted to reward high engagement:</p>
-                    <ul className="list-disc list-inside text-[#fe9a00] ml-2 space-y-1">
-                      <li><span className="text-zinc-300">Reading chapters and dropping Quick Reacts build your foundation.</span></li>
-                      <li><span className="text-zinc-300">Dropping Super Hypes carries significantly more weight!</span></li>
-                      <li><span className="text-purple-400">Pro subscribers get a permanent ranking multiplier.</span></li>
-                    </ul>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-yellow-500 font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
-                    <Crown className="w-4 h-4 text-yellow-500" /> The Big 3 & Chapter of the Week
-                  </h3>
-                  <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-yellow-500 pl-3">
-                    These are two separate battlegrounds! <strong className="text-white">Chapter of the Week</strong> crowns the single <em className="text-white">chapter</em> that earns the most hype points in a 7-day period. Meanwhile, <strong className="text-[#fe9a00]">The Big 3</strong> tracks the top 3 <em className="text-[#fe9a00]">series</em> that dominate the entire month. Want your favorite to take the spotlight? Rally fellow fans to drop <span className="text-[#fe9a00]">Super Hypes</span> and boost their scores!
-                  </p>
-                </div>
-
-                <div className="pt-6 border-t border-zinc-800">
-                  <h3 className="text-purple-400 font-black uppercase tracking-widest text-sm mb-2 flex items-center gap-2">
-                    AM Bingo Book <span className="text-[8px] bg-purple-900/30 border border-purple-900 px-2 py-0.5 rounded text-purple-400">Subscriber Only</span>
-                  </h3>
-                  <p className="text-zinc-400 text-xs font-bold leading-relaxed border-l-2 border-purple-500 pl-3">
-                    Track down Saturday AM creators at live shows and conventions to collect their exclusive digital autographs in your virtual Bingo Book!
-                  </p>
-                </div>
-
-                <div>
-                  <h3 className="text-purple-400 font-black uppercase tracking-widest text-sm mb-3 flex items-center gap-2">
-                    Quick Reacts <span className="text-[8px] bg-purple-900/30 border border-purple-900 px-2 py-0.5 rounded text-purple-400">Subscriber Only</span>
-                  </h3>
-                  <div className="flex gap-4 items-start pl-3">
-                    <div className="bg-zinc-900 border border-zinc-800 p-1.5 rounded shadow-md flex-shrink-0 mt-0.5">
-                      <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-5 h-5 object-contain" />
-                    </div>
-                    <p className="text-zinc-400 text-xs font-bold leading-relaxed">
-                      Drop real-time, 30-character hype messages directly onto your favorite manga pages for everyone to see.
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-purple-400 font-black uppercase tracking-widest text-sm mb-3 flex items-center gap-2">
-                    Super Hypes <span className="text-[8px] bg-purple-900/30 border border-purple-900 px-2 py-0.5 rounded text-purple-400">Subscriber Only</span>
-                  </h3>
-                  <div className="flex gap-4 items-start pl-3">
-                    <div className="bg-gradient-to-br from-yellow-500 to-[#fe9a00] p-1.5 rounded shadow-[0_0_10px_rgba(254,154,0,0.3)] flex-shrink-0 mt-0.5">
-                      <Flame className="w-5 h-5 text-black" />
-                    </div>
-                    <p className="text-zinc-400 text-xs font-bold leading-relaxed">
-                      When a normal hype is not enough. Let the world know which series is not just good, but GOATED! Subscribers only get 5 of these a month, so use them carefully.
-                    </p>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="mb-8 w-full flex flex-col items-center">
           <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900/80 border border-zinc-800/50 shadow-xl backdrop-blur-sm">
@@ -437,16 +335,12 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
                 return (
                 <div key={chapter.id} onClick={() => onNavigate(seriesData)} className="w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start flex flex-col">
-                  
-                  {/* Aspect-square applied universally to perfectly frame Chapter Thumbnails WITH GLOW */}
                   <div className="relative overflow-hidden rounded-lg aspect-square border-[1px] border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.4)] group-hover/card:-translate-y-1 group-hover/card:border-[#fe9a00] group-hover/card:shadow-[0_0_30px_rgba(254,154,0,0.8)] transition-all duration-300">
                     <img 
                       src={chapter.thumbnail_url || seriesData.cover_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} 
                       className="w-full h-full object-cover" 
                       alt="Chapter Thumbnail" 
                     />
-                    
-                    {/* Dark gradient overlay for the text */}
                     <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
                       <p className="text-[#fe9a00] font-black text-[10px] uppercase tracking-widest drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]">
                         CH. {chapter.chapter_number}
@@ -462,7 +356,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                       {chapter.title || `Chapter ${chapter.chapter_number}`}
                     </p>
                   </div>
-
                 </div>
               )})}
             </div>
