@@ -36,7 +36,6 @@ const renderContentWithLinks = (text: string) => {
   });
 };
 
-// --- UPDATED: 50% Smaller Share Icon in Vertical Mode ---
 const MemoizedVerticalPage = React.memo(({ src, alt, pageIndex, pageHotspots, onHotspotClick, onShareZoneClick }: any) => (
   <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0">
     <div className="relative w-full max-w-3xl">
@@ -71,7 +70,6 @@ const MemoizedVerticalPage = React.memo(({ src, alt, pageIndex, pageHotspots, on
   </div>
 ));
 
-// --- UPDATED: 50% Smaller Share Icon in Horizontal Mode ---
 const MemoizedHorizontalImage = React.memo(({ src, alt, pageHotspots, onHotspotClick, onShareZoneClick }: any) => (
   <div className="w-full h-full flex items-center justify-center">
     <div className="relative inline-flex max-w-[100vw] max-h-[100dvh]">
@@ -133,6 +131,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const currentPageRef = useRef(currentPage);
   const activeUserRef = useRef(userId || currentUser?.id);
   const isComponentMounted = useRef(true);
+  
+  // --- NEW: Cooldown Tracker for Page Turns ---
+  const lastNavTime = useRef(0);
   
   const touchStartPos = useRef({ x: 0, y: 0 });
   const touchCurrentPos = useRef({ x: 0, y: 0 });
@@ -309,8 +310,15 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     onNext();
   }, [onNext, saveProgressToDB]);
 
+  // --- UPDATED: Bulletproof Cooldowns on Page Turns ---
   const goNext = useCallback(async (e?: any) => {
     if (e) e.stopPropagation(); 
+    
+    // 300ms Cooldown to block ghost touches
+    const now = Date.now();
+    if (now - lastNavTime.current < 300) return;
+    lastNavTime.current = now;
+
     if (currentPageRef.current >= pages.length - 1) {
       setShowEndPrompt(true);
       const activeUserId = activeUserRef.current;
@@ -330,6 +338,12 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   const goPrev = useCallback((e?: any) => {
     if (e) e.stopPropagation();
+    
+    // 300ms Cooldown to block ghost touches
+    const now = Date.now();
+    if (now - lastNavTime.current < 300) return;
+    lastNavTime.current = now;
+
     if (showEndPromptRef.current) { setShowEndPrompt(false); return; }
     setCurrentPage((p) => Math.max(0, p - 1)); 
   }, []);
@@ -345,35 +359,30 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     });
   }, []);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent | React.MouseEvent) => {
+  // --- UPDATED: Unified Pointer Events ---
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (isAnimatingPage) return;
-    const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
     
-    if (document.elementsFromPoint(clientX, clientY).some(el => el.classList.contains('hotspot-button'))) {
+    if (document.elementsFromPoint(e.clientX, e.clientY).some(el => el.classList.contains('hotspot-button'))) {
       return;
     }
     
-    touchStartPos.current = { x: clientX, y: clientY };
-    touchCurrentPos.current = { x: clientX, y: clientY };
+    touchStartPos.current = { x: e.clientX, y: e.clientY };
+    touchCurrentPos.current = { x: e.clientX, y: e.clientY };
     setIsDragging(true);
   }, [isAnimatingPage]);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent | React.MouseEvent) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isDragging || currentScaleRef.current > 1.05 || isAnimatingPage) return;
-    const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
-    touchCurrentPos.current = { x: clientX, y: clientY };
-    const deltaX = clientX - touchStartPos.current.x;
-    const deltaY = Math.abs(clientY - touchStartPos.current.y);
+    
+    touchCurrentPos.current = { x: e.clientX, y: e.clientY };
+    const deltaX = e.clientX - touchStartPos.current.x;
+    const deltaY = Math.abs(e.clientY - touchStartPos.current.y);
     if (Math.abs(deltaX) > deltaY) setDragOffset(deltaX);
   }, [isDragging, isAnimatingPage]);
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent | React.MouseEvent) => {
-    const clientX = 'changedTouches' in e ? e.changedTouches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = 'changedTouches' in e ? e.changedTouches[0].clientY : (e as React.MouseEvent).clientY;
-    
-    if (document.elementsFromPoint(clientX, clientY).some(el => el.classList.contains('hotspot-button'))) {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (document.elementsFromPoint(e.clientX, e.clientY).some(el => el.classList.contains('hotspot-button'))) {
       setIsDragging(false);
       return;
     }
@@ -381,8 +390,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     if (!isDragging) return;
     setIsDragging(false);
 
-    const deltaX = clientX - touchStartPos.current.x;
-    const deltaY = Math.abs(clientY - touchStartPos.current.y);
+    const deltaX = e.clientX - touchStartPos.current.x;
+    const deltaY = Math.abs(e.clientY - touchStartPos.current.y);
 
     if (Math.abs(deltaX) <= 8 && deltaY <= 8) {
       setDragOffset(0);
@@ -522,15 +531,14 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         reportedReacts={qr.reportedReacts}
       />
 
+      {/* --- HORIZONTAL READER WRAPPER WITH POINTER EVENTS --- */}
       {mode === 'horizontal' && (
         <div 
           className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center touch-none select-none"
-          onTouchStartCapture={handleTouchStart}
-          onTouchMoveCapture={handleTouchMove}
-          onTouchEndCapture={handleTouchEnd}
-          onMouseDownCapture={handleTouchStart}
-          onMouseMoveCapture={handleTouchMove}
-          onMouseUpCapture={handleTouchEnd}
+          onPointerDownCapture={handlePointerDown}
+          onPointerMoveCapture={handlePointerMove}
+          onPointerUpCapture={handlePointerUp}
+          onPointerCancelCapture={handlePointerUp}
           style={{
             transform: `translateX(${dragOffset}px)`,
             transition: isAnimatingPage ? 'transform 0.2s cubic-bezier(0.25, 1, 0.5, 1)' : 'none'

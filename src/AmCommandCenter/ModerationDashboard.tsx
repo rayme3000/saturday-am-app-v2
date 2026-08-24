@@ -65,11 +65,13 @@ export const ModerationDashboard = () => {
     if (!window.confirm("Are you sure you want to dismiss all reports for this comment? It will remain visible to the public.")) return;
     setIsProcessing(commentId);
     try {
-      await supabase.from('comment_reports').delete().eq('comment_id', commentId);
+      const { error } = await supabase.from('comment_reports').delete().eq('comment_id', commentId);
+      if (error) throw error;
+      
       setReportedComments(prev => prev.filter(c => c.id !== commentId));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to dismiss reports:", error);
-      alert("Error dismissing reports.");
+      alert("Error dismissing reports: " + error.message);
     } finally {
       setIsProcessing(null);
     }
@@ -79,11 +81,13 @@ export const ModerationDashboard = () => {
     if (!window.confirm("Are you sure you want to permanently DELETE this comment? This cannot be undone.")) return;
     setIsProcessing(commentId);
     try {
-      await supabase.from('series_comments').delete().eq('id', commentId);
+      const { error } = await supabase.from('series_comments').delete().eq('id', commentId);
+      if (error) throw error;
+      
       setReportedComments(prev => prev.filter(c => c.id !== commentId));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to delete comment:", error);
-      alert("Error deleting comment.");
+      alert("Error deleting comment: " + error.message);
     } finally {
       setIsProcessing(null);
     }
@@ -95,11 +99,13 @@ export const ModerationDashboard = () => {
     setIsProcessing(`react_${reactId}`);
     try {
       // Reset the flags counter to 0 so it disappears from the queue
-      await supabase.from('page_reacts').update({ flags: 0 }).eq('id', String(reactId));
+      const { error } = await supabase.from('page_reacts').update({ flags: 0 }).eq('id', reactId);
+      if (error) throw error;
+      
       setReportedReacts(prev => prev.filter(r => String(r.id) !== String(reactId)));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to dismiss react:", error);
-      alert("Error dismissing react.");
+      alert("Error dismissing react: " + error.message);
     } finally {
       setIsProcessing(null);
     }
@@ -109,11 +115,13 @@ export const ModerationDashboard = () => {
     if (!window.confirm("Permanently DELETE this Quick React?")) return;
     setIsProcessing(`react_${reactId}`);
     try {
-      await supabase.from('page_reacts').delete().eq('id', String(reactId));
+      const { error } = await supabase.from('page_reacts').delete().eq('id', reactId);
+      if (error) throw error;
+      
       setReportedReacts(prev => prev.filter(r => String(r.id) !== String(reactId)));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to delete react:", error);
-      alert("Error deleting react.");
+      alert("Error deleting react: " + error.message);
     } finally {
       setIsProcessing(null);
     }
