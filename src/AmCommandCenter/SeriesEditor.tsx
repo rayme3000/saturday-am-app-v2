@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Monitor, Smartphone, Trash2 } from 'lucide-react';
+import { X, Monitor, Smartphone, Trash2, EyeOff } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
-// --- COMPREHENSIVE COUNTRY CODE LIST (FIXED) ---
+// --- COMPREHENSIVE COUNTRY CODE LIST ---
 const COUNTRY_CODES = [
   { code: 'US', name: 'United States' }, { code: 'GB', name: 'United Kingdom' }, { code: 'JP', name: 'Japan' },
   { code: 'BR', name: 'Brazil' }, { code: 'CA', name: 'Canada' }, { code: 'MX', name: 'Mexico' }, { code: 'FR', name: 'France' }, 
@@ -22,7 +22,6 @@ const COUNTRY_CODES = [
   { code: 'HN', name: 'Honduras' }
 ].sort((a, b) => a.name.localeCompare(b.name));
 
-// --- ULTRA-MODERN CSS PATTERN GENERATOR ---
 const getPatternStyle = (color: string, pattern: string) => {
   const baseColor = color || '#18181b';
   const darkLine = 'rgba(0,0,0,0.15)'; 
@@ -59,6 +58,8 @@ export const SeriesEditor = ({ Dropzone }: any) => {
     logoScale: 100, logoOffset: 16,
     cardColor: '#18181b', cardPattern: 'none',
     synopsis: '', awards: '', hasAwards: false, 
+    contentRating: 'T', // <-- NEW: Default Content Rating[cite: 13]
+    isHidden: false, // <-- NEW: Default Visibility[cite: 13]
     creators: [{ role: 'Creator', name: '', bio: '', flagCode: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }] 
   });
 
@@ -101,6 +102,8 @@ export const SeriesEditor = ({ Dropzone }: any) => {
           characterAlign: 'center', characterScale: 140, logoScale: 100, logoOffset: 16, 
           cardColor: '#18181b', cardPattern: 'none',
           synopsis: '', awards: '', hasAwards: false, 
+          contentRating: 'T', // <-- NEW[cite: 13]
+          isHidden: false,    // <-- NEW[cite: 13]
           creators: [{ role: 'Creator', name: '', flagCode: '', avatar: '', bio: '', instagram: '', twitter: '', supportLink: '', is_visible: true }] 
         });
       } else {
@@ -133,7 +136,10 @@ export const SeriesEditor = ({ Dropzone }: any) => {
             cardColor: selectedSeries.card_color || '#18181b',
             cardPattern: selectedSeries.card_pattern || 'none',
             synopsis: selectedSeries.synopsis || '', awards: selectedSeries.awards || '', 
-            hasAwards: selectedSeries.has_awards || false, creators: loadedCreators 
+            hasAwards: selectedSeries.has_awards || false, 
+            contentRating: selectedSeries.content_rating || 'T', // <-- NEW: Pulls from DB[cite: 13]
+            isHidden: selectedSeries.is_hidden || false,         // <-- NEW: Pulls from DB[cite: 13]
+            creators: loadedCreators 
           });
         }
       }
@@ -162,6 +168,8 @@ export const SeriesEditor = ({ Dropzone }: any) => {
         logo_scale: formData.logoScale, logo_offset: formData.logoOffset,
         card_color: formData.cardColor, card_pattern: formData.cardPattern,
         awards: formData.hasAwards ? formData.awards : null, has_awards: formData.hasAwards, 
+        content_rating: formData.contentRating, // <-- NEW: Saves to DB[cite: 13]
+        is_hidden: formData.isHidden,           // <-- NEW: Saves to DB[cite: 13]
         creator_name: primaryCreator.name, flag_code: primaryCreator.flagCode, creator_avatar: primaryCreator.avatar, 
         creator_bio: primaryCreator.bio, creator_twitter: primaryCreator.twitter, creator_instagram: primaryCreator.instagram, 
         creator_support_link: primaryCreator.supportLink, updated_at: new Date().toISOString() 
@@ -268,9 +276,34 @@ export const SeriesEditor = ({ Dropzone }: any) => {
       </div>
 
       <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl space-y-6">
-        <div className="border-b border-zinc-800 pb-6">
-          <label className="block text-[10px] font-bold text-[#fe9a00] uppercase mb-2">Series Title</label>
-          <input type="text" value={formData.seriesTitle} onChange={(e) => handleInputChange('seriesTitle', e.target.value)} className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-lg font-bold" />
+        
+        {/* --- NEW: SERIES TITLE & CONTENT RATING GRID --- */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-b border-zinc-800 pb-6">
+          <div className="md:col-span-2">
+            <label className="block text-[10px] font-bold text-[#fe9a00] uppercase mb-2">Series Title</label>
+            <input type="text" value={formData.seriesTitle} onChange={(e) => handleInputChange('seriesTitle', e.target.value)} className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-lg font-bold" />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-2">Content Rating</label>
+            <select value={formData.contentRating} onChange={(e) => handleInputChange('contentRating', e.target.value)} className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-sm focus:border-[#fe9a00] transition-colors">
+              <option value="E">E / All Ages</option>
+              <option value="Y">Y / Youth (10+)</option>
+              <option value="T">T / Teen (13+)</option>
+              <option value="OT">OT / Older Teen (16+)</option>
+              <option value="M">M / Mature (18+)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* --- NEW: HIDE SERIES TOGGLE --- */}
+        <div className={`p-4 rounded border transition-colors ${formData.isHidden ? 'bg-red-900/10 border-red-900/50' : 'bg-black border-zinc-800'}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+               <input type="checkbox" checked={formData.isHidden} onChange={(e) => handleInputChange('isHidden', e.target.checked)} className="accent-red-500 w-5 h-5 cursor-pointer" />
+               <label className={`text-xs font-black uppercase tracking-widest ${formData.isHidden ? 'text-red-500' : 'text-zinc-400'}`}>Hide Series (Unpublish)</label>
+            </div>
+            {formData.isHidden && <span className="flex items-center gap-1.5 text-[9px] font-bold text-red-500 uppercase tracking-widest"><EyeOff className="w-3 h-3"/> Hidden from Readers</span>}
+          </div>
         </div>
         
         {/* --- HERO BANNER & PREVIEW SECTION --- */}
@@ -494,7 +527,7 @@ export const SeriesEditor = ({ Dropzone }: any) => {
         
         <div className="bg-black p-4 rounded border border-zinc-800 space-y-3">
           <div className="flex items-center gap-2">
-            <input type="checkbox" checked={formData.hasAwards} onChange={(e) => handleInputChange('hasAwards', e.target.checked)} className="accent-[#fe9a00] w-4 h-4" />
+            <input type="checkbox" checked={formData.hasAwards} onChange={(e) => handleInputChange('hasAwards', e.target.checked)} className="accent-[#fe9a00] w-4 h-4 cursor-pointer" />
             <label className="text-[10px] font-bold text-white uppercase tracking-widest">Enable Awards</label>
           </div>
           {formData.hasAwards && (<input type="text" placeholder="e.g., 2025 Bronze Award Winner" value={formData.awards || ''} onChange={(e) => handleInputChange('awards', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />)}
@@ -527,7 +560,6 @@ export const SeriesEditor = ({ Dropzone }: any) => {
            
            <div className={`grid ${formData.creators.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-6`}>
              {formData.creators.map((c, i) => {
-                // Determine if the current flagCode is NOT in the list
                 const isCustomFlag = c.flagCode && !COUNTRY_CODES.some(cc => cc.code === c.flagCode);
                 const selectValue = isCustomFlag ? 'OTHER' : c.flagCode;
 

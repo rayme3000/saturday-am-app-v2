@@ -7,9 +7,31 @@ import { HypeButton } from '../Components/HypeButton';
 import { SeriesCommentsSection } from '../Components/SeriesCommentsSection';
 import { PromoModal } from '../Components/PromoModal'; 
 import { ShareModal } from '../Components/ShareModal';
-import { useTelemetry } from '../Components/useTelemetry'; // <-- IMPORTED TELEMETRY
+import { useTelemetry } from '../Components/useTelemetry';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
+
+// --- NEW CONTENT RATING BADGE COMPONENT ---
+const ContentRatingBadge = ({ rating }: { rating: string }) => {
+  const config: Record<string, { label: string, color: string, desc: string }> = {
+    'E': { label: 'E', color: 'bg-green-600 text-white', desc: 'All Ages' },
+    'Y': { label: 'Y', color: 'bg-blue-500 text-white', desc: 'Youth 10+' },
+    'T': { label: 'T', color: 'bg-[#fe9a00] text-black', desc: 'Teen 13+' },
+    'OT': { label: 'OT', color: 'bg-red-600 text-white', desc: 'Older Teen 16+' },
+    'M': { label: 'M', color: 'bg-black border border-red-600 text-red-600', desc: 'Mature 18+' },
+  };
+
+  const current = config[rating] || config['T']; // Fallback to T just in case
+
+  return (
+    <div className="flex items-center gap-2 mt-4 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-zinc-800/50 backdrop-blur-sm w-max mx-auto shadow-lg">
+      <div className={`w-5 h-5 flex items-center justify-center rounded-[3px] font-black text-[10px] ${current.color} shadow-sm`}>
+        {current.label}
+      </div>
+      <span className="text-[9px] font-black text-zinc-300 uppercase tracking-widest">{current.desc}</span>
+    </div>
+  );
+};
 
 export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLoginClick, onNavigate }: any) => {
   const [localSeries, setLocalSeries] = useState(series);
@@ -32,23 +54,18 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [isFavorited, setIsFavorited] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
-  // --- TELEMETRY TRACKER ---
   const { trackEvent } = useTelemetry(currentUserId || undefined);
 
-  // --- MODAL STATES ---
   const [showPromo, setShowPromo] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
 
-  // --- JUMP BACK IN STATES ---
   const [startPage, setStartPage] = useState(0);
   const [hasAutoOpened, setHasAutoOpened] = useState(false);
   const [isAutoLoading, setIsAutoLoading] = useState(!!series?.autoOpenChapterId);
 
-  // --- PAGINATION & SORTING STATES ---
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [visibleCount, setVisibleCount] = useState(25);
 
-  // --- AD UNLOCK STATES ---
   const [showAdModal, setShowAdModal] = useState(false);
   const [targetChapter, setTargetChapter] = useState<any>(null);
   const [unlockedChapters, setUnlockedChapters] = useState<string[]>([]);
@@ -70,7 +87,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }
   };
 
-  // --- RECORD SERIES PAGE VISIT ---
   useEffect(() => {
     if (localSeries?.slug) {
       trackEvent('series_page_visit', { series_slug: localSeries.slug });
@@ -99,7 +115,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     window.scrollTo(0, 0);
   }, []);
 
-  // --- FETCH TEMPORARY UNLOCKS ---
   useEffect(() => {
     const fetchUnlocks = async () => {
       if (userTier === 'premium' || userTier === 'visitor') return;
@@ -477,12 +492,21 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       <div className="sticky top-0 left-0 w-full h-[50vh] sm:h-[60vh] z-0 overflow-hidden bg-black">
         <img src={localSeries.cover_url} className="w-full h-full object-cover opacity-60" alt="Hero Banner" />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
-        <button onClick={onBack} className="absolute top-4 left-4 p-2 bg-black/50 rounded-full backdrop-blur-sm hover:bg-black/70 transition-colors z-20"><ArrowLeft className="w-6 h-6" /></button>
+        
+        {/* BACK BUTTON */}
+        <button 
+          onClick={onBack} 
+          className="absolute top-4 sm:top-6 left-4 sm:left-6 z-20 p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg"
+        >
+          <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+        </button>
+        
+        {/* SHARE BUTTON (Shifted left to avoid the hamburger menu) */}
         <button 
           onClick={() => setShowShareModal(true)} 
-          className="absolute top-4 right-4 p-2 bg-black/50 rounded-full backdrop-blur-sm hover:bg-[#fe9a00] hover:text-black transition-colors z-20"
+          className="absolute top-4 sm:top-6 right-[4.5rem] sm:right-24 z-20 p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-all shadow-lg group"
         >
-          <Share2 className="w-5 h-5" />
+          <Share2 className="w-5 h-5 sm:w-6 sm:h-6 group-hover:scale-110 transition-transform" />
         </button>
       </div>
 
@@ -508,6 +532,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               </div>
             ))}
           </div>
+
+          {/* RENDER THE RATING BADGE */}
+          <ContentRatingBadge rating={localSeries.content_rating || 'T'} />
 
           <div className="mt-6 px-2 text-center max-w-2xl">
             <p className={`text-sm text-zinc-300 leading-relaxed ${!isExpanded ? 'line-clamp-3' : ''}`}>{safeSynopsis}</p>

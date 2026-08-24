@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2 } from 'lucide-react';
+import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2, X, Info } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
@@ -11,15 +11,98 @@ import {
   QuickReactToggleButton, QuickReactViewAllButton, QuickReactInputOverlay, QuickReactToast 
 } from '../Components/QuickReacts';
 
-const MemoizedVerticalPage = React.memo(({ src, alt }: { src: string, alt: string }) => (
+const renderContentWithLinks = (text: string) => {
+  if (!text) return null;
+  const splitRegex = /((?:https?:\/\/|www\.)[^\s]+)/g;
+  const matchRegex = /^(?:https?:\/\/|www\.)[^\s]+$/;
+  const parts = text.split(splitRegex);
+  return parts.map((part, i) => {
+    if (matchRegex.test(part)) {
+      const href = part.startsWith('www.') ? `https://${part}` : part;
+      return (
+        <a 
+          key={i} 
+          href={href} 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="text-[#fe9a00] hover:text-white underline font-black transition-colors cursor-pointer"
+          onClick={(e) => e.stopPropagation()} 
+        >
+          {part}
+        </a>
+      );
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+};
+
+// --- UPDATED: 50% Smaller Share Icon in Vertical Mode ---
+const MemoizedVerticalPage = React.memo(({ src, alt, pageIndex, pageHotspots, onHotspotClick, onShareZoneClick }: any) => (
   <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0">
-    <img src={src} className="w-full h-auto max-w-3xl block pointer-events-none m-0 p-0" alt={alt} loading="lazy" />
+    <div className="relative w-full max-w-3xl">
+      <img src={src} className="w-full h-auto block pointer-events-none m-0 p-0" alt={alt} loading="lazy" />
+      {pageHotspots?.map((h: any) => {
+        if (h.icon_type === 'share') {
+           return (
+             <button
+                key={h.id}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onShareZoneClick(h.content); }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="hotspot-button absolute w-5 h-5 sm:w-6 sm:h-6 -ml-2.5 -mt-2.5 sm:-ml-3 sm:-mt-3 bg-black border-[1.5px] border-red-500 rounded-full flex items-center justify-center animate-[pulse_2.5s_ease-in-out_infinite] shadow-[0_0_15px_rgba(239,68,68,0.6)] z-[200] hover:scale-110 transition-transform p-1 cursor-pointer pointer-events-auto"
+                style={{ top: `${h.y_percent}%`, left: `${h.x_percent}%` }}
+              >
+                <Share2 className="w-3 h-3 text-red-500 pointer-events-none" />
+             </button>
+           );
+        }
+        return (
+          <button
+            key={h.id}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onHotspotClick(h); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="hotspot-button absolute w-5 h-5 sm:w-6 sm:h-6 -ml-2.5 -mt-2.5 sm:-ml-3 sm:-mt-3 bg-black/80 backdrop-blur-md rounded-full flex items-center justify-center animate-[pulse_2.5s_ease-in-out_infinite] border border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.6)] z-[200] hover:scale-110 transition-transform p-1 cursor-pointer pointer-events-auto"
+            style={{ top: `${h.y_percent}%`, left: `${h.x_percent}%` }}
+          >
+            <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" alt="AM Behind the Pages" className="w-full h-full object-contain drop-shadow-md pointer-events-none" />
+          </button>
+        );
+      })}
+    </div>
   </div>
 ));
 
-const MemoizedHorizontalImage = React.memo(({ src, alt }: any) => (
+// --- UPDATED: 50% Smaller Share Icon in Horizontal Mode ---
+const MemoizedHorizontalImage = React.memo(({ src, alt, pageHotspots, onHotspotClick, onShareZoneClick }: any) => (
   <div className="w-full h-full flex items-center justify-center">
-    <img src={src} className="object-contain pointer-events-none" style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }} alt={alt} />
+    <div className="relative inline-flex max-w-[100vw] max-h-[100dvh]">
+      <img src={src} className="w-auto h-auto max-w-[100vw] max-h-[100dvh] object-contain pointer-events-none block" alt={alt} />
+      {pageHotspots?.map((h: any) => {
+        if (h.icon_type === 'share') {
+           return (
+             <button
+                key={h.id}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onShareZoneClick(h.content); }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="hotspot-button absolute w-5 h-5 sm:w-6 sm:h-6 -ml-2.5 -mt-2.5 sm:-ml-3 sm:-mt-3 bg-black border-[1.5px] border-red-500 rounded-full flex items-center justify-center animate-[pulse_2.5s_ease-in-out_infinite] shadow-[0_0_15px_rgba(239,68,68,0.6)] z-[200] hover:scale-110 transition-transform p-1 cursor-pointer pointer-events-auto"
+                style={{ top: `${h.y_percent}%`, left: `${h.x_percent}%` }}
+              >
+                <Share2 className="w-3 h-3 text-red-500 pointer-events-none" />
+             </button>
+           );
+        }
+        return (
+          <button
+            key={h.id}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onHotspotClick(h); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="hotspot-button absolute w-5 h-5 sm:w-6 sm:h-6 -ml-2.5 -mt-2.5 sm:-ml-3 sm:-mt-3 bg-black/80 backdrop-blur-md rounded-full flex items-center justify-center animate-[pulse_2.5s_ease-in-out_infinite] border border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.6)] z-[200] hover:scale-110 transition-transform p-1 cursor-pointer pointer-events-auto"
+            style={{ top: `${h.y_percent}%`, left: `${h.x_percent}%` }}
+          >
+            <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" alt="AM Behind the Pages" className="w-full h-full object-contain drop-shadow-md pointer-events-none" />
+          </button>
+        );
+      })}
+    </div>
   </div>
 ));
 
@@ -29,6 +112,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const [isUIVisible, setIsUIVisible] = useState(true);
   const [showHideHint, setShowHideHint] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [shareTargetImage, setShareTargetImage] = useState<string | null>(null);
   
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
   const [isAuthLoaded, setIsAuthLoaded] = useState(false);
@@ -42,6 +126,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const [showEndPrompt, setShowEndPrompt] = useState(false);
   const showEndPromptRef = useRef(showEndPrompt);
 
+  const [hotspots, setHotspots] = useState<any[]>([]);
+  const [activeHotspot, setActiveHotspot] = useState<any | null>(null);
+
   const transformRef = useRef<any>(null);
   const currentPageRef = useRef(currentPage);
   const activeUserRef = useRef(userId || currentUser?.id);
@@ -54,10 +141,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const getUrl = useCallback((p: any) => p?.image_url || p, []);
   const getId = useCallback((p: any) => p?.id || p, []);
 
-  // --- CONNECT OUR NEW HOOK ---
   const qr = useQuickReacts(chapterId, currentPage, currentUser);
 
-  // --- ROBUST SHARE FALLBACK ---
   const fallbackSeries = series || { 
     title: subtitle || 'Saturday AM Series', 
     slug: subtitle?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || '' 
@@ -65,6 +150,15 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const fallbackChapter = chapter || { 
     chapter_number: title?.match(/\d+/)?.[0] || '1' 
   };
+
+  useEffect(() => {
+    if (!chapterId) return;
+    const fetchHotspots = async () => {
+      const { data, error } = await supabase.from('page_hotspots').select('*').eq('chapter_id', chapterId);
+      if (data && !error) setHotspots(data);
+    };
+    fetchHotspots();
+  }, [chapterId]);
 
   useEffect(() => {
     if (!pages || pages.length === 0) return;
@@ -255,6 +349,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     if (isAnimatingPage) return;
     const clientX = 'touches' in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
+    
+    if (document.elementsFromPoint(clientX, clientY).some(el => el.classList.contains('hotspot-button'))) {
+      return;
+    }
+    
     touchStartPos.current = { x: clientX, y: clientY };
     touchCurrentPos.current = { x: clientX, y: clientY };
     setIsDragging(true);
@@ -271,11 +370,17 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   }, [isDragging, isAnimatingPage]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent | React.MouseEvent) => {
+    const clientX = 'changedTouches' in e ? e.changedTouches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = 'changedTouches' in e ? e.changedTouches[0].clientY : (e as React.MouseEvent).clientY;
+    
+    if (document.elementsFromPoint(clientX, clientY).some(el => el.classList.contains('hotspot-button'))) {
+      setIsDragging(false);
+      return;
+    }
+
     if (!isDragging) return;
     setIsDragging(false);
 
-    const clientX = 'changedTouches' in e ? e.changedTouches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = 'changedTouches' in e ? e.changedTouches[0].clientY : (e as React.MouseEvent).clientY;
     const deltaX = clientX - touchStartPos.current.x;
     const deltaY = Math.abs(clientY - touchStartPos.current.y);
 
@@ -328,11 +433,25 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     setCurrentPage(Math.max(0, Math.min(newPage, maxPage)));
   }, [maxPage]);
 
-  const virtuosoItemContent = useCallback((index: number, pageData: any) => (
-    <MemoizedVerticalPage src={getUrl(pageData)} alt={`Page ${index + 1}`} />
-  ), [getUrl]);
+  const handleShareZoneClick = useCallback((imageUrl: string) => {
+    setShareTargetImage(imageUrl);
+    setShowShareModal(true);
+  }, []);
 
-  // PORTAL 1: Loading State
+  const virtuosoItemContent = useCallback((index: number, pageData: any) => {
+    const pageHotspots = hotspots.filter(h => h.page_index === index);
+    return (
+      <MemoizedVerticalPage 
+        src={getUrl(pageData)} 
+        alt={`Page ${index + 1}`} 
+        pageIndex={index}
+        pageHotspots={pageHotspots}
+        onHotspotClick={setActiveHotspot}
+        onShareZoneClick={handleShareZoneClick}
+      />
+    );
+  }, [getUrl, hotspots, handleShareZoneClick]);
+
   if (isLoadingProgress) {
     return createPortal(
       <div className="fixed inset-0 z-[9999] bg-[#0a0a0a] flex items-center justify-center" style={{ width: '100vw', height: '100dvh' }}>
@@ -342,40 +461,56 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     );
   }
 
-  // PORTAL 2: Reader Content
+  const currentPageHotspots = hotspots.filter(h => h.page_index === currentPage);
+
   const readerContent = (
     <div 
       className="fixed inset-0 z-[9999] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans"
       style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }}
     >
       <style>{`
-        /* AGGRESSIVELY hide global hamburger when reader is open */
-        button[aria-label="Open Menu"] { 
-            display: none !important; 
-            opacity: 0 !important; 
-            pointer-events: none !important; 
-            visibility: hidden !important; 
-        }
-
+        button[aria-label="Open Menu"] { display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important; }
         @keyframes slide-right-fade { 0% { opacity: 0; transform: translateX(-10px); } 100% { opacity: 1; transform: translateX(0); } }
         .animate-slide-right-fade { animation: slide-right-fade 0.3s ease-out forwards; }
-        
         @keyframes slide-up-fade { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
         .animate-slide-up-fade { animation: slide-up-fade 0.3s ease-out forwards; }
-        
         @keyframes fade-in { 0% { opacity: 0; } 100% { opacity: 1; } }
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
       `}</style>
 
+      {/* --- AM BEHIND THE PAGES MODAL --- */}
+      {activeHotspot && (
+        <div className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in pointer-events-auto" onClick={(e) => { e.stopPropagation(); setActiveHotspot(null); }}>
+          <div className="bg-zinc-900 border border-zinc-700 p-6 sm:p-8 rounded-2xl w-full max-w-md shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setActiveHotspot(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-3 mb-4 border-b border-zinc-800 pb-4">
+              <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center border border-[#fe9a00]/50 shadow-[0_0_15px_rgba(254,154,0,0.2)] p-1.5 shrink-0">
+                <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-full h-full object-contain" alt="Footprint" />
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black italic uppercase text-[#fe9a00] tracking-tighter pr-6 leading-tight">
+                Behind the Pages
+              </h3>
+            </div>
+            <p className="text-zinc-300 text-sm leading-relaxed font-medium whitespace-pre-wrap select-text">
+              {renderContentWithLinks(activeHotspot.content)}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* --- NOTIFICATION COMPONENTS --- */}
       <QuickReactToast toastConfig={qr.toastConfig} />
       
+      {/* THE UPDATED SHARE MODAL */}
       <ShareModal 
         isOpen={showShareModal} 
-        onClose={() => setShowShareModal(false)} 
+        onClose={() => { setShowShareModal(false); setShareTargetImage(null); }} 
         series={fallbackSeries} 
         chapter={fallbackChapter}
         currentUser={{ id: currentUser?.id }}
+        targetImage={shareTargetImage}
       />
 
       <QuickReactDrawer
@@ -419,7 +554,13 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                     wrapperStyle={{ width: '100vw', height: '100dvh' }}
                     contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    <MemoizedHorizontalImage src={getUrl(pages[currentPage])} alt={`Page ${currentPage + 1}`} />
+                    <MemoizedHorizontalImage 
+                      src={getUrl(pages[currentPage])} 
+                      alt={`Page ${currentPage + 1}`} 
+                      pageHotspots={currentPageHotspots}
+                      onHotspotClick={setActiveHotspot}
+                      onShareZoneClick={handleShareZoneClick}
+                    />
                   </TransformComponent>
                 </div>
               )}
@@ -433,7 +574,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       {mode === 'vertical' && (
         <div 
           className="absolute inset-0 w-full h-full select-none overflow-x-hidden bg-[#0a0a0a] z-0" 
-          onClick={toggleUI}
+          onClick={(e) => {
+             if (document.elementsFromPoint(e.clientX, e.clientY).some(el => el.classList.contains('hotspot-button'))) return;
+             toggleUI();
+          }}
           style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }}
         >
           <Virtuoso

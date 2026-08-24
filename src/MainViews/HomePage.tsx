@@ -5,7 +5,7 @@ import { SeriesSection } from "./SeriesSection";
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
 import { ShareModal } from '../Components/ShareModal';
 import { Menu, X, Bell, CheckCircle, Play, Share2 } from 'lucide-react';
-import { useTelemetry } from '../Components/useTelemetry'; // <-- IMPORTED TELEMETRY
+import { useTelemetry } from '../Components/useTelemetry'; 
 
 let memHeroSlides: any = null;
 let memHomeSections: any = null;
@@ -15,7 +15,6 @@ let memNotifications: any = null;
 export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, userTier }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
   
-  // <-- INITIALIZE TELEMETRY 
   const { trackEvent } = useTelemetry(currentUser?.id);
   
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -75,7 +74,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           .from('chapters')
           .select('*')
           .order('created_at', { ascending: false }) 
-          .limit(10);
+          .limit(20); // Pulled slightly more to account for hidden drop-offs
           
         if (chapData) {
           setLatestChapters(chapData);
@@ -154,7 +153,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
           if (chap) {
             const series = seriesList.find((s: any) => s.slug === chap.series_slug);
-            if (!series) return null;
+            // --- UPDATED: Block hidden series from "Jump Back In" ---
+            if (!series || series.is_hidden) return null;
             return { ...h, type: 'series', target: { ...series, action: 'series' }, title: series.title, subtitle: `Chapter ${chap.chapter_number}`, image: chap.thumbnail_url || series.cover_url };
           }
           return null;
@@ -175,7 +175,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     return () => clearInterval(timer);
   }, [heroSlides.length]);
 
-  // <-- UPDATED SLIDE CLICK TO TRACK BANNER TAPS
   const handleSlideClick = (slide: any) => {
     trackEvent('banner_click', { target: slide.link_target, link_type: slide.link_type });
     
@@ -183,7 +182,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     if (slide.link_type === 'external') window.open(slide.link_target, '_blank', 'noopener,noreferrer'); 
     else if (slide.link_type === 'series') {
       const matchedSeries = seriesList.find((s: any) => s.slug === slide.link_target);
-      if (matchedSeries) onNavigate(matchedSeries); 
+      if (matchedSeries && !matchedSeries.is_hidden) onNavigate(matchedSeries); 
     }
   };
 
@@ -191,6 +190,14 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     window.dispatchEvent(new Event('instantLogout'));
     await supabase.auth.signOut();
   };
+
+  // --- UPDATED: Filter out Hidden Chapters before mapping ---
+  const visibleLatestChapters = useMemo(() => {
+    return latestChapters.filter(chapter => {
+      const seriesData = seriesList.find(s => s.slug === chapter.series_slug);
+      return seriesData && !seriesData.is_hidden;
+    }).slice(0, 10); // Keep max 10 to maintain layout cleanly
+  }, [latestChapters, seriesList]);
 
   if (isLoading || isLoadingSlides) return <div className="min-h-screen bg-black text-[#fe9a00] flex items-center justify-center font-black tracking-widest">Loading Vault...</div>;
 
@@ -258,7 +265,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                         <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center"><CheckCircle className="w-8 h-8 text-zinc-700 mb-3" /><span className="text-zinc-500 font-bold text-[10px] uppercase tracking-widest leading-relaxed">You're all caught up</span></div>
                       ) : (
                         visibleNotifications.map(n => (
-                          <div key={n.id} onClick={() => { setShowNotifications(false); if (n.link_target) { if (n.link_target.startsWith('http')) window.open(n.link_target, '_blank'); else { const matchedSeries = seriesList.find((s: any) => s.slug === n.link_target); if (matchedSeries) onNavigate(matchedSeries); else onNavigate({ action: n.link_target }); } } }} className="relative group p-4 border-b border-zinc-800/50 hover:bg-zinc-800 cursor-pointer flex gap-4 transition-colors pr-10">
+                          <div key={n.id} onClick={() => { setShowNotifications(false); if (n.link_target) { if (n.link_target.startsWith('http')) window.open(n.link_target, '_blank'); else { const matchedSeries = seriesList.find((s: any) => s.slug === n.link_target); if (matchedSeries && !matchedSeries.is_hidden) onNavigate(matchedSeries); else onNavigate({ action: n.link_target }); } } }} className="relative group p-4 border-b border-zinc-800/50 hover:bg-zinc-800 cursor-pointer flex gap-4 transition-colors pr-10">
                             <button onClick={(e) => handleDismissNotif(e, n.id)} className="absolute top-2 right-2 p-1.5 text-zinc-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-black/50 z-10" title="Dismiss"><X className="w-4 h-4" /></button>
                             {n.thumbnail_url && <img src={n.thumbnail_url} className="w-12 h-12 rounded object-cover flex-shrink-0 border border-zinc-700 bg-black" alt="Notification" />}
                             <div className="flex flex-col justify-center w-full min-w-0"><span className="text-white font-black text-xs uppercase tracking-wider leading-tight group-hover:text-[#fe9a00] transition-colors truncate">{n.title}</span><span className="text-zinc-400 text-[10px] font-bold mt-1 line-clamp-2 leading-relaxed">{n.message}</span></div>
@@ -318,7 +325,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         )}
         
         {/* LATEST CHAPTERS FEED */}
-        {latestChapters.length > 0 && (
+        {visibleLatestChapters.length > 0 && (
           <div className="mb-10 relative group px-2">
             <div className="flex items-center gap-3 mb-4">
               <svg className="w-5 h-5 text-[#fe9a00] ml-1 drop-shadow-[0_0_8px_rgba(254,154,0,0.8)]" viewBox="0 0 24 24" fill="currentColor">
@@ -330,7 +337,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             </div>
             
             <div className="flex overflow-x-auto gap-4 pb-4 snap-x no-scrollbar items-start">
-              {latestChapters.map((chapter) => {
+              {visibleLatestChapters.map((chapter) => {
                 const seriesData = seriesList.find(s => s.slug === chapter.series_slug) || {};
 
                 return (
@@ -362,8 +369,12 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           </div>
         )}
 
+        {/* --- UPDATED: Block Hidden Series from Sections --- */}
         {homeSections.map((section) => {
-          const seriesInSection = seriesList.filter((s: any) => s.home_section === section.title).sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99));
+          const seriesInSection = seriesList
+            .filter((s: any) => s.home_section === section.title && !s.is_hidden)
+            .sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99));
+            
           if (seriesInSection.length === 0) return null; 
           return <SeriesSection key={section.id} title={section.title} series={seriesInSection} onSeriesClick={onNavigate} />;
         })}

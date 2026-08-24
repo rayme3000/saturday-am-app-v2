@@ -22,10 +22,10 @@ const Browse = ({ onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Sort Series A-Z
+  // --- UPDATED: Sort Series A-Z & Filter out Hidden Series ---
   const sortedSeries = useMemo(() => {
     const filtered = seriesList.filter((s: any) =>
-      s.title.toLowerCase().includes(searchQuery.toLowerCase())
+      !s.is_hidden && s.title.toLowerCase().includes(searchQuery.toLowerCase())
     );
     return [...filtered].sort((a, b) => a.title.localeCompare(b.title));
   }, [seriesList, searchQuery]);
