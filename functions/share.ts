@@ -6,12 +6,9 @@ export async function onRequest(context: any) {
   const panelImg = url.searchParams.get('panel');
   const targetUrl = url.searchParams.get('target') || 'https://saturday-am-app-v2.pages.dev';
 
-  // 2. Check if the visitor is a social media bot (ADDED BSKY AND BLUESKY)
-  const userAgent = request.headers.get('User-Agent') || '';
-  const isBot = /bot|facebook|twitter|slack|discord|whatsapp|telegram|linkedin|vkShare|skype|preview|bsky|bluesky|mastodon/i.test(userAgent);
-
-  // 3. If it's a bot AND we have a panel image, show them the fake "front door"
-  if (isBot && panelImg) {
+  // 2. If we have a panel image, serve the meta tags and a JS redirect!
+  // No more User-Agent guessing games. Every visitor gets the tags.
+  if (panelImg) {
     const html = `
       <!DOCTYPE html>
       <html lang="en">
@@ -26,8 +23,9 @@ export async function onRequest(context: any) {
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:image" content="${panelImg}" />
       </head>
-      <body>
-        <!-- Just in case a human slips through, instantly redirect them -->
+      <body style="background: black; color: #fe9a00; font-family: sans-serif; text-align: center; padding-top: 20vh;">
+        <h2>Loading Saturday AM...</h2>
+        <!-- Real humans will execute this and redirect instantly -->
         <script>window.location.href="${targetUrl}";</script>
       </body>
       </html>
@@ -35,6 +33,6 @@ export async function onRequest(context: any) {
     return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   }
 
-  // 4. If it's a real human, redirect them instantly to the actual manga app
+  // 3. Fallback redirect if no panel image is provided
   return Response.redirect(targetUrl, 302);
 }
