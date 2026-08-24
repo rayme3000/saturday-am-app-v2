@@ -8,29 +8,33 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
 
   const isAppShare = !series;
 
-  // 1. Construct secure URL
+  // 1. Construct the base target URL (where the human goes)
   const refId = currentUser?.id ? `?ref=${currentUser.id}` : '';
-  const shareUrl = isAppShare 
+  const baseTargetUrl = isAppShare 
     ? `https://saturday-am-app-v2.pages.dev/${refId}`
     : `https://saturday-am-app-v2.pages.dev/series/${series.slug}${refId}`;
   
+  // 2. THE MAGIC TRICK: If sharing a panel, wrap it in our Edge Function Link!
+  const finalShareUrl = targetImage 
+    ? `https://saturday-am-app-v2.pages.dev/share?panel=${encodeURIComponent(targetImage)}&target=${encodeURIComponent(baseTargetUrl)}`
+    : baseTargetUrl;
+
   const chapterText = chapter ? `Chapter ${chapter.chapter_number} of ` : '';
   const shareText = isAppShare
     ? `I'm reading the best diverse manga on the Saturday AM app! Join me here:`
     : `I'm reading ${chapterText}${series.title} on the Saturday AM app! Read it here:`;
 
-  const encodedText = encodeURIComponent(`${shareText}\n\n${shareUrl}`);
+  const encodedText = encodeURIComponent(`${shareText}\n\n${finalShareUrl}`);
   const bskyLink = `https://bsky.app/intent/compose?text=${encodedText}`;
   const threadsLink = `https://www.threads.net/intent/post?text=${encodedText}`;
-  const fbLink = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+  const fbLink = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(finalShareUrl)}`;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(`${shareText}\n\n${shareUrl}`);
+    navigator.clipboard.writeText(`${shareText}\n\n${finalShareUrl}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Determine which preview image to show in the UI
   const previewImage = targetImage || "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20load%20screen.jpg";
 
   return (
@@ -53,10 +57,9 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
 
         <div className="flex flex-col gap-3 w-full">
           
-          {/* Visual preview of what the social media link will look like */}
           <div className="relative w-full h-40 mb-2 rounded-xl overflow-hidden border border-zinc-800 bg-black">
             <img src={previewImage} className="w-full h-full object-contain opacity-80" alt="Link Preview" />
-            <div className="absolute inset-0 flex flex-col justify-end p-2 bg-gradient-to-t from-black to-transparent">
+            <div className="absolute inset-0 flex flex-col justify-end p-2 bg-gradient-to-t from-black to-transparent pointer-events-none">
               <span className="text-[8px] font-black uppercase tracking-widest text-[#fe9a00]">Link Preview</span>
             </div>
           </div>
@@ -87,7 +90,6 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
             {copied ? 'Link Copied!' : 'Copy Link'}
           </button>
         </div>
-
       </div>
     </div>
   );
