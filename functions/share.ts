@@ -6,9 +6,9 @@ export async function onRequest(context: any) {
   const panelImg = url.searchParams.get('panel');
   const targetUrl = url.searchParams.get('target') || 'https://saturday-am-app-v2.pages.dev';
 
-  // 2. Check if the visitor is a social media bot
+  // 2. Check if the visitor is a social media bot (ADDED BSKY AND BLUESKY)
   const userAgent = request.headers.get('User-Agent') || '';
-  const isBot = /bot|facebook|twitter|slack|discord|whatsapp|telegram|linkedin|vkShare|skype|preview/i.test(userAgent);
+  const isBot = /bot|facebook|twitter|slack|discord|whatsapp|telegram|linkedin|vkShare|skype|preview|bsky|bluesky|mastodon/i.test(userAgent);
 
   // 3. If it's a bot AND we have a panel image, show them the fake "front door"
   if (isBot && panelImg) {
