@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Check, Crown, Zap, Star, Flame, CreditCard, X, Loader2, RefreshCcw, BookOpen, Trophy, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Check, Crown, Zap, Star, Flame, CreditCard, X, Loader2, RefreshCcw, BookOpen, Trophy, AlertTriangle, Tag } from 'lucide-react';
 import { supabase } from '../supabase';
 
 export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any) => {
@@ -7,6 +7,10 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   const [checkoutStep, setCheckoutStep] = useState<'plan' | 'processing' | 'success'>('plan');
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('monthly');
   const [showDowngradeConfirm, setShowDowngradeConfirm] = useState(false);
+
+  // --- PROMO CODE STATE ---
+  const [promoCode, setPromoCode] = useState('');
+  const [promoStatus, setPromoStatus] = useState<'applied' | 'invalid' | null>(null);
 
   const isPremium = userTier === 'premium';
 
@@ -20,15 +24,23 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     setShowModal(true);
   };
 
+  const handleApplyPromo = () => {
+    const code = promoCode.trim().toUpperCase();
+    // Simulate valid codes for sales or influencers
+    if (code === 'BLACK25' || code === 'AMCLUB26' || code === 'WHYT50') {
+      setPromoStatus('applied');
+      setSelectedPlan('yearly'); // Auto-select yearly to show off the discount
+    } else {
+      setPromoStatus('invalid');
+    }
+  };
+
   const handleDevUpgrade = async () => {
     setCheckoutStep('processing');
     const { data: { user } } = await supabase.auth.getUser();
     
     if (user) {
-      // Actually update the database for testing!
       await supabase.from('profiles').update({ is_premium: true }).eq('id', user.id);
-      
-      // Tell App.tsx to re-fetch the user data to instantly unlock the app
       window.dispatchEvent(new CustomEvent('profileUpdated'));
       
       setTimeout(() => {
@@ -48,13 +60,11 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   return (
     <div className="min-h-screen bg-black text-white relative pb-24 font-sans">
       
-      {/* GLOBAL BACKDROP */}
       <div className="fixed inset-0 z-[0] pointer-events-none">
         <div className="absolute inset-0 bg-gradient-to-br from-purple-900/20 via-black to-[#fe9a00]/10" />
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay" />
       </div>
 
-      {/* HEADER */}
       <div className="sticky top-0 z-50 bg-black/80 backdrop-blur-xl px-4 pt-6 pb-4 border-b border-white/10">
         <button onClick={onBack} className="mb-4 flex items-center gap-2 text-zinc-400 hover:text-white transition-colors">
           <ArrowLeft className="w-5 h-5" />
@@ -67,7 +77,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
       <div className="relative z-10 max-w-5xl mx-auto px-6 pt-8">
         
-        {/* HERO SECTION */}
         <div className="text-center mb-12 animate-fade-in-up">
           <div className="inline-flex items-center justify-center p-4 bg-purple-900/30 rounded-full border border-purple-500/50 mb-6 shadow-[0_0_30px_rgba(168,85,247,0.3)]">
             <Crown className="w-12 h-12 text-purple-400" />
@@ -80,10 +89,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           </p>
         </div>
 
-        {/* PRICING CARDS */}
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           
-          {/* STANDARD TIER */}
           <div className="bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-3xl p-8 flex flex-col relative overflow-hidden">
             <div className="mb-8">
               <h3 className="text-2xl font-black italic uppercase text-zinc-300 mb-2">Standard</h3>
@@ -120,13 +127,10 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             </button>
           </div>
 
-          {/* PREMIUM TIER */}
           <div className="bg-gradient-to-b from-purple-900/40 to-black backdrop-blur-xl border border-purple-500/50 rounded-3xl p-8 flex flex-col relative overflow-hidden shadow-[0_0_50px_rgba(168,85,247,0.15)] transform md:-translate-y-4">
-            
             <div className="absolute top-0 right-0 bg-gradient-to-r from-[#fe9a00] to-yellow-500 text-black text-[10px] font-black uppercase tracking-widest py-1.5 px-4 rounded-bl-xl z-10">
               Most Popular
             </div>
-
             <div className="absolute -top-24 -right-24 w-48 h-48 bg-purple-600/30 rounded-full blur-3xl pointer-events-none" />
 
             <div className="mb-8 relative z-10">
@@ -189,7 +193,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         </div>
       </div>
 
-      {/* DOWNGRADE CONFIRMATION MODAL */}
       {showDowngradeConfirm && (
         <div className="fixed inset-0 z-[7000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in">
           <div className="w-full max-w-sm bg-zinc-900 border border-red-500/50 rounded-3xl shadow-2xl p-6 sm:p-8 flex flex-col items-center text-center relative">
@@ -221,7 +224,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         </div>
       )}
 
-      {/* MOCK CHECKOUT MODAL */}
       {showModal && (
         <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in">
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative">
@@ -240,7 +242,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                     <h3 className="text-xl font-black italic uppercase text-white">Checkout</h3>
                   </div>
 
-                  <div className="space-y-4 mb-8">
+                  <div className="space-y-4 mb-6">
                     <div 
                       onClick={() => setSelectedPlan('monthly')}
                       className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedPlan === 'monthly' ? 'border-[#fe9a00] bg-[#fe9a00]/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}
@@ -259,12 +261,43 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                       <div className="flex justify-between items-center mb-1">
                         <div className="flex items-center gap-2">
                           <span className="font-black uppercase tracking-widest text-sm text-white">Yearly</span>
-                          <span className="bg-purple-500 text-white text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest">Save 20%</span>
+                          <span className="bg-purple-500 text-white text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest">
+                            {promoStatus === 'applied' ? 'PROMO APPLIED' : 'Save 20%'}
+                          </span>
                         </div>
-                        <span className="font-black text-purple-400">$39.99</span>
+                        <span className="font-black text-purple-400 flex items-center gap-2">
+                          {promoStatus === 'applied' && <span className="text-zinc-500 line-through text-xs">$39.99</span>}
+                          {promoStatus === 'applied' ? '$29.99' : '$39.99'}
+                        </span>
                       </div>
                       <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Billed once per year</p>
                     </div>
+                  </div>
+
+                  {/* --- NEW PROMO CODE WIDGET --- */}
+                  <div className="mb-8">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Tag className="w-3.5 h-3.5 text-zinc-400" />
+                      <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Promo / Referral Code</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Enter Code..." 
+                        value={promoCode}
+                        onChange={(e) => { setPromoCode(e.target.value); setPromoStatus(null); }}
+                        className="flex-1 bg-black border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white font-bold uppercase tracking-wider focus:outline-none focus:border-purple-500"
+                      />
+                      <button 
+                        onClick={handleApplyPromo}
+                        disabled={!promoCode.trim() || promoStatus === 'applied'}
+                        className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${promoStatus === 'applied' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-zinc-800 text-white hover:bg-zinc-700 disabled:opacity-50'}`}
+                      >
+                        {promoStatus === 'applied' ? <Check className="w-4 h-4" /> : 'Apply'}
+                      </button>
+                    </div>
+                    {promoStatus === 'applied' && <p className="text-emerald-400 text-[9px] font-black mt-2 uppercase tracking-widest">Code Applied: 25% Off Yearly Plan!</p>}
+                    {promoStatus === 'invalid' && <p className="text-red-400 text-[9px] font-black mt-2 uppercase tracking-widest">Invalid or expired code.</p>}
                   </div>
 
                   <button 
@@ -273,9 +306,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                   >
                     Simulate Payment <ArrowLeft className="w-4 h-4 rotate-180" />
                   </button>
-                  <p className="text-center text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-4">
-                    Stripe integration pending. This button will instantly grant premium access for development testing.
-                  </p>
                 </div>
               )}
 

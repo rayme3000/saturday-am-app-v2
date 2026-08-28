@@ -1,5 +1,5 @@
-import React, { memo } from 'react';
-import { Home, Heart, Search, ShoppingBag, User } from 'lucide-react';
+import React, { memo, useState } from 'react';
+import { Home, Library, Search, ShoppingCart, User, Plus, Trophy, Users, BookOpen, Newspaper } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) => {
@@ -48,8 +48,8 @@ const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) 
 
 export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser }: any) => {
   const { vaultFrames = [] } = useSeriesData();
+  const [isExpanded, setIsExpanded] = useState(false);
   
-  // Checking BOTH possible database keys to be absolutely bulletproof
   const navAvatar = currentUser?.avatar_url || '';
   const navFrame = currentUser?.avatar_frame_id || currentUser?.frame_id || '';
 
@@ -58,39 +58,99 @@ export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser }: a
   const dynShadow = dynamicFrame?.glow_color && dynamicFrame.glow_color !== 'transparent' ? `0 0 10px ${dynamicFrame.glow_color}` : 'none';
   const dynAnim = dynamicFrame ? dynamicFrame.animation_style : 'none';
 
+  const handleNav = (action: string) => {
+    onNavigate({ action });
+    setIsExpanded(false);
+  };
+
   return (
-    <div className="fixed bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 w-[92%] sm:w-auto sm:min-w-[400px] max-w-md z-[150] pointer-events-none pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-      <nav className="bg-black/80 backdrop-blur-md border border-[#fe9a00] rounded-full px-6 py-1.5 flex items-center justify-between shadow-[0_10px_40px_rgba(0,0,0,0.8)] pointer-events-auto">
-        <button onClick={() => onNavigate({ action: 'home' })} className="p-2 transition-transform hover:scale-110">
-          <Home className={`w-6 h-6 ${currentView === 'home' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
-        </button>
+    <div className="fixed bottom-4 sm:bottom-8 left-0 w-full z-[150] pb-[max(0.75rem,env(safe-area-inset-bottom))] flex flex-col items-center pointer-events-none">
+      
+      {/* EXPANDABLE GRID (Popping out above) */}
+      <div className={`mb-4 bg-zinc-900/95 backdrop-blur-xl border border-zinc-700 rounded-3xl p-4 shadow-2xl transition-all duration-300 origin-bottom pointer-events-auto ${isExpanded ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-8 pointer-events-none'}`}>
+        <div className="grid grid-cols-4 gap-4 sm:gap-6">
+          <button onClick={() => handleNav('leaderboard')} className="flex flex-col items-center gap-2 group">
+            <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">Rankings</span>
+          </button>
+          <button onClick={() => handleNav('characters')} className="flex flex-col items-center gap-2 group">
+            <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><Users className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">Characters</span>
+          </button>
+          <button onClick={() => handleNav('bingobook')} className="flex flex-col items-center gap-2 group">
+            <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">Bingo Book</span>
+          </button>
+          <button onClick={() => handleNav('news')} className="flex flex-col items-center gap-2 group">
+            <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><Newspaper className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">AM News</span>
+          </button>
+        </div>
+      </div>
 
-        <button onClick={() => onNavigate({ action: 'faves' })} className="p-2 transition-transform hover:scale-110">
-          <Heart className={`w-6 h-6 ${currentView === 'faves' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
-        </button>
+      {/* NAV CONTAINER */}
+      <div className="flex items-center justify-center gap-2 sm:gap-3 w-[94%] sm:w-auto max-w-[500px]">
+        
+        {/* MAIN PILL */}
+        <nav className="relative flex-1 sm:min-w-[400px] h-14 sm:h-16 bg-black/80 backdrop-blur-md border border-[#fe9a00] rounded-full flex items-center shadow-[0_10px_40px_rgba(0,0,0,0.8)] pointer-events-auto">
+          
+          {/* LEFT ICONS */}
+          <div className="flex-1 flex justify-evenly items-center h-full pr-8 sm:pr-10">
+            <button onClick={() => handleNav('home')} className="p-2 transition-transform hover:scale-110">
+              <Home className={`w-5 h-5 sm:w-6 sm:h-6 ${currentView === 'home' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
+            </button>
 
-        <button onClick={() => onNavigate({ action: 'profile' })} className="relative flex items-center justify-center w-12 h-12 transition-transform hover:scale-110 flex-shrink-0 mx-1">
-           <div 
-             className={`w-10 h-10 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 transition-all ${!dynamicFrame ? 'border-[1.5px] border-zinc-700' : ''} ${currentView === 'profile' && !dynamicFrame ? 'border-[#fe9a00]' : ''}`}
-             style={dynamicFrame ? { border: dynBorder, boxShadow: dynShadow } : {}}
-           >
-             {navAvatar && navAvatar.trim() !== '' ? (
-               <img src={navAvatar} alt="Profile" className="w-full h-full object-cover" />
-             ) : (
-               <User className={`w-5 h-5 ${currentView === 'profile' ? 'text-[#fe9a00]' : 'text-zinc-400'}`} />
+            {/* CHANGED TO LIBRARY/BOOKSHELF ICON */}
+            <button onClick={() => handleNav('faves')} className="p-2 transition-transform hover:scale-110">
+              <Library className={`w-5 h-5 sm:w-6 sm:h-6 ${currentView === 'faves' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
+            </button>
+          </div>
+
+          {/* PROMINENT BREAKOUT AVATAR */}
+          <button 
+            onClick={() => handleNav('profile')} 
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center w-20 h-20 sm:w-24 sm:h-24 transition-transform hover:scale-105 z-20"
+          >
+             <div 
+               className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 transition-all shadow-2xl ${!dynamicFrame ? 'border-[3px] border-[#fe9a00]' : ''}`}
+               style={dynamicFrame ? { border: dynBorder, boxShadow: dynShadow } : {}}
+             >
+               {navAvatar && navAvatar.trim() !== '' ? (
+                 <img src={navAvatar} alt="Profile" className="w-full h-full object-cover" />
+               ) : (
+                 <User className={`w-6 h-6 sm:w-8 sm:h-8 ${currentView === 'profile' ? 'text-[#fe9a00]' : 'text-zinc-400'}`} />
+               )}
+             </div>
+             
+             {/* Scale the dynamic frame animations up to wrap the new larger avatar */}
+             {dynamicFrame && (
+               <div className="absolute inset-0 flex items-center justify-center pointer-events-none scale-[1.35] sm:scale-[1.6]">
+                 <RenderPillAnimations anim={dynAnim} color={dynamicFrame.border_color} />
+               </div>
              )}
-           </div>
-           {dynamicFrame && <RenderPillAnimations anim={dynAnim} color={dynamicFrame.border_color} />}
+          </button>
+
+          {/* RIGHT ICONS */}
+          <div className="flex-1 flex justify-evenly items-center h-full pl-8 sm:pl-10">
+            <button onClick={() => handleNav('browse')} className="p-2 transition-transform hover:scale-110">
+              <Search className={`w-5 h-5 sm:w-6 sm:h-6 ${currentView === 'browse' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
+            </button>
+
+            <button onClick={() => handleNav('shop')} className="p-2 transition-transform hover:scale-110">
+              <ShoppingCart className={`w-5 h-5 sm:w-6 sm:h-6 ${currentView === 'shop' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
+            </button>
+          </div>
+        </nav>
+
+        {/* OUTSIDE PLUS BUTTON */}
+        <button 
+          onClick={() => setIsExpanded(!isExpanded)} 
+          className={`shrink-0 flex items-center justify-center w-[52px] h-[52px] sm:w-[60px] sm:h-[60px] rounded-full backdrop-blur-md border shadow-[0_10px_40px_rgba(0,0,0,0.8)] pointer-events-auto transition-all duration-300 ${isExpanded ? 'rotate-45 bg-zinc-800 border-zinc-700' : 'rotate-0 bg-black/80 border-[#fe9a00] hover:scale-105'}`}
+        >
+          <Plus className={`w-6 h-6 sm:w-7 sm:h-7 ${isExpanded ? 'text-red-500' : 'text-white'}`} />
         </button>
 
-        <button onClick={() => onNavigate({ action: 'browse' })} className="p-2 transition-transform hover:scale-110">
-          <Search className={`w-6 h-6 ${currentView === 'browse' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
-        </button>
-
-        <button onClick={() => onNavigate({ action: 'shop' })} className="p-2 transition-transform hover:scale-110">
-          <ShoppingBag className={`w-6 h-6 ${currentView === 'shop' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
-        </button>
-      </nav>
+      </div>
     </div>
   );
 });

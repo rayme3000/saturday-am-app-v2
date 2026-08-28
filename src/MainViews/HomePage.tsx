@@ -3,8 +3,7 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { SeriesSection } from "./SeriesSection";
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
-import { ShareModal } from '../Components/ShareModal';
-import { Menu, X, Bell, CheckCircle, Play, Share2 } from 'lucide-react';
+import { Menu, X, Bell, CheckCircle, Play } from 'lucide-react';
 import { useTelemetry } from '../Components/useTelemetry'; 
 
 let memHeroSlides: any = null;
@@ -14,7 +13,6 @@ let memNotifications: any = null;
 
 export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, userTier }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
-  
   const { trackEvent } = useTelemetry(currentUser?.id);
   
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -23,9 +21,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [latestChapters, setLatestChapters] = useState<any[]>([]);
   const [isLoadingSlides, setIsLoadingSlides] = useState(!memHeroSlides);
   
-  const [showShareModal, setShowShareModal] = useState(false);
   const [recentReads, setRecentReads] = useState<any[]>(memRecentReads || []);
-
   const [notifications, setNotifications] = useState<any[]>(memNotifications || []);
   const [showNotifications, setShowNotifications] = useState(false);
   const [dismissedNotifs, setDismissedNotifs] = useState<string[]>([]);
@@ -76,9 +72,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           .order('created_at', { ascending: false }) 
           .limit(20);
           
-        if (chapData) {
-          setLatestChapters(chapData);
-        }
+        if (chapData) setLatestChapters(chapData);
 
         await fetchGlobalNotifications();
       } catch (err: any) {
@@ -185,11 +179,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     }
   };
 
-  const handleLogout = async () => {
-    window.dispatchEvent(new Event('instantLogout'));
-    await supabase.auth.signOut();
-  };
-
   const visibleLatestChapters = useMemo(() => {
     return latestChapters.filter(chapter => {
       const seriesData = seriesList.find(s => s.slug === chapter.series_slug);
@@ -201,7 +190,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
   return (
     <div className="relative min-h-screen bg-transparent text-white pb-24">
-      <ShareModal isOpen={showShareModal} onClose={() => setShowShareModal(false)} currentUser={currentUser} />
 
       <div className="fixed inset-0 z-[-1] bg-black">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
@@ -210,21 +198,21 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
       </div>
 
-      {/* --- TOP NAV EDGE TO EDGE --- */}
-      <nav className="sticky top-0 w-full z-[100] p-4 sm:p-6 flex justify-between items-center bg-black/80 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
-        <div className="flex-1 flex justify-start"><button onClick={onMenuToggle} className="p-2 hover:bg-zinc-800/80 rounded-full transition-colors"><Menu className="w-6 h-6 text-white" /></button></div>
+      {/* --- REORGANIZED TOP NAV --- */}
+      <nav className="sticky top-0 w-full z-[100] px-4 py-3 sm:px-6 sm:py-4 flex justify-between items-center bg-black/80 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
         
-        <div className="flex items-center justify-center cursor-pointer flex-shrink-0" onClick={() => onNavigate({ action: 'home' })}>
-          <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png" alt="Saturday AM" className="h-12 md:h-16 object-contain drop-shadow-md hover:scale-105 transition-transform" />
+        {/* LEFT: Logo */}
+        <div className="flex items-center cursor-pointer flex-shrink-0" onClick={() => onNavigate({ action: 'home' })}>
+          <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png" alt="Saturday AM" className="h-10 md:h-12 object-contain drop-shadow-md hover:scale-105 transition-transform" />
         </div>
         
-        <div className="flex-1 flex items-center justify-end gap-2 sm:gap-4">
+        {/* RIGHT: Avatar, Notifications, Hamburger Menu */}
+        <div className="flex items-center justify-end gap-2 sm:gap-4">
           
-          {/* --- HIDE LOGIN BUTTON IF LOGGED IN --- */}
           {!currentUser ? (
             <button 
               onClick={onLoginClick}
-              className="whitespace-nowrap flex-shrink-0 flex items-center justify-center bg-[#fe9a00] text-black px-4 py-1.5 sm:px-5 sm:py-2 rounded-full font-black uppercase tracking-widest text-[9px] sm:text-[10px] hover:bg-white transition-colors mr-1 sm:mr-2 shadow-[0_0_15px_rgba(254,154,0,0.3)]"
+              className="whitespace-nowrap flex-shrink-0 flex items-center justify-center bg-[#fe9a00] text-black px-4 py-1.5 sm:px-5 sm:py-2 rounded-full font-black uppercase tracking-widest text-[9px] sm:text-[10px] hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]"
             >
               Log In
             </button>
@@ -235,8 +223,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             </div>
           )}
           
-          <div className="relative ml-1 sm:ml-0">
-            <button onClick={() => setShowNotifications(!showNotifications)} className="p-2 sm:p-2.5 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all relative">
+          <div className="relative">
+            <button onClick={() => setShowNotifications(!showNotifications)} className="p-2 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all relative">
               <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors" />
               {visibleNotifications.length > 0 && <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-zinc-900 animate-pulse" />}
             </button>
@@ -268,13 +256,13 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
               </>
             )}
           </div>
-          <button onClick={() => setShowShareModal(true)} className="p-2 sm:p-2.5 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all" title="Share Saturday AM">
-            <Share2 className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors" />
+
+          <button onClick={onMenuToggle} className="p-2 bg-zinc-900 border border-zinc-700 hover:bg-[#fe9a00] hover:border-[#fe9a00] group rounded-full transition-colors ml-1">
+            <Menu className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors" />
           </button>
         </div>
       </nav>
 
-      {/* --- ADDED px-6 SO CONTENT IS STILL PADDED EVEN THOUGH NAV IS FULL WIDTH --- */}
       <div className="px-6">
         <div className="mb-8 w-full flex flex-col items-center">
           <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900/80 border border-zinc-800/50 shadow-xl backdrop-blur-sm">
@@ -317,7 +305,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           </div>
         )}
         
-        {/* LATEST CHAPTERS FEED */}
         {visibleLatestChapters.length > 0 && (
           <div className="mb-10 relative group px-2">
             <div className="flex items-center gap-3 mb-4">

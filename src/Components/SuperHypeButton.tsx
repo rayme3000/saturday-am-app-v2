@@ -2,10 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { Flame } from 'lucide-react';
 
-export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremium, onRequireAuth }: any) => {
+export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequireAuth, onRequirePremium }: any) => {
   const [hasSuperHyped, setHasSuperHyped] = useState(false);
   const [hypesLeft, setHypesLeft] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Dynamically calculate days until Saturday 12:00 AM
+  const getDaysUntilReset = () => {
+    const now = new Date();
+    const nextSaturday = new Date(now);
+    nextSaturday.setDate(now.getDate() + ((6 - now.getDay() + 7) % 7));
+    nextSaturday.setHours(0, 0, 0, 0);
+    
+    if (now >= nextSaturday) {
+      nextSaturday.setDate(nextSaturday.getDate() + 7);
+    }
+    
+    const diffTime = Math.abs(nextSaturday.getTime() - now.getTime());
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
 
   useEffect(() => {
     if (userId && seriesSlug) {
@@ -16,7 +31,6 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremiu
   }, [userId, seriesSlug, isPremium]);
 
   const checkSuperHypeStatus = async () => {
-    // 1. Check if the user has already hyped this specific series
     const { data: hypeData } = await supabase
       .from('super_hypes')
       .select('id')
@@ -26,17 +40,14 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremiu
 
     if (hypeData) setHasSuperHyped(true);
 
-    // 2. Fetch remaining monthly hypes for Premium users
-    if (isPremium) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('super_hypes_left')
-        .eq('id', userId)
-        .maybeSingle();
-        
-      if (profile && profile.super_hypes_left !== undefined) {
-        setHypesLeft(profile.super_hypes_left);
-      }
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('super_hypes_left')
+      .eq('id', userId)
+      .maybeSingle();
+      
+    if (profile && profile.super_hypes_left !== undefined) {
+      setHypesLeft(profile.super_hypes_left);
     }
 
     setIsLoading(false);
@@ -48,32 +59,27 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremiu
       e.stopPropagation();
     }
 
-    // 1. Check Auth
     if (!userId) {
       if (onRequireAuth) onRequireAuth();
       return;
     }
 
-    // 2. Enforce Paywall for Free Users
     if (!isPremium) {
       if (onRequirePremium) onRequirePremium();
       return;
     }
 
-    // 3. Block if already hyped, loading, or completely out of hypes
     if (hasSuperHyped || isLoading || (hypesLeft !== null && hypesLeft !== undefined && hypesLeft <= 0)) return;
 
     setIsLoading(true);
 
     try {
-      // Create the Super Hype record
       const { error } = await supabase
         .from('super_hypes')
         .insert([{ user_id: userId, series_slug: seriesSlug }]);
 
       if (error) throw error;
 
-      // Update User Profile Stats (BOTH limit and total tracker)
       const { data: profile } = await supabase
         .from('profiles')
         .select('super_hypes, super_hypes_left')
@@ -96,35 +102,35 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequirePremiu
 
       setHasSuperHyped(true);
     } catch (err) {
-      console.error("Failed to super hype:", err);
+      console.error("Failed to hype:", err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Determine if the user is out of hypes to trigger the disabled UI state
-  const isOutOfHypes = isPremium && hypesLeft !== null && hypesLeft !== undefined && hypesLeft <= 0 && !hasSuperHyped;
+  const isOutOfHypes = hypesLeft !== null && hypesLeft !== undefined && hypesLeft <= 0 && !hasSuperHyped;
+  const daysLeft = getDaysUntilReset();
 
   return (
     <button 
       onClick={handleSuperHype}
-      disabled={isLoading || hasSuperHyped || isOutOfHypes}
-      className={`flex items-center gap-3 px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all ${
+      disabled={isLoading || hasSuperHyped || (isPremium && isOutOfHypes)}
+      className={`flex items-center justify-center gap-3 px-8 py-3 w-full rounded-full font-black uppercase tracking-widest transition-all ${
         hasSuperHyped 
           ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00]' 
-          : isOutOfHypes
+          : (isOutOfHypes && isPremium)
           ? 'bg-zinc-800 text-zinc-500 border border-zinc-700 cursor-not-allowed'
           : 'bg-gradient-to-r from-yellow-500 to-[#fe9a00] text-black hover:scale-105 shadow-[0_0_20px_rgba(254,154,0,0.4)]'
       }`}
     >
-      <Flame className={`w-5 h-5 ${hasSuperHyped ? 'fill-[#fe9a00]' : isOutOfHypes ? 'fill-zinc-500 text-zinc-500' : 'fill-black'}`} />
+      <Flame className={`w-5 h-5 ${hasSuperHyped ? 'fill-[#fe9a00]' : (isOutOfHypes && isPremium) ? 'fill-zinc-500 text-zinc-500' : 'fill-black'}`} />
       <div className="flex flex-col text-left">
         <span className="leading-tight">
-          {hasSuperHyped ? 'SUPER HYPED!' : isOutOfHypes ? 'NO HYPES LEFT' : 'SUPER HYPE'}
+          {hasSuperHyped ? 'HYPED!' : (!isPremium ? 'SUBSCRIBE TO HYPE' : (isOutOfHypes ? 'OUT OF HYPES' : 'HYPE THIS SERIES'))}
         </span>
         {!hasSuperHyped && (
           <span className="text-[9px] font-bold opacity-80 leading-tight">
-            {isPremium ? (hypesLeft !== null && hypesLeft !== undefined ? `${hypesLeft} Left this month` : 'Loading...') : 'Pro Exclusive'}
+            {!isPremium ? 'Pro Exclusive Feature' : (hypesLeft !== null ? `${hypesLeft} Left • Resets in ${daysLeft}d` : 'Loading...')}
           </span>
         )}
       </div>

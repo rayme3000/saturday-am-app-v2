@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2, X, Info } from 'lucide-react';
+import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2, X, Info, Heart } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
@@ -104,7 +104,7 @@ const MemoizedHorizontalImage = React.memo(({ src, alt, pageHotspots, onHotspotC
   </div>
 ));
 
-export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium, initialPage = 0, onNavigate, series, chapter }: any) => {
+export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium, initialPage = 0, onNavigate, series, chapter, onSupportCreator }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [mode, setMode] = useState<'horizontal' | 'vertical'>('horizontal'); 
   const [isUIVisible, setIsUIVisible] = useState(true);
@@ -132,7 +132,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const activeUserRef = useRef(userId || currentUser?.id);
   const isComponentMounted = useRef(true);
   
-  // --- NEW: Cooldown Tracker for Page Turns ---
   const lastNavTime = useRef(0);
   
   const touchStartPos = useRef({ x: 0, y: 0 });
@@ -140,7 +139,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const currentScaleRef = useRef(1);
 
   const getUrl = useCallback((p: any) => p?.image_url || p, []);
-  const getId = useCallback((p: any) => p?.id || p, []);
 
   const qr = useQuickReacts(chapterId, currentPage, currentUser);
 
@@ -188,16 +186,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           { user_id: finalUserId, chapter_id: chapterId, page_index: finalPage, updated_at: new Date().toISOString() },
           { onConflict: 'user_id, chapter_id' }
         ).then();
-        
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-        
-        if (supabaseUrl && supabaseKey) {
-            const payload = JSON.stringify({ user_id: finalUserId, chapter_id: chapterId, page_index: finalPage, updated_at: new Date().toISOString() });
-            const url = `${supabaseUrl}/rest/v1/reading_history?on_conflict=user_id,chapter_id`;
-            const blob = new Blob([payload], { type: 'application/json' });
-            navigator.sendBeacon(url + `&apikey=${supabaseKey}&Authorization=Bearer ${supabaseKey}`, blob);
-        }
       }
     };
   }, [chapterId]);
@@ -205,7 +193,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   useEffect(() => {
     let viewportMeta = document.querySelector('meta[name="viewport"]');
     let originalContent = '';
-
     if (viewportMeta) {
       originalContent = viewportMeta.getAttribute('content') || '';
       viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
@@ -215,7 +202,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
       document.head.appendChild(viewportMeta);
     }
-
     return () => {
       if (viewportMeta && originalContent) viewportMeta.setAttribute('content', originalContent);
     };
@@ -310,11 +296,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     onNext();
   }, [onNext, saveProgressToDB]);
 
-  // --- UPDATED: Bulletproof Cooldowns on Page Turns ---
   const goNext = useCallback(async (e?: any) => {
     if (e) e.stopPropagation(); 
     
-    // 300ms Cooldown to block ghost touches
     const now = Date.now();
     if (now - lastNavTime.current < 300) return;
     lastNavTime.current = now;
@@ -339,7 +323,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const goPrev = useCallback((e?: any) => {
     if (e) e.stopPropagation();
     
-    // 300ms Cooldown to block ghost touches
     const now = Date.now();
     if (now - lastNavTime.current < 300) return;
     lastNavTime.current = now;
@@ -359,14 +342,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     });
   }, []);
 
-  // --- UPDATED: Unified Pointer Events ---
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (isAnimatingPage) return;
-    
-    if (document.elementsFromPoint(e.clientX, e.clientY).some(el => el.classList.contains('hotspot-button'))) {
-      return;
-    }
-    
+    if (document.elementsFromPoint(e.clientX, e.clientY).some(el => el.classList.contains('hotspot-button'))) return;
     touchStartPos.current = { x: e.clientX, y: e.clientY };
     touchCurrentPos.current = { x: e.clientX, y: e.clientY };
     setIsDragging(true);
@@ -374,7 +352,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isDragging || currentScaleRef.current > 1.05 || isAnimatingPage) return;
-    
     touchCurrentPos.current = { x: e.clientX, y: e.clientY };
     const deltaX = e.clientX - touchStartPos.current.x;
     const deltaY = Math.abs(e.clientY - touchStartPos.current.y);
@@ -423,15 +400,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   const maxPage = Math.max(1, pages.length - 1);
   const progressPercentage = (currentPage / maxPage) * 100;
-
-  const handleVerticalProgressClick = useCallback((e: any) => {
-    e.stopPropagation();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickY = e.clientY - rect.top; 
-    const percentage = clickY / rect.height;
-    const newPage = Math.round(percentage * maxPage);
-    setCurrentPage(Math.max(0, Math.min(newPage, maxPage)));
-  }, [maxPage]);
 
   const handleHorizontalProgressClick = useCallback((e: any) => {
     e.stopPropagation();
@@ -487,11 +455,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
       `}</style>
 
-      {/* --- AM BEHIND THE PAGES MODAL --- */}
+      {/* --- HOTSPOT MODAL --- */}
       {activeHotspot && (
         <div className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in pointer-events-auto" onClick={(e) => { e.stopPropagation(); setActiveHotspot(null); }}>
-          <div className="bg-zinc-900 border border-zinc-700 p-6 sm:p-8 rounded-2xl w-full max-w-md shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setActiveHotspot(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+          <div className="bg-zinc-900 border border-zinc-700 p-6 sm:p-8 rounded-2xl w-full max-w-md shadow-2xl relative flex flex-col" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setActiveHotspot(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors hidden sm:block">
               <X className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-3 mb-4 border-b border-zinc-800 pb-4">
@@ -502,17 +470,19 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                 Behind the Pages
               </h3>
             </div>
-            <p className="text-zinc-300 text-sm leading-relaxed font-medium whitespace-pre-wrap select-text">
+            <p className="text-zinc-300 text-sm leading-relaxed font-medium whitespace-pre-wrap select-text flex-1 overflow-y-auto max-h-[40vh]">
               {renderContentWithLinks(activeHotspot.content)}
             </p>
+            {/* THUMB ZONE FIX: BOTTOM CLOSE BUTTON */}
+            <button onClick={() => setActiveHotspot(null)} className="mt-6 w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-black uppercase tracking-widest text-[10px] transition-colors sm:hidden">
+              Close Detail
+            </button>
           </div>
         </div>
       )}
 
-      {/* --- NOTIFICATION COMPONENTS --- */}
       <QuickReactToast toastConfig={qr.toastConfig} />
       
-      {/* THE UPDATED SHARE MODAL */}
       <ShareModal 
         isOpen={showShareModal} 
         onClose={() => { setShowShareModal(false); setShareTargetImage(null); }} 
@@ -531,7 +501,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         reportedReacts={qr.reportedReacts}
       />
 
-      {/* --- HORIZONTAL READER WRAPPER WITH POINTER EVENTS --- */}
       {mode === 'horizontal' && (
         <div 
           className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center touch-none select-none"
@@ -539,10 +508,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           onPointerMoveCapture={handlePointerMove}
           onPointerUpCapture={handlePointerUp}
           onPointerCancelCapture={handlePointerUp}
-          style={{
-            transform: `translateX(${dragOffset}px)`,
-            transition: isAnimatingPage ? 'transform 0.2s cubic-bezier(0.25, 1, 0.5, 1)' : 'none'
-          }}
+          style={{ transform: `translateX(${dragOffset}px)`, transition: isAnimatingPage ? 'transform 0.2s cubic-bezier(0.25, 1, 0.5, 1)' : 'none' }}
         >
           {pages[currentPage] ? (
             <TransformWrapper
@@ -604,6 +570,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                         Read Next <SkipForward className="w-5 h-5" />
                       </button>
                     )}
+                    <button onClick={onSupportCreator} className="w-full bg-[#fe9a00]/10 border border-[#fe9a00]/50 text-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-full hover:bg-[#fe9a00] hover:text-black transition-colors flex items-center justify-center gap-2">
+                      <Heart className="w-5 h-5" /> Support the Creator
+                    </button>
                     <button onClick={handleClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
                       <ArrowLeft className="w-5 h-5" /> Back to Series
                     </button>
@@ -624,6 +593,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
                 Read Next <SkipForward className="w-5 h-5" />
               </button>
             )}
+            <button onClick={onSupportCreator} className="w-full bg-[#fe9a00]/10 border border-[#fe9a00]/50 text-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-full hover:bg-[#fe9a00] hover:text-black transition-colors flex items-center justify-center gap-2">
+              <Heart className="w-5 h-5" /> Support the Creator
+            </button>
             <button onClick={handleClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
               <ArrowLeft className="w-5 h-5" /> Back to Series
             </button>
@@ -646,107 +618,45 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         <span className="text-[#fe9a00] text-[9px] font-black uppercase tracking-widest mt-0.5">Page {currentPage + 1} / {pages.length}</span>
       </div>
 
-      {mode === 'vertical' && (
-        <div 
-          className={`absolute top-2 bottom-2 left-2 sm:top-3 sm:bottom-3 sm:left-3 w-12 sm:w-14 flex flex-col items-center py-2 z-50 transition-transform duration-300 ${isUIVisible ? 'translate-x-0' : '-translate-x-[200%]'}`}
-          onClick={(e) => e.stopPropagation()} 
-        >
-          <div className="flex flex-col items-center w-full">
-            <button onClick={handleClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
-              <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
-            </button>
-          </div>
-
-          <div className="flex-1 w-full my-6 relative flex justify-center group" onClick={handleVerticalProgressClick}>
-            <div className="absolute inset-y-0 -inset-x-4 cursor-pointer z-10" />
-            <div className="w-1.5 h-full bg-black/40 backdrop-blur-md rounded-full overflow-hidden relative pointer-events-none shadow-inner border border-white/5">
-              <div className="absolute top-0 left-0 w-full bg-[#fe9a00] transition-all duration-300" style={{ height: `${progressPercentage}%` }} />
-            </div>
-
-            <QuickReactTimeline 
-              mode={mode}
-              localComments={qr.localComments}
-              maxPage={maxPage}
-              currentPage={currentPage}
-              activeCommentIndex={qr.activeCommentIndex}
-              onOpenDrawer={() => qr.setShowAllReacts(true)}
-            />
-          </div>
-
-          <div className="flex flex-col items-center gap-3 w-full">
-            <button onClick={() => setMode('horizontal')} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Switch to Horizontal Reader">
-              <MoveHorizontal className="w-3 h-3 sm:w-4 sm:h-4" />
-            </button>
-            
-            <button onClick={() => setShowShareModal(true)} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Share Page">
-              <Share2 className="w-3 h-3 sm:w-4 sm:h-4" />
-            </button>
-
-            <QuickReactViewAllButton setShowAllReacts={qr.setShowAllReacts} />
-
-            {currentUser?.id && pages[currentPage] && (
-              <div className="scale-75 sm:scale-90 drop-shadow-md">
-                <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={currentUser.id} variant="icon" />
-              </div>
-            )}
-
-            <QuickReactToggleButton isReactInputOpen={qr.isReactInputOpen} setIsReactInputOpen={qr.setIsReactInputOpen} />
-          </div>
+      {/* --- UNIFIED BOTTOM CONTROL BAR (Both Horizontal & Vertical use this now) --- */}
+      <div 
+        className={`absolute left-2 right-2 sm:left-4 sm:right-4 h-12 sm:h-14 flex flex-row items-center z-50 transition-transform duration-300 ${isUIVisible ? 'translate-y-0' : 'translate-y-[200%]'}`}
+        style={{ bottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}
+        onClick={(e) => e.stopPropagation()} 
+      >
+        <div className="flex flex-row items-center">
+          <button onClick={handleClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
+            <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
         </div>
-      )}
 
-      {mode === 'horizontal' && (
-        <div 
-          className={`absolute left-2 right-2 sm:left-3 sm:right-3 h-12 sm:h-14 flex flex-row items-center z-50 transition-transform duration-300 ${isUIVisible ? 'translate-y-0' : 'translate-y-[200%]'}`}
-          style={{ bottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}
-          onClick={(e) => e.stopPropagation()} 
-        >
-          <div className="flex flex-row items-center">
-            <button onClick={handleClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
-              <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
-            </button>
+        <div className="flex-1 h-full mx-4 sm:mx-6 relative flex items-center group cursor-pointer" onClick={handleHorizontalProgressClick}>
+          <div className="absolute inset-x-0 -inset-y-4 z-10" />
+          <div className="w-full h-1.5 bg-black/40 backdrop-blur-md rounded-full overflow-hidden relative pointer-events-none shadow-inner border border-white/5">
+            <div className="absolute top-0 left-0 h-full bg-[#fe9a00] transition-all duration-300" style={{ width: `${progressPercentage}%` }} />
           </div>
-
-          <div className="flex-1 h-full mx-4 sm:mx-6 relative flex items-center group" onClick={handleHorizontalProgressClick}>
-            <div className="absolute inset-x-0 -inset-y-4 cursor-pointer z-10" />
-            <div className="w-full h-1.5 bg-black/40 backdrop-blur-md rounded-full overflow-hidden relative pointer-events-none shadow-inner border border-white/5">
-              <div className="absolute top-0 left-0 h-full bg-[#fe9a00] transition-all duration-300" style={{ width: `${progressPercentage}%` }} />
-            </div>
-
-            <QuickReactTimeline 
-              mode={mode}
-              localComments={qr.localComments}
-              maxPage={maxPage}
-              currentPage={currentPage}
-              activeCommentIndex={qr.activeCommentIndex}
-              onOpenDrawer={() => qr.setShowAllReacts(true)}
-            />
-          </div>
-
-          <div className="flex flex-row items-center gap-2 sm:gap-3">
-            <button onClick={() => setMode('vertical')} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Switch to Vertical Scroll">
-              <MoveVertical className="w-3 h-3 sm:w-4 sm:h-4" />
-            </button>
-            
-            <button onClick={() => setShowShareModal(true)} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Share Page">
-              <Share2 className="w-3 h-3 sm:w-4 sm:h-4" />
-            </button>
-
-            <QuickReactViewAllButton setShowAllReacts={qr.setShowAllReacts} />
-
-            {currentUser?.id && pages[currentPage] && (
-              <div className="scale-75 sm:scale-90 drop-shadow-md">
-                <HypeButton targetType="page" targetId={getId(pages[currentPage])} userId={currentUser.id} variant="icon" />
-              </div>
-            )}
-
-            <QuickReactToggleButton isReactInputOpen={qr.isReactInputOpen} setIsReactInputOpen={qr.setIsReactInputOpen} />
-          </div>
+          <QuickReactTimeline mode="horizontal" localComments={qr.localComments} maxPage={maxPage} currentPage={currentPage} activeCommentIndex={qr.activeCommentIndex} onOpenDrawer={() => qr.setShowAllReacts(true)} />
         </div>
-      )}
+
+        <div className="flex flex-row items-center gap-2 sm:gap-3">
+          <button onClick={() => setMode(mode === 'vertical' ? 'horizontal' : 'vertical')} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title={mode === 'vertical' ? "Switch to Horizontal" : "Switch to Vertical Scroll"}>
+            {mode === 'vertical' ? <MoveHorizontal className="w-3 h-3 sm:w-4 sm:h-4" /> : <MoveVertical className="w-3 h-3 sm:w-4 sm:h-4" />}
+          </button>
+          <button onClick={() => setShowShareModal(true)} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Share Page">
+            <Share2 className="w-3 h-3 sm:w-4 sm:h-4" />
+          </button>
+          <QuickReactViewAllButton setShowAllReacts={qr.setShowAllReacts} />
+          {currentUser?.id && (
+            <div className="scale-75 sm:scale-90 drop-shadow-md">
+              <HypeButton targetType="chapter" targetId={chapterId} userId={currentUser.id} variant="icon" onRequireAuth={() => alert("Create a Free Account to like chapters!")} onToggle={(isHyped: boolean) => { if(onHypeUpdate) onHypeUpdate(chapterId, isHyped); }} />
+            </div>
+          )}
+          <QuickReactToggleButton isReactInputOpen={qr.isReactInputOpen} setIsReactInputOpen={qr.setIsReactInputOpen} />
+        </div>
+      </div>
 
       <div 
-        className={`absolute z-[110] flex w-[calc(100%-16px)] sm:w-full max-w-sm pointer-events-none transition-all duration-300 ${mode === 'vertical' ? 'bottom-4 left-16 sm:left-20 justify-start' : 'bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 justify-center'}`} 
+        className="absolute z-[110] flex w-[calc(100%-16px)] sm:w-full max-w-sm pointer-events-none transition-all duration-300 bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 justify-center" 
         onClick={(e) => e.stopPropagation()}
       >
         {qr.isReactInputOpen && isUIVisible && (

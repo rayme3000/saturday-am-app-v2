@@ -12,7 +12,6 @@ import { supabase } from '../supabase';
 import { Bell, Send, BookOpen, Star, Sparkles, Newspaper } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
-// --- UPDATED: STREAMLINED NOTIFICATION CREATOR ---
 const NotificationCenter = () => {
   const { seriesList = [] } = useSeriesData();
   
@@ -25,7 +24,6 @@ const NotificationCenter = () => {
   const [linkTarget, setLinkTarget] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Handle changing the notification workflow type
   const handleTypeChange = (type: 'chapter' | 'feature' | 'news' | 'custom') => {
     setNotifType(type);
     setSelectedSeriesSlug('');
@@ -53,7 +51,6 @@ const NotificationCenter = () => {
     }
   };
 
-  // Handle auto-filling data when a series is selected
   const handleSeriesSelect = (slug: string) => {
     setSelectedSeriesSlug(slug);
     const series = seriesList.find((s: any) => s.slug === slug);
@@ -87,7 +84,6 @@ const NotificationCenter = () => {
       alert("Error: " + error.message);
     } else {
       alert("Notification Blasted Successfully!");
-      // Reset form based on current type
       handleTypeChange(notifType);
     }
   };
@@ -99,7 +95,6 @@ const NotificationCenter = () => {
         <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Push Notification Blaster</h2>
       </div>
 
-      {/* WORKFLOW SELECTOR */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
         <button 
           onClick={() => handleTypeChange('chapter')}
@@ -133,7 +128,6 @@ const NotificationCenter = () => {
 
       <form onSubmit={handleSubmit} className="space-y-5">
         
-        {/* SERIES DROPDOWN (Only visible if Chapter Drop is selected) */}
         {notifType === 'chapter' && (
           <div className="p-4 bg-black border border-zinc-800 rounded-xl mb-4">
             <label className="block text-[#fe9a00] font-bold uppercase tracking-widest text-[10px] mb-2">Select Series to Auto-Fill</label>
@@ -200,7 +194,6 @@ const NotificationCenter = () => {
           </div>
         </div>
 
-        {/* THUMBNAIL PREVIEW */}
         {thumbnailUrl && (
           <div className="flex items-center gap-4 p-4 bg-black border border-zinc-800 rounded-xl">
             <img src={thumbnailUrl} alt="Thumbnail Preview" className="w-12 h-12 object-cover rounded border border-zinc-700" />
@@ -222,15 +215,13 @@ const NotificationCenter = () => {
 };
 
 export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any) => {
-  const [activeTab, setActiveTab] = useState('analytics'); // Changed default tab to analytics
+  const [activeTab, setActiveTab] = useState('analytics'); 
 
-  // --- BINGO BOOK ADMIN STATES ---
   const [activePin, setActivePin] = useState('Loading...');
   const [pinExpiration, setPinExpiration] = useState('');
   const [newGeneratedPin, setNewGeneratedPin] = useState('');
   const [expireHours, setExpireHours] = useState(24);
 
-  // Fetch the current active PIN on load
   useEffect(() => {
     const fetchActivePin = async () => {
       const { data } = await supabase.from('bingo_settings').select('*').eq('id', 1).single();
@@ -243,7 +234,6 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   }, []);
 
   const generateRandomPin = () => {
-    // Generates a random 4 digit string between 1000 and 9999
     const random = Math.floor(1000 + Math.random() * 9000).toString();
     setNewGeneratedPin(random);
   };
@@ -251,7 +241,6 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   const saveNewPin = async () => {
     if (!newGeneratedPin) return alert("Please generate a PIN first.");
     
-    // Calculate expiration time based on dropdown selection
     const expirationDate = new Date();
     expirationDate.setHours(expirationDate.getHours() + Number(expireHours));
 
@@ -266,12 +255,12 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
       alert("Success! Universal PIN updated.");
       setActivePin(newGeneratedPin);
       setPinExpiration(expirationDate.toLocaleString());
-      setNewGeneratedPin(''); // clear the generator
+      setNewGeneratedPin(''); 
     }
   };
 
   const tabs = [
-    { id: 'analytics', label: 'Analytics' }, // Added Analytics tab
+    { id: 'analytics', label: 'Analytics' }, 
     { id: 'home', label: 'Home Editor' },
     { id: 'series', label: 'Series Page Editor' },
     { id: 'chapter', label: 'Chapter Upload' },
@@ -286,7 +275,6 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   return (
     <div className="min-h-screen bg-black text-white p-4 sm:p-8">
       <div className="max-w-5xl mx-auto mt-4 sm:mt-10">
-        {/* Header */}
         <div className="flex justify-between items-center mb-8 bg-zinc-900 p-6 rounded-xl border border-zinc-800">
           <div>
             <h2 className="text-2xl font-black text-white tracking-wider">AM Command Center</h2>
@@ -297,7 +285,6 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           </button>
         </div>
 
-        {/* Tab Navigation */}
         <div className="flex flex-wrap gap-2 sm:gap-6 mb-8 border-b border-zinc-800 pb-px px-2 sm:px-0">
           {tabs.map((tab) => (
             <button 
@@ -310,14 +297,12 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           ))}
         </div>
 
-        {/* BINGO BOOK SETTINGS PANEL */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-8 shadow-lg">
           <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
             <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Bingo Book Control</h2>
           </div>
 
           <div className="grid md:grid-cols-2 gap-8">
-            {/* Left Side: Current Active PIN */}
             <div className="bg-black border border-zinc-800 rounded-xl p-6 flex flex-col items-center justify-center text-center">
               <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs mb-2">Currently Active PIN</p>
               <p className="text-5xl font-black tracking-[0.2em] text-white mb-4">{activePin}</p>
@@ -326,7 +311,6 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
               </p>
             </div>
 
-            {/* Right Side: Generate New PIN */}
             <div className="flex flex-col gap-4">
               <div className="flex gap-4">
                 <button 
@@ -366,11 +350,11 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           </div>
         </div>
 
-        {/* Dynamic Content Rendering */}
         <div className="mt-6">
           {activeTab === 'analytics' && <AnalyticsDashboard />}
           {activeTab === 'home' && <HomeEditor Dropzone={Dropzone} />}
-          {activeTab === 'series' && <SeriesEditor Dropzone={Dropzone} />}
+          {/* --- PASSED ThumbnailCropperModal INTO SeriesEditor HERE --- */}
+          {activeTab === 'series' && <SeriesEditor Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
           {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
           {activeTab === 'avatars' && <AvatarMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />}
           {activeTab === 'frames' && <FrameMaker />} 

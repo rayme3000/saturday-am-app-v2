@@ -6,21 +6,18 @@ export const AMNewsPage = ({ onBack }: any) => {
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // --- ANTI-ABUSE FANDOM POINTS LOGIC ---
   useEffect(() => {
     const awardNewsPoints = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return; // Visitors can read news, but don't get points
+        if (!user) return; 
 
-        // Check local storage to see if they already got points today
         const today = new Date().toDateString();
         const storageKey = `am_news_check_${user.id}`;
         const lastCheck = localStorage.getItem(storageKey);
 
-        if (lastCheck === today) return; // Rate-limit: Once per day
+        if (lastCheck === today) return; 
 
-        // Fetch their current checks count
         const { data: profile } = await supabase
           .from('profiles')
           .select('news_checks')
@@ -29,7 +26,6 @@ export const AMNewsPage = ({ onBack }: any) => {
 
         const currentChecks = profile?.news_checks || 0;
 
-        // Give them a point and lock it for the day!
         await supabase
           .from('profiles')
           .update({ news_checks: currentChecks + 1 })
@@ -64,29 +60,31 @@ export const AMNewsPage = ({ onBack }: any) => {
   }, []);
 
   return (
-    <div className="relative min-h-screen bg-transparent text-white p-6 pb-24">
-      <div className="max-w-5xl mx-auto mt-4 sm:mt-10">
-        
-        <button onClick={onBack} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-8 font-black uppercase tracking-widest text-[10px]">
-          <ArrowLeft className="w-4 h-4" /> Back to Home
-        </button>
-
-        <div className="flex justify-between items-end mb-8 border-b border-zinc-800 pb-6 bg-black/40 backdrop-blur-sm p-4 rounded-t-2xl">
+    <div className="relative min-h-screen bg-transparent text-white pb-32">
+      
+      {/* STICKY HEADER WITH PR-24 TO DODGE HAMBURGER MENU */}
+      <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-xl px-6 pt-6 pb-4 border-b border-zinc-800 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl pr-16 sm:pr-24">
+        <div className="flex flex-col gap-4">
+          <button onClick={onBack} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors font-black uppercase tracking-widest text-[10px] w-max">
+            <ArrowLeft className="w-4 h-4" /> Back to Home
+          </button>
           <h2 className="text-3xl md:text-4xl font-black italic uppercase tracking-wider text-white drop-shadow-md flex items-center gap-4">
             <BookOpen className="w-8 h-8 text-[#fe9a00]" /> AM News
           </h2>
-          <a 
-            href="https://www.saturday-am.com/blog/" 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="text-xs text-[#fe9a00] hover:text-white font-black uppercase tracking-widest flex items-center gap-2 transition-colors bg-zinc-900 border border-zinc-800 px-5 py-2.5 rounded-full"
-          >
-            Website <ExternalLink className="w-4 h-4" />
-          </a>
         </div>
+        <a 
+          href="https://www.saturday-am.com/blog/" 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="text-xs text-[#fe9a00] hover:text-white font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors bg-zinc-900 border border-zinc-800 px-5 py-2.5 rounded-full w-full sm:w-auto"
+        >
+          Website <ExternalLink className="w-4 h-4" />
+        </a>
+      </div>
 
+      <div className="max-w-5xl mx-auto px-6">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-32 gap-4 bg-black/40 backdrop-blur-sm rounded-b-2xl">
+          <div className="flex flex-col items-center justify-center py-32 gap-4 bg-black/40 backdrop-blur-sm rounded-2xl border border-zinc-800">
             <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin" />
             <span className="text-zinc-500 font-bold tracking-widest text-xs uppercase animate-pulse">Loading Transmissions...</span>
           </div>
@@ -120,6 +118,18 @@ export const AMNewsPage = ({ onBack }: any) => {
                 </a>
               );
             })}
+          </div>
+        )}
+        
+        {/* BOTTOM THUMB ZONE RETURN */}
+        {!loading && (
+          <div className="mt-12 border-t border-zinc-800 pt-8">
+            <button 
+              onClick={onBack}
+              className="w-full max-w-sm mx-auto py-4 bg-zinc-900 border border-zinc-800 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2"
+            >
+              <ArrowLeft className="w-4 h-4" /> Return to App
+            </button>
           </div>
         )}
       </div>

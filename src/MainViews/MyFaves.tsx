@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
-import { Heart, Search, ChevronRight, ArrowLeft, Play } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, ChevronRight, ArrowLeft, Play, Library, ChevronLeft } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
-// --- CSS PATTERN GENERATOR (Synced from Browse/Home) ---
+// --- CSS PATTERN GENERATOR ---
 const getPatternStyle = (color: string, pattern: string) => {
   const baseColor = color || '#18181b';
   const overlay = 'rgba(0,0,0,0.2)'; 
@@ -25,6 +25,11 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
   const [recentReads, setRecentReads] = useState<any[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
 
+  // Carousel State
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [touchStartX, setTouchStartX] = useState(0);
+  const [touchEndX, setTouchEndX] = useState(0);
+
   const suggestedSeries = seriesList.slice(0, 4);
 
   useEffect(() => {
@@ -33,63 +38,109 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
       if (!user) return;
       setCurrentUser(user);
 
+      // --- 1. Fetch User Favorites & Read History ---
       const { data: profile } = await supabase.from('profiles').select('favorites').eq('id', user.id).maybeSingle();
+      const { data: history } = await supabase.from('reading_history').select('*').eq('user_id', user.id).order('updated_at', { ascending: false });
+
       if (profile?.favorites && seriesList.length > 0) {
-        const faves = seriesList.filter((s: any) => profile.favorites.includes(s.slug));
+        // --- 2. Calculate Unread Updates ---
+        const { data: chapterData } = await supabase.from('chapters').select('series_slug, id').eq('is_published', true);
+        
+        const faves = seriesList
+          .filter((s: any) => profile.favorites.includes(s.slug))
+          .map((s: any) => {
+             const seriesChapters = chapterData?.filter((c:any) => c.series_slug === s.slug) || [];
+             const readChaptersForSeries = history?.filter((h:any) => seriesChapters.some(sc => sc.id === h.chapter_id)) || [];
+             
+             // Check if user has explicitly cleared this update via localStorage
+             const clearedCount = parseInt(localStorage.getItem(`cleared_updates_${s.slug}`) || '0');
+             const hasUpdate = seriesChapters.length > readChaptersForSeries.length && seriesChapters.length > clearedCount;
+             
+             return { ...s, has_update: hasUpdate, current_chapter_count: seriesChapters.length };
+          });
+          
         setMyFaves(faves);
       }
 
-      try {
-        const { data: history } = await supabase
-          .from('reading_history')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('updated_at', { ascending: false })
-          .limit(10);
+      // --- 3. Process Recent Reads ---
+      if (history && history.length > 0) {
+        const recentLimit = history.slice(0, 10);
+        const chapterIds = recentLimit.map((h: any) => h.chapter_id);
 
-        if (history && history.length > 0) {
-          const chapterIds = history.map((h: any) => h.chapter_id);
+        let chapters: any[] = [];
+        let magazines: any[] = [];
 
-          let chapters: any[] = [];
-          let magazines: any[] = [];
+        const [chaptersResponse, magazinesResponse] = await Promise.all([
+          supabase.from('chapters').select('id, series_slug, chapter_number, title, thumbnail_url').in('id', chapterIds),
+          supabase.from('magazines').select('*').in('id', chapterIds)
+        ]);
 
-          const [chaptersResponse, magazinesResponse] = await Promise.all([
-            supabase.from('chapters').select('id, series_slug, chapter_number, title, thumbnail_url').in('id', chapterIds),
-            supabase.from('magazines').select('*').in('id', chapterIds)
-          ]);
+        if (chaptersResponse.data) chapters = chaptersResponse.data;
+        if (magazinesResponse.data) magazines = magazinesResponse.data;
 
-          if (chaptersResponse.data) chapters = chaptersResponse.data;
-          if (magazinesResponse.data) magazines = magazinesResponse.data;
-
-          const combined = history.map((h: any) => {
-            const chap = chapters.find((c: any) => String(c.id) === String(h.chapter_id));
-            const mag = magazines.find((m: any) => String(m.id) === String(h.chapter_id));
-            
-            if (chap) {
-              const series = seriesList.find((s: any) => s.slug === chap.series_slug);
-              if (!series) return null;
-              return { ...h, type: 'series', target: series, title: series.title, subtitle: `Chapter ${chap.chapter_number}`, image: chap.thumbnail_url || series.cover_url };
-            } else if (mag) {
-              const magTarget = { ...mag, publish_date: mag.publish_date || mag.publish_at };
-              return { ...h, type: 'magazine', target: magTarget, title: mag.title, subtitle: `Magazine Issue`, image: mag.cover_url };
-            }
-            return null;
-          }).filter(Boolean);
+        const combined = recentLimit.map((h: any) => {
+          const chap = chapters.find((c: any) => String(c.id) === String(h.chapter_id));
+          const mag = magazines.find((m: any) => String(m.id) === String(h.chapter_id));
           
-          setRecentReads(combined);
-        }
-      } catch (err: any) { 
-        console.error("Error fetching recent reads:", err.message); 
+          if (chap) {
+            const series = seriesList.find((s: any) => s.slug === chap.series_slug);
+            if (!series) return null;
+            return { ...h, type: 'series', target: series, title: series.title, subtitle: `Chapter ${chap.chapter_number}`, image: chap.thumbnail_url || series.cover_url };
+          } else if (mag) {
+            const magTarget = { ...mag, publish_date: mag.publish_date || mag.publish_at };
+            return { ...h, type: 'magazine', target: magTarget, title: mag.title, subtitle: `Magazine Issue`, image: mag.cover_url };
+          }
+          return null;
+        }).filter(Boolean);
+        
+        setRecentReads(combined);
       }
     };
 
     fetchUserData();
   }, [seriesList]);
 
+  // --- CLEAR NOTIFICATION ON CLICK ---
+  const handleSeriesClick = (s: any) => {
+    if (s.has_update) {
+      // Save current chapter count to localStorage to track that they've acknowledged it
+      localStorage.setItem(`cleared_updates_${s.slug}`, s.current_chapter_count.toString());
+      // Optimistically hide the new tag immediately
+      setMyFaves(prev => prev.map(fave => fave.slug === s.slug ? { ...fave, has_update: false } : fave));
+    }
+    if (onNavigate) onNavigate(s);
+  };
+
+  // --- CAROUSEL TOUCH HANDLERS ---
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartX(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    setTouchEndX(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStartX || !touchEndX) return;
+    const distance = touchStartX - touchEndX;
+    const isLeftSwipe = distance > 50;
+    const isRightSwipe = distance < -50;
+    
+    if (isLeftSwipe && activeIndex < myFaves.length - 1) {
+      setActiveIndex(prev => prev + 1);
+    }
+    if (isRightSwipe && activeIndex > 0) {
+      setActiveIndex(prev => prev - 1);
+    }
+    
+    setTouchStartX(0);
+    setTouchEndX(0);
+  };
+
   if (isLoading) return <div className="min-h-screen bg-black text-[#fe9a00] flex items-center justify-center font-black tracking-widest">Loading Vault...</div>;
 
   return (
-    <div className="min-h-screen bg-transparent text-white pb-24 relative">
+    <div className="min-h-screen bg-transparent text-white pb-32 relative overflow-hidden">
       
       {/* GLOBAL BACKDROP */}
       <div className="fixed inset-0 z-[-1] bg-black">
@@ -108,11 +159,132 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
           <span className="text-[10px] font-black uppercase tracking-widest">Back</span>
         </button>
         <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white pr-16">
-          My Faves
+          My Bookshelf
         </h1>
       </div>
 
       <div className="px-4">
+        
+        {/* --- OFFSET CAROUSEL (CLEAN ART / LOGO BELOW) --- */}
+        {myFaves.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-center py-16 px-4 mb-12 bg-zinc-900/50 rounded-2xl border border-zinc-800/50 backdrop-blur-sm">
+            <Library className="w-16 h-16 text-zinc-700 mb-4" strokeWidth={1.5} />
+            <h2 className="text-xl font-bold mb-2">Nothing here!</h2>
+            <p className="text-zinc-400 text-sm mb-8 max-w-[250px]">
+              Let's go find your next new favorite manga.
+            </p>
+            <button 
+              onClick={() => setActiveTab('browse')}
+              className="flex items-center gap-2 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 px-6 rounded hover:bg-white transition-colors"
+            >
+              <Search className="w-4 h-4" />
+              Browse Series
+            </button>
+          </div>
+        ) : (
+          <div className="mb-12">
+            <div 
+              className="relative h-[340px] sm:h-[480px] w-full flex items-center justify-center overflow-visible"
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+               {myFaves.map((s, idx) => {
+                  const offset = idx - activeIndex;
+                  const isCenter = offset === 0;
+                  const isLeft = offset === -1;
+                  const isRight = offset === 1;
+
+                  let transformStyle = '';
+                  let zIndex = 10;
+                  let opacity = 'opacity-100';
+
+                  if (isCenter) {
+                    transformStyle = 'translateX(0) scale(1)';
+                    zIndex = 30;
+                  } else if (isLeft) {
+                    transformStyle = 'translateX(-55%) scale(0.85)';
+                    zIndex = 20;
+                    opacity = 'opacity-50 blur-[2px]';
+                  } else if (isRight) {
+                    transformStyle = 'translateX(55%) scale(0.85)';
+                    zIndex = 20;
+                    opacity = 'opacity-50 blur-[2px]';
+                  } else {
+                    transformStyle = offset < 0 ? 'translateX(-100%) scale(0.6)' : 'translateX(100%) scale(0.6)';
+                    zIndex = 0;
+                    opacity = 'opacity-0';
+                  }
+
+                  return (
+                     <div
+                        key={s.id}
+                        className={`absolute flex flex-col items-center transition-all duration-500 ease-out w-[320px] sm:w-[480px] ${opacity} ${!isCenter && 'pointer-events-none'}`}
+                        style={{ transform: transformStyle, zIndex }}
+                     >
+                        {/* Artwork Banner */}
+                        <div 
+                          className={`relative w-full h-[180px] sm:h-[270px] rounded-2xl overflow-hidden shadow-2xl transition-all duration-500 ${isCenter ? 'cursor-pointer border-[3px] border-[#fe9a00] shadow-[0_0_30px_rgba(254,154,0,0.3)]' : 'border border-zinc-700'}`}
+                          onClick={() => isCenter && handleSeriesClick(s)}
+                        >
+                          <img src={s.cover_url} alt={s.title} className="w-full h-full object-cover" />
+                          
+                          {/* Unread Indicator */}
+                          {s.has_update && (
+                             <div className="absolute top-3 right-3 bg-red-600 text-white text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full shadow-xl z-40 animate-pulse border border-red-400">
+                                New
+                             </div>
+                          )}
+                        </div>
+                        
+                        {/* Logo and Button underneath */}
+                        <div className={`mt-4 sm:mt-6 flex flex-col items-center w-full transition-all duration-500 ${isCenter ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                           {s.logo_url ? (
+                              <img src={s.logo_url} alt={s.title} className="max-w-[200px] sm:max-w-[250px] max-h-12 sm:max-h-16 object-contain drop-shadow-md" />
+                           ) : (
+                              <h3 className="text-white font-black italic text-xl uppercase tracking-tighter text-center">{s.title}</h3>
+                           )}
+                           
+                           <button 
+                             onClick={() => isCenter && handleSeriesClick(s)}
+                             className={`mt-4 bg-[#fe9a00] text-black text-[10px] font-black uppercase tracking-widest px-8 py-3 rounded-full hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.4)] ${isCenter ? 'pointer-events-auto' : 'pointer-events-none'}`}
+                           >
+                             Read Series
+                           </button>
+                        </div>
+                     </div>
+                  )
+               })}
+            </div>
+
+            {/* Carousel Controls */}
+            {myFaves.length > 1 && (
+              <div className="flex justify-center items-center gap-6 mt-4">
+                <button 
+                  onClick={() => setActiveIndex(Math.max(0, activeIndex - 1))} 
+                  disabled={activeIndex === 0}
+                  className={`p-3 bg-zinc-900 rounded-full border border-zinc-700 transition-colors ${activeIndex === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00]'}`}
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <div className="flex gap-2">
+                  {myFaves.map((_, i) => (
+                    <div key={i} className={`w-2 h-2 rounded-full transition-colors ${i === activeIndex ? 'bg-[#fe9a00]' : 'bg-zinc-700'}`} />
+                  ))}
+                </div>
+                <button 
+                  onClick={() => setActiveIndex(Math.min(myFaves.length - 1, activeIndex + 1))} 
+                  disabled={activeIndex === myFaves.length - 1}
+                  className={`p-3 bg-zinc-900 rounded-full border border-zinc-700 transition-colors ${activeIndex === myFaves.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00]'}`}
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* --- MOVED JUMP BACK IN SECTION ABOVE SUGGESTED SERIES --- */}
         {currentUser && recentReads.length > 0 && (
           <div className="mb-12 animate-fade-in border-b border-zinc-800/50 pb-8 bg-black/40 backdrop-blur-sm p-4 rounded-xl">
             <h2 className="text-sm font-black uppercase tracking-[0.2em] text-[#fe9a00] mb-4 px-2">Jump Back In</h2>
@@ -142,77 +314,9 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
           </div>
         )}
 
-        {myFaves.length === 0 ? (
-          <div className="flex flex-col items-center justify-center text-center py-16 px-4 mb-12 bg-zinc-900/50 rounded-2xl border border-zinc-800/50 backdrop-blur-sm">
-            <Heart className="w-16 h-16 text-zinc-700 mb-4" strokeWidth={1.5} />
-            <h2 className="text-xl font-bold mb-2">Nothing here!</h2>
-            <p className="text-zinc-400 text-sm mb-8 max-w-[250px]">
-              Let's go find your next new favorite manga.
-            </p>
-            <button 
-              onClick={() => setActiveTab('browse')}
-              className="flex items-center gap-2 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 px-6 rounded hover:bg-white transition-colors"
-            >
-              <Search className="w-4 h-4" />
-              Browse Series
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-12">
-            {myFaves.map((s: any) => (
-              <div 
-                key={s.id} 
-                className="flex-shrink-0 cursor-pointer group/card"
-                onClick={() => onNavigate ? onNavigate(s) : null}
-              >
-                {/* DYNAMIC CARD ALIGNMENT UPDATED HERE */}
-                <div 
-                  className="relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
-                  style={getPatternStyle(s.card_color, s.card_pattern)}
-                >
-                  <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
-                  
-                  <img 
-                    src={s.character_url || s.cover_url} 
-                    alt={`${s.title} Character`} 
-                    loading="lazy"
-                    decoding="async"
-                    className={`absolute left-1/2 -translate-x-1/2 max-w-none object-contain transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 ${
-                      s.character_align === 'top' ? 'top-0' : 
-                      s.character_align === 'center' ? 'top-1/2 -translate-y-1/2' : 
-                      'bottom-0'
-                    }`}
-                    style={{ width: `${s.character_scale || 140}%`, height: '120%' }}
-                  />
-                  
-                  <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black via-black/80 to-transparent z-20" />
-                  
-                  <div 
-                    className="absolute left-0 right-0 flex justify-center z-30 px-3 transition-all duration-300"
-                    style={{ bottom: `${s.logo_offset ?? 16}px` }}
-                  >
-                    <img 
-                      src={s.logo_url || (s.title === 'Apple Black' ? `${CLOUDFLARE_BASE_URL}/series-logos/apple-black-logo.png` : '')} 
-                      alt={`${s.title} Logo`} 
-                      loading="lazy"
-                      decoding="async"
-                      className="w-full max-h-24 object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1 drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]" 
-                      style={{ width: `${s.logo_scale ?? 100}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg mt-1 p-1">
-                  <h3 className="text-white font-bold text-xs truncate tracking-wide group-hover/card:text-[#fe9a00] transition-colors">
-                    {s.title}
-                  </h3>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
+        {/* --- SUGGESTED SERIES --- */}
         {suggestedSeries.length > 0 && (
-          <div className="mt-8 bg-black/40 backdrop-blur-sm p-4 rounded-xl">
+          <div className="mb-12 bg-black/40 backdrop-blur-sm p-4 rounded-xl border border-zinc-800/50">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-black italic uppercase tracking-tight text-zinc-300">
                 Suggested Series
@@ -232,13 +336,11 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
                   className="w-1/3 sm:w-1/4 md:w-1/5 flex-shrink-0 snap-start cursor-pointer group/card"
                   onClick={() => onNavigate ? onNavigate(s) : null}
                 >
-                  {/* DYNAMIC CARD ALIGNMENT UPDATED HERE */}
                   <div 
                     className="relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
                     style={getPatternStyle(s.card_color, s.card_pattern)}
                   >
                     <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
-                    
                     <img 
                       src={s.character_url || s.cover_url} 
                       alt={`${s.title} Character`} 
@@ -251,9 +353,7 @@ const Favorites = ({ setActiveTab, onNavigate }: any) => {
                       }`}
                       style={{ width: `${s.character_scale || 140}%`, height: '120%' }}
                     />
-                    
                     <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black via-black/80 to-transparent z-20" />
-                    
                     <div 
                       className="absolute left-0 right-0 flex justify-center z-30 px-3 transition-all duration-300"
                       style={{ bottom: `${s.logo_offset ?? 16}px` }}

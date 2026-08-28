@@ -7,7 +7,7 @@ import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 import { FloatingPillNav } from './Components/FloatingPillNav';
 import { HamburgerMenu } from './Components/HamburgerMenu';
 import { ShareModal } from './Components/ShareModal';
-import { SplashIntro } from './Components/SplashIntro'; // <-- NEW SPLASH INTRO
+import { SplashIntro } from './Components/SplashIntro'; 
 
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
@@ -23,6 +23,8 @@ const SubscriptionPage = lazy(() => import('./MainViews/Subscription.tsx').then(
 const AMNewsPage = lazy(() => import('./MainViews/AMNewsPage').then(mod => ({ default: mod.AMNewsPage })));
 const Shop = lazy(() => import('./MainViews/Shop').then(mod => ({ default: mod.Shop }))); 
 const LegalPages = lazy(() => import('./MainViews/LegalPages').then(mod => ({ default: mod.LegalPages }))); 
+// --- ADDED CHARACTER ROSTER ROUTE ---
+const CharacterRoster = lazy(() => import('./MainViews/CharacterRoster').then(mod => ({ default: mod.CharacterRoster })));
 
 // 3. Lazy Load the views that use Default Exports
 const SettingsPage = lazy(() => import('./MainViews/Settings.tsx'));
@@ -507,6 +509,10 @@ export default function App() {
             {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
             {currentView === 'shop' && (<Shop userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
             {currentView === 'legal' && (<LegalPages onBack={() => setCurrentView('home')} />)}
+            {/* --- ADDED RENDER LOGIC FOR CHARACTER ROSTER --- */}
+            {currentView === 'characters' && (
+              <CharacterRoster currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />
+            )}
           </div>
         </Suspense>
       </AppErrorBoundary>
