@@ -531,7 +531,16 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         <img src={localSeries.cover_url} className="w-full h-full object-cover opacity-60" alt="Hero Banner" />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
         
-        <button onClick={onBack} className="absolute top-4 sm:top-6 left-4 sm:left-6 z-20 p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg">
+        <button 
+          onClick={() => {
+            if (window.history.length > 1) {
+              window.history.back();
+            } else {
+              onBack();
+            }
+          }} 
+          className="absolute top-4 sm:top-6 left-4 sm:left-6 z-20 p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg"
+        >
           <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
         
@@ -829,6 +838,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         <div ref={commentsRef} className="w-full max-w-3xl mx-auto pt-8">
           <SeriesCommentsSection 
             seriesSlug={localSeries?.slug} 
+            currentUser={currentUserId ? { id: currentUserId, tier: userTier } : null}
             onRequireAuth={() => setUpsellConfig({ 
               type: 'visitor', 
               message: "Create a Free Account to join the community discussion and share your thoughts!" 
@@ -844,7 +854,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 <div key={index} className="flex flex-col items-center text-center w-full max-w-lg bg-zinc-900/30 p-8 rounded-2xl border border-zinc-800/50 shadow-xl">
                   <div className="flex flex-col items-center gap-4 mb-6">
                     <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-zinc-700 overflow-hidden border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.3)]">
-                      <img src={c.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} alt={safeName} className="w-full h-full object-cover" />
+                      <img 
+                        src={(c.avatar_url && c.avatar_url !== 'null') ? c.avatar_url : `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} 
+                        alt={safeName} 
+                        className="w-full h-full object-cover" 
+                        onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }}
+                      />
                     </div>
                     <div>
                       <h4 className="font-black text-xl sm:text-2xl tracking-tight">{safeName}</h4>
