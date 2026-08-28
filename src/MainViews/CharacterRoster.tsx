@@ -39,8 +39,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
   const [charHypes, setCharHypes] = useState<Record<string, boolean>>({});
   
   const [showMobileDetails, setShowMobileDetails] = useState(false);
-  
-  const [activeFormIndex, setActiveFormIndex] = useState(0);
+  const [showAltForm, setShowAltForm] = useState(false);
 
   useEffect(() => {
     const fetchCharacters = async () => {
@@ -109,7 +108,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
 
   const uniqueAffiliations = ['All', ...Array.from(new Set((characters || []).map(c => c?.element).filter(Boolean)))];
 
-  // --- UPDATED HYPE ALGORITHM: WIRES INTO BIG 3 & FANDOM SCORES ---
   const handleHypeCharacter = async (char: any) => {
     if (!currentUser) return alert("Create a Free Account to hype characters!");
     if (charHypes[char?.id]) return;
@@ -117,14 +115,12 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
     setCharHypes(prev => ({ ...prev, [char?.id]: true }));
 
     try {
-      // 1. Log the character hype action
       await supabase.from('hypes').insert([{ 
         user_id: currentUser.id, 
         target_type: 'character', 
         target_id: String(char?.id) 
       }]);
 
-      // 2. Boost the User's Fandom Score (Medium: +5 Points)
       const { data: profile } = await supabase.from('profiles').select('total_hypes, fandom_score').eq('id', currentUser.id).maybeSingle();
       if (profile) {
         await supabase.from('profiles').update({ 
@@ -134,7 +130,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
         window.dispatchEvent(new Event('profileUpdated'));
       }
 
-      // 3. Boost the Series Leaderboard Scores (Weekly Hype & Big 3 Rankings)
       if (char?.series_slug) {
         const { data: seriesData } = await supabase.from('series').select('weekly_hype, total_hype').eq('slug', char.series_slug).maybeSingle();
         if (seriesData) {
@@ -148,28 +143,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
       console.error("Error updating leaderboard scores for character hype:", e);
     }
   };
-
-  const computedAltForms = useMemo(() => {
-    if (!selectedChar) return [];
-    let forms: any[] = [];
-    
-    if (selectedChar.alt_headshot_url) {
-      forms.push({
-        name: selectedChar.alt_form_name || 'Alternate Form',
-        url: selectedChar.alt_headshot_url
-      });
-    }
-    
-    if (Array.isArray(selectedChar.alt_forms)) {
-      forms = [...forms, ...selectedChar.alt_forms];
-    }
-    
-    return forms;
-  }, [selectedChar]);
-
-  const hasAltForms = computedAltForms.length > 0;
-  const currentAvatar = activeFormIndex === 0 ? selectedChar?.headshot_url : computedAltForms[activeFormIndex - 1]?.url;
-  const currentName = activeFormIndex === 0 ? selectedChar?.name : (computedAltForms[activeFormIndex - 1]?.name || selectedChar?.name);
 
   return (
     <div className="min-h-screen bg-transparent text-white relative z-[100] pb-48">
@@ -232,10 +205,21 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
                 )}
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
                   {group.items.map((char, index) => (
-                    <div key={char?.id || index} onClick={() => { setSelectedChar(char); setShowMobileDetails(false); setActiveFormIndex(0); }} className="flex flex-col items-center group cursor-pointer animate-fade-in-up">
+                    <div key={char?.id || index} onClick={() => { setSelectedChar(char); setShowMobileDetails(false); setShowAltForm(false); }} className="flex flex-col items-center group cursor-pointer animate-fade-in-up">
                       <div className={`relative w-full aspect-square rounded-2xl bg-zinc-900 overflow-hidden mb-2 transition-all duration-300 group-hover:-translate-y-2 flex items-center justify-center border-2 ${getGridGlowClasses(char?.role_type, char?.is_mc)}`}>
                         <User className="w-10 h-10 text-zinc-600 absolute z-0" />
-                        {char?.headshot_url && <img src={char.headshot_url} alt={char?.name} onError={(e) => { e.currentTarget.style.display = 'none'; }} className="w-full h-full object-cover relative z-10 bg-zinc-900" />}
+                        
+                        {char?.headshot_url && (
+                          <img 
+                            src={char.headshot_url} 
+                            alt={char?.name} 
+                            loading="lazy"
+                            decoding="async"
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+                            className="w-full h-full object-cover relative z-10 bg-zinc-900" 
+                          />
+                        )}
+
                         {char?.is_mc && <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-20 uppercase">MC</div>}
                         <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-20 pointer-events-none" />
                         {char?.element && char.element !== 'None' && <span className="absolute bottom-1.5 right-1.5 text-[8px] font-black uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded backdrop-blur-sm border border-white/10 z-30">{char.element}</span>}
@@ -280,11 +264,10 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
               
               <div className={`relative w-48 h-48 sm:w-64 sm:h-64 rounded-full border-4 overflow-hidden mb-6 bg-zinc-900 flex items-center justify-center transition-all duration-500 z-10 ${getModalGlowClasses(selectedChar?.role_type, selectedChar?.is_mc)}`}>
                 <User className="w-16 h-16 text-zinc-600 absolute z-0" />
-                {currentAvatar && (
+                {selectedChar?.headshot_url && (
                   <img 
-                    key={currentAvatar}
-                    src={currentAvatar} 
-                    alt={currentName} 
+                    src={showAltForm ? (selectedChar.alt_headshot_url || selectedChar.headshot_url) : selectedChar.headshot_url} 
+                    alt={selectedChar?.name} 
                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     className="w-full h-full object-cover relative z-10 bg-zinc-900 animate-fade-in" 
                   />
@@ -292,20 +275,20 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
               </div>
               
               <h2 className="text-4xl sm:text-5xl font-black italic uppercase tracking-tighter text-white mb-1 text-center relative z-10 drop-shadow-md transition-all duration-300">
-                {currentName || 'UNKNOWN'}
+                {showAltForm ? (selectedChar?.alt_form_name || selectedChar?.name) : (selectedChar?.name || 'UNKNOWN')}
               </h2>
               <p className="text-sm sm:text-base font-bold text-zinc-400 uppercase tracking-widest mb-8 text-center relative z-10">
                 {selectedChar?.series_title}
               </p>
 
-              {/* PULSING WHITE ALTERNATE FORMS BUTTON */}
-              {hasAltForms && (
+              {/* TRANSFORM BUTTON - EXACTLY ABOVE HYPE BUTTON */}
+              {selectedChar?.alt_headshot_url && (
                 <button 
-                  onClick={() => setActiveFormIndex((prev) => (prev + 1) % (computedAltForms.length + 1))}
-                  className="w-full max-w-[240px] mb-4 flex items-center justify-center gap-2 py-3 border border-white rounded-xl font-black uppercase tracking-widest text-[10px] text-white hover:bg-white hover:text-black transition-colors relative z-10 bg-black/40 backdrop-blur-md animate-pulse shadow-[0_0_20px_rgba(255,255,255,0.7)]"
+                  onClick={() => setShowAltForm(!showAltForm)}
+                  className="w-full max-w-[240px] mb-4 flex items-center justify-center gap-2 py-3 border border-white rounded-xl font-black uppercase tracking-widest text-[10px] text-white hover:bg-white hover:text-black transition-colors relative z-20 bg-zinc-900 shadow-[0_0_15px_rgba(255,255,255,0.7)] animate-pulse"
                 >
                   <RefreshCw className="w-4 h-4" />
-                  {activeFormIndex === 0 ? 'Alternate Forms' : 'Return to Base Form'}
+                  {showAltForm ? 'Return to Base Form' : 'Alternate Form'}
                 </button>
               )}
               
