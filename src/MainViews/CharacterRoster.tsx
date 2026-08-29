@@ -31,9 +31,9 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
   const [isLoading, setIsLoading] = useState(true);
   
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterRole, setFilterRole] = useState('All');
-  const [filterAffiliation, setFilterAffiliation] = useState('All');
-  const [sortBy, setSortBy] = useState('Role'); 
+  
+  // COMBINED FILTER & SORT STATE
+  const [viewSelection, setViewSelection] = useState('Sort:Role'); 
   
   const [selectedChar, setSelectedChar] = useState<any>(null);
   const [charHypes, setCharHypes] = useState<Record<string, boolean>>({});
@@ -68,6 +68,9 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
     });
   }, [rawCharacters, seriesList]);
 
+  // Extract unique affiliations (excluding 'All' since we use the dropdown groups now)
+  const uniqueAffiliations = Array.from(new Set((characters || []).map(c => c?.element).filter(Boolean))).sort();
+
   const groupedChars = useMemo(() => {
     let result = characters || [];
     
@@ -75,12 +78,27 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
       const lowerQuery = searchQuery.toLowerCase();
       result = result.filter(c => (c?.name || '').toLowerCase().includes(lowerQuery));
     }
-    if (filterRole !== 'All') result = result.filter(c => c?.role_type === filterRole);
-    if (filterAffiliation !== 'All') result = result.filter(c => c?.element === filterAffiliation);
+
+    const isRoleFilter = viewSelection.startsWith('RoleFilter:');
+    const isAffilFilter = viewSelection.startsWith('AffilFilter:');
+    const isSort = viewSelection.startsWith('Sort:');
+
+    // Apply strict filtering if selected
+    if (isRoleFilter) {
+      const activeRole = viewSelection.replace('RoleFilter:', '');
+      result = result.filter(c => c?.role_type === activeRole);
+    }
+    if (isAffilFilter) {
+      const activeAffil = viewSelection.replace('AffilFilter:', '');
+      result = result.filter(c => c?.element === activeAffil);
+    }
 
     const groups: { name: string | null, items: any[] }[] = [];
+    
+    // If they picked a filter, default the inner sorting to A-Z so it displays as one clean flat list
+    let currentSortBy = isSort ? viewSelection.replace('Sort:', '') : 'A-Z';
 
-    if (sortBy === 'Role') {
+    if (currentSortBy === 'Role') {
       const mcHeroes = result.filter(c => c?.is_mc && c?.role_type === 'Hero');
       const heroes = result.filter(c => !c?.is_mc && c?.role_type === 'Hero');
       const villains = result.filter(c => c?.role_type === 'Villain');
@@ -90,8 +108,8 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
       if (heroes.length) groups.push({ name: 'Heroes', items: heroes });
       if (villains.length) groups.push({ name: 'Villains', items: villains });
       if (neutrals.length) groups.push({ name: 'Neutral', items: neutrals });
-    } else if (sortBy === 'Series' || sortBy === 'Affiliation') {
-      const key = sortBy === 'Series' ? 'series_title' : 'element';
+    } else if (currentSortBy === 'Series' || currentSortBy === 'Affiliation') {
+      const key = currentSortBy === 'Series' ? 'series_title' : 'element';
       const uniqueKeys = Array.from(new Set(result.map(c => c[key]).filter(Boolean))).sort();
       uniqueKeys.forEach(k => {
         groups.push({ name: k as string, items: result.filter(c => c[key] === k) });
@@ -99,14 +117,16 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
       const unassigned = result.filter(c => !c[key]);
       if (unassigned.length) groups.push({ name: 'Unassigned', items: unassigned });
     } else {
-      const sorted = [...result].sort((a, b) => sortBy === 'A-Z' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name));
+      const sorted = [...result].sort((a, b) => {
+         if (currentSortBy === 'A-Z') return (a.name || '').localeCompare(b.name || '');
+         if (currentSortBy === 'Z-A') return (b.name || '').localeCompare(a.name || '');
+         return 0; // Custom Order matches DB ID
+      });
       groups.push({ name: null, items: sorted }); 
     }
 
     return groups;
-  }, [characters, searchQuery, filterRole, filterAffiliation, sortBy]);
-
-  const uniqueAffiliations = ['All', ...Array.from(new Set((characters || []).map(c => c?.element).filter(Boolean)))];
+  }, [characters, searchQuery, viewSelection]);
 
   const handleHypeCharacter = async (char: any) => {
     if (!currentUser) return alert("Create a Free Account to hype characters!");
@@ -163,24 +183,32 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
               Characters
             </h1>
             
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative">
+            <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+              <div className="relative flex-1 lg:flex-initial">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <input type="text" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-zinc-900/80 border border-zinc-700 text-white text-xs rounded-lg pl-9 pr-4 py-2.5 focus:border-[#fe9a00] outline-none w-full sm:w-32 lg:w-48 shadow-inner" />
+                <input type="text" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-zinc-900/80 border border-zinc-700 text-white text-xs rounded-lg pl-9 pr-4 py-2.5 focus:border-[#fe9a00] outline-none w-full sm:w-48 lg:w-64 shadow-inner" />
               </div>
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-zinc-900/80 border border-zinc-700 text-white text-xs rounded-lg px-4 py-2.5 outline-none cursor-pointer shadow-inner">
-                <option value="Role">Sort: Roles (Default)</option>
-                <option value="Custom Order">Sort: Custom Order</option>
-                <option value="A-Z">Sort: A-Z</option>
-                <option value="Z-A">Sort: Z-A</option>
-                <option value="Series">Sort: Series</option>
-                <option value="Affiliation">Sort: Affiliation</option>
-              </select>
-              <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)} className="bg-zinc-900/80 border border-zinc-700 text-white text-xs rounded-lg px-4 py-2.5 outline-none cursor-pointer shadow-inner">
-                <option value="All">All Roles</option><option value="Hero">Hero</option><option value="Villain">Villain</option><option value="Neutral">Neutral</option>
-              </select>
-              <select value={filterAffiliation} onChange={(e) => setFilterAffiliation(e.target.value)} className="bg-zinc-900/80 border border-zinc-700 text-white text-xs rounded-lg px-4 py-2.5 outline-none cursor-pointer shadow-inner">
-                {uniqueAffiliations.map(el => <option key={el} value={el}>{el === 'All' ? 'All Affiliations' : el}</option>)}
+              <select value={viewSelection} onChange={(e) => setViewSelection(e.target.value)} className="bg-zinc-900/80 border border-zinc-700 text-white text-xs rounded-lg px-4 py-2.5 outline-none cursor-pointer shadow-inner flex-1 lg:flex-initial min-w-[160px]">
+                <optgroup label="Sort & Group">
+                  <option value="Sort:Role">Group: Roles (Default)</option>
+                  <option value="Sort:Custom Order">Sort: Custom Order</option>
+                  <option value="Sort:A-Z">Sort: A-Z</option>
+                  <option value="Sort:Z-A">Sort: Z-A</option>
+                  <option value="Sort:Series">Group: Series</option>
+                  <option value="Sort:Affiliation">Group: Affiliation</option>
+                </optgroup>
+                <optgroup label="Filter by Role">
+                  <option value="RoleFilter:Hero">Role: Hero</option>
+                  <option value="RoleFilter:Villain">Role: Villain</option>
+                  <option value="RoleFilter:Neutral">Role: Neutral</option>
+                </optgroup>
+                {uniqueAffiliations.length > 0 && (
+                  <optgroup label="Filter by Affiliation">
+                    {uniqueAffiliations.map((el: any) => (
+                      <option key={el} value={`AffilFilter:${el}`}>Affiliation: {el}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
           </div>
@@ -266,7 +294,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
                 <User className="w-16 h-16 text-zinc-600 absolute z-0" />
                 {selectedChar?.headshot_url && (
                   <img 
-                    src={showAltForm ? (selectedChar.alt_headshot_url || selectedChar.headshot_url) : selectedChar.headshot_url} 
+                    src={showAltForm && selectedChar.alt_headshot_url ? selectedChar.alt_headshot_url : selectedChar.headshot_url} 
                     alt={selectedChar?.name} 
                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     className="w-full h-full object-cover relative z-10 bg-zinc-900 animate-fade-in" 
@@ -275,17 +303,17 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
               </div>
               
               <h2 className="text-4xl sm:text-5xl font-black italic uppercase tracking-tighter text-white mb-1 text-center relative z-10 drop-shadow-md transition-all duration-300">
-                {showAltForm ? (selectedChar?.alt_form_name || selectedChar?.name) : (selectedChar?.name || 'UNKNOWN')}
+                {showAltForm && selectedChar?.alt_form_name ? selectedChar.alt_form_name : (selectedChar?.name || 'UNKNOWN')}
               </h2>
               <p className="text-sm sm:text-base font-bold text-zinc-400 uppercase tracking-widest mb-8 text-center relative z-10">
                 {selectedChar?.series_title}
               </p>
 
-              {/* TRANSFORM BUTTON - EXACTLY ABOVE HYPE BUTTON */}
+              {/* TRANSFORM BUTTON */}
               {selectedChar?.alt_headshot_url && (
                 <button 
                   onClick={() => setShowAltForm(!showAltForm)}
-                  className="w-full max-w-[240px] mb-4 flex items-center justify-center gap-2 py-3 border border-white rounded-xl font-black uppercase tracking-widest text-[10px] text-white hover:bg-white hover:text-black transition-colors relative z-20 bg-zinc-900 shadow-[0_0_15px_rgba(255,255,255,0.7)] animate-pulse"
+                  className="w-full max-w-[240px] mb-4 flex items-center justify-center gap-2 py-3 border border-white rounded-xl font-black uppercase tracking-widest text-[10px] text-white hover:bg-white hover:text-black transition-colors relative z-20 bg-zinc-900/60 backdrop-blur-md animate-pulse shadow-[0_0_20px_rgba(255,255,255,0.7)]"
                 >
                   <RefreshCw className="w-4 h-4" />
                   {showAltForm ? 'Return to Base Form' : 'Alternate Form'}
@@ -350,10 +378,12 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
               </div>
 
               <div className="space-y-6 mb-8 shrink-0">
-                <div>
-                  <h4 className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest border-b border-zinc-800 pb-2 mb-3">Origin Story</h4>
-                  <p className="text-sm sm:text-base text-zinc-300 leading-relaxed font-medium">{selectedChar?.origin || 'Origin data restricted.'}</p>
-                </div>
+                {selectedChar?.origin && selectedChar.origin.trim().length > 0 && (
+                  <div>
+                    <h4 className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest border-b border-zinc-800 pb-2 mb-3">Origin Story</h4>
+                    <p className="text-sm sm:text-base text-zinc-300 leading-relaxed font-medium">{selectedChar.origin}</p>
+                  </div>
+                )}
                 <div className="grid sm:grid-cols-2 gap-6">
                   <div>
                     <h4 className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest border-b border-zinc-800 pb-2 mb-3">Powers & Abilities</h4>
