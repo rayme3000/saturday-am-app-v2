@@ -53,7 +53,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [isFavorited, setIsFavorited] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
+  // --- HYPE STATE ---
   const [creatorHypes, setCreatorHypes] = useState<Record<string, boolean>>({});
+  const [showCreatorHypeConfirm, setShowCreatorHypeConfirm] = useState<any>(null);
+  const [hypesRemaining, setHypesRemaining] = useState(5);
   
   const [seriesCharacters, setSeriesCharacters] = useState<any[]>([]);
   const [showAllChars, setShowAllChars] = useState(false);
@@ -344,15 +347,28 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }, 2000);
   };
 
-  const handleHypeCreator = async (creator: any) => {
+  // --- NEW: INITIATE CONFIRMATION FOR CREATORS ---
+  const initiateHypeCreator = (creator: any) => {
     if (!currentUserId) {
       setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" });
       return;
     }
-    const creatorId = creator.id || creator.name;
-    if (creatorHypes[creatorId]) return;
+    if (hypesRemaining <= 0) {
+      alert("You are out of Hypes! They will automatically replenish this Saturday.");
+      return;
+    }
+    setShowCreatorHypeConfirm(creator);
+  };
 
+  // --- NEW: EXECUTE INFINITE HYPES FOR CREATORS ---
+  const executeHypeCreator = async () => {
+    const creator = showCreatorHypeConfirm;
+    setShowCreatorHypeConfirm(null);
+    if (!creator) return;
+
+    const creatorId = creator.id || creator.name;
     setCreatorHypes(prev => ({...prev, [creatorId]: true}));
+    setHypesRemaining(prev => Math.max(0, prev - 1));
 
     try {
       await supabase.from('hypes').insert([{ 
@@ -375,6 +391,29 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   return (
     <div className="relative min-h-screen bg-transparent text-white">
       
+      {/* CREATOR HYPE CONFIRMATION MODAL */}
+      {showCreatorHypeConfirm && (
+        <div className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setShowCreatorHypeConfirm(null)}>
+          <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <div className="w-16 h-16 bg-[#fe9a00]/10 rounded-full flex items-center justify-center mb-4 border border-[#fe9a00]/30 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <Flame className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Drop a Hype?</h2>
+            <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-6">
+              Are you sure you want to spend a Hype on <span className="text-white">{showCreatorHypeConfirm.name || 'this creator'}</span>? You can hype them multiple times!
+            </p>
+            <div className="bg-zinc-900 w-full py-3 rounded-lg border border-zinc-800 mb-6">
+              <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-1">Current Balance</p>
+              <p className="text-lg font-black text-white">{hypesRemaining} <span className="text-[#fe9a00]">Remaining</span></p>
+            </div>
+            <div className="flex gap-3 w-full">
+              <button onClick={() => setShowCreatorHypeConfirm(null)} className="flex-1 bg-zinc-900 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:bg-zinc-800 transition-colors">Cancel</button>
+              <button onClick={executeHypeCreator} className="flex-1 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isAutoLoading && (
         <div className="fixed inset-0 z-[6000] bg-black flex flex-col items-center justify-center">
           <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin mb-4"></div>
@@ -850,6 +889,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           <div className="border-t border-zinc-800 pt-12 flex flex-col items-center gap-16">
             {creators.map((c: any, index) => {
               const safeName = c.name || 'Creator'; 
+              const creatorId = c.id || c.name;
               return (
                 <div key={index} className="flex flex-col items-center text-center w-full max-w-lg bg-zinc-900/30 p-8 rounded-2xl border border-zinc-800/50 shadow-xl">
                   <div className="flex flex-col items-center gap-4 mb-6">
@@ -881,12 +921,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   </button>
 
                   <button 
-                    onClick={() => handleHypeCreator(c)}
-                    disabled={creatorHypes[c.id || c.name]}
-                    className={`flex items-center justify-center gap-2 w-full max-w-xs mx-auto mb-8 border transition-all px-8 py-3 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-widest ${creatorHypes[c.id || c.name] ? 'bg-zinc-800 text-[#fe9a00] border-[#fe9a00]' : 'bg-black text-white border-zinc-700 hover:border-white hover:text-white'}`}
+                    onClick={() => initiateHypeCreator(c)}
+                    className={`flex items-center justify-center gap-2 w-full max-w-xs mx-auto mb-8 border transition-all px-8 py-3 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-widest ${creatorHypes[creatorId] ? 'bg-zinc-800 text-[#fe9a00] border-[#fe9a00]' : 'bg-black text-white border-zinc-700 hover:border-white hover:text-white'}`}
                   >
-                    <Flame className={`w-4 h-4 ${creatorHypes[c.id || c.name] ? 'fill-[#fe9a00]' : ''}`} />
-                    {creatorHypes[c.id || c.name] ? 'Hyped!' : `Hype ${safeName.split(' ')[0]}`}
+                    <Flame className={`w-4 h-4 ${creatorHypes[creatorId] ? 'fill-[#fe9a00]' : ''}`} />
+                    {creatorHypes[creatorId] ? 'HYPE AGAIN' : `HYPE ${safeName.split(' ')[0]}`}
                   </button>
 
                   <div className="flex flex-wrap justify-center gap-3 w-full">
@@ -907,7 +946,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               <div className="p-3 bg-zinc-900 border border-zinc-700 rounded-full group-hover:bg-[#fe9a00] group-hover:border-[#fe9a00] transition-colors shadow-lg">
                 <ArrowUp className="w-5 h-5 text-zinc-400 group-hover:text-black transition-colors" />
               </div>
-              <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest group-hover:text-white transition-colors">
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest group-hover:text-white transition-colors">
                 Back to Top
               </span>
             </button>

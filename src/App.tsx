@@ -8,6 +8,7 @@ import { FloatingPillNav } from './Components/FloatingPillNav';
 import { HamburgerMenu } from './Components/HamburgerMenu';
 import { ShareModal } from './Components/ShareModal';
 import { SplashIntro } from './Components/SplashIntro'; 
+import { GlobalHypeTracker } from './Components/GlobalHypeTracker';
 
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
@@ -23,7 +24,6 @@ const SubscriptionPage = lazy(() => import('./MainViews/Subscription.tsx').then(
 const AMNewsPage = lazy(() => import('./MainViews/AMNewsPage').then(mod => ({ default: mod.AMNewsPage })));
 const Shop = lazy(() => import('./MainViews/Shop').then(mod => ({ default: mod.Shop }))); 
 const LegalPages = lazy(() => import('./MainViews/LegalPages').then(mod => ({ default: mod.LegalPages }))); 
-// --- ADDED CHARACTER ROSTER ROUTE ---
 const CharacterRoster = lazy(() => import('./MainViews/CharacterRoster').then(mod => ({ default: mod.CharacterRoster })));
 
 // 3. Lazy Load the views that use Default Exports
@@ -80,7 +80,6 @@ const ScrollToTopButton = () => {
 };
 
 export default function App() {
-  // --- PERSISTENT STATE INITIALIZATION ---
   const [currentView, setCurrentView] = useState(() => {
     return sessionStorage.getItem('currentView') || 'home';
   });
@@ -90,40 +89,30 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
 
-  // <-- NEW INTRO STATE -->
   const [showIntro, setShowIntro] = useState(() => {
     return !localStorage.getItem('am_has_seen_intro');
   });
 
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
-
-  // System Overlays
   const [showLogin, setShowLogin] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isFlexCardOpen, setIsFlexCardOpen] = useState(false);
   const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
-  
-  // GLOBAL SHARE OVERLAY
   const [showGlobalShareModal, setShowGlobalShareModal] = useState(false);
 
-  // --- PASSWORD RESET STATE ---
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [newPassword, setNewPassword] = useState('');
 
-  // --- GLOBAL USER STATE ---
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userTier, setUserTier] = useState<'visitor' | 'free' | 'premium'>('visitor');
 
-  // --- PWA INSTALL PROMPT STATE ---
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [showIosPrompt, setShowIosPrompt] = useState(false); 
   const [isIOSDevice, setIsIOSDevice] = useState(false);
 
-  // --- HISTORY & NAVIGATION REF ---
   const isPopState = useRef(false);
 
-  // --- HARDWARE BACK BUTTON INTERCEPTOR ---
   useEffect(() => {
     window.history.replaceState({ view: currentView, series: selectedSeries }, '');
 
@@ -150,10 +139,8 @@ export default function App() {
     }
   }, [currentView, selectedSeries]);
 
-  // --- SESSION STORAGE SYNC ---
   useEffect(() => {
     sessionStorage.setItem('currentView', currentView);
-    
     if (selectedSeries) {
       sessionStorage.setItem('selectedSeries', JSON.stringify(selectedSeries));
     } else {
@@ -166,11 +153,9 @@ export default function App() {
     setShowIntro(false);
   };
 
-  // --- SUPABASE AUTH LISTENER ---
   useEffect(() => {
     const fetchUserProfile = async (sessionUser: any) => {
       const fallbackName = sessionUser.user_metadata?.username || 'Reader';
-      
       const { data } = await supabase.from('profiles').select('*').eq('id', sessionUser.id).maybeSingle();
       
       if (data) {
@@ -181,14 +166,14 @@ export default function App() {
         await supabase.from('profiles').insert([
           { id: sessionUser.id, username: fallbackName, is_premium: false }
         ]);
-        setCurrentUser({ username: fallbackName, avatar_url: '', frame_id: 'none' });
+        setCurrentUser({ username: fallbackName, avatar_url: '', frame_id: 'none', total_hypes: 5 }); 
       }
     };
 
     const checkSessionAndFetch = () => {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
-          setCurrentUser((prev: any) => prev || { username: session.user.user_metadata?.username || 'Reader', avatar_url: '', frame_id: 'none' });
+          setCurrentUser((prev: any) => prev || { username: session.user.user_metadata?.username || 'Reader', avatar_url: '', frame_id: 'none', total_hypes: 5 });
           fetchUserProfile(session.user);
         } else {
           setCurrentUser(null);
@@ -224,12 +209,11 @@ export default function App() {
       if (event === 'PASSWORD_RECOVERY') {
         setShowPasswordReset(true);
       }
-      
       if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
         setUserTier('visitor');
       } else if (session?.user) {
-        setCurrentUser((prev: any) => prev || { username: session.user.user_metadata?.username || 'Reader', avatar_url: '', frame_id: 'none' });
+        setCurrentUser((prev: any) => prev || { username: session.user.user_metadata?.username || 'Reader', avatar_url: '', frame_id: 'none', total_hypes: 5 });
         fetchUserProfile(session.user);
       } else {
         setCurrentUser(null);
@@ -244,7 +228,6 @@ export default function App() {
     };
   }, []);
 
-  // --- DEVICE DETECTION & PWA INSTALL LISTENER ---
   useEffect(() => {
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || ('standalone' in navigator && (navigator as any).standalone);
     if (isStandalone) return; 
@@ -263,7 +246,6 @@ export default function App() {
       const handleBeforeInstallPrompt = (e: any) => {
         e.preventDefault();
         setDeferredPrompt(e);
-        
         const hasDismissed = localStorage.getItem('am_install_prompt_dismissed');
         if (!hasDismissed) {
           setShowInstallPrompt(true);
@@ -271,14 +253,10 @@ export default function App() {
       };
 
       window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
       if ((window as any).deferredPrompt) {
         handleBeforeInstallPrompt((window as any).deferredPrompt);
       }
-
-      return () => {
-        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      };
+      return () => { window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt); };
     }
   }, []);
 
@@ -320,64 +298,34 @@ export default function App() {
       setCurrentView(data.action);
       return;
     }
-    
-    // Default fallback to Series Page (Handles standard clicks & "Jump Back In" auto-opens)
     setSelectedSeries(data);
     setCurrentView('series');
   }, []);
 
   return (
     <>
-      {/* --- RENDER SPLASH INTRO IF FIRST VISIT --- */}
       {showIntro && <SplashIntro onComplete={handleIntroComplete} />}
       
-      {/* GLOBAL STYLES & iOS TWEAKS */}
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Unbounded:wght@700;800;900&display=swap');
-          
-          @keyframes fade-out {
-            0% { opacity: 1; }
-            80% { opacity: 1; }
-            100% { opacity: 0; }
-          }
-          .animate-fade-out {
-            animation: fade-out 3s forwards;
-          }
-          
-          html, body { 
-            font-family: 'Plus Jakarta Sans', sans-serif; 
-            overscroll-behavior-y: none;
-            -webkit-overflow-scrolling: touch;
-            background-color: #000000;
-          }
-
+          @keyframes fade-out { 0% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+          .animate-fade-out { animation: fade-out 3s forwards; }
+          html, body { font-family: 'Plus Jakarta Sans', sans-serif; overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; background-color: #000000; }
           h1, h2, h3, h4, h5, h6, .font-black { font-family: 'Unbounded', sans-serif !important; font-style: italic !important; letter-spacing: -0.03em !important; }
           .tracking-widest { letter-spacing: 0.15em !important; font-style: normal !important; font-family: 'Plus Jakarta Sans', sans-serif !important; font-weight: 800; }
-          
           .no-scrollbar::-webkit-scrollbar { display: none; }
           .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-          
           .card-perspective { perspective: 1000px; }
           .card-flipper { transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform-style: preserve-3d; }
           .card-flipper.is-flipped { transform: rotateY(180deg); }
           .card-face { -webkit-backface-visibility: hidden; backface-visibility: hidden; }
           .card-back { transform: rotateY(180deg); }
-
-          /* --- MAGICAL BACKDROP REVEAL HACK --- */
-          /* 1. We strip the solid background explicitly from the root of all routed pages */
-          #main-app-container > div {
-            background-color: transparent !important;
-          }
-          
-          /* 2. We kill the old hardcoded local backdrops on the Home page so they don't double-stack */
-          .z-\\[-1\\].bg-black.fixed.inset-0 {
-            display: none !important;
-          }
+          #main-app-container > div { background-color: transparent !important; }
+          .z-\\[-1\\].bg-black.fixed.inset-0 { display: none !important; }
         `}
       </style>
 
-      {/* --- TRULY GLOBAL BACKDROP (Dialed up the opacity to 100%) --- */}
       <div className="fixed inset-0 z-0 bg-black pointer-events-none">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden opacity-100" />
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover opacity-100" />
@@ -385,53 +333,17 @@ export default function App() {
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black/90 via-black/60 to-transparent pointer-events-none" />
       </div>
 
-      {showLogin && (
-        <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => { setShowLogin(false); }} />
-      )}
-
-      {/* --- APP-WIDE SHARE MODAL OVERLAY --- */}
-      <ShareModal 
-        isOpen={showGlobalShareModal} 
-        onClose={() => setShowGlobalShareModal(false)} 
-        currentUser={currentUser}
-        series={null} // Null triggers the generic "App Share" text in the modal
-      />
+      {showLogin && <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => setShowLogin(false)} />}
+      <ShareModal isOpen={showGlobalShareModal} onClose={() => setShowGlobalShareModal(false)} currentUser={currentUser} series={null} />
 
       {showPasswordReset && (
         <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col shadow-2xl relative">
-            <button 
-              onClick={() => setShowPasswordReset(false)} 
-              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <button onClick={() => setShowPasswordReset(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
             <h2 className="text-2xl font-black italic uppercase text-[#fe9a00] mb-2">New Password</h2>
             <p className="text-xs text-zinc-400 font-bold mb-6">Enter your new password below.</p>
-            
-            <input 
-              type="password" 
-              placeholder="New Password" 
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full bg-black border border-zinc-700 text-white px-4 py-3 rounded-lg mb-4 focus:border-[#fe9a00] outline-none font-bold"
-            />
-            
-            <button 
-              onClick={async () => {
-                const { error } = await supabase.auth.updateUser({ password: newPassword });
-                if (!error) {
-                  alert("Password updated successfully!");
-                  setShowPasswordReset(false);
-                  setNewPassword('');
-                } else {
-                  alert(error.message);
-                }
-              }}
-              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
-            >
-              Save Password
-            </button>
+            <input type="password" placeholder="New Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full bg-black border border-zinc-700 text-white px-4 py-3 rounded-lg mb-4 focus:border-[#fe9a00] outline-none font-bold" />
+            <button onClick={async () => { const { error } = await supabase.auth.updateUser({ password: newPassword }); if (!error) { alert("Password updated successfully!"); setShowPasswordReset(false); setNewPassword(''); } else { alert(error.message); } }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Save Password</button>
           </div>
         </div>
       )}
@@ -448,23 +360,9 @@ export default function App() {
         </div>
       )}
 
-      <HamburgerMenu
-        isOpen={isMenuOpen}
-        onClose={() => setIsMenuOpen(false)}
-        onNavigate={handleNavigate}
-        onOpenFlexCard={() => setIsFlexCardOpen(true)}
-        userTier={userTier}
-        onUpsell={setUpsellConfig}
-        currentUser={currentUser}
-        canInstall={!!deferredPrompt || isIOSDevice}
-        onInstall={handleInstallClick}
-        onLoginClick={() => setShowLogin(true)}
-        onShareClick={() => setShowGlobalShareModal(true)}
-      />
+      <HamburgerMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} onNavigate={handleNavigate} onOpenFlexCard={() => setIsFlexCardOpen(true)} userTier={userTier} onUpsell={setUpsellConfig} currentUser={currentUser} canInstall={!!deferredPrompt || isIOSDevice} onInstall={handleInstallClick} onLoginClick={() => setShowLogin(true)} onShareClick={() => setShowGlobalShareModal(true)} />
 
-      {isFlexCardOpen && (
-        <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} />
-      )}
+      {isFlexCardOpen && <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} />}
 
       <AppErrorBoundary>
         <Suspense fallback={
@@ -474,55 +372,33 @@ export default function App() {
           </div>
         }>
           <div id="main-app-container" className="relative z-10 min-h-screen w-full bg-transparent">
-            {currentView === 'home' && (
-              <HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />
-            )}
-            {currentView === 'series' && (
-              <SeriesDetailPage 
-                userTier={userTier} 
-                series={selectedSeries} 
-                onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} 
-                onLoginClick={() => setShowLogin(true)} 
-                onNavigate={handleNavigate}
-              />
-            )}
-            {currentView === 'admin' && (
-              isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />
-            )}
-            {currentView === 'profile' && (
-              <UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} />
-            )}
-            {currentView === 'sub' && (
-              <SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />
-            )}
-            {currentView === 'leaderboard' && (
-              <Leaderboard userTier={userTier} currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />
-            )}
-            {currentView === 'settings' && (
-              <SettingsPage userTier={userTier} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onBack={() => setCurrentView('home')} onSignOut={() => { setCurrentView('home'); }} />
-            )}
-            {currentView === 'news' && (
-              <AMNewsPage onBack={() => setCurrentView('home')} />
-            )}
+            {currentView === 'home' && (<HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />)}
+            {currentView === 'series' && (<SeriesDetailPage userTier={userTier} series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />)}
+            {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
+            {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} />)}
+            {currentView === 'sub' && (<SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />)}
+            {currentView === 'leaderboard' && (<Leaderboard userTier={userTier} currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+            {currentView === 'settings' && (<SettingsPage userTier={userTier} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onBack={() => setCurrentView('home')} onSignOut={() => { setCurrentView('home'); }} />)}
+            {currentView === 'news' && (<AMNewsPage onBack={() => setCurrentView('home')} />)}
             {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
             {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}
             {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
             {currentView === 'shop' && (<Shop userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
             {currentView === 'legal' && (<LegalPages onBack={() => setCurrentView('home')} />)}
-            {/* --- ADDED RENDER LOGIC FOR CHARACTER ROSTER --- */}
-            {currentView === 'characters' && (
-              <CharacterRoster currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />
-            )}
+            {currentView === 'characters' && (<CharacterRoster currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
           </div>
         </Suspense>
       </AppErrorBoundary>
 
-      {/* --- GLOBAL FLOATING PILL NAV --- */}
       {!['settings', 'admin', 'sub'].includes(currentView) && (
         <FloatingPillNav currentView={currentView} onNavigate={handleNavigate} currentUser={currentUser} />
       )}
 
-      {/* --- GLOBAL FLOATING HAMBURGER FOR SUB-PAGES --- */}
+      {/* --- ADDED THE GLOBAL HYPE TRACKER NEXT TO MENU (HIDDEN FOR VISITORS) --- */}
+      {!['admin', 'sub', 'settings', 'legal'].includes(currentView) && currentUser && userTier !== 'visitor' && (
+        <GlobalHypeTracker hypesRemaining={currentUser?.total_hypes ?? 5} /> 
+      )}
+
       {!['home', 'settings', 'admin', 'sub', 'shop', 'legal'].includes(currentView) && (
         <button 
           onClick={() => setIsMenuOpen(true)}
@@ -533,7 +409,6 @@ export default function App() {
         </button>
       )}
 
-      {/* --- STANDARD PWA INSTALL BANNER (Android/Chrome) --- */}
       {showInstallPrompt && !showIosPrompt && (
         <div className="fixed top-4 sm:top-6 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-[6000] bg-zinc-900 border border-[#fe9a00] p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex items-center justify-between animate-fade-in">
           <div className="flex items-center gap-3">
@@ -546,17 +421,12 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={dismissInstallPrompt} className="p-2 text-zinc-500 hover:text-white transition-colors">
-              <X className="w-4 h-4" />
-            </button>
-            <button onClick={handleInstallClick} className="bg-[#fe9a00] text-black px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">
-              Install
-            </button>
+            <button onClick={dismissInstallPrompt} className="p-2 text-zinc-500 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
+            <button onClick={handleInstallClick} className="bg-[#fe9a00] text-black px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">Install</button>
           </div>
         </div>
       )}
 
-      {/* --- CUSTOM iOS INSTALL BANNER --- */}
       {showIosPrompt && (
         <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-6 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-4 animate-fade-in-up pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           <div className="flex items-start justify-between">
@@ -569,20 +439,12 @@ export default function App() {
                 <span className="text-[#fe9a00] text-[10px] font-bold mt-0.5 leading-snug">For the best reading experience, install the app.</span>
               </div>
             </div>
-            <button onClick={dismissIosPrompt} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors">
-              <X className="w-4 h-4" />
-            </button>
+            <button onClick={dismissIosPrompt} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors"><X className="w-4 h-4" /></button>
           </div>
           
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col gap-3">
-            <p className="text-xs text-zinc-300 font-bold flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">1</span>
-              Tap the <Share className="w-4 h-4 text-[#fe9a00] mx-1" /> icon in your Safari menu bar
-            </p>
-            <p className="text-xs text-zinc-300 font-bold flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">2</span>
-              Scroll down and select <strong className="text-white">"Add to Home Screen"</strong>
-            </p>
+            <p className="text-xs text-zinc-300 font-bold flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">1</span>Tap the <Share className="w-4 h-4 text-[#fe9a00] mx-1" /> icon in your Safari menu bar</p>
+            <p className="text-xs text-zinc-300 font-bold flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">2</span>Scroll down and select <strong className="text-white">"Add to Home Screen"</strong></p>
           </div>
         </div>
       )}

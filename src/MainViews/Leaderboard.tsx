@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Trophy, Flame, Crown, Star, Zap, Activity, TrendingUp, Calendar, Users } from 'lucide-react';
+import { ArrowLeft, Trophy, Flame, Crown, Star, Zap, Activity, TrendingUp, Calendar, Users, MessageSquare } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
@@ -16,6 +16,9 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
   const [topSeries, setTopSeries] = useState<any[]>([]);
   const [topCreators, setTopCreators] = useState<any[]>([]);
   const [topCharacters, setTopCharacters] = useState<any[]>([]);
+  
+  // --- NEW: MOST HYPED CHAPTER STATE ---
+  const [topChapter, setTopChapter] = useState<any>(null);
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
@@ -88,6 +91,12 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                 })
                 .sort((a: any, b: any) => b.hypeScore - a.hypeScore).slice(0, 5);
             setTopCharacters(rankedChars);
+        }
+
+        // --- NEW: FETCH MOST HYPED CHAPTER ---
+        const { data: topChapterData } = await supabase.rpc('get_most_hyped_chapter');
+        if (topChapterData && topChapterData.length > 0) {
+          setTopChapter(topChapterData[0]);
         }
 
       } catch (error) {
@@ -200,6 +209,37 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white">Weekly Polls</h2>
                   <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">Resets Every Saturday at 12:00 AM</p>
                 </div>
+                
+                {/* --- NEW: MOST HYPED CHAPTER SECTION --- */}
+                {topChapter && (
+                  <div className="bg-black border border-zinc-800 rounded-2xl p-6 relative overflow-hidden shadow-2xl mb-8">
+                    <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[10px] font-black uppercase px-4 py-1.5 rounded-bl-xl shadow-lg z-10">Trending #1</div>
+                    <h2 className="text-lg font-black italic uppercase tracking-tighter text-white mb-6 flex items-center gap-2">
+                      <Flame className="w-5 h-5 text-[#fe9a00]" /> Most Hyped Chapter
+                    </h2>
+                    
+                    <div className="flex gap-6">
+                      <div className="w-24 h-36 flex-shrink-0 relative rounded-lg overflow-hidden border border-zinc-700 shadow-md">
+                         <img src={topChapter.thumbnail_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} className="w-full h-full object-cover" alt="Chapter Thumb" />
+                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                      </div>
+                      
+                      <div className="flex flex-col justify-center min-w-0">
+                        <h3 className="text-xl font-black text-white leading-tight mb-1 truncate">{topChapter.series_title}</h3>
+                        <p className="text-[#fe9a00] font-bold text-xs uppercase tracking-widest mb-6">Chapter {topChapter.chapter_number}</p>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1.5 bg-zinc-900 px-3 py-2 rounded-md border border-zinc-800">
+                            <Flame className="w-3.5 h-3.5 text-[#fe9a00]"/> {topChapter.hype_score} Score
+                          </span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1.5 bg-zinc-900 px-3 py-2 rounded-md border border-zinc-800">
+                            <MessageSquare className="w-3.5 h-3.5 text-cyan-500"/> {topChapter.comment_count} Discuss
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 
                 <LeaderboardCategory title="Most Hype Series" items={topSeries} subtitle="Overall Hypes" type="series" />
                 <LeaderboardCategory title="Most Hype Characters" items={topCharacters} subtitle="Fan Favorites" type="character" />

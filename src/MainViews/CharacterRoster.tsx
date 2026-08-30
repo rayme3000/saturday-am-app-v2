@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, X, Flame, ArrowLeft, Shield, Swords, MapPin, Activity, User, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { Search, X, Flame, ArrowLeft, Shield, Swords, MapPin, Activity, User, ChevronDown, ChevronUp, RefreshCw, Lock } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
@@ -24,22 +24,26 @@ const getModalBackdropGlow = (role: string, isMc: boolean) => {
   return 'from-white/20';
 };
 
-export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
+export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick }: any) => {
   const { seriesList = [] } = useSeriesData() || {};
   
   const [rawCharacters, setRawCharacters] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // COMBINED FILTER & SORT STATE
   const [viewSelection, setViewSelection] = useState('Sort:Role'); 
   
   const [selectedChar, setSelectedChar] = useState<any>(null);
-  const [charHypes, setCharHypes] = useState<Record<string, boolean>>({});
   
+  // HYPE STATE
+  const [charHypes, setCharHypes] = useState<Record<string, boolean>>({});
+  const [showHypeConfirm, setShowHypeConfirm] = useState<any>(null);
+  const [hypesRemaining, setHypesRemaining] = useState(5); 
+
   const [showMobileDetails, setShowMobileDetails] = useState(false);
   const [showAltForm, setShowAltForm] = useState(false);
+  const [activeFormIndex, setActiveFormIndex] = useState(0);
+  const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
 
   useEffect(() => {
     const fetchCharacters = async () => {
@@ -68,7 +72,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
     });
   }, [rawCharacters, seriesList]);
 
-  // Extract unique affiliations (excluding 'All' since we use the dropdown groups now)
   const uniqueAffiliations = Array.from(new Set((characters || []).map(c => c?.element).filter(Boolean))).sort();
 
   const groupedChars = useMemo(() => {
@@ -83,7 +86,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
     const isAffilFilter = viewSelection.startsWith('AffilFilter:');
     const isSort = viewSelection.startsWith('Sort:');
 
-    // Apply strict filtering if selected
     if (isRoleFilter) {
       const activeRole = viewSelection.replace('RoleFilter:', '');
       result = result.filter(c => c?.role_type === activeRole);
@@ -94,8 +96,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
     }
 
     const groups: { name: string | null, items: any[] }[] = [];
-    
-    // If they picked a filter, default the inner sorting to A-Z so it displays as one clean flat list
     let currentSortBy = isSort ? viewSelection.replace('Sort:', '') : 'A-Z';
 
     if (currentSortBy === 'Role') {
@@ -120,7 +120,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
       const sorted = [...result].sort((a, b) => {
          if (currentSortBy === 'A-Z') return (a.name || '').localeCompare(b.name || '');
          if (currentSortBy === 'Z-A') return (b.name || '').localeCompare(a.name || '');
-         return 0; // Custom Order matches DB ID
+         return 0; 
       });
       groups.push({ name: null, items: sorted }); 
     }
@@ -128,17 +128,33 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
     return groups;
   }, [characters, searchQuery, viewSelection]);
 
-  const handleHypeCharacter = async (char: any) => {
-    if (!currentUser) return alert("Create a Free Account to hype characters!");
-    if (charHypes[char?.id]) return;
+  // --- NEW: INITIATE CONFIRMATION ---
+  const initiateHype = (char: any) => {
+    if (!currentUser) {
+      setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype characters!" });
+      return;
+    }
+    if (hypesRemaining <= 0) {
+      alert("You are out of Hypes! They will automatically replenish this Saturday.");
+      return;
+    }
+    setShowHypeConfirm(char);
+  };
 
-    setCharHypes(prev => ({ ...prev, [char?.id]: true }));
+  // --- NEW: EXECUTE INFINITE HYPES ---
+  const executeHype = async () => {
+    const char = showHypeConfirm;
+    setShowHypeConfirm(null);
+    if (!char) return;
+
+    setCharHypes(prev => ({ ...prev, [char.id]: true }));
+    setHypesRemaining(prev => Math.max(0, prev - 1));
 
     try {
       await supabase.from('hypes').insert([{ 
         user_id: currentUser.id, 
         target_type: 'character', 
-        target_id: String(char?.id) 
+        target_id: String(char.id) 
       }]);
 
       const { data: profile } = await supabase.from('profiles').select('total_hypes, fandom_score').eq('id', currentUser.id).maybeSingle();
@@ -150,7 +166,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
         window.dispatchEvent(new Event('profileUpdated'));
       }
 
-      if (char?.series_slug) {
+      if (char.series_slug) {
         const { data: seriesData } = await supabase.from('series').select('weekly_hype, total_hype').eq('slug', char.series_slug).maybeSingle();
         if (seriesData) {
           await supabase.from('series').update({
@@ -164,8 +180,80 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
     }
   };
 
+  const validAltForms = useMemo(() => {
+    if (!selectedChar) return [];
+    const forms: any[] = [];
+    if (typeof selectedChar.alt_headshot_url === 'string' && selectedChar.alt_headshot_url.trim().length > 0) {
+      forms.push({ name: selectedChar.alt_form_name || 'Alternate Form', url: selectedChar.alt_headshot_url });
+    }
+    if (Array.isArray(selectedChar.alt_forms)) {
+      selectedChar.alt_forms.forEach((form: any) => {
+        if (form && typeof form.url === 'string' && form.url.trim().length > 0) { forms.push(form); }
+      });
+    } else if (typeof selectedChar.alt_forms === 'string') {
+        try {
+            const parsed = JSON.parse(selectedChar.alt_forms);
+            if (Array.isArray(parsed)) {
+                parsed.forEach((form: any) => {
+                    if (form && typeof form.url === 'string' && form.url.trim().length > 0) { forms.push(form); }
+                });
+            }
+        } catch(e) {}
+    }
+    return forms;
+  }, [selectedChar]);
+
+  const hasAltForms = validAltForms.length > 0;
+  const currentAvatar = activeFormIndex === 0 ? selectedChar?.headshot_url : validAltForms[activeFormIndex - 1]?.url;
+  const currentName = activeFormIndex === 0 ? selectedChar?.name : (validAltForms[activeFormIndex - 1]?.name || selectedChar?.name);
+
   return (
     <div className="min-h-screen bg-transparent text-white relative z-[100] pb-48">
+      
+      {/* HYPE CONFIRMATION MODAL */}
+      {showHypeConfirm && (
+        <div className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setShowHypeConfirm(null)}>
+          <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <div className="w-16 h-16 bg-[#fe9a00]/10 rounded-full flex items-center justify-center mb-4 border border-[#fe9a00]/30 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <Flame className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Drop a Hype?</h2>
+            <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-6">
+              Are you sure you want to spend a Hype on <span className="text-white">{showHypeConfirm.name}</span>? You can hype the same item multiple times!
+            </p>
+            <div className="bg-zinc-900 w-full py-3 rounded-lg border border-zinc-800 mb-6">
+              <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-1">Current Balance</p>
+              <p className="text-lg font-black text-white">{hypesRemaining} <span className="text-[#fe9a00]">Remaining</span></p>
+            </div>
+            <div className="flex gap-3 w-full">
+              <button onClick={() => setShowHypeConfirm(null)} className="flex-1 bg-zinc-900 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:bg-zinc-800 transition-colors">Cancel</button>
+              <button onClick={executeHype} className="flex-1 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {upsellConfig && (
+        <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
+            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <Lock className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+              {upsellConfig.type === 'visitor' ? 'Account Required' : 'Premium Feature'}
+            </h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
+            <button 
+              onClick={() => { setUpsellConfig(null); if (onLoginClick) onLoginClick(); else if (onNavigate) onNavigate({ action: 'login' }); }} 
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors"
+            >
+              Log In / Sign Up
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="fixed inset-0 z-0 bg-black pointer-events-none">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="w-full h-full object-cover opacity-30 mix-blend-overlay" />
         <div className="absolute inset-0 bg-gradient-to-b from-black via-black/50 to-black" />
@@ -309,25 +397,23 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser }: any) => {
                 {selectedChar?.series_title}
               </p>
 
-              {/* TRANSFORM BUTTON */}
               {selectedChar?.alt_headshot_url && (
                 <button 
                   onClick={() => setShowAltForm(!showAltForm)}
-                  className="w-full max-w-[240px] mb-4 flex items-center justify-center gap-2 py-3 border border-white rounded-xl font-black uppercase tracking-widest text-[10px] text-white hover:bg-white hover:text-black transition-colors relative z-20 bg-zinc-900/60 backdrop-blur-md animate-pulse shadow-[0_0_20px_rgba(255,255,255,0.7)]"
+                  className="w-full max-w-[240px] mb-4 flex items-center justify-center gap-2 py-3 border border-white rounded-xl font-black uppercase tracking-widest text-[10px] text-white hover:bg-white hover:text-black transition-colors relative z-20 bg-zinc-900 shadow-[0_0_15px_rgba(255,255,255,0.7)] animate-pulse"
                 >
                   <RefreshCw className="w-4 h-4" />
                   {showAltForm ? 'Return to Base Form' : 'Alternate Form'}
                 </button>
               )}
               
-              {/* HYPE BUTTON */}
+              {/* --- NEW: INFINITE HYPE BUTTON (NO DISABLED STATE) --- */}
               <button 
-                onClick={() => handleHypeCharacter(selectedChar)} 
-                disabled={selectedChar?.id && charHypes[selectedChar.id]} 
-                className={`w-full max-w-[240px] flex items-center justify-center gap-2 py-4 rounded-xl font-black uppercase tracking-widest transition-all text-xs relative z-10 shadow-lg ${selectedChar?.id && charHypes[selectedChar.id] ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00]' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_15px_rgba(254,154,0,0.3)]'}`}
+                onClick={() => initiateHype(selectedChar)} 
+                className={`w-full max-w-[240px] flex items-center justify-center gap-2 py-4 rounded-xl font-black uppercase tracking-widest transition-all text-xs relative z-10 shadow-lg ${charHypes[selectedChar?.id] ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00]' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_15px_rgba(254,154,0,0.3)]'}`}
               >
-                <Flame className={`w-4 h-4 ${selectedChar?.id && charHypes[selectedChar.id] ? 'fill-[#fe9a00]' : ''}`} />
-                {(selectedChar?.id && charHypes[selectedChar.id]) ? 'HYPED!' : 'HYPE CHARACTER'}
+                <Flame className={`w-4 h-4 ${charHypes[selectedChar?.id] ? 'fill-[#fe9a00]' : ''}`} />
+                {charHypes[selectedChar?.id] ? 'HYPE AGAIN' : 'HYPE CHARACTER'}
               </button>
 
               <button 

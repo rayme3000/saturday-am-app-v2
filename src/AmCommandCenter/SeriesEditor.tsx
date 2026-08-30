@@ -41,7 +41,7 @@ const POSITION_PRESETS = [
   { label: 'Bottom Left', value: '0% 100%' }, { label: 'Bottom Center', value: '50% 100%' }, { label: 'Bottom Right', value: '100% 100%' },
 ];
 
-export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal }: any) => {
+export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: any) => {
   const [targetSeries, setTargetSeries] = useState('new');
   const { seriesList = [] } = useSeriesData();
   const [isSaving, setIsSaving] = useState(false);
@@ -161,7 +161,10 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal }: any) => {
     fetchSeriesData();
   }, [targetSeries, seriesList]);
 
-  const handleInputChange = (field: any, value: any) => { setFormData(prev => ({ ...prev, [field]: value })); };
+  const handleInputChange = (field: any, value: any) => { 
+    setFormData(prev => ({ ...prev, [field]: value })); 
+    if(setIsDirty) setIsDirty(true);
+  };
 
   const handleCharacterChange = (index: number, field: string, value: any) => {
     const newChars = [...formData.characters];
@@ -242,7 +245,9 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal }: any) => {
 
       const { error: insertError } = await supabase.from('series_creators').insert(formData.creators.map(c => ({ 
         series_slug: activeSlug, role: c.role || 'Creator', name: c.name, flag_code: c.flagCode, 
-        bio: c.bio, avatar_url: c.avatar_url, twitter_url: c.twitter, instagram_url: c.instagram, 
+        bio: c.bio, 
+        avatar_url: c.avatar, // --- FIXED BUG: Was accidentally mapping c.avatar_url to itself instead of c.avatar ---
+        twitter_url: c.twitter, instagram_url: c.instagram, 
         support_url: c.supportLink, is_visible: c.is_visible 
       })));
       if (insertError) throw insertError;
@@ -252,7 +257,6 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal }: any) => {
 
       if (formData.characters.length > 0) {
         const charPayload = formData.characters.map(c => {
-           // We explicitly strip out ONLY old unneeded keys, preserving alt_headshot_url and adding alt_forms
            const { id, fullbody_url, ...rest } = c; 
            return { ...rest, alt_forms: c.alt_forms || [], series_slug: activeSlug };
         });
@@ -261,6 +265,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal }: any) => {
       }
   
       alert(`SUCCESS! Series Saved.`);
+      if(setIsDirty) setIsDirty(false); // Clear the unsaved warning flag!
     } catch (error: any) { 
       console.error("Database Save Error:", error);
       alert(`FAILED TO SAVE! Supabase returned: ${error.message}`); 
@@ -293,6 +298,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal }: any) => {
       }
 
       alert("Series permanently deleted!"); 
+      if(setIsDirty) setIsDirty(false);
       window.location.reload(); 
     } catch (error: any) { 
       alert('Failed to delete series:\n\n' + error.message + '\n\nNote: If this series has Chapters uploaded, you must delete its Chapters in the Chapter Uploader first!'); 
