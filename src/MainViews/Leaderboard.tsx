@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Trophy, Flame, Crown, Star, Zap, Activity, TrendingUp, Calendar, Users, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Trophy, Flame, Crown, Star, Zap, Activity, TrendingUp, Calendar, Users, MessageSquare, PenTool } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
@@ -11,13 +11,13 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
   const [superFans, setSuperFans] = useState<any[]>([]);
   const [big3, setBig3] = useState<any[]>([]);
+  const [big3Creators, setBig3Creators] = useState<any[]>([]);
   const [userRank, setUserRank] = useState<any>(null);
   
   const [topSeries, setTopSeries] = useState<any[]>([]);
   const [topCreators, setTopCreators] = useState<any[]>([]);
   const [topCharacters, setTopCharacters] = useState<any[]>([]);
   
-  // --- NEW: MOST HYPED CHAPTER STATE ---
   const [topChapter, setTopChapter] = useState<any>(null);
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         }
 
         const { data: creatorHypesData } = await supabase.from('hypes').select('target_id').eq('target_type', 'creator');
-        const { data: allCreatorsData } = await supabase.from('series_creators').select('name, avatar_url, role');
+        const { data: allCreatorsData } = await supabase.from('series_creators').select('name, avatar_url, role, series_slug');
         
         if (creatorHypesData && allCreatorsData) {
             const creatorHypeCounts: Record<string, number> = {};
@@ -97,6 +97,42 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         const { data: topChapterData } = await supabase.rpc('get_most_hyped_chapter');
         if (topChapterData && topChapterData.length > 0) {
           setTopChapter(topChapterData[0]);
+        }
+
+        // --- NEW: MONTHLY BIG 3 CREATORS ---
+        if (allCreatorsData) {
+          const combinedCreatorScores: Record<string, number> = {};
+          
+          // 1. Add Direct Creator Hypes
+          if (creatorHypesData) {
+            creatorHypesData.forEach((h: any) => {
+              combinedCreatorScores[h.target_id] = (combinedCreatorScores[h.target_id] || 0) + 1;
+            });
+          }
+
+          // 2. Add Monthly Super Hypes from their respective Series
+          const seriesToCreatorMap: Record<string, string> = {};
+          seriesList.forEach((s: any) => { if (s.creator_name) seriesToCreatorMap[s.slug] = s.creator_name; });
+          allCreatorsData.forEach((c: any) => { if (c.series_slug && c.name) seriesToCreatorMap[c.series_slug] = c.name; });
+
+          if (superHypes) {
+            superHypes.forEach((h: any) => {
+              const creatorName = seriesToCreatorMap[h.series_slug];
+              if (creatorName) {
+                combinedCreatorScores[creatorName] = (combinedCreatorScores[creatorName] || 0) + 1;
+              }
+            });
+          }
+
+          // 3. Resolve the Top 3
+          const uniqueCreatorMap = new Map();
+          allCreatorsData.forEach((c: any) => { if (!uniqueCreatorMap.has(c.name)) uniqueCreatorMap.set(c.name, c); });
+          
+          const rankedBig3Creators = Array.from(uniqueCreatorMap.values())
+            .map((c: any) => ({ ...c, hypeScore: combinedCreatorScores[c.name] || 0 }))
+            .sort((a, b) => b.hypeScore - a.hypeScore);
+            
+          setBig3Creators(rankedBig3Creators.slice(0, 3));
         }
 
       } catch (error) {
@@ -210,7 +246,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">Resets Every Saturday at 12:00 AM</p>
                 </div>
                 
-                {/* --- NEW: MOST HYPED CHAPTER SECTION --- */}
                 {topChapter && (
                   <div className="bg-black border border-zinc-800 rounded-2xl p-6 relative overflow-hidden shadow-2xl mb-8">
                     <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[10px] font-black uppercase px-4 py-1.5 rounded-bl-xl shadow-lg z-10">Trending #1</div>
@@ -248,10 +283,11 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             )}
 
             {activeTab === 'monthly' && (
-              <div className="animate-fade-in space-y-12">
+              <div className="animate-fade-in space-y-12 pb-12">
+                {/* --- THE BIG 3 SERIES --- */}
                 <div className="flex flex-col items-center mt-4">
                   <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2 mb-2 drop-shadow-lg">
-                    <Crown className="w-6 h-6 text-yellow-500" /> The Big 3
+                    <Crown className="w-6 h-6 text-yellow-500" /> The Big 3 Series
                   </h2>
                   <p className="text-[10px] text-[#fe9a00] font-black uppercase tracking-widest mb-12">Resets Last Saturday of the Month</p>
 
@@ -269,6 +305,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                             <img src={big3[1].sticker_url || big3[1].character_url || big3[1].cover_url} className="w-full h-full object-cover object-top" alt="Rank 2" />
                           </div>
                           <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3[1].title}</span>
+                          <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1"><Flame className="w-3 h-3 inline pb-0.5"/> {big3[1].hypeScore}</span>
                         </div>
                       </button>
 
@@ -284,6 +321,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                             <img src={big3[0].sticker_url || big3[0].character_url || big3[0].cover_url} className="w-full h-full object-cover object-top" alt="Rank 1" />
                           </div>
                           <span className="mt-5 text-[10px] sm:text-xs font-black text-[#fe9a00] uppercase tracking-wider text-center line-clamp-2 drop-shadow-md">{big3[0].title}</span>
+                          <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mt-1"><Flame className="w-3.5 h-3.5 inline pb-0.5"/> {big3[0].hypeScore}</span>
                         </div>
                       </button>
 
@@ -299,6 +337,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                             <img src={big3[2].sticker_url || big3[2].character_url || big3[2].cover_url} className="w-full h-full object-cover object-top" alt="Rank 3" />
                           </div>
                           <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3[2].title}</span>
+                          <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1"><Flame className="w-3 h-3 inline pb-0.5"/> {big3[2].hypeScore}</span>
                         </div>
                       </button>
                     </div>
@@ -308,6 +347,55 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                     </div>
                   )}
                 </div>
+
+                {/* --- NEW: THE BIG 3 CREATORS --- */}
+                <div className="flex flex-col items-center mt-16 pt-16 border-t border-zinc-800/50">
+                  <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2 mb-2 drop-shadow-lg">
+                    <PenTool className="w-6 h-6 text-yellow-500" /> The Big 3 Creators
+                  </h2>
+                  <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mb-12 text-center max-w-sm">
+                    Combined Score of Creator Hypes + Monthly Series Hypes
+                  </p>
+
+                  {big3Creators.length === 3 ? (
+                    <div className="flex items-end justify-center gap-4 sm:gap-8 w-full px-2 mt-8 pointer-events-none">
+                      {/* Rank 2 */}
+                      <div className="flex flex-col items-center w-[30%] opacity-90 transition-all group">
+                        <div className="text-[10px] sm:text-xs font-black text-zinc-400 uppercase tracking-widest mb-3 flex items-center gap-1"><span className="text-sm">🥈</span> #2</div>
+                        <div className="relative rounded-full overflow-hidden bg-zinc-800 w-24 h-24 sm:w-32 sm:h-32 border-[4px] border-zinc-400 shadow-[0_10px_30px_rgba(161,161,170,0.4)] transform -rotate-6 transition-transform">
+                          <img src={big3Creators[1].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 2" />
+                        </div>
+                        <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3Creators[1].name}</span>
+                        <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1"><Flame className="w-3 h-3 inline pb-0.5"/> {big3Creators[1].hypeScore}</span>
+                      </div>
+
+                      {/* Rank 1 */}
+                      <div className="flex flex-col items-center w-[35%] z-30 transition-all group pb-8 relative">
+                        <div className="text-xs sm:text-sm font-black text-yellow-500 uppercase tracking-widest mb-3 flex items-center gap-1 animate-pulse"><Crown className="w-4 h-4 text-yellow-500" /> #1</div>
+                        <div className="relative rounded-full overflow-hidden bg-zinc-800 w-32 h-32 sm:w-44 sm:h-44 border-[6px] border-yellow-500 shadow-[0_15px_40px_rgba(234,179,8,0.6)] transform transition-transform">
+                          <img src={big3Creators[0].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 1" />
+                        </div>
+                        <span className="mt-5 text-[10px] sm:text-xs font-black text-[#fe9a00] uppercase tracking-wider text-center line-clamp-2 drop-shadow-md">{big3Creators[0].name}</span>
+                        <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mt-1"><Flame className="w-3.5 h-3.5 inline pb-0.5"/> {big3Creators[0].hypeScore}</span>
+                      </div>
+
+                      {/* Rank 3 */}
+                      <div className="flex flex-col items-center w-[30%] opacity-90 transition-all group">
+                        <div className="text-[10px] sm:text-xs font-black text-amber-600 uppercase tracking-widest mb-3 flex items-center gap-1"><span className="text-sm">🥉</span> #3</div>
+                        <div className="relative rounded-full overflow-hidden bg-zinc-800 w-24 h-24 sm:w-32 sm:h-32 border-[4px] border-amber-700 shadow-[0_10px_30px_rgba(180,83,9,0.4)] transform rotate-6 transition-transform">
+                          <img src={big3Creators[2].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 3" />
+                        </div>
+                        <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3Creators[2].name}</span>
+                        <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1"><Flame className="w-3 h-3 inline pb-0.5"/> {big3Creators[2].hypeScore}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 border border-zinc-800 rounded-xl bg-black/40 w-full max-w-lg pointer-events-none mt-8">
+                       <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">Not enough data to calculate The Big 3 Creators yet.</p>
+                    </div>
+                  )}
+                </div>
+
               </div>
             )}
 

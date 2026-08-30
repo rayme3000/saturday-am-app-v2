@@ -53,7 +53,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [isFavorited, setIsFavorited] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
-  // --- HYPE STATE ---
   const [creatorHypes, setCreatorHypes] = useState<Record<string, boolean>>({});
   const [showCreatorHypeConfirm, setShowCreatorHypeConfirm] = useState<any>(null);
   const [hypesRemaining, setHypesRemaining] = useState(5);
@@ -61,6 +60,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [seriesCharacters, setSeriesCharacters] = useState<any[]>([]);
   const [showAllChars, setShowAllChars] = useState(false);
   
+  const [likedChapters, setLikedChapters] = useState<Record<string, boolean>>({});
+
   const { trackEvent } = useTelemetry(currentUserId || undefined);
 
   const [showPromo, setShowPromo] = useState(false);
@@ -210,7 +211,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }
   }, [chapters, series, hasAutoOpened]);
 
-  const handleChapterLike = useCallback((chapterId: string, isNowHyped: boolean) => {
+  const handleChapterHypeUpdate = useCallback((chapterId: string, isNowHyped: boolean) => {
     setChapterStats((prev: any) => ({
       ...prev,
       [chapterId]: {
@@ -219,6 +220,24 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       }
     }));
   }, []);
+
+  const handleToggleLike = (e: React.MouseEvent, chapterId: string) => {
+    e.stopPropagation();
+    if (!currentUserId) {
+      setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like chapters!" });
+      return;
+    }
+    const currentlyLiked = likedChapters[chapterId];
+    setLikedChapters(prev => ({ ...prev, [chapterId]: !currentlyLiked }));
+    
+    setChapterStats((prev: any) => ({
+      ...prev,
+      [chapterId]: {
+        ...prev[chapterId],
+        reacts: Math.max(0, (prev[chapterId]?.reacts || 0) + (currentlyLiked ? -1 : 1))
+      }
+    }));
+  };
 
   const handleSeriesLike = useCallback((isNowHyped: boolean) => {
     setLocalSeries((prev: any) => ({
@@ -261,6 +280,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     const { data } = await supabase.from('pages').select('id, image_url').eq('chapter_id', chapter.id).order('page_order', { ascending: true });
       
     if (data && data.length > 0) { 
+      window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: true } }));
       setActivePages(data as any); 
       setActiveChapterId(chapter.id);
       setStartPage(initialPage); 
@@ -347,7 +367,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }, 2000);
   };
 
-  // --- NEW: INITIATE CONFIRMATION FOR CREATORS ---
   const initiateHypeCreator = (creator: any) => {
     if (!currentUserId) {
       setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" });
@@ -360,7 +379,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     setShowCreatorHypeConfirm(creator);
   };
 
-  // --- NEW: EXECUTE INFINITE HYPES FOR CREATORS ---
   const executeHypeCreator = async () => {
     const creator = showCreatorHypeConfirm;
     setShowCreatorHypeConfirm(null);
@@ -545,15 +563,16 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             title={activeChapterData ? `Chapter ${activeChapterData.chapter_number} - ${activeChapterData.title || ''}` : ''}
             subtitle={localSeries.title}
             initialPage={startPage} 
-            onClose={() => { setIsReaderOpen(false); setActiveChapterId(null); setStartPage(0); setReaderClosedCount(c => c + 1); }} 
-            onHome={() => { setIsReaderOpen(false); setActiveChapterId(null); setStartPage(0); setReaderClosedCount(c => c + 1); onBack(); }}
+            onClose={() => { window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } })); setIsReaderOpen(false); setActiveChapterId(null); setStartPage(0); setReaderClosedCount(c => c + 1); }} 
+            onHome={() => { window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } })); setIsReaderOpen(false); setActiveChapterId(null); setStartPage(0); setReaderClosedCount(c => c + 1); onBack(); }}
             onNext={() => { if (hasNext) handleReadChapter(chapters[currentIndex + 1], currentIndex + 1); }}
             onPrev={() => { if (hasPrev) handleReadChapter(chapters[currentIndex - 1], currentIndex - 1); }}
             hasNext={hasNext}
             hasPrev={hasPrev}
             onNavigate={onNavigate} 
-            onHypeUpdate={handleChapterLike}
+            onHypeUpdate={handleChapterHypeUpdate}
             onSupportCreator={(e: any) => {
+              window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } }));
               setIsReaderOpen(false); 
               setActiveChapterId(null); 
               setStartPage(0); 
@@ -646,10 +665,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   initialCount={localSeries?.hype_count || 0} 
                   bonusCount={aggregatedSubHypes}
                   variant="icon"
-                  onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like this series!" })}
+                  onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype this series!" })}
                   onToggle={handleSeriesLike}
                 />
-                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Like</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Hypes</span>
               </div>
 
               <div className="flex flex-col items-center gap-2">
@@ -677,7 +696,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           </div>
         </div>
 
-        {/* --- ADDED CHARACTERS TAB --- */}
         <div className="mt-12 w-full border-b border-zinc-800 flex justify-center">
           <div className="w-full max-w-3xl flex justify-center gap-12 px-6">
             <button onClick={() => setActiveTab('chapters')} className={`pb-4 font-black uppercase tracking-widest text-xs transition-colors relative ${activeTab === 'chapters' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
@@ -742,7 +760,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                       
                       <div className="flex items-center gap-1.5 sm:gap-2">
                         <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-900/80 border border-zinc-800 px-1.5 sm:px-2 py-0.5 rounded-full cursor-default">
-                           <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Quick%20React%20icon.png" alt="Quick React" className="w-2.5 h-2.5 sm:w-3 sm:h-3 object-contain drop-shadow-md" />
+                           <Heart className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-500 fill-red-500" />
                            <span className="text-[8px] sm:text-[9px] text-zinc-300 font-bold">{displayReacts}</span>
                         </div>
                       </div>
@@ -776,17 +794,28 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
                     <div className="flex items-center gap-1 sm:gap-2">
                       
+                      {/* --- THE FLAME HYPE ICON --- */}
                       <div onClick={(e) => e.stopPropagation()}>
                          <HypeButton 
                            targetType="chapter" 
-                           targetId={ch.id} 
+                           targetId={ch.id}
+                           seriesSlug={localSeries.slug} 
                            userId={currentUserId} 
-                           initialCount={ch.hype_count || 0} 
-                           variant="chapter-action-icon"
-                           onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like chapters!" })}
-                           onToggle={(isHyped: boolean) => handleChapterLike(ch.id, isHyped)}
+                           initialCount={0} 
+                           variant="chapter-hype-icon"
+                           onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype chapters!" })}
+                           onToggle={(isHyped: boolean) => handleChapterHypeUpdate(ch.id, isHyped)}
                          />
                       </div>
+
+                      {/* --- STANDARD HEART (LIKE) ICON --- */}
+                      <button 
+                        onClick={(e) => handleToggleLike(e, ch.id)}
+                        className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-red-500 hover:bg-zinc-800 transition-all"
+                        title="Like Chapter"
+                      >
+                        <Heart className={`w-4 h-4 sm:w-5 sm:h-5 transition-colors ${likedChapters[ch.id] ? 'fill-red-500 text-red-500' : 'group-hover:text-red-400'}`} />
+                      </button>
 
                       <button 
                         onClick={(e) => scrollToSection(e, commentsRef)} 
@@ -843,7 +872,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 {seriesCharacters.slice(0, showAllChars ? undefined : 8).map((char, i) => (
                   <div key={i} className="flex flex-col items-center bg-zinc-900/50 rounded-xl overflow-hidden border border-zinc-800">
                     <div className="w-full aspect-square bg-zinc-800 relative">
-                      {/* FIXED BROKEN IMAGE RENDER */}
                       <img 
                         src={char.headshot_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} 
                         alt={char.name} 

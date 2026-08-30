@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
 import { Heart, Flame } from 'lucide-react';
 
-export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bonusCount = 0, variant = 'default', onRequireAuth, onToggle }: any) => {
+export const HypeButton = ({ targetType, targetId, seriesSlug, userId, initialCount = 0, bonusCount = 0, variant = 'default', onRequireAuth, onToggle }: any) => {
   const [isHyped, setIsHyped] = useState(false);
   const [localCount, setLocalCount] = useState(initialCount);
   const [isAnimating, setIsAnimating] = useState(false);
   
   const [showConfirm, setShowConfirm] = useState(false);
-  const [hypesRemaining, setHypesRemaining] = useState(5); // In production, fetch this live from user's profile table
+  const [hypesRemaining, setHypesRemaining] = useState(5); 
   
   const isProcessing = useRef(false);
   const isMounted = useRef(true);
@@ -27,7 +27,6 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bon
     if (!targetId || !userId) return;
     const targetString = String(targetId);
     
-    // Check if the user has ALREADY hyped this item at least once to change text to "Hype Again"
     const { data } = await supabase.from('hypes').select('id').eq('user_id', userId).eq('target_type', targetType).eq('target_id', targetString).limit(1).maybeSingle();
     
     if (isMounted.current && !isProcessing.current) {
@@ -60,8 +59,6 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bon
     }
 
     if (isProcessing.current) return;
-    
-    // Always trigger the confirmation modal regardless of previous clicks
     setShowConfirm(true); 
   };
 
@@ -73,7 +70,7 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bon
 
     const targetString = String(targetId);
 
-    setIsHyped(true); // Ensures the button now reads "Hype Again"
+    setIsHyped(true); 
     setLocalCount((prev: number) => prev + 1);
     
     if (hypesRemaining > 0) {
@@ -83,14 +80,29 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bon
     if (onToggle) onToggle(true);
 
     try {
-      // We ONLY insert now. We never delete.
       await supabase.from('hypes').insert([{ user_id: userId, target_type: targetType, target_id: targetString }]);
       
-      supabase.from('profiles').select('total_hypes').eq('id', userId).maybeSingle().then(({ data }) => {
+      supabase.from('profiles').select('total_hypes, fandom_score').eq('id', userId).maybeSingle().then(({ data }) => {
         if (data) {
-          supabase.from('profiles').update({ total_hypes: data.total_hypes + 1 }).eq('id', userId).then();
+          supabase.from('profiles').update({ 
+            total_hypes: data.total_hypes + 1,
+            fandom_score: (data.fandom_score || 0) + 5
+          }).eq('id', userId).then();
         }
       });
+
+      // --- NEW: INJECT SCORE DIRECTLY INTO THE SERIES BIG 3 TRACKER ---
+      if (seriesSlug) {
+        supabase.from('series').select('weekly_hype, total_hype').eq('slug', seriesSlug).maybeSingle().then(({ data: seriesData }) => {
+          if (seriesData) {
+            supabase.from('series').update({
+              weekly_hype: (seriesData.weekly_hype || 0) + 5,
+              total_hype: (seriesData.total_hype || 0) + 5
+            }).eq('slug', seriesSlug).then();
+          }
+        });
+      }
+
     } catch (error) {
       console.error("Error saving hype to database:", error);
     }
@@ -123,6 +135,18 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bon
     </div>
   );
 
+  // THE NEW FLAME ICON FOR THE CHAPTER ROW
+  if (variant === 'chapter-hype-icon') {
+    return (
+      <>
+        <button onClick={initiateHype} className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-[#fe9a00] hover:bg-zinc-800 transition-all" title="Hype Chapter">
+          <Flame className={`w-4 h-4 sm:w-5 sm:h-5 transition-colors ${isHyped ? 'fill-[#fe9a00] text-[#fe9a00]' : 'group-hover:text-[#fe9a00]'} ${isAnimating ? 'scale-[1.5] -translate-y-1 rotate-6' : 'scale-100'}`} />
+        </button>
+        <ConfirmationModal />
+      </>
+    );
+  }
+
   if (variant === 'chapter-action-icon') {
     return (
       <>
@@ -137,9 +161,9 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bon
   if (variant === 'mini') {
     return (
       <>
-        <button onClick={initiateHype} className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 rounded-full transition-all border ${isHyped ? 'bg-red-500/10 border-red-500/30 shadow-[0_0_8px_rgba(239,68,68,0.3)]' : 'bg-zinc-900/80 border-zinc-800 hover:border-red-500/50'}`} title="Like this Chapter">
-          <Heart className={`w-2.5 h-2.5 sm:w-3 sm:h-3 transition-colors ${isHyped ? 'fill-red-500 text-red-500' : 'text-zinc-500 group-hover:text-red-400'} ${isAnimating ? 'scale-[1.5] -translate-y-1 rotate-6' : 'scale-100'}`} />
-          <span className={`text-[8px] sm:text-[9px] font-bold transition-colors ${isHyped ? 'text-red-400' : 'text-zinc-300'}`}>{formattedHype}</span>
+        <button onClick={initiateHype} className={`flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 rounded-full transition-all border ${isHyped ? 'bg-[#fe9a00]/10 border-[#fe9a00]/30 shadow-[0_0_8px_rgba(254,154,0,0.3)]' : 'bg-zinc-900/80 border-zinc-800 hover:border-[#fe9a00]/50'}`} title="Hype this Chapter">
+          <Flame className={`w-2.5 h-2.5 sm:w-3 sm:h-3 transition-colors ${isHyped ? 'fill-[#fe9a00] text-[#fe9a00]' : 'text-zinc-500 group-hover:text-[#fe9a00]'} ${isAnimating ? 'scale-[1.5] -translate-y-1 rotate-6' : 'scale-100'}`} />
+          <span className={`text-[8px] sm:text-[9px] font-bold transition-colors ${isHyped ? 'text-[#fe9a00]' : 'text-zinc-300'}`}>{formattedHype}</span>
         </button>
         <ConfirmationModal />
       </>
@@ -149,9 +173,9 @@ export const HypeButton = ({ targetType, targetId, userId, initialCount = 0, bon
   if (variant === 'icon') {
     return (
       <>
-        <button onClick={initiateHype} className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 ${isHyped ? 'bg-red-500/20 border-red-500/30' : 'bg-black/40 backdrop-blur-md hover:bg-black/60 border-white/5'} border shadow-xl group flex items-center justify-center cursor-pointer`} title="Like this Page">
-          <Heart className={`w-5 h-5 sm:w-6 sm:h-6 transition-all duration-300 ${isHyped ? 'fill-red-500 text-red-500' : 'text-white/70 group-hover:text-white'} ${isAnimating ? 'scale-[1.5] -translate-y-1 rotate-6 filter drop-shadow-[0_0_12px_rgba(239,68,68,1)]' : 'scale-100'}`} />
-          {displayCount > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full border border-black shadow-md z-10">{formattedHype}</span>}
+        <button onClick={initiateHype} className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 ${isHyped ? 'bg-[#fe9a00]/20 border-[#fe9a00]/30' : 'bg-black/40 backdrop-blur-md hover:bg-black/60 border-white/5'} border shadow-xl group flex items-center justify-center cursor-pointer`} title="Hype this Page">
+          <Flame className={`w-5 h-5 sm:w-6 sm:h-6 transition-all duration-300 ${isHyped ? 'fill-[#fe9a00] text-[#fe9a00]' : 'text-white/70 group-hover:text-white'} ${isAnimating ? 'scale-[1.5] -translate-y-1 rotate-6 filter drop-shadow-[0_0_12px_rgba(254,154,0,1)]' : 'scale-100'}`} />
+          {displayCount > 0 && <span className="absolute -top-1.5 -right-1.5 bg-[#fe9a00] text-black text-[9px] font-black px-1.5 py-0.5 rounded-full border border-black shadow-md z-10">{formattedHype}</span>}
         </button>
         <ConfirmationModal />
       </>

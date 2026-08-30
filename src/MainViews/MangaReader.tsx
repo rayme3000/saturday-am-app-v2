@@ -440,6 +440,45 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   const currentPageHotspots = hotspots.filter(h => h.page_index === currentPage);
 
+  // --- THE NEW END-OF-CHAPTER COMPONENT EXTRACTED FOR REUSE ---
+  const EndOfChapterPrompt = () => (
+    <div className="flex flex-col gap-3 w-full" onClick={(e) => e.stopPropagation()}>
+      
+      {/* 1. HYPE THE CHAPTER */}
+      {currentUser?.id && (
+        <div className="w-full mb-2">
+          <HypeButton 
+            targetType="chapter" 
+            targetId={chapterId} 
+            seriesSlug={fallbackSeries.slug}
+            userId={currentUser.id} 
+            initialCount={0} 
+            variant="default" // Using the full-width pill variant
+            onRequireAuth={() => alert("Create a Free Account to hype chapters!")} 
+            onToggle={(isHyped: boolean) => { if(onHypeUpdate) onHypeUpdate(chapterId, isHyped); }} 
+          />
+        </div>
+      )}
+
+      {/* 2. READ NEXT */}
+      {hasNext && (
+        <button onClick={handleNextChapter} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors flex items-center justify-center gap-2">
+          Read Next <SkipForward className="w-5 h-5" />
+        </button>
+      )}
+
+      {/* 3. SUPPORT CREATOR */}
+      <button onClick={onSupportCreator} className="w-full bg-[#fe9a00]/10 border border-[#fe9a00]/50 text-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-full hover:bg-[#fe9a00] hover:text-black transition-colors flex items-center justify-center gap-2">
+        <Heart className="w-5 h-5" /> Support the Creator
+      </button>
+
+      {/* 4. BACK TO SERIES */}
+      <button onClick={handleClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
+        <ArrowLeft className="w-5 h-5" /> Back to Series
+      </button>
+    </div>
+  );
+
   const readerContent = (
     <div 
       className="fixed inset-0 z-[9999] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans"
@@ -473,7 +512,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             <p className="text-zinc-300 text-sm leading-relaxed font-medium whitespace-pre-wrap select-text flex-1 overflow-y-auto max-h-[40vh]">
               {renderContentWithLinks(activeHotspot.content)}
             </p>
-            {/* THUMB ZONE FIX: BOTTOM CLOSE BUTTON */}
             <button onClick={() => setActiveHotspot(null)} className="mt-6 w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-black uppercase tracking-widest text-[10px] transition-colors sm:hidden">
               Close Detail
             </button>
@@ -563,20 +601,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             components={{
               Footer: () => (
                 <div className="py-24 flex flex-col items-center text-center w-full max-w-sm mx-auto mt-12 mb-12 px-6" onClick={(e) => e.stopPropagation()}>
-                  <h2 className="text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-2">End of Chapter</h2>
-                  <div className="flex flex-col gap-4 w-full mt-8">
-                    {hasNext && (
-                      <button onClick={handleNextChapter} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors flex items-center justify-center gap-2">
-                        Read Next <SkipForward className="w-5 h-5" />
-                      </button>
-                    )}
-                    <button onClick={onSupportCreator} className="w-full bg-[#fe9a00]/10 border border-[#fe9a00]/50 text-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-full hover:bg-[#fe9a00] hover:text-black transition-colors flex items-center justify-center gap-2">
-                      <Heart className="w-5 h-5" /> Support the Creator
-                    </button>
-                    <button onClick={handleClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
-                      <ArrowLeft className="w-5 h-5" /> Back to Series
-                    </button>
-                  </div>
+                  <h2 className="text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-6">End of Chapter</h2>
+                  <EndOfChapterPrompt />
                 </div>
               )
             }}
@@ -586,20 +612,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
       {showEndPrompt && mode === 'horizontal' && (
         <div className="absolute inset-0 z-[150] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
-          <h2 className="text-4xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-2">End of Chapter</h2>
-          <div className="flex flex-col gap-4 w-full max-w-sm mt-8">
-            {hasNext && (
-              <button onClick={() => { setShowEndPrompt(false); handleNextChapter(); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors flex items-center justify-center gap-2">
-                Read Next <SkipForward className="w-5 h-5" />
-              </button>
-            )}
-            <button onClick={onSupportCreator} className="w-full bg-[#fe9a00]/10 border border-[#fe9a00]/50 text-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-full hover:bg-[#fe9a00] hover:text-black transition-colors flex items-center justify-center gap-2">
-              <Heart className="w-5 h-5" /> Support the Creator
-            </button>
-            <button onClick={handleClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
-              <ArrowLeft className="w-5 h-5" /> Back to Series
-            </button>
-            <button onClick={() => setShowEndPrompt(false)} className="mt-6 text-zinc-500 font-bold uppercase tracking-widest text-[10px] hover:text-white transition-colors">
+          <h2 className="text-4xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-6">End of Chapter</h2>
+          <div className="flex flex-col gap-4 w-full max-w-sm mt-4">
+            <EndOfChapterPrompt />
+            <button onClick={() => setShowEndPrompt(false)} className="mt-4 text-zinc-500 font-bold uppercase tracking-widest text-[10px] hover:text-white transition-colors">
               Cancel & Return to Page
             </button>
           </div>
@@ -618,7 +634,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         <span className="text-[#fe9a00] text-[9px] font-black uppercase tracking-widest mt-0.5">Page {currentPage + 1} / {pages.length}</span>
       </div>
 
-      {/* --- UNIFIED BOTTOM CONTROL BAR (Both Horizontal & Vertical use this now) --- */}
       <div 
         className={`absolute left-2 right-2 sm:left-4 sm:right-4 h-12 sm:h-14 flex flex-row items-center z-50 transition-transform duration-300 ${isUIVisible ? 'translate-y-0' : 'translate-y-[200%]'}`}
         style={{ bottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}
@@ -646,11 +661,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             <Share2 className="w-3 h-3 sm:w-4 sm:h-4" />
           </button>
           <QuickReactViewAllButton setShowAllReacts={qr.setShowAllReacts} />
-          {currentUser?.id && (
-            <div className="scale-75 sm:scale-90 drop-shadow-md">
-              <HypeButton targetType="chapter" targetId={chapterId} userId={currentUser.id} variant="icon" onRequireAuth={() => alert("Create a Free Account to like chapters!")} onToggle={(isHyped: boolean) => { if(onHypeUpdate) onHypeUpdate(chapterId, isHyped); }} />
-            </div>
-          )}
+          
           <QuickReactToggleButton isReactInputOpen={qr.isReactInputOpen} setIsReactInputOpen={qr.setIsReactInputOpen} />
         </div>
       </div>
