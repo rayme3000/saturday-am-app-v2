@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, X, ChevronLeft, ChevronRight, Crop, Calendar, Image as ImageIcon, MapPin, Share2 } from 'lucide-react';
+import { BookOpen, X, ChevronLeft, ChevronRight, Crop, Calendar, Image as ImageIcon, MapPin, Share2, EyeOff, Eye } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { MangaReader } from '../MainViews/MangaReader';
@@ -12,6 +12,9 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
   const [isSaving, setIsSaving] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  
+  // --- BULK ACTION STATE ---
+  const [selectedChapters, setSelectedChapters] = useState<string[]>([]);
   
   // --- CROPPER STATES ---
   const [cropSourceImage, setCropSourceImage] = useState<string | null>(null);
@@ -95,7 +98,10 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
     }
   }, [targetChapter, existingChapters]);
 
-  useEffect(() => { setTargetChapter('new'); }, [targetSeries]);
+  useEffect(() => { 
+    setTargetChapter('new'); 
+    setSelectedChapters([]); // Reset bulk selections when switching series
+  }, [targetSeries]);
 
   const openHotspotEditor = (index: number, mode: 'info' | 'share') => {
     if (targetChapter === 'new') return alert("Please save the chapter first before adding hotspots.");
@@ -274,12 +280,84 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
   };
 
   const handleDeleteChapter = async (chapterId: any, chapterNum: any) => {
-    if (!window.confirm(`Permanently delete Chapter ${chapterNum}?`)) return;
+    const challenge = window.prompt(`Are you sure you want to permanently delete Chapter ${chapterNum}? This cannot be undone.\n\nType "DELETE" to confirm:`);
+    if (challenge?.trim().toUpperCase() !== 'DELETE') {
+      return;
+    }
+    
     try {
       await supabase.from('chapters').delete().eq('id', chapterId);
       if (targetChapter === chapterId) setTargetChapter('new'); 
       setRefreshKey(prev => prev + 1);
     } catch (error: any) { alert('Failed: ' + error.message); }
+  };
+
+  const handleTogglePublish = async (e: React.MouseEvent, chapterId: string, currentStatus: boolean, chapterNum: number) => {
+    e.stopPropagation();
+    const newStatus = !currentStatus;
+    const confirmMsg = newStatus 
+      ? `Publish Chapter ${chapterNum} immediately?` 
+      : `Unpublish Chapter ${chapterNum} and revert to Draft?`;
+    
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const { error } = await supabase.from('chapters').update({ is_published: newStatus }).eq('id', chapterId);
+      if (error) throw error;
+      
+      setExistingChapters(prev => prev.map(ch => ch.id === chapterId ? { ...ch, is_published: newStatus } : ch));
+      if (targetChapter === chapterId) {
+        setFormData(prev => ({ ...prev, isPublished: newStatus }));
+      }
+    } catch (error: any) {
+      alert("Failed to update status: " + error.message);
+    }
+  };
+
+  const toggleChapterSelection = (e: React.MouseEvent, chapterId: string) => {
+    e.stopPropagation();
+    setSelectedChapters(prev => 
+      prev.includes(chapterId) ? prev.filter(id => id !== chapterId) : [...prev, chapterId]
+    );
+  };
+
+  const handleBulkUnpublish = async () => {
+    const chaptersToProcess = selectedChapters.length > 0 
+      ? existingChapters.filter(ch => selectedChapters.includes(ch.id) && ch.is_published)
+      : existingChapters.filter(ch => ch.is_published);
+
+    if (chaptersToProcess.length === 0) {
+      return alert(selectedChapters.length > 0 ? "None of the selected chapters are live." : "No live chapters to unpublish.");
+    }
+
+    const confirmMsg = selectedChapters.length > 0
+      ? `Are you sure you want to UNPUBLISH the ${chaptersToProcess.length} selected live chapter(s) and revert them to drafts?`
+      : `Are you sure you want to UNPUBLISH ALL ${chaptersToProcess.length} live chapters for this series and revert them to drafts?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsSaving(true);
+    try {
+      const { error } = await supabase
+        .from('chapters')
+        .update({ is_published: false })
+        .in('id', chaptersToProcess.map(c => c.id));
+
+      if (error) throw error;
+      
+      setRefreshKey(prev => prev + 1);
+      
+      if (formData.isPublished && chaptersToProcess.some(c => c.id === targetChapter)) {
+        setFormData(prev => ({ ...prev, isPublished: false }));
+      }
+      
+      setSelectedChapters([]);
+      alert(`Successfully reverted ${chaptersToProcess.length} chapter(s) to drafts!`);
+    } catch (error: any) {
+      alert("Failed to bulk unpublish: " + error.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const posParts = formData.thumbnailPosition.split(' ');
@@ -302,7 +380,6 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                     alt="Hotspot Editor Target"
                  />
                  
-                 {/* Render EXISTING Hotspots (Filter out the one currently being edited) */}
                  {hotspots.filter(h => h.page_index === activeHotspotPage && h.id !== hotspotDraft?.id).map(h => {
                     const isShare = h.icon_type === 'share';
                     return (
@@ -327,7 +404,6 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                     );
                  })}
 
-                 {/* Render NEW DRAFT Hotspot */}
                  {hotspotDraft && (
                     <div style={{ top: `${hotspotDraft.y}%`, left: `${hotspotDraft.x}%` }} className={`absolute -ml-3 -mt-3 w-6 h-6 rounded-full flex items-center justify-center p-1 animate-pulse shadow-[0_0_20px_white] ${hotspotMode === 'share' ? 'bg-black border-2 border-red-500' : 'bg-black border-2 border-white'}`}>
                        {hotspotMode === 'share' ? (
@@ -358,8 +434,6 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
 
                  {hotspotDraft ? (
                     <div className="flex flex-col gap-4 animate-fade-in-up">
-                       
-                       {/* CONDITIONAL RENDER BASED ON MODE */}
                        {hotspotMode === 'info' ? (
                          <div>
                            <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Fact Description</label>
@@ -646,11 +720,34 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
           </div>
 
           <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl shadow-md flex flex-col max-h-[800px]">
-            <h3 className="font-bold text-[#fe9a00] uppercase tracking-widest text-xs mb-4 pb-4 border-b border-zinc-800">Chapter Roster</h3>
+            <div className="flex justify-between items-center mb-4 pb-4 border-b border-zinc-800">
+              <h3 className="font-bold text-[#fe9a00] uppercase tracking-widest text-xs">Chapter Roster</h3>
+              {(existingChapters.some(ch => ch.is_published) || selectedChapters.length > 0) && (
+                <button 
+                  onClick={handleBulkUnpublish}
+                  disabled={isSaving}
+                  className="text-[9px] font-black uppercase tracking-widest bg-red-900/20 text-red-500 border border-red-900/50 px-2 py-1 rounded hover:bg-red-500 hover:text-white transition-colors"
+                >
+                  {selectedChapters.length > 0 ? `Unpublish Selected (${selectedChapters.length})` : 'Unpublish All'}
+                </button>
+              )}
+            </div>
             <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
               {existingChapters.map(ch => (
                 <div key={ch.id} onClick={() => { setTargetChapter(ch.id); if (onClean) onClean(); }} className={`rounded p-3 flex gap-3 items-center group cursor-pointer transition-colors border ${targetChapter === ch.id ? 'bg-zinc-800 border-[#fe9a00]' : 'bg-black border-zinc-800 hover:border-zinc-700'}`}>
-                  <div className="w-12 h-12 rounded bg-zinc-800 overflow-hidden shrink-0">
+                  
+                  {/* --- NEW: BULK SELECT CHECKBOX --- */}
+                  <div className="flex items-center pl-1">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedChapters.includes(ch.id)}
+                      onChange={(e) => toggleChapterSelection(e as any, ch.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="accent-red-500 w-4 h-4 cursor-pointer rounded bg-zinc-900 border-zinc-700"
+                    />
+                  </div>
+
+                  <div className="w-12 h-12 rounded bg-zinc-800 overflow-hidden shrink-0 ml-1">
                     <img 
                       src={ch.thumbnail_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} 
                       className="w-full h-full object-cover" 
@@ -668,7 +765,12 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                     </div>
                     <h4 className="text-xs text-white font-bold truncate">{ch.title || 'Untitled'}</h4>
                   </div>
-                  <button onClick={(e) => { e.stopPropagation(); handleDeleteChapter(ch.id, ch.chapter_number); }} className="text-zinc-600 hover:text-red-500 p-2 opacity-0 group-hover:opacity-100 transition-opacity"><X className="w-4 h-4" /></button>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={(e) => handleTogglePublish(e, ch.id, ch.is_published, ch.chapter_number)} className="text-zinc-600 hover:text-[#fe9a00] p-2" title={ch.is_published ? "Unpublish to Draft" : "Publish to Live"}>
+                      {ch.is_published ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteChapter(ch.id, ch.chapter_number); }} className="text-zinc-600 hover:text-red-500 p-2"><X className="w-4 h-4" /></button>
+                  </div>
                 </div>
               ))}
             </div>

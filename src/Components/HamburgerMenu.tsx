@@ -75,12 +75,13 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
           </button>
         )}
 
+        {/* UPDATED: Flex Hype Card Button */}
         <button onClick={() => { 
           onClose(); 
-          if (userTier !== 'premium') onUpsell({ title: 'Premium Feature', message: 'The Virtual AM Crew Card is exclusively for Pro members!' });
+          if (userTier !== 'premium') onUpsell({ title: 'Premium Feature', message: 'The Virtual Hype Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' });
           else onOpenFlexCard(); 
         }} className="flex items-center gap-4 bg-[#fe9a00] text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all mb-8 shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max">
-          <CreditCard className="w-6 h-6" /> Flex AM Crew Card
+          <CreditCard className="w-6 h-6" /> Flex Hype Card
         </button>
 
         <div className="flex flex-col gap-5 flex-1">

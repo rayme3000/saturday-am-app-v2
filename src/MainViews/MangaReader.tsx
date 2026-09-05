@@ -37,7 +37,7 @@ const renderContentWithLinks = (text: string) => {
 };
 
 const MemoizedVerticalPage = React.memo(({ src, alt, pageIndex, pageHotspots, onHotspotClick, onShareZoneClick }: any) => (
-  <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0">
+  <div className="w-full flex justify-center bg-[#0a0a0a] m-0 p-0 overscroll-none">
     <div className="relative w-full max-w-3xl">
       <img src={src} className="w-full h-auto block pointer-events-none m-0 p-0" alt={alt} loading="lazy" />
       {pageHotspots?.map((h: any) => {
@@ -71,7 +71,7 @@ const MemoizedVerticalPage = React.memo(({ src, alt, pageIndex, pageHotspots, on
 ));
 
 const MemoizedHorizontalImage = React.memo(({ src, alt, pageHotspots, onHotspotClick, onShareZoneClick }: any) => (
-  <div className="w-full h-full flex items-center justify-center">
+  <div className="w-full h-full flex items-center justify-center overscroll-none touch-none">
     <div className="relative inline-flex max-w-[100vw] max-h-[100dvh]">
       <img src={src} className="w-auto h-auto max-w-[100vw] max-h-[100dvh] object-contain pointer-events-none block" alt={alt} />
       {pageHotspots?.map((h: any) => {
@@ -195,11 +195,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     let originalContent = '';
     if (viewportMeta) {
       originalContent = viewportMeta.getAttribute('content') || '';
-      viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+      viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
     } else {
       viewportMeta = document.createElement('meta');
       viewportMeta.setAttribute('name', 'viewport');
-      viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+      viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
       document.head.appendChild(viewportMeta);
     }
     return () => {
@@ -440,11 +440,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   const currentPageHotspots = hotspots.filter(h => h.page_index === currentPage);
 
-  // --- THE NEW END-OF-CHAPTER COMPONENT EXTRACTED FOR REUSE ---
   const EndOfChapterPrompt = () => (
     <div className="flex flex-col gap-3 w-full" onClick={(e) => e.stopPropagation()}>
       
-      {/* 1. HYPE THE CHAPTER */}
       {currentUser?.id && (
         <div className="w-full mb-2">
           <HypeButton 
@@ -453,26 +451,23 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
             seriesSlug={fallbackSeries.slug}
             userId={currentUser.id} 
             initialCount={0} 
-            variant="default" // Using the full-width pill variant
+            variant="default"
             onRequireAuth={() => alert("Create a Free Account to hype chapters!")} 
             onToggle={(isHyped: boolean) => { if(onHypeUpdate) onHypeUpdate(chapterId, isHyped); }} 
           />
         </div>
       )}
 
-      {/* 2. READ NEXT */}
       {hasNext && (
         <button onClick={handleNextChapter} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors flex items-center justify-center gap-2">
           Read Next <SkipForward className="w-5 h-5" />
         </button>
       )}
 
-      {/* 3. SUPPORT CREATOR */}
       <button onClick={onSupportCreator} className="w-full bg-[#fe9a00]/10 border border-[#fe9a00]/50 text-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-full hover:bg-[#fe9a00] hover:text-black transition-colors flex items-center justify-center gap-2">
         <Heart className="w-5 h-5" /> Support the Creator
       </button>
 
-      {/* 4. BACK TO SERIES */}
       <button onClick={handleClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
         <ArrowLeft className="w-5 h-5" /> Back to Series
       </button>
@@ -481,7 +476,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   const readerContent = (
     <div 
-      className="fixed inset-0 z-[9999] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans"
+      className="fixed inset-0 z-[9999] bg-[#0a0a0a] overflow-hidden flex flex-col font-sans overscroll-none touch-none"
       style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }}
     >
       <style>{`
@@ -492,6 +487,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         .animate-slide-up-fade { animation: slide-up-fade 0.3s ease-out forwards; }
         @keyframes fade-in { 0% { opacity: 0; } 100% { opacity: 1; } }
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
+        
+        /* Stop native iOS overscroll rubber-banding */
+        body { overscroll-behavior-y: none; }
+        .react-transform-wrapper { touch-action: none; }
       `}</style>
 
       {/* --- HOTSPOT MODAL --- */}
@@ -541,7 +540,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
       {mode === 'horizontal' && (
         <div 
-          className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center touch-none select-none"
+          className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center touch-none select-none overscroll-none"
           onPointerDownCapture={handlePointerDown}
           onPointerMoveCapture={handlePointerMove}
           onPointerUpCapture={handlePointerUp}
@@ -561,9 +560,9 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               onTransformed={(ref) => { currentScaleRef.current = ref.state.scale; }}
             >
               {() => (
-                <div className="w-full h-full relative">
+                <div className="w-full h-full relative touch-none overscroll-none">
                   <TransformComponent 
-                    wrapperStyle={{ width: '100vw', height: '100dvh' }}
+                    wrapperStyle={{ width: '100vw', height: '100dvh', touchAction: 'none' }}
                     contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                   >
                     <MemoizedHorizontalImage 
@@ -585,7 +584,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
       {mode === 'vertical' && (
         <div 
-          className="absolute inset-0 w-full h-full select-none overflow-x-hidden bg-[#0a0a0a] z-0" 
+          className="absolute inset-0 w-full h-full select-none overflow-x-hidden bg-[#0a0a0a] z-0 overscroll-y-none touch-pan-y" 
           onClick={(e) => {
              if (document.elementsFromPoint(e.clientX, e.clientY).some(el => el.classList.contains('hotspot-button'))) return;
              toggleUI();
@@ -611,7 +610,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       )}
 
       {showEndPrompt && mode === 'horizontal' && (
-        <div className="absolute inset-0 z-[150] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+        <div className="absolute inset-0 z-[150] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6 animate-fade-in overscroll-none touch-none" onClick={(e) => e.stopPropagation()}>
           <h2 className="text-4xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-6">End of Chapter</h2>
           <div className="flex flex-col gap-4 w-full max-w-sm mt-4">
             <EndOfChapterPrompt />

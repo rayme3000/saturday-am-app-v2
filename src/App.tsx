@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
-import { ArrowUp, X, Lock, Share, Menu } from 'lucide-react'; 
+import { ArrowUp, X, Lock, Share, Menu, AlertTriangle, MessageSquare, Flame } from 'lucide-react'; 
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 
@@ -93,6 +93,13 @@ export default function App() {
     return !localStorage.getItem('am_has_seen_intro');
   });
 
+  // --- BETA POPUP STATES ---
+  const [showBetaWarning, setShowBetaWarning] = useState(() => {
+    return !localStorage.getItem('am_beta_warning_seen');
+  });
+  const [showFeedbackPrompt, setShowFeedbackPrompt] = useState(false);
+  const pageViewCounter = useRef(0);
+
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -146,11 +153,22 @@ export default function App() {
     } else {
       sessionStorage.removeItem('selectedSeries');
     }
+
+    // --- PAGE VIEW COUNTER LOGIC ---
+    pageViewCounter.current += 1;
+    if (pageViewCounter.current > 1 && pageViewCounter.current % 4 === 0) {
+      setShowFeedbackPrompt(true);
+    }
   }, [currentView, selectedSeries]);
 
   const handleIntroComplete = () => {
     localStorage.setItem('am_has_seen_intro', 'true');
     setShowIntro(false);
+  };
+
+  const handleCloseBetaWarning = () => {
+    localStorage.setItem('am_beta_warning_seen', 'true');
+    setShowBetaWarning(false);
   };
 
   useEffect(() => {
@@ -306,11 +324,66 @@ export default function App() {
     <>
       {showIntro && <SplashIntro onComplete={handleIntroComplete} />}
       
+      {/* --- FIRST-TIME BETA WARNING MODAL --- */}
+      {showBetaWarning && !showIntro && (
+        <div className="fixed inset-0 z-[9000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
+          <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm flex flex-col items-center text-center shadow-[0_0_50px_rgba(0,0,0,0.8)] relative">
+            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-6 border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.2)]">
+              <AlertTriangle className="w-8 h-8 text-red-500" />
+            </div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Closed Beta</h2>
+            <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-8">
+              Welcome to the Saturday AM App 2.0 Closed Beta! This version is strictly confidential. <span className="text-red-400">Please do not share screenshots, screen recordings, or invite codes publicly.</span>
+            </p>
+            <button 
+              onClick={handleCloseBetaWarning} 
+              className="w-full bg-red-600 text-white font-black uppercase tracking-widest py-4 rounded-xl hover:bg-red-500 transition-colors shadow-lg"
+            >
+              I Understand
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- RECURRING FEEDBACK MODAL --- */}
+      {showFeedbackPrompt && (
+        <div className="fixed inset-0 z-[8500] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in" onClick={() => setShowFeedbackPrompt(false)}>
+          <div className="bg-zinc-900 border border-zinc-700 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setShowFeedbackPrompt(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            <div className="w-16 h-16 bg-[#fe9a00]/10 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <MessageSquare className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+            <h2 className="text-xl font-black italic uppercase tracking-tighter text-white mb-2">We Need Your Feedback!</h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-6">
+              Spot a bug? Have a suggestion? Let us know so we can improve the app before launch!
+            </p>
+            <a 
+              href="https://www.saturday-am.com/contact/" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              onClick={() => setShowFeedbackPrompt(false)}
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] mb-3 block text-center"
+            >
+              Submit Feedback
+            </a>
+            <button onClick={() => setShowFeedbackPrompt(false)} className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest hover:text-white transition-colors mt-2">Continue Exploring</button>
+          </div>
+        </div>
+      )}
+
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Unbounded:wght@700;800;900&display=swap');
           @keyframes fade-out { 0% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
           .animate-fade-out { animation: fade-out 3s forwards; }
+          
+          /* --- CUSTOM HYPE LOADING ANIMATION --- */
+          @keyframes flame-fill {
+            0% { height: 0%; opacity: 0.5; }
+            100% { height: 100%; opacity: 1; }
+          }
+          .animate-flame-fill { animation: flame-fill 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate; }
+
           html, body { font-family: 'Plus Jakarta Sans', sans-serif; overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; background-color: #000000; }
           h1, h2, h3, h4, h5, h6, .font-black { font-family: 'Unbounded', sans-serif !important; font-style: italic !important; letter-spacing: -0.03em !important; }
           .tracking-widest { letter-spacing: 0.15em !important; font-style: normal !important; font-family: 'Plus Jakarta Sans', sans-serif !important; font-weight: 800; }
@@ -367,8 +440,13 @@ export default function App() {
       <AppErrorBoundary>
         <Suspense fallback={
           <div className="min-h-[100dvh] bg-transparent flex flex-col items-center justify-center gap-4 pb-20">
-            <div className="w-8 h-8 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
-            <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px] animate-pulse">Loading Interface...</span>
+            {/* --- CLEAN HYPE FILL LOADER WITHOUT TEXT --- */}
+            <div className="relative w-12 h-12 flex justify-center">
+              <Flame className="w-12 h-12 text-zinc-800 absolute bottom-0" strokeWidth={1.5} />
+              <div className="absolute bottom-0 overflow-hidden w-12 flex justify-center animate-flame-fill">
+                <Flame className="w-12 h-12 text-[#fe9a00] fill-[#fe9a00] absolute bottom-0" strokeWidth={1.5} />
+              </div>
+            </div>
           </div>
         }>
           <div id="main-app-container" className="relative z-10 min-h-screen w-full bg-transparent">
@@ -391,10 +469,16 @@ export default function App() {
       </AppErrorBoundary>
 
       {!['settings', 'admin', 'sub'].includes(currentView) && (
-        <FloatingPillNav currentView={currentView} onNavigate={handleNavigate} currentUser={currentUser} />
+        <FloatingPillNav 
+          currentView={currentView} 
+          onNavigate={handleNavigate} 
+          currentUser={currentUser} 
+          userTier={userTier}
+          onOpenFlexCard={() => setIsFlexCardOpen(true)}
+          onUpsell={setUpsellConfig}
+        />
       )}
 
-      {/* --- ADDED THE GLOBAL HYPE TRACKER NEXT TO MENU (HIDDEN FOR VISITORS) --- */}
       {!['admin', 'sub', 'settings', 'legal'].includes(currentView) && currentUser && userTier !== 'visitor' && (
         <GlobalHypeTracker hypesRemaining={currentUser?.total_hypes ?? 5} /> 
       )}

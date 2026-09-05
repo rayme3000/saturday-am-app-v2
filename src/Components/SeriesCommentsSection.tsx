@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Flame, Flag, AlertCircle, CheckCircle2, MessageSquare, CornerDownRight } from 'lucide-react';
+import { Lock, Flame, Flag, AlertCircle, CheckCircle2, MessageSquare, CornerDownRight, Shield } from 'lucide-react';
 import { supabase } from '../supabase';
 import { DecoratedAvatar } from './DecoratedAvatar'; 
 import { cleanText } from '../profanityFilter';
@@ -126,10 +126,21 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
   };
 
   const handleCommentSubmit = async (parentId: string | null = null) => {
-    if (!currentUser) { onRequireAuth(); return; }
-    if (!commentText.trim() || commentText.length > MAX_CHARS) return;
-    
     setIsSubmitting(true);
+    
+    // Safety check: Hard verify the session directly before attempting the insert
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session || !session.user || !currentUser) {
+      setIsSubmitting(false);
+      onRequireAuth(); 
+      return;
+    }
+
+    if (!commentText.trim() || commentText.length > MAX_CHARS) {
+      setIsSubmitting(false);
+      return;
+    }
+    
     const cleaned = cleanText(commentText.trim());
     
     // Auto-Moderation Flag: If the filter caught bad words, flag it for review
@@ -137,9 +148,9 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
 
     const newComment = { 
       series_slug: seriesSlug, 
-      user_id: currentUser.id, 
-      user_name: currentUser.name, 
-      avatar_url: currentUser.avatar, 
+      user_id: session.user.id, // Guarantee user_id exists
+      user_name: currentUser.name || 'Reader', 
+      avatar_url: currentUser.avatar || '', 
       text: cleaned, 
       parent_id: parentId,
       is_hidden: isToxic // Holds it invisibly for admin review
@@ -161,7 +172,8 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
       }
       setCommentText(''); 
     } else {
-      setToastConfig({ message: 'Failed to post comment.', type: 'error' });
+      console.error(error);
+      setToastConfig({ message: 'Failed to post comment. Ensure you are signed in.', type: 'error' });
     }
     setIsSubmitting(false);
   };

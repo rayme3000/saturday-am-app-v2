@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, MoveVertical } from 'lucide-react';
+import { X, MoveVertical, Edit2 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
-export const HomeEditor = ({ Dropzone }: any) => {
+export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [isSaving, setIsSaving] = useState(false);
   const [slides, setSlides] = useState<any[]>([]);
@@ -38,24 +38,52 @@ export const HomeEditor = ({ Dropzone }: any) => {
     if (seriesList.length > 0) fetchLayoutData();
   }, [seriesList]);
 
-  const addSlide = () => setSlides([...slides, { id: Date.now(), linkType: 'series', linkTarget: '', desktop_url: '', mobile_url: '' }]);
+  const addSlide = () => {
+    setSlides([...slides, { id: Date.now(), linkType: 'series', linkTarget: '', desktop_url: '', mobile_url: '' }]);
+    if (setIsDirty) setIsDirty(true);
+  };
   
   const removeSlide = (idToRemove: any) => {
     if (!window.confirm("Delete this hero slide?")) return;
     setSlides(slides.filter(slide => slide.id !== idToRemove));
+    if (setIsDirty) setIsDirty(true);
   };
 
-  const updateSlide = (id: any, field: any, value: any) => setSlides(slides.map(slide => slide.id === id ? { ...slide, [field]: value } : slide));
+  const updateSlide = (id: any, field: any, value: any) => {
+    setSlides(slides.map(slide => slide.id === id ? { ...slide, [field]: value } : slide));
+    if (setIsDirty) setIsDirty(true);
+  };
   
   const createSection = () => {
     const title = window.prompt("Enter new section title:");
-    if (title && !sections.find(s => s.title === title)) { setSections([...sections, { title }]); setSectionSeries({ ...sectionSeries, [title]: [] }); }
+    if (title && !sections.find(s => s.title === title)) { 
+      setSections([...sections, { title }]); 
+      setSectionSeries({ ...sectionSeries, [title]: [] }); 
+      if (setIsDirty) setIsDirty(true);
+    }
   };
 
   const removeSection = (titleToRemove: any) => {
     if (!window.confirm(`Delete the "${titleToRemove}" section?`)) return;
     setSections(sections.filter(s => s.title !== titleToRemove));
     const newMapping = { ...sectionSeries }; delete newMapping[titleToRemove]; setSectionSeries(newMapping);
+    if (setIsDirty) setIsDirty(true);
+  };
+
+  const renameSection = (oldTitle: string) => {
+    const newTitle = window.prompt(`Rename "${oldTitle}" to:`, oldTitle);
+    if (!newTitle || newTitle === oldTitle) return;
+    if (sections.find(s => s.title === newTitle)) return alert("A section with that name already exists!");
+
+    setSections(sections.map(s => s.title === oldTitle ? { ...s, title: newTitle } : s));
+    
+    setSectionSeries((prev: any) => {
+      const newMapping = { ...prev };
+      newMapping[newTitle] = newMapping[oldTitle];
+      delete newMapping[oldTitle];
+      return newMapping;
+    });
+    if (setIsDirty) setIsDirty(true);
   };
 
   const moveSection = (index: number, direction: string) => {
@@ -63,6 +91,7 @@ export const HomeEditor = ({ Dropzone }: any) => {
     if (direction === 'up' && index > 0) [newArr[index - 1], newArr[index]] = [newArr[index], newArr[index - 1]];
     if (direction === 'down' && index < newArr.length - 1) [newArr[index + 1], newArr[index]] = [newArr[index], newArr[index + 1]];
     setSections(newArr);
+    if (setIsDirty) setIsDirty(true);
   };
 
   const handleAddSeries = (sectionTitle: any, seriesSlug: any) => {
@@ -70,11 +99,13 @@ export const HomeEditor = ({ Dropzone }: any) => {
     const seriesToAdd = seriesList.find(s => s.slug === seriesSlug);
     if (!seriesToAdd || sectionSeries[sectionTitle]?.find((s: any) => s.slug === seriesSlug)) return;
     setSectionSeries({ ...sectionSeries, [sectionTitle]: [...(sectionSeries[sectionTitle] || []), seriesToAdd] });
+    if (setIsDirty) setIsDirty(true);
   };
 
   const removeSeriesFromSection = (sectionTitle: any, seriesSlug: any) => { 
     if (!window.confirm(`Remove this series from ${sectionTitle}?`)) return;
     setSectionSeries({ ...sectionSeries, [sectionTitle]: sectionSeries[sectionTitle].filter((s: any) => s.slug !== seriesSlug) }); 
+    if (setIsDirty) setIsDirty(true);
   };
 
   const moveSeries = (sectionTitle: any, index: number, direction: string) => {
@@ -82,6 +113,7 @@ export const HomeEditor = ({ Dropzone }: any) => {
     if (direction === 'up' && index > 0) [arr[index - 1], arr[index]] = [arr[index], arr[index - 1]];
     if (direction === 'down' && index < arr.length - 1) [arr[index + 1], arr[index]] = [arr[index], arr[index + 1]];
     setSectionSeries({ ...sectionSeries, [sectionTitle]: arr });
+    if (setIsDirty) setIsDirty(true);
   };
 
   const handleAddMagazine = (magId: any) => {
@@ -89,11 +121,13 @@ export const HomeEditor = ({ Dropzone }: any) => {
     const magToAdd = availableMagazines.find(m => m.id.toString() === magId.toString());
     if (!magToAdd || featuredMagazines.find((m: any) => m.id === magToAdd.id)) return;
     setFeaturedMagazines([...featuredMagazines, magToAdd]);
+    if (setIsDirty) setIsDirty(true);
   };
 
   const removeMagazine = (magId: any) => { 
     if (!window.confirm("Remove this magazine from the featured lane?")) return;
     setFeaturedMagazines(featuredMagazines.filter((m: any) => m.id !== magId)); 
+    if (setIsDirty) setIsDirty(true);
   };
 
   const moveMagazine = (index: number, direction: string) => {
@@ -101,6 +135,7 @@ export const HomeEditor = ({ Dropzone }: any) => {
     if (direction === 'up' && index > 0) [arr[index - 1], arr[index]] = [arr[index], arr[index - 1]];
     if (direction === 'down' && index < arr.length - 1) [arr[index + 1], arr[index]] = [arr[index], arr[index + 1]];
     setFeaturedMagazines(arr);
+    if (setIsDirty) setIsDirty(true);
   };
 
   const handleSaveHome = async () => {
@@ -142,8 +177,8 @@ export const HomeEditor = ({ Dropzone }: any) => {
         if (magErr) throw magErr;
       }
 
+      if (setIsDirty) setIsDirty(false);
       alert("SUCCESS! Home layout has been saved.");
-      window.location.reload(); 
     } catch (error: any) { alert('Failed to save layout: ' + error.message); } finally { setIsSaving(false); }
   };
 
@@ -223,7 +258,12 @@ export const HomeEditor = ({ Dropzone }: any) => {
           {sections.map((sec, secIndex) => (
             <div key={sec.title} className="bg-black border border-zinc-700 rounded-lg overflow-hidden">
               <div className="bg-zinc-800 p-3 flex justify-between items-center">
-                <h4 className="text-white font-bold text-xs tracking-widest">{sec.title}</h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-white font-bold text-xs tracking-widest">{sec.title}</h4>
+                  <button onClick={() => renameSection(sec.title)} className="p-1 text-zinc-400 hover:text-[#fe9a00] transition-colors" title="Rename Section">
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   <button onClick={() => moveSection(secIndex, 'up')} className="text-zinc-400 hover:text-white"><MoveVertical className="w-4 h-4" /></button>
                   <button onClick={() => moveSection(secIndex, 'down')} className="text-zinc-400 hover:text-white"><MoveVertical className="w-4 h-4 rotate-180" /></button>

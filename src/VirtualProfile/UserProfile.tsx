@@ -112,7 +112,12 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
           
           setIsSubscriber(data.is_premium || false);
           
-          const loadedProfile = { ...userProfile, username: data.username || fallbackName, topFive: data.top_five || [null, null, null, null, null], cardSkin: data.card_skin || '', avatarUrl: data.avatar_url || '', frameId: data.avatar_frame_id || '' };
+          let paddedTopFive = data.top_five || [];
+          while (paddedTopFive.length < 5) {
+            paddedTopFive.push(null);
+          }
+
+          const loadedProfile = { ...userProfile, username: data.username || fallbackName, topFive: paddedTopFive, cardSkin: data.card_skin || '', avatarUrl: data.avatar_url || '', frameId: data.avatar_frame_id || '' };
           setUserProfile(loadedProfile);
           setTempProfile(loadedProfile);
           memUserProfile = loadedProfile; 
@@ -161,7 +166,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
     window.dispatchEvent(new CustomEvent('profileUpdated', { detail: { avatar_url: tempProfile.avatarUrl, avatar_frame_id: tempProfile.frameId === '' ? null : tempProfile.frameId } }));
   };
 
-  // INSTANT LOGOUT LOGIC
   const handleLogout = async () => {
     window.dispatchEvent(new Event('instantLogout'));
     await supabase.auth.signOut();
@@ -213,7 +217,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
   );
 
   return (
-    <div className="min-h-screen bg-transparent text-white relative pb-20">
+    <div className="min-h-screen bg-transparent text-white relative pb-32 sm:pb-40">
       <GlobalFlexCard isOpen={showFlexCard} onClose={() => setShowFlexCard(false)} />
 
       <div className="fixed inset-0 z-[-1] bg-black">
@@ -239,7 +243,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         </h1>
       </div>
 
-      {/* Profile Container with Smart Margins */}
       <div className={`max-w-4xl mx-auto relative pt-6 sm:pt-8`}>
         <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6 mb-8 px-6">
           <div className="relative group cursor-pointer" onClick={() => openEditor('frame')}>
@@ -325,26 +328,32 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
           <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
             {[0, 1, 2, 3, 4].map((index) => {
               const slug = userProfile.topFive[index];
-              return slug ? renderMiniCard(slug, false, () => openEditor('faves', index)) : renderEmptySlot(() => openEditor('faves', index));
+              const isValidSeries = slug && displaySeriesList.some((s: any) => s.slug === slug);
+              
+              return (
+                <React.Fragment key={index}>
+                  {isValidSeries ? renderMiniCard(slug, false, () => openEditor('faves', index)) : renderEmptySlot(() => openEditor('faves', index))}
+                </React.Fragment>
+              );
             })}
           </div>
         </div>
 
         {!isSubscriber ? (
           <div className="flex flex-col items-center w-full mt-12 mb-12 px-6">
-            <div className="relative w-full max-w-sm aspect-[1.58] rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden shadow-2xl mb-6 group cursor-pointer" onClick={() => setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual AM Crew Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' })}>
+            <div className="relative w-full max-w-sm aspect-[1.58] rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden shadow-2xl mb-6 group cursor-pointer" onClick={() => setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual Hype Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' })}>
               <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-60 mix-blend-overlay group-hover:scale-105 transition-transform duration-700" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col items-center justify-center p-6 text-center">
                  <div className="w-14 h-14 bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]"><Lock className="w-6 h-6 text-zinc-400"/></div>
-                 <h3 className="text-white font-black italic text-xl uppercase tracking-widest mb-1 drop-shadow-md">AM Crew Card</h3>
+                 <h3 className="text-white font-black italic text-xl uppercase tracking-widest mb-1 drop-shadow-md">Hype Card</h3>
                  <p className="text-[10px] text-[#fe9a00] font-bold uppercase tracking-widest leading-relaxed drop-shadow-md">Customize and get exclusive perks!</p>
               </div>
             </div>
-            <button onClick={() => { setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual AM Crew Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' }); }} className="flex items-center gap-3 bg-zinc-800 text-white border border-zinc-700 px-8 py-4 rounded-full font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] hover:scale-105 transition-all shadow-lg w-full sm:w-auto justify-center"><CreditCard className="w-5 h-5"/> Subscribe to Unlock</button>
+            <button onClick={() => { setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual Hype Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' }); }} className="flex items-center gap-3 bg-zinc-800 text-white border border-zinc-700 px-8 py-4 rounded-full font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] hover:scale-105 transition-all shadow-lg w-full sm:w-auto justify-center"><CreditCard className="w-5 h-5"/> Subscribe to Unlock</button>
           </div>
         ) : (
           <div className="flex justify-center w-full mt-12 mb-8">
-            <button onClick={() => setShowFlexCard(true)} className="flex items-center gap-4 bg-white text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)] w-max"><CreditCard className="w-6 h-6"/> Flex AM Crew Card</button>
+            <button onClick={() => setShowFlexCard(true)} className="flex items-center gap-4 bg-white text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)] w-max"><CreditCard className="w-6 h-6"/> Flex your Hype Card</button>
           </div>
         )}
       </div>
@@ -361,9 +370,10 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         </div>
       )}
 
+      {/* PUSHED EDIT MODAL UP USING PADDING SO IT CLEARS NAV PILL */}
       {isEditing && (
-        <div className="fixed inset-0 z-[300] bg-black/95 flex flex-col items-center justify-center p-4 sm:p-6 backdrop-blur-md">
-          <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col max-h-[90vh] overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 z-[300] bg-black/95 flex flex-col items-center justify-center p-4 sm:p-6 pb-[120px] sm:pb-[140px] backdrop-blur-md">
+          <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col max-h-[calc(100dvh-120px)] sm:max-h-[calc(100dvh-140px)] overflow-hidden shadow-2xl">
             <div className="flex justify-between items-center p-6 border-b border-zinc-800 bg-black">
               <h2 className="text-xl font-black italic uppercase tracking-wider text-[#fe9a00]">Customize Loadout</h2>
               <button onClick={() => setIsEditing(false)} className="text-zinc-500 hover:text-white"><X className="w-6 h-6" /></button>
@@ -373,7 +383,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
               <button onClick={() => { setActiveTab('faves'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'faves' ? 'bg-zinc-800 text-[#fe9a00]' : 'text-zinc-500 hover:text-white'}`}>Top 5</button>
               <button onClick={() => { setActiveTab('art'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'art' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Avatar Art</button>
               <button onClick={() => { setActiveTab('frame'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'frame' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Border Frame</button>
-              <button onClick={() => { setActiveTab('card'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'card' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Club Card</button>
+              <button onClick={() => { setActiveTab('card'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap ${activeTab === 'card' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Hype Card</button>
             </div>
 
             <div className="p-6 overflow-y-auto flex-1 bg-black/40 no-scrollbar">
@@ -385,10 +395,12 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
                     {[0, 1, 2, 3, 4].map((index) => {
                       const slug = tempProfile.topFive[index];
                       const isSelected = selectingSlot === index;
+                      const isValidSeries = slug && displaySeriesList.some((s: any) => s.slug === slug);
+
                       return (
-                        <div key={index} className={`relative transition-transform ${isSelected ? 'scale-110 z-10' : ''}`}>
+                        <div key={index} className={`relative transition-transform flex-shrink-0 ${isSelected ? 'scale-110 z-10' : ''}`}>
                           {isSelected && <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#fe9a00] animate-bounce shadow-[0_0_10px_#fe9a00]" />}
-                          {slug ? renderMiniCard(slug, true, () => setSelectingSlot(index)) : renderEmptySlot(() => setSelectingSlot(index))}
+                          {isValidSeries ? renderMiniCard(slug, true, () => setSelectingSlot(index)) : renderEmptySlot(() => setSelectingSlot(index))}
                         </div>
                       );
                     })}
@@ -400,7 +412,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
                         <h4 className="text-[#fe9a00] text-[10px] font-black uppercase tracking-widest">Select Series for Slot {selectingSlot + 1}</h4>
                         <button onClick={() => { const newLoadout = [...tempProfile.topFive]; newLoadout[selectingSlot] = null; setTempProfile({...tempProfile, topFive: newLoadout}); setSelectingSlot(null); }} className="text-[9px] font-black uppercase tracking-widest text-red-500 hover:text-red-400 border border-red-900/30 px-3 py-1.5 rounded transition-colors bg-red-900/10 hover:bg-red-900/30">Clear Slot</button>
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-h-[30vh] sm:max-h-48 overflow-y-auto pr-2 custom-scrollbar">
                         {displaySeriesList.map((s: any) => {
                           const isAlreadyEquipped = tempProfile.topFive.includes(s.slug);
                           return (
@@ -419,7 +431,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
 
               {activeTab === 'card' && (
                 <div className="space-y-6">
-                  <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-4">Select an artwork skin for your digital club card</p>
+                  <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-4">Select an artwork skin for your Hype Card</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                     <div onClick={() => setTempProfile({...tempProfile, cardSkin: ''})} className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${!tempProfile.cardSkin ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-zinc-500'}`}>
                       <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-80 mix-blend-overlay" />

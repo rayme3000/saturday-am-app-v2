@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { SeriesSection } from "./SeriesSection";
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
-import { Menu, X, Bell, CheckCircle, Play } from 'lucide-react';
+import { Menu, X, Bell, CheckCircle, Play, Flame } from 'lucide-react';
 import { useTelemetry } from '../Components/useTelemetry'; 
 
 let memHeroSlides: any = null;
@@ -186,7 +186,19 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     }).slice(0, 10); 
   }, [latestChapters, seriesList]);
 
-  if (isLoading || isLoadingSlides) return <div className="min-h-screen bg-black text-[#fe9a00] flex items-center justify-center font-black tracking-widest">Loading Vault...</div>;
+  // --- CLEAN HYPE FILL LOADER ---
+  if (isLoading || isLoadingSlides) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
+        <div className="relative w-12 h-12 flex justify-center">
+          <Flame className="w-12 h-12 text-zinc-800 absolute bottom-0" strokeWidth={1.5} />
+          <div className="absolute bottom-0 overflow-hidden w-12 flex justify-center animate-flame-fill">
+            <Flame className="w-12 h-12 text-[#fe9a00] fill-[#fe9a00] absolute bottom-0" strokeWidth={1.5} />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative min-h-screen bg-transparent text-white pb-24">
@@ -198,15 +210,12 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
       </div>
 
-      {/* --- REORGANIZED TOP NAV --- */}
       <nav className="sticky top-0 w-full z-[100] px-4 py-3 sm:px-6 sm:py-4 flex justify-between items-center bg-black/80 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
         
-        {/* LEFT: Logo */}
         <div className="flex items-center cursor-pointer flex-shrink-0" onClick={() => onNavigate({ action: 'home' })}>
           <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png" alt="Saturday AM" className="h-10 md:h-12 object-contain drop-shadow-md hover:scale-105 transition-transform" />
         </div>
         
-        {/* RIGHT: Avatar, Notifications, Hamburger Menu */}
         <div className="flex items-center justify-end gap-2 sm:gap-4">
           
           {!currentUser ? (
@@ -282,29 +291,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           </div>
         </div>
         
-        {recentReads.length > 0 && (
-          <div className="mb-12 animate-fade-in bg-black/40 backdrop-blur-sm p-4 rounded-xl border border-zinc-800/50">
-            <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-wider text-white mb-4 px-2 drop-shadow-md">Jump Back In</h2>
-            <div className="flex gap-4 overflow-x-auto pb-4 px-2 no-scrollbar">
-              {recentReads.map((read) => (
-                <div key={read.id} onClick={() => onNavigate({ ...read.target, autoOpenChapterId: read.chapter_id, autoOpenPage: read.page_index })} className="relative min-w-[140px] w-[140px] md:min-w-[180px] md:w-[180px] aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] hover:shadow-[8px_8px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1 transition-all duration-300 flex-shrink-0 mb-3">
-                  <img src={read.image} alt={read.title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-3 z-10">
-                    <h3 className="text-white font-black uppercase text-xs md:text-sm leading-tight line-clamp-1 drop-shadow-md">{read.title}</h3>
-                    <div className="flex justify-between items-center mt-1">
-                      <p className="text-[#fe9a00] font-bold text-[9px] md:text-[10px] uppercase tracking-widest drop-shadow-md">{read.subtitle}</p>
-                      <p className="text-zinc-300 font-bold text-[8px] md:text-[9px] uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded border border-zinc-700 backdrop-blur-sm">Pg. {read.page_index + 1}</p>
-                    </div>
-                  </div>
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-[2px] z-20">
-                    <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-[#fe9a00] flex items-center justify-center shadow-[0_0_20px_rgba(254,154,0,0.6)] transform scale-75 group-hover:scale-100 transition-transform duration-300"><Play className="w-5 h-5 md:w-6 md:h-6 text-black ml-1" /></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        
         {visibleLatestChapters.length > 0 && (
           <div className="mb-10 relative group px-2">
             <div className="flex items-center gap-3 mb-4">
@@ -345,6 +331,29 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                   </div>
                 </div>
               )})}
+            </div>
+          </div>
+        )}
+        
+        {recentReads.length > 0 && (
+          <div className="mb-12 animate-fade-in bg-black/40 backdrop-blur-sm p-4 rounded-xl border border-zinc-800/50">
+            <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-wider text-white mb-4 px-2 drop-shadow-md">Jump Back In</h2>
+            <div className="flex gap-4 overflow-x-auto pb-4 px-2 no-scrollbar">
+              {recentReads.map((read) => (
+                <div key={read.id} onClick={() => onNavigate({ ...read.target, autoOpenChapterId: read.chapter_id, autoOpenPage: read.page_index })} className="relative min-w-[140px] w-[140px] md:min-w-[180px] md:w-[180px] aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] hover:shadow-[8px_8px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1 transition-all duration-300 flex-shrink-0 mb-3">
+                  <img src={read.image} alt={read.title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-3 z-10">
+                    <h3 className="text-white font-black uppercase text-xs md:text-sm leading-tight line-clamp-1 drop-shadow-md">{read.title}</h3>
+                    <div className="flex justify-between items-center mt-1">
+                      <p className="text-[#fe9a00] font-bold text-[9px] md:text-[10px] uppercase tracking-widest drop-shadow-md">{read.subtitle}</p>
+                      <p className="text-zinc-300 font-bold text-[8px] md:text-[9px] uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded border border-zinc-700 backdrop-blur-sm">Pg. {read.page_index + 1}</p>
+                    </div>
+                  </div>
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center backdrop-blur-[2px] z-20">
+                    <div className="w-12 h-12 md:w-14 md:h-14 rounded-full bg-[#fe9a00] flex items-center justify-center shadow-[0_0_20px_rgba(254,154,0,0.6)] transform scale-75 group-hover:scale-100 transition-transform duration-300"><Play className="w-5 h-5 md:w-6 md:h-6 text-black ml-1" /></div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

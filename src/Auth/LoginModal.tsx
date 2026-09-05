@@ -12,13 +12,13 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
   const [username, setUsername] = useState('');
   const [country, setCountry] = useState('');
   const [referral, setReferral] = useState('');
+  const [accessCode, setAccessCode] = useState(''); // NEW: Access Code State
   
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Listen for background auth completion
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
@@ -37,7 +37,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     setError('');
     setSuccessMsg('');
 
-    // RUTHLESS EMAIL SCRUBBING: Removes all spaces (including zero-width) and forces lowercase
     const cleanEmail = email.replace(/\s+/g, '').toLowerCase();
 
     if (isSignUp) {
@@ -66,6 +65,41 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         return;
       }
 
+      // --- NEW: VALIDATE ACCESS CODE ---
+      let appliedTier = 'free';
+      let codeIdToUpdate = null;
+      let currentTimesUsed = 0;
+
+      if (accessCode.trim()) {
+        const { data: promoData, error: promoError } = await supabase
+          .from('promo_codes')
+          .select('*')
+          .eq('code', accessCode.trim().toUpperCase())
+          .maybeSingle();
+
+        if (promoError || !promoData) {
+          setError("Invalid Access Code. Please check and try again.");
+          setLoading(false);
+          return;
+        }
+
+        if (new Date() > new Date(promoData.expires_at)) {
+          setError("This Access Code has expired.");
+          setLoading(false);
+          return;
+        }
+
+        if (promoData.times_used >= promoData.max_uses) {
+          setError("This Access Code has reached its usage limit.");
+          setLoading(false);
+          return;
+        }
+
+        appliedTier = promoData.tier;
+        codeIdToUpdate = promoData.id;
+        currentTimesUsed = promoData.times_used;
+      }
+
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
@@ -91,8 +125,16 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
             username: username.trim(),
             email: cleanEmail,
             county: country,
-            referral_source: referral
+            referral_source: referral,
+            is_premium: appliedTier === 'premium' // DYNAMIC TIER ASSIGNMENT
           }, { onConflict: 'id' });
+
+          // INCREMENT PROMO CODE USAGE
+          if (codeIdToUpdate) {
+            await supabase.from('promo_codes')
+              .update({ times_used: currentTimesUsed + 1 })
+              .eq('id', codeIdToUpdate);
+          }
         }
 
         setSuccessMsg("Account created! Please check your email inbox to confirm your registration.");
@@ -127,7 +169,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     setError('');
     setSuccessMsg('');
 
-    // Apply the same ruthless scrubbing here
     const cleanEmail = email.replace(/\s+/g, '').toLowerCase();
 
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
@@ -236,6 +277,14 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                   <option value="Friend">Recommended by a Friend</option>
                   <option value="Other">Other</option>
                 </select>
+
+                <input 
+                  type="text" 
+                  placeholder="Beta / Promo Access Code (Optional)" 
+                  value={accessCode} 
+                  onChange={(e) => setAccessCode(e.target.value)}
+                  className="w-full bg-black border border-zinc-700 p-3 rounded text-[#fe9a00] font-black tracking-widest text-sm focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-500" 
+                />
               </>
             )}
 

@@ -18,7 +18,9 @@ const COUNTRY_CODES = [
   { code: 'SA', name: 'Saudi Arabia' }, { code: 'AE', name: 'United Arab Emirates' }, { code: 'IL', name: 'Israel' }, { code: 'AR', name: 'Argentina' },
   { code: 'CL', name: 'Chile' }, { code: 'CO', name: 'Colombia' }, { code: 'PE', name: 'Peru' }, { code: 'VE', name: 'Venezuela' },
   { code: 'JM', name: 'Jamaica' }, { code: 'PR', name: 'Puerto Rico' }, { code: 'BS', name: 'Bahamas' }, { code: 'HT', name: 'Haiti' },
-  { code: 'HN', name: 'Honduras' }
+  { code: 'HN', name: 'Honduras' }, { code: 'KW', name: 'Kuwait' }, { code: 'QA', name: 'Qatar' }, { code: 'BH', name: 'Bahrain' }, 
+  { code: 'OM', name: 'Oman' }, { code: 'DO', name: 'Dominican Republic' }, { code: 'CR', name: 'Costa Rica' }, { code: 'CU', name: 'Cuba' }, 
+  { code: 'SV', name: 'El Salvador' }, { code: 'PA', name: 'Panama' }
 ].sort((a, b) => a.name.localeCompare(b.name));
 
 const getPatternStyle = (color: string, pattern: string) => {
@@ -40,6 +42,13 @@ const POSITION_PRESETS = [
   { label: 'Center Left', value: '0% 50%' }, { label: 'Center', value: '50% 50%' }, { label: 'Center Right', value: '100% 50%' },
   { label: 'Bottom Left', value: '0% 100%' }, { label: 'Bottom Center', value: '50% 100%' }, { label: 'Bottom Right', value: '100% 100%' },
 ];
+
+const HEIGHT_PRESETS: string[] = [];
+for (let ft = 2; ft <= 10; ft++) {
+  for (let in_ = 0; in_ <= 11; in_++) {
+    HEIGHT_PRESETS.push(`${ft}'${in_}"`);
+  }
+}
 
 export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: any) => {
   const [targetSeries, setTargetSeries] = useState('new');
@@ -66,7 +75,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
     synopsis: '', awards: '', hasAwards: false, 
     contentRating: 'T',
     isHidden: false,
-    creators: [{ role: 'Creator', name: '', bio: '', flagCode: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
+    creators: [{ role: 'Creator', name: '', bio: '', flagCode1: '', flagCode2: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
     characters: [] as any[] 
   });
 
@@ -82,9 +91,12 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
             const normalizedName = c.name.trim().toLowerCase();
             if (!map.has(normalizedName)) {
               map.set(normalizedName, true);
+              const flags = (c.flag_code || '').split(',');
               uniqueCreators.push({
                 name: c.name.trim(), 
-                role: c.role, flagCode: c.flag_code, 
+                role: c.role, 
+                flagCode1: flags[0]?.trim() || '', 
+                flagCode2: flags[1]?.trim() || '', 
                 avatar: c.avatar_url, bio: c.bio, twitter: c.twitter_url, 
                 instagram: c.instagram_url, supportLink: c.support_url
               });
@@ -112,7 +124,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           synopsis: '', awards: '', hasAwards: false, 
           contentRating: 'T', 
           isHidden: false,    
-          creators: [{ role: 'Creator', name: '', flagCode: '', avatar: '', bio: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
+          creators: [{ role: 'Creator', name: '', flagCode1: '', flagCode2: '', avatar: '', bio: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
           characters: [] 
         });
       } else {
@@ -126,13 +138,24 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
 
           let loadedCreators = [];
           if (creatorData && creatorData.length > 0) { 
-            loadedCreators = creatorData.map(c => ({ 
-              role: c.role || 'Creator', name: c.name || '', flagCode: c.flag_code || '', 
-              avatar: c.avatar_url || '', bio: c.bio || '', twitter: c.twitter_url || '', 
-              instagram: c.instagram_url || '', supportLink: c.support_url || '', is_visible: c.is_visible !== false
-            })); 
+            loadedCreators = creatorData.map(c => {
+              const flags = (c.flag_code || '').split(',');
+              return { 
+                role: c.role || 'Creator', name: c.name || '', 
+                flagCode1: flags[0]?.trim() || '', 
+                flagCode2: flags[1]?.trim() || '', 
+                avatar: c.avatar_url || '', bio: c.bio || '', twitter: c.twitter_url || '', 
+                instagram: c.instagram_url || '', supportLink: c.support_url || '', is_visible: c.is_visible !== false
+              };
+            }); 
           } else { 
-            loadedCreators = [{ role: 'Creator', name: selectedSeries.creator_name || '', flagCode: selectedSeries.flag_code || '', avatar: selectedSeries.creator_avatar || '', bio: selectedSeries.creator_bio || '', twitter: selectedSeries.creator_twitter || '', instagram: selectedSeries.creator_instagram || '', supportLink: selectedSeries.creator_support_link || '', is_visible: true }]; 
+            const flags = (selectedSeries.flag_code || '').split(',');
+            loadedCreators = [{ 
+              role: 'Creator', name: selectedSeries.creator_name || '', 
+              flagCode1: flags[0]?.trim() || '', 
+              flagCode2: flags[1]?.trim() || '', 
+              avatar: selectedSeries.creator_avatar || '', bio: selectedSeries.creator_bio || '', twitter: selectedSeries.creator_twitter || '', instagram: selectedSeries.creator_instagram || '', supportLink: selectedSeries.creator_support_link || '', is_visible: true 
+            }]; 
           }
           
           setFormData({ 
@@ -194,7 +217,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
   const handleAddCharacter = () => {
     handleInputChange('characters', [...formData.characters, {
       name: '', role_type: 'Hero', is_mc: false, element: 'AM', weapon: '',
-      headshot_url: '', alt_form_name: '', alt_headshot_url: '', alt_forms: [], age: '', height: '', location: '', ethnicity: '', first_appearance: '', origin: '', powers: '', weakness: ''
+      headshot_url: '', alt_form_name: '', alt_headshot_url: '', alt_forms: [], age: '', height: '', location: '', ethnicity: '', first_appearance: '', origin: '', powers: '', weakness: '', is_hidden: false
     }]);
     setExpandedCharIndex(formData.characters.length);
   };
@@ -233,7 +256,9 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
         awards: formData.hasAwards ? formData.awards : null, has_awards: formData.hasAwards, 
         content_rating: formData.contentRating, 
         is_hidden: formData.isHidden,           
-        creator_name: primaryCreator.name, flag_code: primaryCreator.flagCode, creator_avatar: primaryCreator.avatar, 
+        creator_name: primaryCreator.name, 
+        flag_code: [primaryCreator.flagCode1, primaryCreator.flagCode2].filter(Boolean).join(','), 
+        creator_avatar: primaryCreator.avatar, 
         creator_bio: primaryCreator.bio, creator_twitter: primaryCreator.twitter, creator_instagram: primaryCreator.instagram, 
         creator_support_link: primaryCreator.supportLink, updated_at: new Date().toISOString() 
       }, { onConflict: 'slug' });
@@ -244,9 +269,10 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       if (deleteError) throw deleteError;
 
       const { error: insertError } = await supabase.from('series_creators').insert(formData.creators.map(c => ({ 
-        series_slug: activeSlug, role: c.role || 'Creator', name: c.name, flag_code: c.flagCode, 
+        series_slug: activeSlug, role: c.role || 'Creator', name: c.name, 
+        flag_code: [c.flagCode1, c.flagCode2].filter(Boolean).join(','), 
         bio: c.bio, 
-        avatar_url: c.avatar, // --- FIXED BUG: Was accidentally mapping c.avatar_url to itself instead of c.avatar ---
+        avatar_url: c.avatar,
         twitter_url: c.twitter, instagram_url: c.instagram, 
         support_url: c.supportLink, is_visible: c.is_visible 
       })));
@@ -265,7 +291,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       }
   
       alert(`SUCCESS! Series Saved.`);
-      if(setIsDirty) setIsDirty(false); // Clear the unsaved warning flag!
+      if(setIsDirty) setIsDirty(false);
     } catch (error: any) { 
       console.error("Database Save Error:", error);
       alert(`FAILED TO SAVE! Supabase returned: ${error.message}`); 
@@ -275,7 +301,10 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
   };
 
   const handleDeleteSeries = async () => {
-    if (!window.confirm("Are you sure you want to permanently delete this series?")) return;
+    const challenge = window.prompt('Are you sure you want to permanently delete this series? This cannot be undone.\n\nType "DELETE" to confirm:');
+    if (challenge?.trim().toUpperCase() !== 'DELETE') {
+      return;
+    }
     
     setIsSaving(true);
     try { 
@@ -668,7 +697,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                )}
                <button onClick={() => { 
                  if (formData.creators.length > 1 && !window.confirm("Are you sure you want to remove this co-creator?")) return;
-                 const nc = formData.creators.length > 1 ? [formData.creators[0]] : [...formData.creators, { role: 'Co-creator', name: '', bio: '', flagCode: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }]; 
+                 const nc = formData.creators.length > 1 ? [formData.creators[0]] : [...formData.creators, { role: 'Co-creator', name: '', bio: '', flagCode1: '', flagCode2: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }]; 
                  handleInputChange('creators', nc); 
                }} className="text-[10px] font-bold tracking-widest uppercase bg-zinc-800 px-3 py-2 rounded hover:bg-[#fe9a00] hover:text-black transition-colors">
                  {formData.creators.length > 1 ? '- Remove Co-creator' : '+ Add Co-creator'}
@@ -678,8 +707,11 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
            
            <div className={`grid ${formData.creators.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-6`}>
              {formData.creators.map((c, i) => {
-                const isCustomFlag = c.flagCode && !COUNTRY_CODES.some(cc => cc.code === c.flagCode);
-                const selectValue = isCustomFlag ? 'OTHER' : c.flagCode;
+                const isCustomFlag1 = c.flagCode1 && !COUNTRY_CODES.some(cc => cc.code === c.flagCode1);
+                const selectValue1 = isCustomFlag1 ? 'OTHER' : c.flagCode1;
+
+                const isCustomFlag2 = c.flagCode2 && !COUNTRY_CODES.some(cc => cc.code === c.flagCode2);
+                const selectValue2 = isCustomFlag2 ? 'OTHER' : c.flagCode2;
 
                 return (
                   <div key={i} className="bg-black p-4 rounded border border-zinc-800 space-y-4 relative">
@@ -702,42 +734,76 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                       ))}
                     </select>
 
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
                       <input type="text" placeholder="Role (e.g., Creator)" value={c.role} onChange={(e) => { const nc = [...formData.creators]; nc[i].role = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
                       <input type="text" placeholder="Full Name" value={c.name} onChange={(e) => { const nc = [...formData.creators]; nc[i].name = e.target.value; handleInputChange('creators', nc); }} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
                       
                       <div className="flex gap-2">
                         <select 
-                          value={selectValue} 
+                          value={selectValue1} 
                           onChange={(e) => { 
                             const nc = [...formData.creators]; 
-                            nc[i].flagCode = e.target.value === 'OTHER' ? (isCustomFlag ? c.flagCode : '') : e.target.value; 
+                            nc[i].flagCode1 = e.target.value === 'OTHER' ? (isCustomFlag1 ? c.flagCode1 : '') : e.target.value; 
                             handleInputChange('creators', nc); 
                           }} 
                           className="flex-1 bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]"
                         >
-                          <option value="">-- Flag --</option>
+                          <option value="">-- Flag 1 --</option>
                           {COUNTRY_CODES.map(country => (
                             <option key={country.code} value={country.code}>{country.name}</option>
                           ))}
                           <option value="OTHER">Other (Enter Code)</option>
                         </select>
 
-                        {(isCustomFlag || selectValue === 'OTHER') && (
+                        {(isCustomFlag1 || selectValue1 === 'OTHER') && (
                           <input 
                             type="text" 
                             placeholder="Code" 
                             maxLength={2}
-                            value={c.flagCode} 
+                            value={c.flagCode1} 
                             onChange={(e) => { 
                               const nc = [...formData.creators]; 
-                              nc[i].flagCode = e.target.value.toUpperCase(); 
+                              nc[i].flagCode1 = e.target.value.toUpperCase(); 
                               handleInputChange('creators', nc); 
                             }} 
-                            className="w-16 text-center bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs font-black focus:border-[#fe9a00]"
+                            className="w-12 text-center bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs font-black focus:border-[#fe9a00]"
                           />
                         )}
                       </div>
+
+                      <div className="flex gap-2">
+                        <select 
+                          value={selectValue2} 
+                          onChange={(e) => { 
+                            const nc = [...formData.creators]; 
+                            nc[i].flagCode2 = e.target.value === 'OTHER' ? (isCustomFlag2 ? c.flagCode2 : '') : e.target.value; 
+                            handleInputChange('creators', nc); 
+                          }} 
+                          className="flex-1 bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]"
+                        >
+                          <option value="">-- Flag 2 (Opt) --</option>
+                          {COUNTRY_CODES.map(country => (
+                            <option key={country.code} value={country.code}>{country.name}</option>
+                          ))}
+                          <option value="OTHER">Other (Enter Code)</option>
+                        </select>
+
+                        {(isCustomFlag2 || selectValue2 === 'OTHER') && (
+                          <input 
+                            type="text" 
+                            placeholder="Code" 
+                            maxLength={2}
+                            value={c.flagCode2} 
+                            onChange={(e) => { 
+                              const nc = [...formData.creators]; 
+                              nc[i].flagCode2 = e.target.value.toUpperCase(); 
+                              handleInputChange('creators', nc); 
+                            }} 
+                            className="w-12 text-center bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs font-black focus:border-[#fe9a00]"
+                          />
+                        )}
+                      </div>
+
                     </div>
                     
                     <div className="flex gap-4 items-center">
@@ -775,7 +841,10 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           </div>
 
           <div className="space-y-4">
-            {formData.characters.map((char, i) => (
+            {formData.characters.map((char, i) => {
+              const isCustomHeight = char.height && !HEIGHT_PRESETS.includes(char.height);
+              
+              return (
               <div key={i} className="bg-black border border-zinc-800 rounded-xl overflow-hidden">
                 <div 
                   onClick={() => setExpandedCharIndex(expandedCharIndex === i ? null : i)}
@@ -807,7 +876,21 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                       <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest">{char.role_type} {char.is_mc && '• MAIN CHARACTER'}</span>
                     </div>
                   </div>
-                  {expandedCharIndex === i ? <ChevronUp className="w-5 h-5 text-zinc-500" /> : <ChevronDown className="w-5 h-5 text-zinc-500" />}
+                  
+                  <div className="flex items-center gap-3">
+                    <button 
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleCharacterChange(i, 'is_hidden', !char.is_hidden); }}
+                      className={`px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest border transition-colors ${
+                        char.is_hidden 
+                          ? 'bg-red-950 border-red-900 text-red-500 hover:bg-red-900' 
+                          : 'bg-green-950 border-green-900 text-green-500 hover:bg-green-900'
+                      }`}
+                    >
+                      {char.is_hidden ? 'Hidden' : 'Visible'}
+                    </button>
+                    {expandedCharIndex === i ? <ChevronUp className="w-5 h-5 text-zinc-500" /> : <ChevronDown className="w-5 h-5 text-zinc-500" />}
+                  </div>
                 </div>
 
                 {expandedCharIndex === i && (
@@ -864,7 +947,33 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
 
                     <div className="grid grid-cols-2 md:grid-cols-6 gap-4 border-t border-zinc-800 pt-6">
                       <input type="text" placeholder="Age" value={char.age} onChange={(e) => handleCharacterChange(i, 'age', e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
-                      <input type="text" placeholder="Height" value={char.height} onChange={(e) => handleCharacterChange(i, 'height', e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
+                      
+                      <div className="flex gap-2">
+                        <select 
+                          value={isCustomHeight ? 'Custom' : (char.height || '')} 
+                          onChange={(e) => {
+                            if (e.target.value === 'Custom') handleCharacterChange(i, 'height', 'Custom Entry');
+                            else handleCharacterChange(i, 'height', e.target.value);
+                          }}
+                          className={`${isCustomHeight ? 'w-[45%] px-1' : 'w-full'} bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]`}
+                        >
+                          <option value="">Height</option>
+                          {HEIGHT_PRESETS.map(h => (
+                            <option key={h} value={h}>{h}</option>
+                          ))}
+                          <option value="Custom">Custom</option>
+                        </select>
+                        {isCustomHeight && (
+                          <input 
+                            type="text" 
+                            placeholder="e.g. 5'10&quot;" 
+                            value={char.height === 'Custom Entry' ? '' : char.height} 
+                            onChange={(e) => handleCharacterChange(i, 'height', e.target.value)} 
+                            className="w-[55%] bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs px-2 focus:border-[#fe9a00]" 
+                          />
+                        )}
+                      </div>
+                      
                       <input type="text" placeholder="Ethnicity" value={char.ethnicity} onChange={(e) => handleCharacterChange(i, 'ethnicity', e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
                       <input type="text" placeholder="In-World Location" value={char.location} onChange={(e) => handleCharacterChange(i, 'location', e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
                       
@@ -903,7 +1012,6 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
 
                     <div className="flex flex-col sm:flex-row gap-6 border-t border-zinc-800 pt-6">
                       
-                      {/* Main Headshot Uploader */}
                       <div className="w-full sm:w-1/2 flex flex-col items-center">
                         <label className="block text-[9px] font-bold text-zinc-500 uppercase tracking-widest mb-2 text-center">Character Thumbnail (1:1)</label>
                         <button 
@@ -922,7 +1030,6 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                         </div>
                       </div>
 
-                      {/* Legacy Alternate Form Uploader (Form 1) */}
                       <div className="w-full sm:w-1/2 border-t sm:border-t-0 sm:border-l border-zinc-800 pt-4 sm:pt-0 sm:pl-6 flex flex-col items-center">
                         <label className="block text-[9px] font-bold text-zinc-500 uppercase tracking-widest mb-2 text-center">Alternate Form 1 (Optional)</label>
                         
@@ -951,7 +1058,6 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                       </div>
                     </div>
 
-                    {/* DYNAMIC ADDITIONAL ALT FORMS (Forms 2+) */}
                     <div className="w-full border-t border-zinc-800 pt-6 mt-6">
                       <div className="flex justify-between items-center mb-4">
                          <label className="block text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Additional Alternate Forms</label>
@@ -991,7 +1097,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                   </div>
                 )}
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
 

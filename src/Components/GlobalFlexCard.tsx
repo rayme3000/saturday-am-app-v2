@@ -63,8 +63,24 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!isOpen) { setIsFlipped(false); return; }
+    if (!isOpen) { 
+      setIsFlipped(false);
+      // Release orientation lock when modal closes
+      if (screen.orientation && screen.orientation.unlock) {
+        try { screen.orientation.unlock(); } catch (e) { /* ignore */ }
+      }
+      return; 
+    }
     
+    // Attempt to force landscape mode on mobile devices
+    if (screen.orientation && screen.orientation.lock) {
+      try {
+        screen.orientation.lock('landscape').catch(() => {
+           console.log("Orientation lock not supported or denied by user/browser.");
+        });
+      } catch (e) { console.error(e); }
+    }
+
     const fetchStatsAndRank = async () => {
       setIsLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
@@ -83,7 +99,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
       
       let myRank: string | number = "---";
 
-      // --- FRESH RPC FOR FLEX CARD RANK ---
       const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: user.id });
       if (myRankData && myRankData.length > 0) {
         myRank = Number(myRankData[0].rank);
@@ -114,10 +129,15 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const currentSkin = appliedSkin || defaultSkin;
 
   return (
-    <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 md:p-12 animate-fade-in" onClick={onClose}>
-      <button onClick={onClose} className="absolute top-6 right-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-[5010] shadow-2xl"><X className="w-6 h-6" /></button>
+    // The CSS landscape fallback ensures it rotates visually even if the OS blocks the API call
+    <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 md:p-12 animate-fade-in portrait:flex-row portrait:rotate-90 portrait:w-[100dvh] portrait:h-[100vw] portrait:origin-top-left portrait:translate-x-[100vw]" onClick={onClose}>
+      
+      {/* We must adjust the close button for the CSS rotation fallback */}
+      <button onClick={onClose} className="absolute top-6 right-6 portrait:bottom-6 portrait:right-auto portrait:left-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-[5010] shadow-2xl portrait:-rotate-90">
+        <X className="w-6 h-6" />
+      </button>
 
-      <div className="relative w-full max-w-5xl aspect-[1.58]" style={{ perspective: '2000px', WebkitPerspective: '2000px' }}>
+      <div className="relative w-full max-w-5xl aspect-[1.58] portrait:w-[80dvh]" style={{ perspective: '2000px', WebkitPerspective: '2000px' }}>
         {isLoading ? (
           <div className="absolute inset-0 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center animate-pulse shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
              <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
@@ -233,7 +253,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                               <img src={stickerImage} className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
                               <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
                             </div>
-                            <span className="font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all" style={{ fontSize: '1.3cqi', marginTop: '1.5cqi' }}>{series.title}</span>
+                            <span className="font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all portrait:-rotate-90" style={{ fontSize: '1.3cqi', marginTop: '1.5cqi' }}>{series.title}</span>
                           </div>
                         );
                       })}
@@ -245,7 +265,10 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
           </div>
         )}
       </div>
-      <p className="text-zinc-500 font-bold uppercase tracking-widest mt-8 md:mt-12 animate-pulse flex items-center gap-2 pointer-events-none text-[10px] md:text-sm"><RotateCcw className="w-4 h-4 md:w-5 md:h-5" /> Tap anywhere on card to flip</p>
+      
+      <p className="text-zinc-500 font-bold uppercase tracking-widest mt-8 md:mt-12 animate-pulse flex items-center gap-2 pointer-events-none text-[10px] md:text-sm portrait:absolute portrait:right-[-60px] portrait:top-1/2 portrait:-rotate-90">
+        <RotateCcw className="w-4 h-4 md:w-5 md:h-5 portrait:-rotate-90" /> Tap anywhere on card to flip
+      </p>
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { memo, useState } from 'react';
-import { Home, Library, Search, ShoppingCart, User, Plus, Trophy, Users, BookOpen, Newspaper } from 'lucide-react';
+import { Home, Library, Search, ShoppingCart, User, Plus, Trophy, Users, BookOpen, Newspaper, CreditCard } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) => {
@@ -46,7 +46,7 @@ const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) 
   );
 };
 
-export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser }: any) => {
+export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser, onOpenFlexCard, userTier, onUpsell }: any) => {
   const { vaultFrames = [] } = useSeriesData();
   const [isExpanded, setIsExpanded] = useState(false);
   
@@ -68,7 +68,7 @@ export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser }: a
       
       {/* EXPANDABLE GRID (Popping out above) */}
       <div className={`mb-4 bg-zinc-900/95 backdrop-blur-xl border border-zinc-700 rounded-3xl p-4 shadow-2xl transition-all duration-300 origin-bottom pointer-events-auto ${isExpanded ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-8 pointer-events-none'}`}>
-        <div className="grid grid-cols-4 gap-4 sm:gap-6">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-4 sm:gap-6 justify-center">
           <button onClick={() => handleNav('leaderboard')} className="flex flex-col items-center gap-2 group">
             <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
             <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">Rankings</span>
@@ -79,11 +79,24 @@ export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser }: a
           </button>
           <button onClick={() => handleNav('bingobook')} className="flex flex-col items-center gap-2 group">
             <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
-            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">Bingo Book</span>
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white whitespace-nowrap">Bingo Book</span>
           </button>
           <button onClick={() => handleNav('news')} className="flex flex-col items-center gap-2 group">
             <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><Newspaper className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
-            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">AM News</span>
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white whitespace-nowrap">AM News</span>
+          </button>
+          
+          {/* CORRECTED: NOW OPENS MODAL DIRECTLY */}
+          <button onClick={() => {
+            setIsExpanded(false);
+            if (userTier !== 'premium') {
+              if (onUpsell) onUpsell({ title: 'Premium Feature', message: 'The Virtual Hype Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' });
+            } else if (onOpenFlexCard) {
+              onOpenFlexCard();
+            }
+          }} className="flex flex-col items-center gap-2 group">
+            <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><CreditCard className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white whitespace-nowrap">Hype Card</span>
           </button>
         </div>
       </div>

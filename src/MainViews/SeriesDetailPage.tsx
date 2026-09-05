@@ -23,7 +23,7 @@ const ContentRatingBadge = ({ rating }: { rating: string }) => {
   const current = config[rating] || config['T']; 
 
   return (
-    <div className="flex items-center gap-2 mt-4 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-zinc-800/50 backdrop-blur-sm w-max mx-auto shadow-lg">
+    <div className="flex items-center gap-2 mt-6 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-zinc-800/50 backdrop-blur-sm w-max mx-auto shadow-lg">
       <div className={`w-5 h-5 flex items-center justify-center rounded-[3px] font-black text-[10px] ${current.color} shadow-sm`}>
         {current.label}
       </div>
@@ -40,7 +40,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [chapters, setChapters] = useState<any[]>([]);
   const [activePages, setActivePages] = useState([]);
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
-  const [creators, setCreators] = useState([]);
+  const [creators, setCreators] = useState<any[]>([]);
   const [showAwards, setShowAwards] = useState(false);
   const awardTimeoutRef = useRef<any>(null);
   const [isPremiumUser, setIsPremiumUser] = useState(false);
@@ -61,6 +61,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [showAllChars, setShowAllChars] = useState(false);
   
   const [likedChapters, setLikedChapters] = useState<Record<string, boolean>>({});
+  const [collectedSignatures, setCollectedSignatures] = useState<Record<string, string>>({});
 
   const { trackEvent } = useTelemetry(currentUserId || undefined);
 
@@ -105,6 +106,38 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       trackEvent('series_page_visit', { series_slug: localSeries.slug });
     }
   }, [localSeries?.slug, trackEvent]);
+
+  // --- LIVE SYNC SIGNATURES ON LOAD ---
+  useEffect(() => {
+    if (userTier === 'premium') {
+      const syncSignatures = async () => {
+        const localSigs = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
+        const hunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
+        const creatorsToFetch = hunts.length > 0 ? hunts : Object.keys(localSigs);
+
+        if (creatorsToFetch.length > 0) {
+          const { data } = await supabase
+            .from('creator_signatures')
+            .select('creator_name, signature_url')
+            .in('creator_name', creatorsToFetch);
+          
+          if (data && data.length > 0) {
+            const freshSigs: Record<string, string> = {};
+            data.forEach((row: any) => { freshSigs[row.creator_name] = row.signature_url; });
+            setCollectedSignatures(freshSigs);
+            localStorage.setItem('am_bingo_sigs', JSON.stringify(freshSigs));
+          } else {
+            setCollectedSignatures(localSigs);
+          }
+        } else {
+          setCollectedSignatures({});
+        }
+      };
+      syncSignatures();
+    } else {
+      setCollectedSignatures({});
+    }
+  }, [userTier]);
 
   useEffect(() => {
     const checkFavoriteStatus = async () => {
@@ -629,6 +662,56 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               </div>
             ))}
           </div>
+
+          {/* --- COLLECTED BINGO BOOK SIGNATURES DISPLAY --- */}
+          {userTier === 'premium' && Object.keys(collectedSignatures).length > 0 && (
+            <div className="flex flex-wrap justify-center gap-4 mt-6 w-full max-w-lg">
+              <style>{`
+                @keyframes gold-pulse-glow {
+                  0%, 100% { 
+                    filter: drop-shadow(0 0 10px rgba(254,154,0,0.8)) drop-shadow(0 0 20px rgba(254,154,0,0.4)); 
+                    transform: scale(1);
+                  }
+                  50% { 
+                    filter: drop-shadow(0 0 15px rgba(254,154,0,1)) drop-shadow(0 0 35px rgba(254,154,0,0.8)) drop-shadow(0 0 50px rgba(254,154,0,0.5)); 
+                    transform: scale(1.03);
+                  }
+                }
+                .animate-gold-pulse {
+                  animation: gold-pulse-glow 2.5s ease-in-out infinite;
+                }
+              `}</style>
+              {Object.entries(collectedSignatures)
+                .filter(([sigName]) => {
+                  return creators.some((c: any) => {
+                    const cName = (c.name || '').toLowerCase();
+                    const sName = sigName.toLowerCase();
+                    return cName.includes(sName) || sName.includes(cName);
+                  });
+                })
+                .map(([sigName, sigUrl], i) => (
+                  <div key={`sig-${i}`} className="flex flex-col items-center w-[45%] sm:w-[40%] animate-fade-in-up">
+                    <div className="w-full aspect-[3/1] flex items-center justify-center p-2">
+                      <div 
+                        className="w-full h-full bg-[#fe9a00] animate-gold-pulse"
+                        style={{
+                          WebkitMaskImage: `url(${sigUrl})`,
+                          WebkitMaskSize: 'contain',
+                          WebkitMaskRepeat: 'no-repeat',
+                          WebkitMaskPosition: 'center',
+                          maskImage: `url(${sigUrl})`,
+                          maskSize: 'contain',
+                          maskRepeat: 'no-repeat',
+                          maskPosition: 'center'
+                        }}
+                        title={`${sigName} Signature`}
+                      />
+                    </div>
+                    <span className="text-[#fe9a00] text-[9px] sm:text-[10px] font-bold mt-1 text-center drop-shadow-[0_0_5px_rgba(254,154,0,0.5)]">{sigName}</span>
+                  </div>
+                ))}
+            </div>
+          )}
 
           <ContentRatingBadge rating={localSeries.content_rating || 'T'} />
 

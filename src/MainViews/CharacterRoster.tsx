@@ -1,27 +1,35 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, X, Flame, ArrowLeft, Shield, Swords, MapPin, Activity, User, ChevronDown, ChevronUp, RefreshCw, Lock } from 'lucide-react';
+import { Search, X, Flame, ArrowLeft, Shield, Swords, MapPin, Activity, User, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
 const getGridGlowClasses = (role: string, isMc: boolean) => {
-  if (role === 'Hero' && isMc) return 'border-[#fe9a00] shadow-[0_0_20px_rgba(254,154,0,0.8)]';
-  if (role === 'Hero') return 'border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.8)]';
+  if (role === 'Support' && isMc) return 'border-[#fe9a00] shadow-[0_0_20px_rgba(254,154,0,0.8)]';
+  if (role === 'Support') return 'border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.8)]';
   if (role === 'Villain') return 'border-red-600 shadow-[0_0_20px_rgba(220,38,38,0.8)]';
   return 'border-white shadow-[0_0_20px_rgba(255,255,255,0.5)]';
 };
 
 const getModalGlowClasses = (role: string, isMc: boolean) => {
-  if (role === 'Hero' && isMc) return 'border-[#fe9a00] shadow-[0_0_40px_rgba(254,154,0,0.6)]';
-  if (role === 'Hero') return 'border-cyan-400 shadow-[0_0_40px_rgba(34,211,238,0.6)]';
+  if (role === 'Support' && isMc) return 'border-[#fe9a00] shadow-[0_0_40px_rgba(254,154,0,0.6)]';
+  if (role === 'Support') return 'border-cyan-400 shadow-[0_0_40px_rgba(34,211,238,0.6)]';
   if (role === 'Villain') return 'border-red-600 shadow-[0_0_40px_rgba(220,38,38,0.6)]';
   return 'border-white shadow-[0_0_40px_rgba(255,255,255,0.4)]';
 };
 
 const getModalBackdropGlow = (role: string, isMc: boolean) => {
-  if (role === 'Hero' && isMc) return 'from-[#fe9a00]/20';
-  if (role === 'Hero') return 'from-cyan-400/20';
+  if (role === 'Support' && isMc) return 'from-[#fe9a00]/20';
+  if (role === 'Support') return 'from-cyan-400/20';
   if (role === 'Villain') return 'from-red-600/20';
   return 'from-white/20';
+};
+
+// --- NEW: MATCH HEADER TEXT TO NEON BORDERS ---
+const getGroupHeaderColor = (groupName: string) => {
+  if (groupName === 'Support') return 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]';
+  if (groupName === 'Villains') return 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]';
+  if (groupName === 'Neutral') return 'text-zinc-400';
+  return 'text-[#fe9a00]'; // Default for Main Characters, Series, or Affiliation sorts
 };
 
 export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick }: any) => {
@@ -41,17 +49,24 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
   const [hypesRemaining, setHypesRemaining] = useState(5); 
 
   const [showMobileDetails, setShowMobileDetails] = useState(false);
-  const [showAltForm, setShowAltForm] = useState(false);
-  const [activeFormIndex, setActiveFormIndex] = useState(0);
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
 
   useEffect(() => {
     const fetchCharacters = async () => {
       setIsLoading(true);
       try {
-        const { data, error } = await supabase.from('series_characters').select('*').order('id', { ascending: true });
+        const { data, error } = await supabase
+          .from('series_characters')
+          .select('*')
+          .or('is_hidden.is.null,is_hidden.eq.false')
+          .order('id', { ascending: true });
         if (error) throw error;
-        setRawCharacters(data || []);
+        // Swap 'Hero' to 'Support' internally as data comes in to make UI mapping easy
+        const updatedRoles = (data || []).map(c => ({
+          ...c,
+          role_type: c.role_type === 'Hero' ? 'Support' : c.role_type
+        }));
+        setRawCharacters(updatedRoles);
       } catch (err) {
         console.error("Failed to fetch characters:", err);
         setRawCharacters([]); 
@@ -99,13 +114,13 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     let currentSortBy = isSort ? viewSelection.replace('Sort:', '') : 'A-Z';
 
     if (currentSortBy === 'Role') {
-      const mcHeroes = result.filter(c => c?.is_mc && c?.role_type === 'Hero');
-      const heroes = result.filter(c => !c?.is_mc && c?.role_type === 'Hero');
+      const mcHeroes = result.filter(c => c?.is_mc && c?.role_type === 'Support');
+      const heroes = result.filter(c => !c?.is_mc && c?.role_type === 'Support');
       const villains = result.filter(c => c?.role_type === 'Villain');
       const neutrals = result.filter(c => c?.role_type === 'Neutral');
       
       if (mcHeroes.length) groups.push({ name: 'Main Characters', items: mcHeroes });
-      if (heroes.length) groups.push({ name: 'Heroes', items: heroes });
+      if (heroes.length) groups.push({ name: 'Support', items: heroes });
       if (villains.length) groups.push({ name: 'Villains', items: villains });
       if (neutrals.length) groups.push({ name: 'Neutral', items: neutrals });
     } else if (currentSortBy === 'Series' || currentSortBy === 'Affiliation') {
@@ -128,7 +143,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     return groups;
   }, [characters, searchQuery, viewSelection]);
 
-  // --- NEW: INITIATE CONFIRMATION ---
   const initiateHype = (char: any) => {
     if (!currentUser) {
       setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype characters!" });
@@ -141,7 +155,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     setShowHypeConfirm(char);
   };
 
-  // --- NEW: EXECUTE INFINITE HYPES ---
   const executeHype = async () => {
     const char = showHypeConfirm;
     setShowHypeConfirm(null);
@@ -180,37 +193,9 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     }
   };
 
-  const validAltForms = useMemo(() => {
-    if (!selectedChar) return [];
-    const forms: any[] = [];
-    if (typeof selectedChar.alt_headshot_url === 'string' && selectedChar.alt_headshot_url.trim().length > 0) {
-      forms.push({ name: selectedChar.alt_form_name || 'Alternate Form', url: selectedChar.alt_headshot_url });
-    }
-    if (Array.isArray(selectedChar.alt_forms)) {
-      selectedChar.alt_forms.forEach((form: any) => {
-        if (form && typeof form.url === 'string' && form.url.trim().length > 0) { forms.push(form); }
-      });
-    } else if (typeof selectedChar.alt_forms === 'string') {
-        try {
-            const parsed = JSON.parse(selectedChar.alt_forms);
-            if (Array.isArray(parsed)) {
-                parsed.forEach((form: any) => {
-                    if (form && typeof form.url === 'string' && form.url.trim().length > 0) { forms.push(form); }
-                });
-            }
-        } catch(e) {}
-    }
-    return forms;
-  }, [selectedChar]);
-
-  const hasAltForms = validAltForms.length > 0;
-  const currentAvatar = activeFormIndex === 0 ? selectedChar?.headshot_url : validAltForms[activeFormIndex - 1]?.url;
-  const currentName = activeFormIndex === 0 ? selectedChar?.name : (validAltForms[activeFormIndex - 1]?.name || selectedChar?.name);
-
   return (
     <div className="min-h-screen bg-transparent text-white relative z-[100] pb-48">
       
-      {/* HYPE CONFIRMATION MODAL */}
       {showHypeConfirm && (
         <div className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setShowHypeConfirm(null)}>
           <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
@@ -286,7 +271,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                   <option value="Sort:Affiliation">Group: Affiliation</option>
                 </optgroup>
                 <optgroup label="Filter by Role">
-                  <option value="RoleFilter:Hero">Role: Hero</option>
+                  <option value="RoleFilter:Support">Role: Support</option>
                   <option value="RoleFilter:Villain">Role: Villain</option>
                   <option value="RoleFilter:Neutral">Role: Neutral</option>
                 </optgroup>
@@ -315,13 +300,15 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
               <div key={gIdx} className="mb-12">
                 {group.name && (
                   <div className="flex items-center gap-4 mb-6">
-                    <h3 className="font-black italic uppercase text-[#fe9a00] text-xl whitespace-nowrap">{group.name}</h3>
+                    <h3 className={`font-black italic uppercase text-xl whitespace-nowrap ${getGroupHeaderColor(group.name)}`}>
+                      {group.name}
+                    </h3>
                     <div className="flex-1 h-px bg-zinc-800"></div>
                   </div>
                 )}
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
                   {group.items.map((char, index) => (
-                    <div key={char?.id || index} onClick={() => { setSelectedChar(char); setShowMobileDetails(false); setShowAltForm(false); }} className="flex flex-col items-center group cursor-pointer animate-fade-in-up">
+                    <div key={char?.id || index} onClick={() => { setSelectedChar(char); setShowMobileDetails(false); }} className="flex flex-col items-center group cursor-pointer animate-fade-in-up">
                       <div className={`relative w-full aspect-square rounded-2xl bg-zinc-900 overflow-hidden mb-2 transition-all duration-300 group-hover:-translate-y-2 flex items-center justify-center border-2 ${getGridGlowClasses(char?.role_type, char?.is_mc)}`}>
                         <User className="w-10 h-10 text-zinc-600 absolute z-0" />
                         
@@ -382,7 +369,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                 <User className="w-16 h-16 text-zinc-600 absolute z-0" />
                 {selectedChar?.headshot_url && (
                   <img 
-                    src={showAltForm && selectedChar.alt_headshot_url ? selectedChar.alt_headshot_url : selectedChar.headshot_url} 
+                    src={selectedChar.headshot_url} 
                     alt={selectedChar?.name} 
                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     className="w-full h-full object-cover relative z-10 bg-zinc-900 animate-fade-in" 
@@ -391,23 +378,12 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
               </div>
               
               <h2 className="text-4xl sm:text-5xl font-black italic uppercase tracking-tighter text-white mb-1 text-center relative z-10 drop-shadow-md transition-all duration-300">
-                {showAltForm && selectedChar?.alt_form_name ? selectedChar.alt_form_name : (selectedChar?.name || 'UNKNOWN')}
+                {selectedChar?.name || 'UNKNOWN'}
               </h2>
               <p className="text-sm sm:text-base font-bold text-zinc-400 uppercase tracking-widest mb-8 text-center relative z-10">
                 {selectedChar?.series_title}
               </p>
-
-              {selectedChar?.alt_headshot_url && (
-                <button 
-                  onClick={() => setShowAltForm(!showAltForm)}
-                  className="w-full max-w-[240px] mb-4 flex items-center justify-center gap-2 py-3 border border-white rounded-xl font-black uppercase tracking-widest text-[10px] text-white hover:bg-white hover:text-black transition-colors relative z-20 bg-zinc-900 shadow-[0_0_15px_rgba(255,255,255,0.7)] animate-pulse"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  {showAltForm ? 'Return to Base Form' : 'Alternate Form'}
-                </button>
-              )}
               
-              {/* --- NEW: INFINITE HYPE BUTTON (NO DISABLED STATE) --- */}
               <button 
                 onClick={() => initiateHype(selectedChar)} 
                 className={`w-full max-w-[240px] flex items-center justify-center gap-2 py-4 rounded-xl font-black uppercase tracking-widest transition-all text-xs relative z-10 shadow-lg ${charHypes[selectedChar?.id] ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00]' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_15px_rgba(254,154,0,0.3)]'}`}
@@ -435,7 +411,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
             <div className={`w-full md:w-3/5 px-6 pt-6 sm:px-10 sm:pt-10 overflow-visible md:overflow-y-auto no-scrollbar bg-black flex-col relative z-10 ${showMobileDetails ? 'flex' : 'hidden md:flex'}`}>
               
               <div className="flex items-center gap-3 mb-8 shrink-0">
-                <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-widest rounded border ${selectedChar?.role_type === 'Hero' ? 'bg-blue-900/30 text-blue-400 border-blue-900' : selectedChar?.role_type === 'Villain' ? 'bg-red-900/30 text-red-400 border-red-900' : 'bg-zinc-800 text-zinc-300 border-zinc-700'}`}>
+                <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-widest rounded border ${selectedChar?.role_type === 'Support' ? 'bg-blue-900/30 text-cyan-400 border-blue-900' : selectedChar?.role_type === 'Villain' ? 'bg-red-900/30 text-red-500 border-red-900' : 'bg-zinc-800 text-zinc-300 border-zinc-700'}`}>
                   {selectedChar?.role_type || 'Unknown'}
                 </span>
                 {selectedChar?.is_mc && (

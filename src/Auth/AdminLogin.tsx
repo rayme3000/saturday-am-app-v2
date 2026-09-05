@@ -1,18 +1,38 @@
 import React, { useState } from 'react';
+import { Flame } from 'lucide-react';
 
 export const AdminLogin = ({ onLogin, onBack }: any) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = (e: any) => {
     e.preventDefault();
     if (username === 'admin' && password === 'saturday') {
-      onLogin();
+      setError('');
+      setIsLoading(true);
+      // Small artificial delay to show the transition animation smoothly
+      setTimeout(() => {
+        onLogin();
+      }, 800);
     } else {
       setError('ACCESS DENIED');
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
+        <div className="relative w-12 h-12 flex justify-center">
+          <Flame className="w-12 h-12 text-zinc-800 absolute bottom-0" strokeWidth={1.5} />
+          <div className="absolute bottom-0 overflow-hidden w-12 flex justify-center animate-flame-fill">
+            <Flame className="w-12 h-12 text-[#fe9a00] fill-[#fe9a00] absolute bottom-0" strokeWidth={1.5} />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black text-zinc-500 p-6 flex flex-col items-center justify-center font-mono">
