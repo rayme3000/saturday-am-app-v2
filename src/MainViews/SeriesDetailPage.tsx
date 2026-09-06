@@ -104,6 +104,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   useEffect(() => {
     if (localSeries?.slug) {
       trackEvent('series_page_visit', { series_slug: localSeries.slug });
+      // Force scroll to top on mount/series change
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
   }, [localSeries?.slug, trackEvent]);
 

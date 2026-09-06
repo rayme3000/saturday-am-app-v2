@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, Activity } from 'lucide-react';
+import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, Activity, RefreshCw } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
@@ -65,16 +65,41 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
   const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [errorToast, setErrorToast] = useState(''); 
+  const [timeLeft, setTimeLeft] = useState('');
   
   const [userProfile, setUserProfile] = useState(memUserProfile || { username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] as (string | null)[] });
   const [tempProfile, setTempProfile] = useState({...userProfile});
-  const [profileStats, setProfileStats] = useState(memProfileStats || { total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---", score: 0 });
+  const [profileStats, setProfileStats] = useState(memProfileStats || { total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---", score: 0, hypes_remaining: 0 });
   
   const [unlockedHunts, setUnlockedHunts] = useState(0);
   const [totalHunts, setTotalHunts] = useState(11);
 
   useEffect(() => {
     window.scrollTo(0, 0);
+  }, []);
+
+  // --- Countdown Timer to Next Saturday ---
+  useEffect(() => {
+    const calculateTimeUntilSaturday = () => {
+      const now = new Date();
+      const nextSaturday = new Date();
+      const daysUntilSaturday = (6 - now.getDay() + 7) % 7;
+      const daysToAdd = daysUntilSaturday === 0 ? 7 : daysUntilSaturday;
+      
+      nextSaturday.setDate(now.getDate() + daysToAdd);
+      nextSaturday.setHours(0, 0, 0, 0);
+
+      const diff = nextSaturday.getTime() - now.getTime();
+      const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+      const m = Math.floor((diff / 1000 / 60) % 60);
+
+      return d > 0 ? `${d}d ${h}h` : `${h}h ${m}m`;
+    };
+
+    setTimeLeft(calculateTimeUntilSaturday());
+    const timer = setInterval(() => setTimeLeft(calculateTimeUntilSaturday()), 60000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -86,7 +111,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
     const fetchUserStats = async () => {
       if (memProfileStats && memUserProfile) {
         setIsLoggedIn(true);
-        return;
       }
 
       const { data: { user } } = await supabase.auth.getUser();
@@ -106,7 +130,27 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         }
 
         if (data) {
-          const newStats = { total_hypes: data.total_hypes || 0, super_hypes: data.super_hypes || 0, quick_reacts: data.quick_reacts || 0, chapters_read: data.chapters_read || 0, rank: myRank as string, score: myScore };
+          // Calculate actual hypes if a fresh refill period has passed
+          let actualHypes = data.hypes_remaining || 0;
+          const now = new Date();
+          const lastSaturday = new Date(now);
+          lastSaturday.setDate(now.getDate() - ((now.getDay() + 1) % 7));
+          lastSaturday.setHours(0, 0, 0, 0);
+          const lastRefill = new Date(data.last_hype_refill || 0);
+
+          if (lastRefill < lastSaturday) {
+            actualHypes = data.is_premium ? 7 : 1;
+          }
+
+          const newStats = { 
+            total_hypes: data.total_hypes || 0, 
+            super_hypes: data.super_hypes || 0, 
+            quick_reacts: data.quick_reacts || 0, 
+            chapters_read: data.chapters_read || 0, 
+            rank: myRank as string, 
+            score: myScore,
+            hypes_remaining: actualHypes 
+          };
           setProfileStats(newStats);
           memProfileStats = newStats; 
           
@@ -230,17 +274,33 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
       {showSuccessToast && <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-[#fe9a00] text-black px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] animate-fade-in"><Check className="w-5 h-5" /> Loadout Saved!</div>}
       {errorToast && <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-red-600 text-white px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-fade-in"><X className="w-5 h-5" /> {errorToast}</div>}
 
-      <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-xl px-4 pt-6 pb-4 border-b border-zinc-800">
-        <button 
-          onClick={onBack} 
-          className="mb-4 flex items-center gap-2 text-zinc-400 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          <span className="text-[10px] font-black uppercase tracking-widest">Back</span>
-        </button>
-        <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white pr-16">
-          Profile
-        </h1>
+      {/* --- REFACTORED HEADER LAYOUT TO AVOID HAMBURGER MENU --- */}
+      <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-xl pl-6 pr-20 sm:pr-24 pt-6 pb-4 border-b border-zinc-800 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 sm:gap-0">
+        <div>
+          <button 
+            onClick={onBack} 
+            className="mb-4 flex items-center gap-2 text-zinc-400 hover:text-white transition-colors w-max"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            <span className="text-[10px] font-black uppercase tracking-widest">Back</span>
+          </button>
+          <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter text-white">
+            Profile
+          </h1>
+        </div>
+
+        {isLoggedIn && (
+          <div className="flex flex-row sm:flex-col items-center sm:items-end gap-3 sm:gap-1.5 pt-0 sm:pt-2">
+            <div className="flex items-center gap-2 bg-zinc-950 border border-[#fe9a00]/50 px-3 py-1.5 rounded-full shadow-[0_0_15px_rgba(254,154,0,0.2)] cursor-default">
+              <Flame className="w-4 h-4 text-[#fe9a00] animate-pulse drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]" />
+              <span className="text-white font-black text-sm leading-none pt-0.5">{profileStats.hypes_remaining}</span>
+              <span className="text-zinc-400 font-bold text-[9px] uppercase tracking-widest leading-none pt-0.5">Left</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[9px] font-bold text-zinc-500 uppercase tracking-widest bg-black/40 px-2 py-1 rounded backdrop-blur-sm border border-zinc-800/50">
+              <RefreshCw className="w-3 h-3 text-[#fe9a00]" /> Refills in {timeLeft}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={`max-w-4xl mx-auto relative pt-6 sm:pt-8`}>
@@ -370,7 +430,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         </div>
       )}
 
-      {/* PUSHED EDIT MODAL UP USING PADDING SO IT CLEARS NAV PILL */}
       {isEditing && (
         <div className="fixed inset-0 z-[300] bg-black/95 flex flex-col items-center justify-center p-4 sm:p-6 pb-[120px] sm:pb-[140px] backdrop-blur-md">
           <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col max-h-[calc(100dvh-120px)] sm:max-h-[calc(100dvh-140px)] overflow-hidden shadow-2xl">

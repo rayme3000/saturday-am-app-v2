@@ -65,18 +65,17 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   useEffect(() => {
     if (!isOpen) { 
       setIsFlipped(false);
-      // Release orientation lock when modal closes
       if (screen.orientation && screen.orientation.unlock) {
         try { screen.orientation.unlock(); } catch (e) { /* ignore */ }
       }
       return; 
     }
     
-    // Attempt to force landscape mode on mobile devices
+    // Attempt native hardware orientation lock
     if (screen.orientation && screen.orientation.lock) {
       try {
         screen.orientation.lock('landscape').catch(() => {
-           console.log("Orientation lock not supported or denied by user/browser.");
+           console.log("Orientation lock not supported by browser.");
         });
       } catch (e) { console.error(e); }
     }
@@ -129,15 +128,18 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const currentSkin = appliedSkin || defaultSkin;
 
   return (
-    // The CSS landscape fallback ensures it rotates visually even if the OS blocks the API call
-    <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 md:p-12 animate-fade-in portrait:flex-row portrait:rotate-90 portrait:w-[100dvh] portrait:h-[100vw] portrait:origin-top-left portrait:translate-x-[100vw]" onClick={onClose}>
+    <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden" onClick={onClose}>
       
-      {/* We must adjust the close button for the CSS rotation fallback */}
-      <button onClick={onClose} className="absolute top-6 right-6 portrait:bottom-6 portrait:right-auto portrait:left-6 p-3 bg-zinc-900 border border-zinc-700 rounded-full text-white hover:text-[#fe9a00] hover:bg-black transition-colors z-[5010] shadow-2xl portrait:-rotate-90">
+      {/* Sleek Close Button anchored to physical top-right */}
+      <button onClick={onClose} className="absolute top-4 right-4 md:top-6 md:right-6 p-2 bg-zinc-900/60 backdrop-blur-md border border-white/10 rounded-full text-white/70 hover:text-white hover:bg-black transition-colors z-[5010] shadow-xl">
         <X className="w-6 h-6" />
       </button>
 
-      <div className="relative w-full max-w-5xl aspect-[1.58] portrait:w-[80dvh]" style={{ perspective: '2000px', WebkitPerspective: '2000px' }}>
+      {/* Card Wrapper: Rotates gracefully on mobile portrait without altering the screen layout */}
+      <div 
+        className="relative w-full max-w-5xl aspect-[1.58] portrait:w-auto portrait:h-[calc(100vw-48px)] portrait:max-w-[calc(100dvh-120px)] portrait:rotate-90 flex-shrink-0" 
+        style={{ perspective: '2000px', WebkitPerspective: '2000px' }}
+      >
         {isLoading ? (
           <div className="absolute inset-0 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center animate-pulse shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
              <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
@@ -154,6 +156,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
             }}
             onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}
           >
+            {/* FRONT OF CARD */}
             <div 
               className="absolute inset-0 w-full h-full rounded-2xl bg-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden" 
               style={{ 
@@ -184,6 +187,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
               </div>
             </div>
 
+            {/* BACK OF CARD */}
             <div 
               className="absolute inset-0 w-full h-full rounded-2xl bg-zinc-900 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden" 
               style={{ 
@@ -196,28 +200,28 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
               <div className="w-full h-full relative flex flex-col justify-between" style={{ containerType: 'inline-size', padding: '5cqi' }}>
                 <div className="absolute inset-0 pointer-events-none z-0" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }} />
                 <div className="relative z-10 flex flex-col h-full justify-between">
+                  
+                  {/* HEADER */}
                   <div className="flex justify-between items-start border-b border-zinc-800 w-full min-w-0" style={{ paddingBottom: '3.5cqi', paddingRight: '2cqi' }}>
                     <div className="flex items-center min-w-0 flex-1" style={{ gap: '3cqi' }}>
-                      
                       <div className="relative flex items-center justify-center flex-shrink-0" style={{ width: '14cqi', height: '14cqi' }}>
                         <div className="rounded-full overflow-hidden bg-black z-10 flex items-center justify-center transition-all" style={{ width: '12cqi', height: '12cqi', border: frame ? `0.4cqi solid ${borderColor}` : 'none', boxShadow: glowColor !== 'transparent' ? `0 0 2cqi ${glowColor}` : 'none' }}>
                           {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="text-zinc-600" style={{ width: '6cqi', height: '6cqi' }} />}
                         </div>
                         <RenderCardAnimations anim={animStyle} color={borderColor} />
                       </div>
-
                       <div className="flex flex-col min-w-0 flex-1" style={{ paddingTop: '1cqi' }}>
                         <p className="font-black italic uppercase tracking-wider text-white truncate drop-shadow-md leading-none w-full" style={{ fontSize: '5.5cqi', marginBottom: '1.5cqi' }}>{userProfile.username}</p>
                         <p className="text-[#fe9a00] font-black uppercase tracking-widest truncate leading-tight w-full" style={{ fontSize: '1.4cqi' }}><span>MEMBER SINCE OCT 2023 | STORE DISCOUNT CODE: AMCLUB26</span></p>
                       </div>
                     </div>
-
                     <div className="flex flex-col items-end text-right justify-center flex-shrink-0 ml-2" style={{ paddingTop: '1cqi' }}>
                       <span className="text-[#fe9a00] font-black uppercase tracking-widest flex items-center" style={{ fontSize: '1.6cqi', gap: '0.8cqi' }}><Trophy style={{ width: '2cqi', height: '2cqi' }} /> Fan Rank</span>
                       <span className="font-black italic text-white drop-shadow-[0_0_10px_rgba(254,154,0,0.5)] leading-none" style={{ fontSize: '6cqi', marginTop: '1.5cqi' }}>#{profileStats.rank}</span>
                     </div>
                   </div>
 
+                  {/* STATS */}
                   <div className="flex justify-around items-center bg-black/40 border border-zinc-800/50 shadow-inner" style={{ padding: '3.5cqi 0', borderRadius: '2cqi', margin: 'auto 0' }}>
                     <div className="text-center flex-1 border-r border-zinc-800/50">
                       <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.5cqi', marginBottom: '1.5cqi' }}>Hypes</p>
@@ -237,6 +241,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                     </div>
                   </div>
 
+                  {/* TOP 5 */}
                   <div className="flex flex-col justify-center w-full">
                     <p className="text-zinc-500 uppercase tracking-widest font-bold flex items-center" style={{ fontSize: '1.8cqi', gap: '1cqi', marginBottom: '2.5cqi' }}><Star className="text-[#fe9a00]" style={{ width: '2.5cqi', height: '2.5cqi' }} /> Top 5 Stickers</p>
                     <div className="flex w-full justify-between items-start" style={{ padding: '0 4cqi' }}>
@@ -253,7 +258,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                               <img src={stickerImage} className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
                               <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
                             </div>
-                            <span className="font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all portrait:-rotate-90" style={{ fontSize: '1.3cqi', marginTop: '1.5cqi' }}>{series.title}</span>
+                            <span className="font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all" style={{ fontSize: '1.3cqi', marginTop: '1.5cqi' }}>{series.title}</span>
                           </div>
                         );
                       })}
@@ -266,8 +271,9 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
         )}
       </div>
       
-      <p className="text-zinc-500 font-bold uppercase tracking-widest mt-8 md:mt-12 animate-pulse flex items-center gap-2 pointer-events-none text-[10px] md:text-sm portrait:absolute portrait:right-[-60px] portrait:top-1/2 portrait:-rotate-90">
-        <RotateCcw className="w-4 h-4 md:w-5 md:h-5 portrait:-rotate-90" /> Tap anywhere on card to flip
+      {/* Footer Text Anchored to bottom of physical screen */}
+      <p className="absolute bottom-8 md:bottom-12 text-zinc-500 font-bold uppercase tracking-widest animate-pulse flex items-center gap-2 pointer-events-none text-xs">
+        <RotateCcw className="w-4 h-4" /> Tap anywhere on card to flip
       </p>
     </div>
   );

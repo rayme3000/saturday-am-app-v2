@@ -24,12 +24,11 @@ const getModalBackdropGlow = (role: string, isMc: boolean) => {
   return 'from-white/20';
 };
 
-// --- NEW: MATCH HEADER TEXT TO NEON BORDERS ---
 const getGroupHeaderColor = (groupName: string) => {
   if (groupName === 'Support') return 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]';
   if (groupName === 'Villains') return 'text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]';
   if (groupName === 'Neutral') return 'text-zinc-400';
-  return 'text-[#fe9a00]'; // Default for Main Characters, Series, or Affiliation sorts
+  return 'text-[#fe9a00]'; 
 };
 
 export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick }: any) => {
@@ -37,13 +36,10 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
   
   const [rawCharacters, setRawCharacters] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
   const [searchQuery, setSearchQuery] = useState('');
   const [viewSelection, setViewSelection] = useState('Sort:Role'); 
-  
   const [selectedChar, setSelectedChar] = useState<any>(null);
   
-  // HYPE STATE
   const [charHypes, setCharHypes] = useState<Record<string, boolean>>({});
   const [showHypeConfirm, setShowHypeConfirm] = useState<any>(null);
   const [hypesRemaining, setHypesRemaining] = useState(5); 
@@ -55,17 +51,9 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     const fetchCharacters = async () => {
       setIsLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('series_characters')
-          .select('*')
-          .or('is_hidden.is.null,is_hidden.eq.false')
-          .order('id', { ascending: true });
+        const { data, error } = await supabase.from('series_characters').select('*').or('is_hidden.is.null,is_hidden.eq.false').order('id', { ascending: true });
         if (error) throw error;
-        // Swap 'Hero' to 'Support' internally as data comes in to make UI mapping easy
-        const updatedRoles = (data || []).map(c => ({
-          ...c,
-          role_type: c.role_type === 'Hero' ? 'Support' : c.role_type
-        }));
+        const updatedRoles = (data || []).map(c => ({ ...c, role_type: c.role_type === 'Hero' ? 'Support' : c.role_type }));
         setRawCharacters(updatedRoles);
       } catch (err) {
         console.error("Failed to fetch characters:", err);
@@ -80,7 +68,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
   const characters = useMemo(() => {
     if (!Array.isArray(rawCharacters)) return [];
     const safeSeriesList = Array.isArray(seriesList) ? seriesList : [];
-    
     return rawCharacters.map(c => {
       const s = safeSeriesList.find((series: any) => series?.slug === c?.series_slug);
       return { ...c, series_title: s?.title || 'Unknown Series' };
@@ -126,9 +113,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     } else if (currentSortBy === 'Series' || currentSortBy === 'Affiliation') {
       const key = currentSortBy === 'Series' ? 'series_title' : 'element';
       const uniqueKeys = Array.from(new Set(result.map(c => c[key]).filter(Boolean))).sort();
-      uniqueKeys.forEach(k => {
-        groups.push({ name: k as string, items: result.filter(c => c[key] === k) });
-      });
+      uniqueKeys.forEach(k => { groups.push({ name: k as string, items: result.filter(c => c[key] === k) }); });
       const unassigned = result.filter(c => !c[key]);
       if (unassigned.length) groups.push({ name: 'Unassigned', items: unassigned });
     } else {
@@ -164,33 +149,19 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     setHypesRemaining(prev => Math.max(0, prev - 1));
 
     try {
-      await supabase.from('hypes').insert([{ 
-        user_id: currentUser.id, 
-        target_type: 'character', 
-        target_id: String(char.id) 
-      }]);
-
+      await supabase.from('hypes').insert([{ user_id: currentUser.id, target_type: 'character', target_id: String(char.id) }]);
       const { data: profile } = await supabase.from('profiles').select('total_hypes, fandom_score').eq('id', currentUser.id).maybeSingle();
       if (profile) {
-        await supabase.from('profiles').update({ 
-          total_hypes: (profile.total_hypes || 0) + 1,
-          fandom_score: (profile.fandom_score || 0) + 5
-        }).eq('id', currentUser.id);
+        await supabase.from('profiles').update({ total_hypes: (profile.total_hypes || 0) + 1, fandom_score: (profile.fandom_score || 0) + 5 }).eq('id', currentUser.id);
         window.dispatchEvent(new Event('profileUpdated'));
       }
-
       if (char.series_slug) {
         const { data: seriesData } = await supabase.from('series').select('weekly_hype, total_hype').eq('slug', char.series_slug).maybeSingle();
         if (seriesData) {
-          await supabase.from('series').update({
-            weekly_hype: (seriesData.weekly_hype || 0) + 5,
-            total_hype: (seriesData.total_hype || 0) + 5
-          }).eq('slug', char.series_slug);
+          await supabase.from('series').update({ weekly_hype: (seriesData.weekly_hype || 0) + 5, total_hype: (seriesData.total_hype || 0) + 5 }).eq('slug', char.series_slug);
         }
       }
-    } catch(e) {
-      console.error("Error updating leaderboard scores for character hype:", e);
-    }
+    } catch(e) { console.error("Error updating leaderboard scores for character hype:", e); }
   };
 
   return (
@@ -252,10 +223,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
           </button>
           
           <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
-            <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter text-white drop-shadow-md">
-              Characters
-            </h1>
-            
+            <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter text-white drop-shadow-md">Characters</h1>
             <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
               <div className="relative flex-1 lg:flex-initial">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -277,9 +245,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                 </optgroup>
                 {uniqueAffiliations.length > 0 && (
                   <optgroup label="Filter by Affiliation">
-                    {uniqueAffiliations.map((el: any) => (
-                      <option key={el} value={`AffilFilter:${el}`}>Affiliation: {el}</option>
-                    ))}
+                    {uniqueAffiliations.map((el: any) => <option key={el} value={`AffilFilter:${el}`}>Affiliation: {el}</option>)}
                   </optgroup>
                 )}
               </select>
@@ -300,9 +266,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
               <div key={gIdx} className="mb-12">
                 {group.name && (
                   <div className="flex items-center gap-4 mb-6">
-                    <h3 className={`font-black italic uppercase text-xl whitespace-nowrap ${getGroupHeaderColor(group.name)}`}>
-                      {group.name}
-                    </h3>
+                    <h3 className={`font-black italic uppercase text-xl whitespace-nowrap ${getGroupHeaderColor(group.name)}`}>{group.name}</h3>
                     <div className="flex-1 h-px bg-zinc-800"></div>
                   </div>
                 )}
@@ -311,18 +275,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                     <div key={char?.id || index} onClick={() => { setSelectedChar(char); setShowMobileDetails(false); }} className="flex flex-col items-center group cursor-pointer animate-fade-in-up">
                       <div className={`relative w-full aspect-square rounded-2xl bg-zinc-900 overflow-hidden mb-2 transition-all duration-300 group-hover:-translate-y-2 flex items-center justify-center border-2 ${getGridGlowClasses(char?.role_type, char?.is_mc)}`}>
                         <User className="w-10 h-10 text-zinc-600 absolute z-0" />
-                        
-                        {char?.headshot_url && (
-                          <img 
-                            src={char.headshot_url} 
-                            alt={char?.name} 
-                            loading="lazy"
-                            decoding="async"
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }} 
-                            className="w-full h-full object-cover relative z-10 bg-zinc-900" 
-                          />
-                        )}
-
+                        {char?.headshot_url && <img src={char.headshot_url} alt={char?.name} loading="lazy" decoding="async" onError={(e) => { e.currentTarget.style.display = 'none'; }} className="w-full h-full object-cover relative z-10 bg-zinc-900" />}
                         {char?.is_mc && <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-20 uppercase">MC</div>}
                         <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-20 pointer-events-none" />
                         {char?.element && char.element !== 'None' && <span className="absolute bottom-1.5 right-1.5 text-[8px] font-black uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded backdrop-blur-sm border border-white/10 z-30">{char.element}</span>}
@@ -342,10 +295,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
             )}
 
             <div className="mt-16 pt-8 border-t border-zinc-800/50">
-              <button 
-                onClick={onBack}
-                className="w-full max-w-sm mx-auto py-4 bg-zinc-900 border border-zinc-800 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 shadow-lg"
-              >
+              <button onClick={onBack} className="w-full max-w-sm mx-auto py-4 bg-zinc-900 border border-zinc-800 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 shadow-lg">
                 <ArrowLeft className="w-4 h-4" /> Return to App
               </button>
             </div>
@@ -410,32 +360,34 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
 
             <div className={`w-full md:w-3/5 px-6 pt-6 sm:px-10 sm:pt-10 overflow-visible md:overflow-y-auto no-scrollbar bg-black flex-col relative z-10 ${showMobileDetails ? 'flex' : 'hidden md:flex'}`}>
               
+              {/* --- ROLE / MC BADGE (Mutually Exclusive Logic) --- */}
               <div className="flex items-center gap-3 mb-8 shrink-0">
-                <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-widest rounded border ${selectedChar?.role_type === 'Support' ? 'bg-blue-900/30 text-cyan-400 border-blue-900' : selectedChar?.role_type === 'Villain' ? 'bg-red-900/30 text-red-500 border-red-900' : 'bg-zinc-800 text-zinc-300 border-zinc-700'}`}>
-                  {selectedChar?.role_type || 'Unknown'}
-                </span>
-                {selectedChar?.is_mc && (
+                {selectedChar?.is_mc ? (
                   <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-widest rounded bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/50">
                     Main Character
+                  </span>
+                ) : (
+                  <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-widest rounded border ${selectedChar?.role_type === 'Support' ? 'bg-blue-900/30 text-cyan-400 border-blue-900' : selectedChar?.role_type === 'Villain' ? 'bg-red-900/30 text-red-500 border-red-900' : 'bg-zinc-800 text-zinc-300 border-zinc-700'}`}>
+                    {selectedChar?.role_type || 'Unknown'}
                   </span>
                 )}
               </div>
 
               <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-8 shrink-0">
-                <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-2xl flex flex-col items-center text-center shadow-inner">
-                  <Shield className="w-5 h-5 text-zinc-500 mb-2" />
-                  <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Affiliation</span>
-                  <span className="text-xs sm:text-sm font-black text-white">{selectedChar?.element || 'N/A'}</span>
+                <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-2xl flex flex-col items-center justify-start text-center shadow-inner h-full">
+                  <Shield className="w-5 h-5 text-zinc-500 mb-2 shrink-0" />
+                  <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mb-1 shrink-0">Affiliation</span>
+                  <span className="text-xs sm:text-sm font-black text-white break-words w-full leading-tight">{selectedChar?.element || 'N/A'}</span>
                 </div>
-                <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-2xl flex flex-col items-center text-center shadow-inner">
-                  <Swords className="w-5 h-5 text-zinc-500 mb-2" />
-                  <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Power Type</span>
-                  <span className="text-xs sm:text-sm font-black text-white">{selectedChar?.weapon || 'None'}</span>
+                <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-2xl flex flex-col items-center justify-start text-center shadow-inner h-full">
+                  <Swords className="w-5 h-5 text-zinc-500 mb-2 shrink-0" />
+                  <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mb-1 shrink-0">Power Type</span>
+                  <span className="text-xs sm:text-sm font-black text-white break-words w-full leading-tight">{selectedChar?.weapon || 'None'}</span>
                 </div>
-                <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-2xl flex flex-col items-center text-center shadow-inner">
-                  <Activity className="w-5 h-5 text-zinc-500 mb-2" />
-                  <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Age</span>
-                  <span className="text-xs sm:text-sm font-black text-white">{selectedChar?.age || 'Unknown'}</span>
+                <div className="bg-zinc-900/50 border border-zinc-800 p-4 rounded-2xl flex flex-col items-center justify-start text-center shadow-inner h-full">
+                  <Activity className="w-5 h-5 text-zinc-500 mb-2 shrink-0" />
+                  <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mb-1 shrink-0">Age</span>
+                  <span className="text-xs sm:text-sm font-black text-white break-words w-full leading-tight">{selectedChar?.age || 'Unknown'}</span>
                 </div>
               </div>
 
@@ -484,7 +436,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                 Read Series
               </button>
 
-              <div className="w-full min-h-[150px] shrink-0"></div>
+              <div className="w-full min-h-[250px] shrink-0"></div>
 
             </div>
           </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { AnalyticsDashboard } from './AnalyticsDashboard';
 import { HomeEditor } from './HomeEditor';
 import { SeriesEditor } from './SeriesEditor';
@@ -186,11 +186,9 @@ const MasterSignatureManager = ({ Dropzone }: any) => {
   }, [seriesList]);
 
   const fetchSignaturesAndPins = async () => {
-    // 1. Fetch Signatures
     const { data: sigs } = await supabase.from('creator_signatures').select('*').order('creator_name', { ascending: true });
     if (sigs) setSignatures(sigs);
 
-    // 2. Fetch Active Bingo Codes
     const { data: codes } = await supabase.from('bingo_codes').select('code, creator_name, expires_at');
     if (codes) {
       const pinMap: Record<string, string> = {};
@@ -206,7 +204,6 @@ const MasterSignatureManager = ({ Dropzone }: any) => {
 
   useEffect(() => { fetchSignaturesAndPins(); }, []);
 
-  // --- AUTOMATICALLY LOAD EXISTING SIGNATURE ON SELECTION ---
   const handleCreatorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedName = e.target.value;
     setCreatorName(selectedName);
@@ -538,6 +535,12 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedWarning(isDirty);
 
+  const handleMarkDirty = useCallback(() => {
+    if (!isDirty) {
+      setTimeout(() => setIsDirty(true), 10);
+    }
+  }, [isDirty]);
+
   const handleTabChange = (tabId: string) => {
     if (isDirty && !window.confirm("You have unsaved changes! Are you sure you want to leave this tab? Your progress will be lost.")) return;
     setIsDirty(false); setActiveTab(tabId);
@@ -580,7 +583,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           ))}
         </div>
 
-        <div className="mt-6" onInput={() => setIsDirty(true)} onChangeCapture={() => setIsDirty(true)}>
+        <div className="mt-6" onInput={handleMarkDirty} onChange={handleMarkDirty}>
           {activeTab === 'analytics' && <AnalyticsDashboard />}
           {activeTab === 'home' && <HomeEditor Dropzone={Dropzone} setIsDirty={setIsDirty} />}
           {activeTab === 'series' && <SeriesEditor Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
