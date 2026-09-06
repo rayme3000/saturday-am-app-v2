@@ -104,12 +104,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   useEffect(() => {
     if (localSeries?.slug) {
       trackEvent('series_page_visit', { series_slug: localSeries.slug });
-      // Force scroll to top on mount/series change
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
   }, [localSeries?.slug, trackEvent]);
 
-  // --- LIVE SYNC SIGNATURES ON LOAD ---
   useEffect(() => {
     if (userTier === 'premium') {
       const syncSignatures = async () => {
@@ -667,20 +665,16 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
           {/* --- COLLECTED BINGO BOOK SIGNATURES DISPLAY --- */}
           {userTier === 'premium' && Object.keys(collectedSignatures).length > 0 && (
-            <div className="flex flex-wrap justify-center gap-4 mt-6 w-full max-w-lg">
+            <div className="flex flex-wrap justify-center gap-6 mt-8 w-full max-w-2xl">
               <style>{`
-                @keyframes gold-pulse-glow {
-                  0%, 100% { 
-                    filter: drop-shadow(0 0 10px rgba(254,154,0,0.8)) drop-shadow(0 0 20px rgba(254,154,0,0.4)); 
-                    transform: scale(1);
-                  }
-                  50% { 
-                    filter: drop-shadow(0 0 15px rgba(254,154,0,1)) drop-shadow(0 0 35px rgba(254,154,0,0.8)) drop-shadow(0 0 50px rgba(254,154,0,0.5)); 
-                    transform: scale(1.03);
-                  }
+                @keyframes gold-foil-shine {
+                  0% { background-position: 0% 50%; filter: drop-shadow(0 0 15px rgba(254,154,0,0.6)); transform: scale(1); }
+                  50% { background-position: 100% 50%; filter: drop-shadow(0 0 30px rgba(254,154,0,1)) drop-shadow(0 0 50px rgba(254,154,0,0.4)); transform: scale(1.05); }
+                  100% { background-position: 0% 50%; filter: drop-shadow(0 0 15px rgba(254,154,0,0.6)); transform: scale(1); }
                 }
-                .animate-gold-pulse {
-                  animation: gold-pulse-glow 2.5s ease-in-out infinite;
+                .animate-gold-foil {
+                  background-size: 200% 200%;
+                  animation: gold-foil-shine 3s ease-in-out infinite;
                 }
               `}</style>
               {Object.entries(collectedSignatures)
@@ -692,10 +686,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   });
                 })
                 .map(([sigName, sigUrl], i) => (
-                  <div key={`sig-${i}`} className="flex flex-col items-center w-[45%] sm:w-[40%] animate-fade-in-up">
-                    <div className="w-full aspect-[3/1] flex items-center justify-center p-2">
+                  <div key={`sig-${i}`} className="flex flex-col items-center w-full max-w-[260px] sm:max-w-[340px] animate-fade-in-up">
+                    <div className="w-full aspect-[2/1] flex items-center justify-center p-2 relative group cursor-pointer">
                       <div 
-                        className="w-full h-full bg-[#fe9a00] animate-gold-pulse"
+                        className="w-full h-full bg-gradient-to-tr from-yellow-300 via-[#fe9a00] to-yellow-600 animate-gold-foil"
                         style={{
                           WebkitMaskImage: `url(${sigUrl})`,
                           WebkitMaskSize: 'contain',
@@ -709,7 +703,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                         title={`${sigName} Signature`}
                       />
                     </div>
-                    <span className="text-[#fe9a00] text-[9px] sm:text-[10px] font-bold mt-1 text-center drop-shadow-[0_0_5px_rgba(254,154,0,0.5)]">{sigName}</span>
                   </div>
                 ))}
             </div>
@@ -879,7 +872,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
                     <div className="flex items-center gap-1 sm:gap-2">
                       
-                      {/* --- THE FLAME HYPE ICON --- */}
                       <div onClick={(e) => e.stopPropagation()}>
                          <HypeButton 
                            targetType="chapter" 
@@ -893,7 +885,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                          />
                       </div>
 
-                      {/* --- STANDARD HEART (LIKE) ICON --- */}
                       <button 
                         onClick={(e) => handleToggleLike(e, ch.id)}
                         className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-red-500 hover:bg-zinc-800 transition-all"

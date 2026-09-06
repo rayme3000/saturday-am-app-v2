@@ -47,7 +47,6 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
       .select('*')
       .eq('series_slug', seriesSlug)
       .is('parent_id', null)
-      .eq('is_hidden', false) // Only fetch approved comments
       .order('created_at', { ascending: false })
       .range(from, to);
 
@@ -96,7 +95,7 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
 
   useEffect(() => {
     if (toastConfig) {
-      const timer = setTimeout(() => setToastConfig(null), 3000);
+      const timer = setTimeout(() => setToastConfig(null), 4000);
       return () => clearTimeout(timer);
     }
   }, [toastConfig]);
@@ -112,7 +111,7 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
       setExpandedReplies(prev => ({...prev, [parentId]: false}));
       return;
     }
-    const { data } = await supabase.from('series_comments').select('*').eq('parent_id', parentId).eq('is_hidden', false).order('created_at', { ascending: true });
+    const { data } = await supabase.from('series_comments').select('*').eq('parent_id', parentId).order('created_at', { ascending: true });
     if (data) {
       const userIds = [...new Set(data.map((c: any) => c.user_id))].filter(Boolean);
       let profileMap: any = {};
@@ -126,54 +125,52 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
   };
 
   const handleCommentSubmit = async (parentId: string | null = null) => {
+    if (!commentText.trim() || commentText.length > MAX_CHARS) return;
     setIsSubmitting(true);
     
-    // Safety check: Hard verify the session directly before attempting the insert
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !session || !session.user || !currentUser) {
+    // Live user & token validation
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
       setIsSubmitting(false);
-      onRequireAuth(); 
+      onRequireAuth();
       return;
     }
 
-    if (!commentText.trim() || commentText.length > MAX_CHARS) {
+    if (!seriesSlug) {
       setIsSubmitting(false);
+      setToastConfig({ message: 'Error: Series identifier is missing.', type: 'error' });
       return;
     }
-    
+
     const cleaned = cleanText(commentText.trim());
-    
-    // Auto-Moderation Flag: If the filter caught bad words, flag it for review
-    const isToxic = cleaned !== commentText.trim(); 
 
     const newComment = { 
       series_slug: seriesSlug, 
-      user_id: session.user.id, // Guarantee user_id exists
-      user_name: currentUser.name || 'Reader', 
-      avatar_url: currentUser.avatar || '', 
+      user_id: user.id, 
+      user_name: currentUser?.name || user.user_metadata?.username || 'Reader', 
+      avatar_url: currentUser?.avatar || '', 
       text: cleaned, 
-      parent_id: parentId,
-      is_hidden: isToxic // Holds it invisibly for admin review
+      parent_id: parentId
     };
     
     const { data, error } = await supabase.from('series_comments').insert([newComment]).select().single();
+    
     if (!error && data) { 
-      if (isToxic) {
-        setToastConfig({ message: 'Comment flagged for admin review.', type: 'pending' });
+      const newCommentWithFrame = { ...data, frame_id: currentUser?.frameId || 'none' };
+      if (parentId) {
+         setReplies(prev => ({...prev, [parentId]: [...(prev[parentId] || []), newCommentWithFrame]}));
+         setExpandedReplies(prev => ({...prev, [parentId]: true}));
+         setReplyingTo(null);
       } else {
-        const newCommentWithFrame = { ...data, frame_id: currentUser.frameId };
-        if (parentId) {
-           setReplies(prev => ({...prev, [parentId]: [...(prev[parentId] || []), newCommentWithFrame]}));
-           setExpandedReplies(prev => ({...prev, [parentId]: true}));
-           setReplyingTo(null);
-        } else {
-           setComments([newCommentWithFrame, ...comments]); 
-        }
+         setComments(prev => [newCommentWithFrame, ...prev]); 
       }
       setCommentText(''); 
     } else {
-      console.error(error);
-      setToastConfig({ message: 'Failed to post comment. Ensure you are signed in.', type: 'error' });
+      console.error("Supabase insert error:", error);
+      setToastConfig({ 
+        message: error ? `Error: ${error.message}` : 'Failed to post comment.', 
+        type: 'error' 
+      });
     }
     setIsSubmitting(false);
   };
