@@ -2,9 +2,32 @@ import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Target, Lock, X, Sparkles, KeyRound } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
+import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
+
+const bingoTutorialSlide = [
+  {
+    id: 'bingo-1',
+    title: 'The Bingo Book',
+    description: 'Hunt down Saturday AM creators at live conventions or virtual events to collect their exclusive digital signatures.',
+    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/S1%20bingo%20book%20page.png'
+  },
+  {
+    id: 'bingo-2',
+    title: 'Unlock Autographs',
+    description: 'Unlock an autograph using a creator\'s secret 5-digit PIN. Each collected signature earns you a massive boost to your Fandom Score!',
+    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/S2%20autographs.png'
+  },
+  {
+    id: 'bingo-3',
+    title: 'Premium Display',
+    description: 'Once unlocked, the creator\'s premium signature will be permanently displayed in glowing gold foil on all of their series pages.',
+    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/S3%20seriespage.png'
+  }
+];
 
 const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
+  const [forceTutorial, setForceTutorial] = useState(false);
 
   const CREATOR_TARGETS = useMemo(() => {
     const uniqueCreatorsMap = new Map();
@@ -227,6 +250,13 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
 
   return (
     <div className="min-h-screen bg-transparent text-white pb-24 animate-fade-in relative">
+      <FeatureTutorialModal 
+        tutorialId="bingo_book_page" 
+        slides={bingoTutorialSlide} 
+        forceOpen={forceTutorial}
+        onClose={() => setForceTutorial(false)}
+      />
+
       <div className="fixed inset-0 z-[-1] bg-black">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
@@ -239,7 +269,12 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
           <button onClick={onBack} className="p-3 bg-zinc-900 hover:bg-zinc-800 rounded-full transition-colors shadow-lg"><ArrowLeft className="w-5 h-5 text-white" /></button>
           <div className="flex items-center gap-3">
             <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" alt="Saturday AM" className="h-8 md:h-10 object-contain drop-shadow-md" />
-            <h1 className="text-xl md:text-2xl font-black uppercase italic tracking-widest text-white">Bingo <span className="text-red-600">Book</span></h1>
+            <h1 className="text-xl md:text-2xl font-black uppercase italic tracking-widest text-white flex items-center gap-2">
+              Bingo <span className="text-red-600">Book</span>
+            </h1>
+            <div className="ml-1 md:ml-3">
+              <TutorialHelpButton onClick={() => setForceTutorial(true)} />
+            </div>
           </div>
         </div>
       </div>
@@ -313,9 +348,9 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
                   </div>
                   <form onSubmit={handlePinSubmit} className="flex flex-col gap-3 w-full max-w-xs mt-4">
                     <input 
-                      type="text" 
+                      type="password" 
                       maxLength={5} 
-                      placeholder="ENTER PIN" 
+                      placeholder="•••••" 
                       value={pinInput} 
                       onChange={(e) => setPinInput(e.target.value)} 
                       disabled={isProcessing} 

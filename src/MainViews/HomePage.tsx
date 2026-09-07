@@ -5,11 +5,27 @@ import { SeriesSection } from "./SeriesSection";
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
 import { Menu, X, Bell, CheckCircle, Play, Flame } from 'lucide-react';
 import { useTelemetry } from '../Components/useTelemetry'; 
+import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
 let memHeroSlides: any = null;
 let memHomeSections: any = null;
 let memRecentReads: any = null;
 let memNotifications: any = null;
+
+const homeTutorialSlides = [
+  {
+    id: 'am-console',
+    title: 'The AM Console',
+    description: 'Your personal command center. Navigate the app, track your weekly Hype balance, and access the shop. Tap your avatar in the center to access your profile, and customize the console by unlocking new artwork and glowing border frames.',
+    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Videos/AMConsole.mp4'
+  },
+  {
+    id: 'user-profile',
+    title: 'Your Profile',
+    description: 'Track your reading stats, equip your top 5 favorite series, and show off your Global Fandom Rank. Customize your digital loadout to flex your achievements on the leaderboards.',
+    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Videos/UserProfileloadout.mp4'
+  }
+];
 
 export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, userTier }: any) => {
   const { seriesList = [], isLoading } = useSeriesData();
@@ -25,6 +41,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [notifications, setNotifications] = useState<any[]>(memNotifications || []);
   const [showNotifications, setShowNotifications] = useState(false);
   const [dismissedNotifs, setDismissedNotifs] = useState<string[]>([]);
+  
+  const [forceTutorial, setForceTutorial] = useState(false);
 
   const visibleNotifications = useMemo(() => {
     return notifications.filter(n => !dismissedNotifs.includes(n.id));
@@ -186,7 +204,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     }).slice(0, 10); 
   }, [latestChapters, seriesList]);
 
-  // --- CLEAN HYPE FILL LOADER ---
   if (isLoading || isLoadingSlides) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
@@ -202,6 +219,12 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
   return (
     <div className="relative min-h-screen bg-transparent text-white pb-24">
+      <FeatureTutorialModal 
+        tutorialId="home_page_basics" 
+        slides={homeTutorialSlides} 
+        forceOpen={forceTutorial}
+        onClose={() => setForceTutorial(false)}
+      />
 
       <div className="fixed inset-0 z-[-1] bg-black">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
@@ -211,13 +234,11 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       </div>
 
       <nav className="sticky top-0 w-full z-[100] px-4 py-3 sm:px-6 sm:py-4 flex justify-between items-center bg-black/80 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
-        
         <div className="flex items-center cursor-pointer flex-shrink-0" onClick={() => onNavigate({ action: 'home' })}>
           <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png" alt="Saturday AM" className="h-10 md:h-12 object-contain drop-shadow-md hover:scale-105 transition-transform" />
         </div>
         
         <div className="flex items-center justify-end gap-2 sm:gap-4">
-          
           {!currentUser ? (
             <button 
               onClick={onLoginClick}
@@ -273,6 +294,12 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       </nav>
 
       <div className="px-6">
+        {/* NEW DISCOVER HEADER WITH HELP ICON */}
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl md:text-3xl font-black italic uppercase text-white drop-shadow-md">Discover</h1>
+          <TutorialHelpButton onClick={() => setForceTutorial(true)} />
+        </div>
+
         <div className="mb-8 w-full flex flex-col items-center">
           <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900/80 border border-zinc-800/50 shadow-xl backdrop-blur-sm">
             {heroSlides.map((slide, index) => (

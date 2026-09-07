@@ -8,8 +8,39 @@ import { SeriesCommentsSection } from '../Components/SeriesCommentsSection';
 import { PromoModal } from '../Components/PromoModal'; 
 import { ShareModal } from '../Components/ShareModal';
 import { useTelemetry } from '../Components/useTelemetry';
+import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
+
+const seriesTutorialSlide = [
+  {
+    id: 'series-icons',
+    title: 'Series Actions',
+    description: 'Take command of your reading experience. Use these interactive features to support creators, engage with the community, and curate your personalized library.',
+    iconsList: [
+      {
+        icon: <Flame className="w-6 h-6" />,
+        title: 'Drop a Hype',
+        desc: 'Boost the series\' ranking on the leaderboards.'
+      },
+      {
+        icon: <Heart className="w-6 h-6" />,
+        title: 'Like',
+        desc: 'Show some love and support for the chapter.'
+      },
+      {
+        icon: <MessageSquare className="w-6 h-6" />,
+        title: 'Discuss',
+        desc: 'Jump instantly to the community comment section.'
+      },
+      {
+        icon: <PenTool className="w-6 h-6" />,
+        title: 'Creators',
+        desc: 'Scroll directly to the creator\'s profile and links.'
+      }
+    ]
+  }
+];
 
 const ContentRatingBadge = ({ rating }: { rating: string }) => {
   const config: Record<string, { label: string, color: string, desc: string }> = {
@@ -83,6 +114,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [showAdModal, setShowAdModal] = useState(false);
   const [targetChapter, setTargetChapter] = useState<any>(null);
   const [unlockedChapters, setUnlockedChapters] = useState<string[]>([]);
+  
+  const [forceTutorial, setForceTutorial] = useState(false);
 
   const actionsRef = useRef<HTMLDivElement>(null);
   const commentsRef = useRef<HTMLDivElement>(null);
@@ -440,8 +473,15 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const safeSynopsis = localSeries.synopsis || '';
 
   return (
-    <div className="relative min-h-screen bg-transparent text-white">
+    <div className="relative min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-transparent text-white">
       
+      <FeatureTutorialModal 
+        tutorialId="series_page_icons" 
+        slides={seriesTutorialSlide} 
+        forceOpen={forceTutorial}
+        onClose={() => setForceTutorial(false)}
+      />
+
       {/* CREATOR HYPE CONFIRMATION MODAL */}
       {showCreatorHypeConfirm && (
         <div className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setShowCreatorHypeConfirm(null)}>
@@ -622,25 +662,28 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         <img src={localSeries.cover_url} className="w-full h-full object-cover opacity-60" alt="Hero Banner" />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
         
-        <button 
-          onClick={() => {
-            if (window.history.length > 1) {
-              window.history.back();
-            } else {
-              onBack();
-            }
-          }} 
-          className="absolute top-4 sm:top-6 left-4 sm:left-6 z-20 p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg"
-        >
-          <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
-        </button>
+        <div className="absolute top-4 sm:top-6 left-4 sm:left-6 z-20 flex items-center gap-2">
+          <button 
+            onClick={() => {
+              if (window.history.length > 1) {
+                window.history.back();
+              } else {
+                onBack();
+              }
+            }} 
+            className="p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg"
+          >
+            <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+          </button>
+          <TutorialHelpButton onClick={() => setForceTutorial(true)} />
+        </div>
         
         <button onClick={() => setShowShareModal(true)} className="absolute top-4 sm:top-6 right-[4.5rem] sm:right-24 z-20 p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-all shadow-lg group">
           <Share2 className="w-5 h-5 sm:w-6 sm:h-6 group-hover:scale-110 transition-transform" />
         </button>
       </div>
 
-      <div className="relative z-10 bg-black min-h-screen w-full -mt-12 pt-12 [mask-image:linear-gradient(to_bottom,transparent,black_48px)]">
+      <div className="relative z-10 bg-black min-h-screen w-full overflow-x-hidden -mt-12 pt-12 [mask-image:linear-gradient(to_bottom,transparent,black_48px)]">
         <div className="px-6 pt-8 flex flex-col items-center w-full max-w-4xl mx-auto">
           <div className="flex items-center justify-center gap-4 mb-6">
             {localSeries.logo_url && <img src={localSeries.logo_url} alt="Logo" className="w-full max-w-[280px] sm:max-w-[350px] h-auto object-contain drop-shadow-2xl" />}

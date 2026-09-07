@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2, X, Info, Heart } from 'lucide-react';
+import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2, X, Info, Heart, Home } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
@@ -10,6 +10,22 @@ import {
   useQuickReacts, QuickReactDrawer, QuickReactTimeline, 
   QuickReactToggleButton, QuickReactViewAllButton, QuickReactInputOverlay, QuickReactToast 
 } from '../Components/QuickReacts';
+import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
+
+const readerTutorialSlides = [
+  {
+    id: 'reader-mode',
+    title: 'Reading Options',
+    description: 'Read manga your way. Switch seamlessly between traditional horizontal page-turning or continuous vertical scrolling to match your preference.',
+    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Videos/ReadingOptions.mp4'
+  },
+  {
+    id: 'smart-comments',
+    title: 'Smart Comments',
+    description: 'Drop a reaction on the fly! Smart Comments allow you to leave quick emojis on specific manga pages as you read and view reactions from other fans. Pro Members can even leave custom text comments (up to 30 characters)!',
+    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Videos/SmartComments.mp4'
+  }
+];
 
 const renderContentWithLinks = (text: string) => {
   if (!text) return null;
@@ -111,6 +127,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const [showHideHint, setShowHideHint] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareTargetImage, setShareTargetImage] = useState<string | null>(null);
+  const [forceTutorial, setForceTutorial] = useState(false);
   
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
   const [isAuthLoaded, setIsAuthLoaded] = useState(false);
@@ -289,6 +306,13 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     await saveProgressToDB(currentPageRef.current);
     onClose();
   }, [onClose, saveProgressToDB]);
+  
+  const handleHome = useCallback(async (e?: any) => {
+    if (e) e.stopPropagation();
+    await saveProgressToDB(currentPageRef.current);
+    onClose(); 
+    if (onNavigate) onNavigate({ action: 'home' });
+  }, [onClose, onNavigate, saveProgressToDB]);
 
   const handleNextChapter = useCallback(async (e?: any) => {
     if (e) e.stopPropagation();
@@ -492,6 +516,13 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         body { overscroll-behavior-y: none; }
         .react-transform-wrapper { touch-action: none; }
       `}</style>
+      
+      <FeatureTutorialModal 
+        tutorialId="manga_reader_basics" 
+        slides={readerTutorialSlides} 
+        forceOpen={forceTutorial}
+        onClose={() => setForceTutorial(false)}
+      />
 
       {/* --- HOTSPOT MODAL --- */}
       {activeHotspot && (
@@ -518,7 +549,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         </div>
       )}
 
-      <QuickReactToast toastConfig={qr.toastConfig} />
+      {/* Conditionally unmount the toast entirely when UI is hidden */}
+      {isUIVisible && <QuickReactToast toastConfig={qr.toastConfig} />}
       
       <ShareModal 
         isOpen={showShareModal} 
@@ -628,23 +660,32 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
          </div>
       </div>
 
+      {/* TOP LEFT CONTROLS */}
+      <div className={`absolute top-2 left-2 sm:top-3 sm:left-3 z-50 flex flex-row items-center gap-2 sm:gap-3 transition-all duration-300 ${isUIVisible ? 'translate-y-0 opacity-100' : '-translate-y-8 opacity-0'}`}>
+        <button onClick={handleClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white cursor-pointer pointer-events-auto" title="Back to Series">
+          <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+        </button>
+        <button onClick={handleHome} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white cursor-pointer pointer-events-auto" title="Back Home">
+          <Home className="w-4 h-4 sm:w-5 sm:h-5" />
+        </button>
+        <div className="pointer-events-auto">
+          <TutorialHelpButton onClick={() => setForceTutorial(true)} />
+        </div>
+      </div>
+
+      {/* TOP RIGHT INFO */}
       <div className={`absolute top-2 right-2 sm:top-3 sm:right-3 bg-black/40 backdrop-blur-md border border-white/5 rounded-full px-4 py-2 z-50 flex flex-col items-end pointer-events-none transition-all duration-300 shadow-xl ${isUIVisible ? 'translate-y-0 opacity-100' : '-translate-y-8 opacity-0'}`}>
         <span className="text-white/90 text-[10px] font-bold tracking-wider">{title || 'Reading'}</span>
         <span className="text-[#fe9a00] text-[9px] font-black uppercase tracking-widest mt-0.5">Page {currentPage + 1} / {pages.length}</span>
       </div>
 
+      {/* BOTTOM BAR */}
       <div 
         className={`absolute left-2 right-2 sm:left-4 sm:right-4 h-12 sm:h-14 flex flex-row items-center z-50 transition-transform duration-300 ${isUIVisible ? 'translate-y-0' : 'translate-y-[200%]'}`}
         style={{ bottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}
         onClick={(e) => e.stopPropagation()} 
       >
-        <div className="flex flex-row items-center">
-          <button onClick={handleClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white" title="Back">
-            <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
-        </div>
-
-        <div className="flex-1 h-full mx-4 sm:mx-6 relative flex items-center group cursor-pointer" onClick={handleHorizontalProgressClick}>
+        <div className="flex-1 h-full mr-3 sm:mr-6 relative flex items-center group cursor-pointer" onClick={handleHorizontalProgressClick}>
           <div className="absolute inset-x-0 -inset-y-4 z-10" />
           <div className="w-full h-1.5 bg-black/40 backdrop-blur-md rounded-full overflow-hidden relative pointer-events-none shadow-inner border border-white/5">
             <div className="absolute top-0 left-0 h-full bg-[#fe9a00] transition-all duration-300" style={{ width: `${progressPercentage}%` }} />
@@ -652,16 +693,18 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
           <QuickReactTimeline mode="horizontal" localComments={qr.localComments} maxPage={maxPage} currentPage={currentPage} activeCommentIndex={qr.activeCommentIndex} onOpenDrawer={() => qr.setShowAllReacts(true)} />
         </div>
 
-        <div className="flex flex-row items-center gap-2 sm:gap-3">
+        <div className="flex flex-row items-center gap-2 sm:gap-3 shrink-0">
           <button onClick={() => setMode(mode === 'vertical' ? 'horizontal' : 'vertical')} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title={mode === 'vertical' ? "Switch to Horizontal" : "Switch to Vertical Scroll"}>
             {mode === 'vertical' ? <MoveHorizontal className="w-3 h-3 sm:w-4 sm:h-4" /> : <MoveVertical className="w-3 h-3 sm:w-4 sm:h-4" />}
           </button>
+          
+          <QuickReactToggleButton isReactInputOpen={qr.isReactInputOpen} setIsReactInputOpen={qr.setIsReactInputOpen} />
+          
+          <QuickReactViewAllButton setShowAllReacts={qr.setShowAllReacts} />
+          
           <button onClick={() => setShowShareModal(true)} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="Share Page">
             <Share2 className="w-3 h-3 sm:w-4 sm:h-4" />
           </button>
-          <QuickReactViewAllButton setShowAllReacts={qr.setShowAllReacts} />
-          
-          <QuickReactToggleButton isReactInputOpen={qr.isReactInputOpen} setIsReactInputOpen={qr.setIsReactInputOpen} />
         </div>
       </div>
 
