@@ -3,8 +3,24 @@ import { User, Trophy, Flame, Star, BookOpen, RotateCcw, X } from 'lucide-react'
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
+import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
+
+const hypeCardTutorialSlides = [
+  {
+    id: 'hypecard-1',
+    title: 'Virtual Hype Card',
+    description: 'Not only does your Hype Card cement your status as a Saturday AM superfan, but it also tracks your stats in real time and gives you a discount off in the AM shop. Included with all Pro subscriptions.',
+    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Videos/HypeCard.mp4'
+  },
+  {
+    id: 'hypecard-2',
+    title: 'Flex Your Fandom',
+    description: 'Share your fandom with the world. Flex your card at live shows and events to get exclusive discounts on physical merch at our booth.',
+    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/FlexHypeCard.jpg'
+  }
+];
 
 const RenderCardAnimations = ({ anim, color }: { anim: string, color: string }) => {
   if (!anim || anim === 'none') return null;
@@ -61,6 +77,15 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const [avatarFrames, setAvatarFrames] = useState<any[]>([]);
   const [activeSkins, setActiveSkins] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [forceTutorial, setForceTutorial] = useState(false);
+
+  // Dispatch event to completely hide underlying pulsing elements (solves blur lag and overlaps)
+  useEffect(() => {
+    if (isOpen) {
+      window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
+      return () => window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: false }));
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) { 
@@ -130,6 +155,18 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   return (
     <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden" onClick={onClose}>
       
+      <FeatureTutorialModal 
+        tutorialId="flex_hype_card" 
+        slides={hypeCardTutorialSlides} 
+        forceOpen={forceTutorial}
+        onClose={() => setForceTutorial(false)}
+      />
+
+      {/* Tutorial Help Button anchored to physical top-left */}
+      <div className="absolute top-4 left-4 md:top-6 md:left-6 z-[5010]">
+        <TutorialHelpButton onClick={(e: any) => { e.stopPropagation(); setForceTutorial(true); }} />
+      </div>
+
       {/* Sleek Close Button anchored to physical top-right */}
       <button onClick={onClose} className="absolute top-4 right-4 md:top-6 md:right-6 p-2 bg-zinc-900/60 backdrop-blur-md border border-white/10 rounded-full text-white/70 hover:text-white hover:bg-black transition-colors z-[5010] shadow-xl">
         <X className="w-6 h-6" />
@@ -146,7 +183,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
           </div>
         ) : (
           <div 
-            className="absolute inset-0 w-full h-full cursor-pointer"
+            className="absolute inset-0 w-full h-full cursor-pointer will-change-transform"
             style={{ 
               transformStyle: 'preserve-3d', 
               WebkitTransformStyle: 'preserve-3d',
@@ -158,7 +195,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
           >
             {/* FRONT OF CARD */}
             <div 
-              className="absolute inset-0 w-full h-full rounded-2xl bg-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden" 
+              className="absolute inset-0 w-full h-full rounded-2xl bg-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden will-change-transform" 
               style={{ 
                 backfaceVisibility: 'hidden', 
                 WebkitBackfaceVisibility: 'hidden',
@@ -189,7 +226,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
 
             {/* BACK OF CARD */}
             <div 
-              className="absolute inset-0 w-full h-full rounded-2xl bg-zinc-900 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden" 
+              className="absolute inset-0 w-full h-full rounded-2xl bg-zinc-900 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden will-change-transform" 
               style={{ 
                 backfaceVisibility: 'hidden', 
                 WebkitBackfaceVisibility: 'hidden', 

@@ -4,6 +4,7 @@ import { supabase } from '../supabase';
 
 export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
   const [isHidden, setIsHidden] = useState(false);
+  const [overlayCount, setOverlayCount] = useState(0);
   const [localHypes, setLocalHypes] = useState(0);
   
   // Fallback state to fetch the user independently if the prop is lost in the layout tree
@@ -21,8 +22,15 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
 
   useEffect(() => {
     const handleReaderToggle = (e: any) => setIsHidden(e.detail?.isOpen);
+    const handleOverlayToggle = (e: any) => setOverlayCount(prev => Math.max(0, prev + (e.detail ? 1 : -1)));
+    
     window.addEventListener('readerToggled', handleReaderToggle);
-    return () => window.removeEventListener('readerToggled', handleReaderToggle);
+    window.addEventListener('appOverlayActive', handleOverlayToggle);
+    
+    return () => {
+      window.removeEventListener('readerToggled', handleReaderToggle);
+      window.removeEventListener('appOverlayActive', handleOverlayToggle);
+    }
   }, []);
 
   const syncEconomy = useCallback(async () => {
@@ -67,12 +75,13 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
     return () => window.removeEventListener('profileUpdated', syncEconomy);
   }, [syncEconomy]);
 
-  if (isHidden || !resolvedUser) return null;
+  // Completely unmount if the reader is open OR if a modal/menu is open
+  if (isHidden || overlayCount > 0 || !resolvedUser) return null;
 
   return (
     // Wrapper locked to the exact width and position of the global nav pill. 
-    // Mobile spacing reverted to 4.5rem, Desktop kept at 6rem.
-    <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] sm:bottom-[calc(6rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 w-full max-w-[340px] sm:max-w-[400px] z-[9999] pointer-events-none flex justify-start">
+    // Z-index lowered to 150 to sit above page content but below modals.
+    <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] sm:bottom-[calc(6rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 w-full max-w-[340px] sm:max-w-[400px] z-[150] pointer-events-none flex justify-start">
       
       {/* The compact, sleek badge anchored to the top left with a persistent gold border */}
       <div 

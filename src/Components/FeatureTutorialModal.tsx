@@ -32,13 +32,16 @@ export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, on
     }
   }, [tutorialId, forceOpen]);
 
-  const handleClose = () => {
+  // Stop propagation on close to prevent bubbling to parent wrappers
+  const handleClose = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     localStorage.setItem(`am_tutorial_${tutorialId}`, 'true');
     setIsOpen(false);
     if (onClose) onClose();
   };
 
-  const nextSlide = () => {
+  const nextSlide = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (currentSlide === slides.length - 1) {
       handleClose();
     } else {
@@ -46,7 +49,8 @@ export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, on
     }
   };
 
-  const prevSlide = () => {
+  const prevSlide = (e: React.MouseEvent) => {
+    e.stopPropagation();
     setCurrentSlide((prev) => Math.max(0, prev - 1));
   };
 
@@ -58,7 +62,11 @@ export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, on
   const isVideo = slide?.mediaUrl ? (slide.mediaUrl.endsWith('.mp4') || slide.mediaUrl.endsWith('.webm')) : false;
 
   return (
-    <div className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black/90 backdrop-blur-md p-4 pb-32 md:p-6 md:pb-6 animate-fade-in overflow-y-auto">
+    <div 
+      className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black/90 backdrop-blur-md p-4 pb-32 md:p-6 md:pb-6 animate-fade-in overflow-y-auto"
+      onClick={(e) => e.stopPropagation()} 
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       
       <div className="relative w-full max-w-5xl h-[70vh] md:h-auto md:aspect-[21/9] bg-zinc-950 flex flex-col md:flex-row overflow-hidden border border-zinc-800 shadow-[0_0_50px_rgba(0,0,0,0.8)] rounded-xl md:rounded-2xl shrink-0 my-auto">
         
@@ -153,9 +161,9 @@ export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, on
   );
 };
 
-export const TutorialHelpButton = ({ onClick }: { onClick: () => void }) => (
+export const TutorialHelpButton = ({ onClick }: { onClick: (e: React.MouseEvent) => void }) => (
   <button 
-    onClick={onClick}
+    onClick={(e) => { e.stopPropagation(); onClick(e); }}
     className="p-1.5 md:p-2 bg-zinc-900/60 backdrop-blur-md border border-zinc-700 rounded-full text-zinc-400 hover:text-white hover:border-[#fe9a00] transition-colors shadow-lg cursor-pointer"
     title="View Tutorial"
   >

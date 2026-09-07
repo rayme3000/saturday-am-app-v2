@@ -1,10 +1,18 @@
-import { memo, useState } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { X, CreditCard, ShieldAlert, ExternalLink, Download, User, LogOut, Crown, HelpCircle, MoveHorizontal, MoveVertical, Trophy, Zap, Flame, Share2, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../supabase';
 
 export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser, canInstall, onInstall, onLoginClick, onShareClick }: any) => {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showMore, setShowMore] = useState(false);
+
+  // Dispatch event to completely hide underlying pulsing elements (solves blur lag and overlaps)
+  useEffect(() => {
+    if (isOpen) {
+      window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
+      return () => window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: false }));
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

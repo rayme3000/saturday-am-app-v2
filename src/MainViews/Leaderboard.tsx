@@ -3,11 +3,22 @@ import { ArrowLeft, Trophy, Flame, Crown, Star, Zap, Activity, TrendingUp, Calen
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
+import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
+
+const leaderboardTutorialSlides = [
+  {
+    id: 'leaderboard-1',
+    title: 'Global Rankings',
+    description: "Boost series and creators by hyping, liking, and commenting! Your interactions earn Fandom Score, helping you climb the Top Fans leaderboard to win exclusive prizes. You can also track what's trending right now in the Weekly Hype, or check out the ultimate monthly rankings in The Big 3.",
+    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Videos/Leaderboard.mp4'
+  }
+];
 
 export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
   const { seriesList = [] } = useSeriesData();
   const [activeTab, setActiveTab] = useState<'weekly' | 'monthly' | 'fans'>('monthly');
   const [isLoading, setIsLoading] = useState(true);
+  const [forceTutorial, setForceTutorial] = useState(false);
 
   const [superFans, setSuperFans] = useState<any[]>([]);
   const [big3, setBig3] = useState<any[]>([]);
@@ -93,13 +104,13 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             setTopCharacters(rankedChars);
         }
 
-        // --- NEW: FETCH MOST HYPED CHAPTER ---
+        // --- FETCH MOST HYPED CHAPTER ---
         const { data: topChapterData } = await supabase.rpc('get_most_hyped_chapter');
         if (topChapterData && topChapterData.length > 0) {
           setTopChapter(topChapterData[0]);
         }
 
-        // --- NEW: MONTHLY BIG 3 CREATORS ---
+        // --- MONTHLY BIG 3 CREATORS ---
         if (allCreatorsData) {
           const combinedCreatorScores: Record<string, number> = {};
           
@@ -196,6 +207,14 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-32">
+      
+      <FeatureTutorialModal 
+        tutorialId="leaderboards_guide" 
+        slides={leaderboardTutorialSlides} 
+        forceOpen={forceTutorial}
+        onClose={() => setForceTutorial(false)}
+      />
+
       <div className="fixed inset-0 z-[-1] bg-black pointer-events-none">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="w-full h-full object-cover opacity-50" />
         <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/80 to-transparent" />
@@ -205,9 +224,14 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
       {/* HEADER WITH ANTI-COLLISION PADDING */}
       <div className="sticky top-0 z-50 w-full bg-black/80 backdrop-blur-lg border-b border-zinc-800/50 pt-6 pb-4 px-4 sm:pt-8 sm:px-8 pr-16 sm:pr-24 shadow-xl">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <button onClick={onBack} className="p-3 bg-zinc-900/90 backdrop-blur-md rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors transform -skew-x-12 shadow-xl">
-            <div className="transform skew-x-12 flex items-center gap-2"><ArrowLeft className="w-5 h-5" /><span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Home</span></div>
-          </button>
+          <div className="flex items-center gap-3 sm:gap-4">
+            <button onClick={onBack} className="p-3 bg-zinc-900/90 backdrop-blur-md rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors transform -skew-x-12 shadow-xl shrink-0">
+              <div className="transform skew-x-12 flex items-center gap-2"><ArrowLeft className="w-5 h-5" /><span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Home</span></div>
+            </button>
+            <div className="pointer-events-auto shrink-0">
+              <TutorialHelpButton onClick={(e: any) => { e.stopPropagation(); setForceTutorial(true); }} />
+            </div>
+          </div>
           
           <div className="flex flex-col items-end drop-shadow-lg pointer-events-none">
             <h1 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] flex items-center gap-2">
@@ -348,7 +372,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   )}
                 </div>
 
-                {/* --- NEW: THE BIG 3 CREATORS --- */}
+                {/* --- THE BIG 3 CREATORS --- */}
                 <div className="flex flex-col items-center mt-16 pt-16 border-t border-zinc-800/50">
                   <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2 mb-2 drop-shadow-lg">
                     <PenTool className="w-6 h-6 text-yellow-500" /> The Big 3 Creators
