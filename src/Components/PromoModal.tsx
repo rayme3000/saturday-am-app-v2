@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { X, Zap, UserPlus } from 'lucide-react';
 
 export const PromoModal = ({ userTier, onClose, onAction }: any) => {
+  const [showBetaInput, setShowBetaInput] = useState(false);
+  const [betaCode, setBetaCode] = useState('');
+
   // Never show to premium users just in case
   if (userTier === 'premium') return null;
 
@@ -26,14 +29,34 @@ export const PromoModal = ({ userTier, onClose, onAction }: any) => {
           {isVisitor ? 'Join the Squad' : 'Level Up'}
         </h2>
         
-        <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-8">
+        <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-6">
           {isVisitor 
             ? "What are you waiting for? Create a FREE account to unlock more!" 
             : "Upgrade your access and permanently skip the ads."}
         </p>
 
+        {/* BETA / PROMO CODE TOGGLE */}
+        <div className="w-full mb-6 flex flex-col items-center min-h-[48px] justify-center">
+          {!showBetaInput ? (
+            <button onClick={() => setShowBetaInput(true)} className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors">
+              + Have a Promo or Beta Code?
+            </button>
+          ) : (
+            <div className="w-full animate-fade-in relative">
+              <input 
+                type="text" 
+                placeholder="ENTER CODE" 
+                value={betaCode}
+                onChange={(e) => setBetaCode(e.target.value.toUpperCase())}
+                maxLength={12}
+                className={`w-full bg-black border border-zinc-800 text-white text-center font-black uppercase tracking-widest text-sm py-3 px-4 rounded-xl focus:outline-none transition-colors ${isVisitor ? 'focus:border-blue-500' : 'focus:border-[#fe9a00]'}`}
+              />
+            </div>
+          )}
+        </div>
+
         <button 
-          onClick={onAction} 
+          onClick={() => onAction(betaCode)} 
           className={`w-full font-black uppercase tracking-widest py-4 rounded-xl transition-all shadow-lg hover:scale-105 ${
             isVisitor 
               ? 'bg-blue-500 text-white hover:bg-white hover:text-black shadow-[0_0_20px_rgba(59,130,246,0.4)]' 

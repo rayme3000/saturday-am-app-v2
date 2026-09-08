@@ -9,6 +9,7 @@ import { HamburgerMenu } from './Components/HamburgerMenu';
 import { ShareModal } from './Components/ShareModal';
 import { SplashIntro } from './Components/SplashIntro'; 
 import { GlobalHypeTracker } from './Components/GlobalHypeTracker';
+import { BetaGate } from './Components/BetaGate'; // <-- ADDED BETA GATE
 
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
@@ -321,7 +322,7 @@ export default function App() {
   }, []);
 
   return (
-    <>
+    <BetaGate>
       {showIntro && <SplashIntro onComplete={handleIntroComplete} />}
       
       {/* --- FIRST-TIME BETA WARNING MODAL --- */}
@@ -534,6 +535,6 @@ export default function App() {
       )}
 
       <ScrollToTopButton />
-    </>
+    </BetaGate>
   );
 }
