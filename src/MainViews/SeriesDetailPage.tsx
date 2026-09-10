@@ -887,7 +887,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                       </div>
                     </div>
                     
-                    <h3 className={`font-bold text-sm sm:text-lg truncate sm:line-clamp-2 sm:whitespace-normal mb-1.5 sm:mb-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
+                    <h3 className={`font-bold text-sm sm:text-lg mb-1.5 sm:mb-2 leading-snug ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
                     {hasTempUnlock && (
                       <span className="text-green-500 text-[9px] font-black uppercase tracking-widest mt-1 block">
                         Unlocked (24h)

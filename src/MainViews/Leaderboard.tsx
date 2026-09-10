@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Trophy, Flame, Crown, Star, Zap, Activity, TrendingUp, Calendar, Users, MessageSquare, PenTool } from 'lucide-react';
+import { ArrowLeft, Trophy, Flame, Crown, Star, Zap, Activity, TrendingUp, Calendar, Users, MessageSquare, PenTool, BookOpen, Library, User } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
@@ -28,8 +28,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
   const [topSeries, setTopSeries] = useState<any[]>([]);
   const [topCreators, setTopCreators] = useState<any[]>([]);
   const [topCharacters, setTopCharacters] = useState<any[]>([]);
-  
-  const [topChapter, setTopChapter] = useState<any>(null);
+  const [topWeeklyChapters, setTopWeeklyChapters] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
@@ -104,24 +103,22 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             setTopCharacters(rankedChars);
         }
 
-        // --- FETCH MOST HYPED CHAPTER ---
-        const { data: topChapterData } = await supabase.rpc('get_most_hyped_chapter');
-        if (topChapterData && topChapterData.length > 0) {
-          setTopChapter(topChapterData[0]);
+        // --- FETCH TOP 3 HYPED CHAPTERS (FRESH FUNCTION) ---
+        const { data: weeklyChaptersData } = await supabase.rpc('get_trending_chapters');
+        if (weeklyChaptersData && weeklyChaptersData.length > 0) {
+          setTopWeeklyChapters(weeklyChaptersData.slice(0, 3));
         }
 
         // --- MONTHLY BIG 3 CREATORS ---
         if (allCreatorsData) {
           const combinedCreatorScores: Record<string, number> = {};
           
-          // 1. Add Direct Creator Hypes
           if (creatorHypesData) {
             creatorHypesData.forEach((h: any) => {
               combinedCreatorScores[h.target_id] = (combinedCreatorScores[h.target_id] || 0) + 1;
             });
           }
 
-          // 2. Add Monthly Super Hypes from their respective Series
           const seriesToCreatorMap: Record<string, string> = {};
           seriesList.forEach((s: any) => { if (s.creator_name) seriesToCreatorMap[s.slug] = s.creator_name; });
           allCreatorsData.forEach((c: any) => { if (c.series_slug && c.name) seriesToCreatorMap[c.series_slug] = c.name; });
@@ -135,7 +132,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             });
           }
 
-          // 3. Resolve the Top 3
           const uniqueCreatorMap = new Map();
           allCreatorsData.forEach((c: any) => { if (!uniqueCreatorMap.has(c.name)) uniqueCreatorMap.set(c.name, c); });
           
@@ -162,10 +158,16 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
     if (seriesObj && onNavigate) onNavigate({ ...seriesObj, action: 'series' });
   };
 
-  const LeaderboardCategory = ({ title, subtitle, items, type = 'series' }: { title: string, subtitle: string, items: any[], type?: 'series' | 'creator' | 'character' }) => (
+  const LeaderboardCategory = ({ title, subtitle, items, type = 'series' }: { title: string, subtitle: string, items: any[], type?: 'series' | 'creator' | 'character' | 'chapter' }) => (
     <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-4 sm:p-5 mb-6 animate-fade-in">
        <div className="flex justify-between items-end mb-4 border-b border-zinc-800/50 pb-3 px-2">
-         <h3 className="text-lg sm:text-xl font-black italic uppercase text-white">{title}</h3>
+         <h3 className="text-lg sm:text-xl font-black italic uppercase text-white flex items-center gap-2">
+           {type === 'chapter' && <BookOpen className="w-5 h-5 text-[#fe9a00]" />}
+           {type === 'series' && <Library className="w-5 h-5 text-[#fe9a00]" />}
+           {type === 'character' && <User className="w-5 h-5 text-[#fe9a00]" />}
+           {type === 'creator' && <PenTool className="w-5 h-5 text-[#fe9a00]" />}
+           {title}
+         </h3>
          <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest">{subtitle}</span>
        </div>
        
@@ -183,16 +185,18 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   <img src={
                     type === 'creator' ? (item.avatar_url || `https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg`) :
                     type === 'character' ? (item.headshot_url || 'https://via.placeholder.com/150') :
-                    (item.thumbnail_url || item.sticker_url || item.cover_url)
+                    (item.thumbnail_url || item.sticker_url || item.cover_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg')
                   } className="w-full h-full object-cover" alt="" />
                </div>
                <div className="flex flex-col flex-1 min-w-0">
                   <span className="font-black text-white uppercase text-sm truncate">
-                    {type === 'creator' || type === 'character' ? item.name : item.title}
+                    {type === 'creator' || type === 'character' ? item.name : 
+                     type === 'chapter' ? `Ch. ${item.chapter_number} - ${item.title}` : item.title}
                   </span>
                   {type === 'creator' && item.role && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{item.role}</span>}
                   {type === 'character' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{item.series_title}</span>}
                   {type === 'series' && item.creator_name && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{item.creator_name}</span>}
+                  {type === 'chapter' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{item.series_title}</span>}
                </div>
                <div className="flex flex-col items-end shrink-0 pl-2">
                   <span className="text-[11px] font-black text-[#fe9a00] flex items-center gap-1.5"><Flame className="w-3.5 h-3.5 fill-[#fe9a00]"/> {item.hypeScore || 0}</span>
@@ -221,7 +225,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/95 to-transparent" />
       </div>
 
-      {/* HEADER WITH ANTI-COLLISION PADDING */}
       <div className="sticky top-0 z-50 w-full bg-black/80 backdrop-blur-lg border-b border-zinc-800/50 pt-6 pb-4 px-4 sm:pt-8 sm:px-8 pr-16 sm:pr-24 shadow-xl">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3 sm:gap-4">
@@ -270,36 +273,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">Resets Every Saturday at 12:00 AM</p>
                 </div>
                 
-                {topChapter && (
-                  <div className="bg-black border border-zinc-800 rounded-2xl p-6 relative overflow-hidden shadow-2xl mb-8">
-                    <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[10px] font-black uppercase px-4 py-1.5 rounded-bl-xl shadow-lg z-10">Trending #1</div>
-                    <h2 className="text-lg font-black italic uppercase tracking-tighter text-white mb-6 flex items-center gap-2">
-                      <Flame className="w-5 h-5 text-[#fe9a00]" /> Most Hyped Chapter
-                    </h2>
-                    
-                    <div className="flex gap-6">
-                      <div className="w-24 h-36 flex-shrink-0 relative rounded-lg overflow-hidden border border-zinc-700 shadow-md">
-                         <img src={topChapter.thumbnail_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} className="w-full h-full object-cover" alt="Chapter Thumb" />
-                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                      </div>
-                      
-                      <div className="flex flex-col justify-center min-w-0">
-                        <h3 className="text-xl font-black text-white leading-tight mb-1 truncate">{topChapter.series_title}</h3>
-                        <p className="text-[#fe9a00] font-bold text-xs uppercase tracking-widest mb-6">Chapter {topChapter.chapter_number}</p>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1.5 bg-zinc-900 px-3 py-2 rounded-md border border-zinc-800">
-                            <Flame className="w-3.5 h-3.5 text-[#fe9a00]"/> {topChapter.hype_score} Score
-                          </span>
-                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1.5 bg-zinc-900 px-3 py-2 rounded-md border border-zinc-800">
-                            <MessageSquare className="w-3.5 h-3.5 text-cyan-500"/> {topChapter.comment_count} Discuss
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
+                <LeaderboardCategory title="Most Hype Chapters" items={topWeeklyChapters} subtitle="Chapter Engagement" type="chapter" />
                 <LeaderboardCategory title="Most Hype Series" items={topSeries} subtitle="Overall Hypes" type="series" />
                 <LeaderboardCategory title="Most Hype Characters" items={topCharacters} subtitle="Fan Favorites" type="character" />
                 <LeaderboardCategory title="Most Hype Creators" items={topCreators} subtitle="Creator Support" type="creator" />
@@ -308,7 +282,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
             {activeTab === 'monthly' && (
               <div className="animate-fade-in space-y-12 pb-12">
-                {/* --- THE BIG 3 SERIES --- */}
                 <div className="flex flex-col items-center mt-4">
                   <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2 mb-2 drop-shadow-lg">
                     <Crown className="w-6 h-6 text-yellow-500" /> The Big 3 Series
@@ -372,7 +345,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   )}
                 </div>
 
-                {/* --- THE BIG 3 CREATORS --- */}
                 <div className="flex flex-col items-center mt-16 pt-16 border-t border-zinc-800/50">
                   <h2 className="text-3xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2 mb-2 drop-shadow-lg">
                     <PenTool className="w-6 h-6 text-yellow-500" /> The Big 3 Creators
@@ -479,7 +451,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
               </div>
             )}
             
-            {/* BOTTOM THUMB ZONE RETURN */}
             <div className="mt-12 mb-8 border-t border-zinc-800 pt-8">
               <button 
                 onClick={onBack}

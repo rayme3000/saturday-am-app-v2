@@ -63,12 +63,15 @@ export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, on
 
   return (
     <div 
-      className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black/90 backdrop-blur-md p-4 pb-32 md:p-6 md:pb-6 animate-fade-in overflow-y-auto"
+      className="fixed inset-0 z-[99999] flex flex-col items-center justify-center bg-black/90 backdrop-blur-md p-4 pb-20 md:p-6 md:pb-6 animate-fade-in overflow-y-auto"
       onClick={(e) => e.stopPropagation()} 
       onPointerDown={(e) => e.stopPropagation()}
     >
       
-      <div className="relative w-full max-w-5xl h-[70vh] md:h-auto md:aspect-[21/9] bg-zinc-950 flex flex-col md:flex-row overflow-hidden border border-zinc-800 shadow-[0_0_50px_rgba(0,0,0,0.8)] rounded-xl md:rounded-2xl shrink-0 my-auto">
+      {/* 
+        CHANGED: Removed fixed h-[70vh] for mobile, letting it size naturally.
+      */}
+      <div className="relative w-full max-w-5xl md:aspect-[21/9] bg-zinc-950 flex flex-col md:flex-row overflow-hidden border border-zinc-800 shadow-[0_0_50px_rgba(0,0,0,0.8)] rounded-xl md:rounded-2xl shrink-0 my-auto h-auto">
         
         <button 
           onClick={handleClose}
@@ -77,55 +80,66 @@ export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, on
           <X className="w-5 h-5 md:w-6 md:h-6" />
         </button>
 
-        <div className="w-full md:w-[45%] h-[35%] md:h-full bg-gradient-to-r from-zinc-900 to-zinc-900/95 p-6 md:p-12 flex flex-col justify-center z-10 shrink-0">
-          <div className="flex items-center gap-3 mb-3 md:mb-6 pr-10">
+        {/* 
+          CHANGED: Reduced mobile padding (p-4) and adjusted height slightly to give icons more room
+        */}
+        <div className="w-full md:w-[45%] bg-gradient-to-r from-zinc-900 to-zinc-900/95 p-4 md:p-12 flex flex-col justify-center z-10 shrink-0">
+          <div className="flex items-center gap-2 md:gap-3 mb-2 md:mb-6 pr-10">
             <FileText className="w-5 h-5 md:w-8 md:h-8 text-white shrink-0" />
             <h2 className="text-lg md:text-3xl font-black italic uppercase text-white tracking-wide leading-tight">{slide.title}</h2>
           </div>
-          <div className="w-12 h-1 bg-[#fe9a00] mb-3 md:mb-6 shrink-0" />
-          <p className="text-xs md:text-base text-zinc-300 leading-relaxed font-medium overflow-y-auto pr-2 custom-scrollbar">
+          <div className="w-8 h-1 bg-[#fe9a00] mb-3 md:mb-6 shrink-0" />
+          <p className="text-[11px] md:text-base text-zinc-300 leading-snug md:leading-relaxed font-medium">
             {slide.description}
           </p>
         </div>
 
-        <div className="w-full md:w-[55%] h-[65%] md:h-full relative bg-black shrink-0 flex items-center justify-center p-4 md:p-8">
+        {/* 
+          CHANGED: Reduced padding on mobile and fixed grid layout
+        */}
+        <div className="w-full md:w-[55%] relative bg-black shrink-0 flex items-center justify-center p-3 md:p-8">
           {slide.iconsList ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-6 w-full max-w-xl h-full md:h-auto overflow-y-auto pr-2 custom-scrollbar content-start md:content-center">
+            <div className="grid grid-cols-2 gap-2 md:gap-6 w-full max-w-xl content-start md:content-center">
               {slide.iconsList.map((item, index) => (
-                <div key={index} className="flex items-start gap-4 p-4 rounded-2xl bg-zinc-950 border border-zinc-800 hover:border-[#fe9a00]/50 transition-colors shadow-lg">
-                  <div className="p-3 bg-zinc-900 border border-[#fe9a00]/30 rounded-xl shadow-[0_0_15px_rgba(254,154,0,0.15)] text-[#fe9a00] shrink-0">
-                    {item.icon}
+                <div key={index} className="flex flex-col sm:flex-row items-start gap-2 md:gap-4 p-3 md:p-4 rounded-xl md:rounded-2xl bg-zinc-950 border border-zinc-800 hover:border-[#fe9a00]/50 transition-colors shadow-lg">
+                  <div className="p-2 md:p-3 bg-zinc-900 border border-[#fe9a00]/30 rounded-lg md:rounded-xl shadow-[0_0_15px_rgba(254,154,0,0.15)] text-[#fe9a00] shrink-0">
+                    {/* Make icon slightly smaller on mobile */}
+                    <div className="scale-75 md:scale-100 origin-center">{item.icon}</div>
                   </div>
                   <div className="flex flex-col pt-1">
-                    <h4 className="text-white font-black uppercase tracking-widest text-xs md:text-sm mb-1 leading-tight">{item.title}</h4>
-                    <p className="text-zinc-400 text-[10px] font-bold leading-relaxed">{item.desc}</p>
+                    <h4 className="text-white font-black uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-1 leading-tight">{item.title}</h4>
+                    <p className="text-zinc-400 text-[9px] md:text-[10px] font-bold leading-tight md:leading-relaxed line-clamp-3">{item.desc}</p>
                   </div>
                 </div>
               ))}
             </div>
           ) : isVideo && slide.mediaUrl ? (
-            <video 
-              src={slide.mediaUrl} 
-              autoPlay 
-              loop 
-              muted 
-              playsInline
-              className="absolute inset-0 w-full h-full object-contain object-center"
-            />
+            <div className="w-full aspect-video md:absolute md:inset-0 md:h-full md:w-full relative">
+              <video 
+                src={slide.mediaUrl} 
+                autoPlay 
+                loop 
+                muted 
+                playsInline
+                className="absolute inset-0 w-full h-full object-contain object-center"
+              />
+            </div>
           ) : slide.mediaUrl ? (
-            <img 
-              src={slide.mediaUrl} 
-              alt={slide.title} 
-              className="absolute inset-0 w-full h-full object-contain object-center"
-              onError={(e) => { e.currentTarget.src = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'; }}
-            />
+            <div className="w-full aspect-video md:absolute md:inset-0 md:h-full md:w-full relative">
+              <img 
+                src={slide.mediaUrl} 
+                alt={slide.title} 
+                className="absolute inset-0 w-full h-full object-contain object-center"
+                onError={(e) => { e.currentTarget.src = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'; }}
+              />
+            </div>
           ) : null}
 
           {!slide.iconsList && <div className="absolute inset-y-0 left-0 w-24 bg-gradient-to-r from-zinc-900/95 to-transparent hidden md:block pointer-events-none z-10" />}
         </div>
       </div>
 
-      <div className="flex flex-col items-center mt-4 md:mt-6 gap-3 md:gap-4 w-full max-w-5xl shrink-0 pb-4">
+      <div className="flex flex-col items-center mt-6 md:mt-6 gap-3 md:gap-4 w-full max-w-5xl shrink-0 pb-4">
         <div className="flex items-center justify-between w-full px-4 md:px-32">
           <button 
             onClick={prevSlide}
@@ -152,7 +166,7 @@ export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, on
           </button>
         </div>
 
-        <span className="text-[10px] md:text-xs font-bold text-zinc-400 uppercase tracking-widest mt-1 md:mt-2">
+        <span className="text-[10px] md:text-xs font-bold text-zinc-400 uppercase tracking-widest mt-1 md:mt-2 text-center">
           {currentSlide === slides.length - 1 ? 'Click next to close' : 'Turn the page to continue'}
         </span>
       </div>

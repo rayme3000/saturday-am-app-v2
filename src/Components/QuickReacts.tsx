@@ -104,6 +104,10 @@ export const QuickReactTimeline = ({ mode, localComments, maxPage, currentPage, 
   const visibleComments = useMemo(() => localComments.filter((c: any) => c.pageIndex === currentPage), [localComments, currentPage]);
   const activeComment = visibleComments[activeCommentIndex];
 
+  // Calculate dynamic shift to keep the comment bubble on-screen near the edges
+  const percent = maxPage > 0 ? (currentPage / maxPage) * 100 : 0;
+  const shift = 50 - percent;
+
   return (
     <>
       {timelineComments.map((comment: any) => (
@@ -131,11 +135,15 @@ export const QuickReactTimeline = ({ mode, localComments, maxPage, currentPage, 
           key={`active_${activeComment.id}`} 
           onClick={(e) => { e.stopPropagation(); onOpenDrawer(); }}
           className={`absolute pointer-events-auto cursor-pointer z-[110] ${mode === 'vertical' ? 'left-full ml-3 sm:ml-4' : 'bottom-full mb-3 sm:mb-4'}`}
-          style={mode === 'vertical' ? { top: `${(currentPage / maxPage) * 100}%`, transform: 'translateY(-50%)' } : { left: `${(currentPage / maxPage) * 100}%`, transform: 'translateX(-50%)' }}
+          style={mode === 'vertical' ? { top: `${percent}%`, transform: 'translateY(-50%)' } : { left: `${percent}%`, transform: 'translateX(-50%)' }}
         >
           <div className={`animate-slide-${mode === 'vertical' ? 'right' : 'up'}-fade flex ${mode === 'vertical' ? 'items-center' : 'flex-col items-center'}`}>
             {mode === 'vertical' && <div className="w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-r-[5px] border-r-black/70 -mr-[1px]" />}
-            <div className="bg-black/70 backdrop-blur-md text-white px-3 py-2 rounded-lg shadow-2xl max-w-[180px] sm:max-w-[250px] border border-white/5 flex flex-col items-start hover:border-[#fe9a00]/50 transition-colors">
+            
+            <div 
+              className="bg-black/70 backdrop-blur-md text-white px-3 py-2 rounded-lg shadow-2xl max-w-[180px] sm:max-w-[250px] border border-white/5 flex flex-col items-start hover:border-[#fe9a00]/50 transition-colors"
+              style={mode === 'vertical' ? { transform: `translateY(${shift}%)` } : { transform: `translateX(${shift}%)` }}
+            >
               <span className="text-[#fe9a00] font-semibold uppercase text-[8px] mb-0.5 w-full truncate">
                 {activeComment.user.length > 15 ? `${activeComment.user.slice(0, 15)}...` : activeComment.user}
               </span>
@@ -143,6 +151,7 @@ export const QuickReactTimeline = ({ mode, localComments, maxPage, currentPage, 
                 {activeComment.text}
               </span>
             </div>
+
             {mode === 'horizontal' && <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[5px] border-t-black/70 -mt-[1px]" />}
           </div>
         </div>
@@ -252,12 +261,12 @@ export const QuickReactInputOverlay = ({ isReactInputOpen, setIsReactInputOpen, 
              <button onClick={() => setIsReactInputOpen(false)} className="text-white/50 hover:text-white"><X className="w-4 h-4" /></button>
            </div>
            
-           <div className="grid grid-cols-4 gap-2 mb-1">
+           <div className="grid grid-cols-4 gap-1 sm:gap-2 mb-1">
              {SMART_COMMENTS.map(c => (
                <button 
                  key={c} 
                  onClick={() => submitReact(c)} 
-                 className="bg-zinc-800/80 hover:bg-[#fe9a00] py-3 rounded-lg text-lg sm:text-xl transition-colors border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center"
+                 className="bg-zinc-800/80 hover:bg-[#fe9a00] py-2 sm:py-3 rounded-lg text-sm sm:text-lg lg:text-xl transition-colors border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center leading-none"
                >
                  {c}
                </button>

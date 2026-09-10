@@ -13,6 +13,12 @@ const getPatternStyle = (color: string, pattern: string) => {
   return { backgroundColor: baseColor }; 
 };
 
+// --- CHECK IF ITEM WAS CREATED IN THE LAST 7 DAYS ---
+const isNewItem = (createdAt: string | undefined) => {
+  if (!createdAt) return false;
+  return Date.now() - new Date(createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
+};
+
 export const SeriesSection = ({ title, series, onSeriesClick }: any) => {
   const scrollRef = useRef(null);
 
@@ -86,6 +92,14 @@ export const SeriesSection = ({ title, series, onSeriesClick }: any) => {
                     style={{ width: `${s.logo_scale ?? 100}%` }}
                   />
                 </div>
+
+                
+                {/* AUTOMATIC 7-DAY 'NEW' BADGE */}
+                {isNewItem(s.created_at) && (
+                  <div className="absolute top-1 left-1 z-40 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+                    NEW!
+                  </div>
+                )}
               </div>
               
               <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg mt-1 p-1">

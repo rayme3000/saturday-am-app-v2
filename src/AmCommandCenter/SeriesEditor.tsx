@@ -20,7 +20,7 @@ const COUNTRY_CODES = [
   { code: 'JM', name: 'Jamaica' }, { code: 'PR', name: 'Puerto Rico' }, { code: 'BS', name: 'Bahamas' }, { code: 'HT', name: 'Haiti' },
   { code: 'HN', name: 'Honduras' }, { code: 'KW', name: 'Kuwait' }, { code: 'QA', name: 'Qatar' }, { code: 'BH', name: 'Bahrain' }, 
   { code: 'OM', name: 'Oman' }, { code: 'DO', name: 'Dominican Republic' }, { code: 'CR', name: 'Costa Rica' }, { code: 'CU', name: 'Cuba' }, 
-  { code: 'SV', name: 'El Salvador' }, { code: 'PA', name: 'Panama' }
+  { code: 'SV', name: 'El Salvador' }, { code: 'PA', name: 'Panama' }, { code: 'MG', name: 'Madagascar' }
 ].sort((a, b) => a.name.localeCompare(b.name));
 
 const getPatternStyle = (color: string, pattern: string) => {

@@ -7,6 +7,11 @@ import { Menu, X, Bell, CheckCircle, Play, Flame } from 'lucide-react';
 import { useTelemetry } from '../Components/useTelemetry'; 
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
+const isNewItem = (createdAt: string | undefined) => {
+  if (!createdAt) return false;
+  return Date.now() - new Date(createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
+};
+
 let memHeroSlides: any = null;
 let memHomeSections: any = null;
 let memRecentReads: any = null;
@@ -294,7 +299,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       </nav>
 
       <div className="px-6">
-        {/* NEW DISCOVER HEADER WITH HELP ICON */}
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl md:text-3xl font-black italic uppercase text-white drop-shadow-md">Discover</h1>
           <TutorialHelpButton onClick={() => setForceTutorial(true)} />
@@ -346,6 +350,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                         CH. {chapter.chapter_number}
                       </p>
                     </div>
+                    {isNewItem(chapter.created_at) && <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
                   </div>
                   
                   <div className="mt-3 px-1 flex flex-col flex-1">

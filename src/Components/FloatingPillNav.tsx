@@ -1,5 +1,5 @@
 import React, { memo, useState } from 'react';
-import { Home, Library, Search, ShoppingCart, User, Plus, Trophy, Users, BookOpen, Newspaper, CreditCard } from 'lucide-react';
+import { Home, Library, Search, ShoppingCart, User, Plus, Trophy, Users, BookOpen, Newspaper, CreditCard, Target } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) => {
@@ -78,7 +78,7 @@ export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser, onO
             <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">Characters</span>
           </button>
           <button onClick={() => handleNav('bingobook')} className="flex flex-col items-center gap-2 group">
-            <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
+            <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><Target className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
             <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white whitespace-nowrap">Bingo Book</span>
           </button>
           <button onClick={() => handleNav('news')} className="flex flex-col items-center gap-2 group">

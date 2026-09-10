@@ -5,6 +5,11 @@ import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
 import { GlobalFlexCard } from '../Components/GlobalFlexCard';
 
+const isNewItem = (createdAt: string | undefined) => {
+  if (!createdAt) return false;
+  return Date.now() - new Date(createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
+};
+
 // --- MODULE-LEVEL MEMORY CACHE ---
 let memProfileStats: any = null;
 let memUserProfile: any = null;
@@ -78,7 +83,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
     window.scrollTo(0, 0);
   }, []);
 
-  // --- Countdown Timer to Next Saturday ---
   useEffect(() => {
     const calculateTimeUntilSaturday = () => {
       const now = new Date();
@@ -130,7 +134,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         }
 
         if (data) {
-          // Calculate actual hypes if a fresh refill period has passed
           let actualHypes = data.hypes_remaining || 0;
           const now = new Date();
           const lastSaturday = new Date(now);
@@ -249,6 +252,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
           {series.logo_url ? <img src={series.logo_url} loading="lazy" alt={series.title} className="w-full max-h-full object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1" /> : <span className="text-[7px] sm:text-[8px] font-black uppercase text-white text-center drop-shadow-md leading-tight line-clamp-2">{series.title}</span>}
         </div>
         {isEditingMode && <div className="absolute inset-0 bg-black/60 z-40 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity backdrop-blur-[2px]"><span className="text-[#fe9a00] font-black text-[8px] uppercase tracking-widest shadow-xl">Change</span></div>}
+        {isNewItem(series.created_at) && <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
       </div>
     );
   };
@@ -274,7 +278,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
       {showSuccessToast && <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-[#fe9a00] text-black px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] animate-fade-in"><Check className="w-5 h-5" /> Loadout Saved!</div>}
       {errorToast && <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-red-600 text-white px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-fade-in"><X className="w-5 h-5" /> {errorToast}</div>}
 
-      {/* --- REFACTORED HEADER LAYOUT TO AVOID HAMBURGER MENU --- */}
       <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-xl pl-6 pr-20 sm:pr-24 pt-6 pb-4 border-b border-zinc-800 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 sm:gap-0">
         <div>
           <button 
@@ -507,6 +510,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
                         <img src={skin.image_url} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" alt={skin.name} />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 hover:opacity-100 transition-opacity"><span className="text-[10px] font-black uppercase tracking-widest text-white text-center px-2">{skin.name}</span></div>
                         {!isSubscriber && <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-10"><Lock className="w-6 h-6 text-zinc-400" /></div>}
+                        {isNewItem(skin.created_at) && <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
                       </div>
                     ))}
                   </div>
@@ -527,6 +531,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
                     {vaultAvatars.map((avatar: any) => (
                       <div key={avatar.id} onClick={() => setTempProfile({...tempProfile, avatarUrl: avatar.image_url})} className={`relative cursor-pointer rounded-full p-1 transition-all ${tempProfile.avatarUrl === avatar.image_url ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
                         <img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" />
+                        {isNewItem(avatar.created_at) && <div className="absolute top-0 right-0 z-30 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded-full shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
                       </div>
                     ))}
                   </div>
@@ -544,16 +549,51 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
                       <div className="w-12 h-12 rounded-full border-2 border-zinc-700 mb-2 flex items-center justify-center"><X className="w-6 h-6 text-zinc-500" /></div>
                       <span className="text-[9px] font-black uppercase text-zinc-400">None</span>
                     </div>
-                    
-                    {vaultFrames.map((f: any) => (
+                  </div>
+
+                  <div className="mt-8 mb-4 border-b border-zinc-800 pb-2">
+                     <h3 className="text-sm font-black uppercase tracking-widest text-purple-400 flex items-center gap-2">
+                       <Award className="w-4 h-4" /> Pro Member Frames
+                     </h3>
+                  </div>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+                    {vaultFrames.filter((f: any) => f.tier === 'Premium').map((f: any) => (
                       <div key={f.id} 
                            onClick={() => {
-                             if (f.tier === 'Premium' && !isSubscriber) {
+                             if (!isSubscriber) {
                                setUpsellConfig({ title: 'Premium Feature', message: 'Premium Avatar Frames are exclusively for Pro members! Upgrade to equip this frame.' });
                                return;
                              }
                              setTempProfile({...tempProfile, frameId: f.id});
                            }} 
+                           className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${tempProfile.frameId === f.id ? 'bg-zinc-800 border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'bg-black border border-purple-900/30 hover:border-purple-500'}`}>
+                        
+                        <div className="relative flex items-center justify-center w-12 h-12 mb-2 flex-shrink-0">
+                           <div className="rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 w-full h-full" style={{ border: `2px solid ${f.border_color}`, boxShadow: f.glow_color !== 'transparent' ? `0 0 10px ${f.glow_color}` : 'none' }} />
+                           <RenderFrameAnimations anim={f.animation_style} color={f.border_color} />
+                        </div>
+
+                        <span className="text-[9px] font-black text-white uppercase text-center leading-tight line-clamp-1">{f.name}</span>
+                        
+                        {!isSubscriber && (
+                          <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center z-20 rounded-xl">
+                            <Lock className="w-5 h-5 text-zinc-400" />
+                          </div>
+                        )}
+                        {isNewItem(f.created_at) && <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-8 mb-4 border-b border-zinc-800 pb-2">
+                     <h3 className="text-sm font-black uppercase tracking-widest text-zinc-400 flex items-center gap-2">
+                       <User className="w-4 h-4" /> Basic Frames
+                     </h3>
+                  </div>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+                    {vaultFrames.filter((f: any) => f.tier !== 'Premium').map((f: any) => (
+                      <div key={f.id} 
+                           onClick={() => setTempProfile({...tempProfile, frameId: f.id})} 
                            className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${tempProfile.frameId === f.id ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'bg-black border border-zinc-800 hover:border-zinc-500'}`}>
                         
                         <div className="relative flex items-center justify-center w-12 h-12 mb-2 flex-shrink-0">
@@ -562,13 +602,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
                         </div>
 
                         <span className="text-[9px] font-black text-white uppercase text-center leading-tight line-clamp-1">{f.name}</span>
-                        <span className={`text-[7px] font-bold uppercase mt-1 ${f.tier === 'Premium' ? 'text-purple-400' : 'text-zinc-500'}`}>{f.tier}</span>
-                        
-                        {f.tier === 'Premium' && !isSubscriber && (
-                          <div className="absolute inset-0 bg-black/50 backdrop-blur-[1px] flex items-center justify-center z-20 rounded-xl">
-                            <Lock className="w-5 h-5 text-zinc-400" />
-                          </div>
-                        )}
+                        {isNewItem(f.created_at) && <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
                       </div>
                     ))}
                   </div>
