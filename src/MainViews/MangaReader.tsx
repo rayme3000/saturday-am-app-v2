@@ -301,6 +301,24 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     return () => clearTimeout(saveTimer);
   }, [currentPage, isLoadingProgress, saveProgressToDB]);
 
+  // --- WRAPPED QUICK REACT TO INJECT SCORE ---
+  const handleQuickReactSubmit = async (...args: any[]) => {
+    await qr.submitReact(...args);
+    const activeUserId = activeUserRef.current;
+    if (activeUserId) {
+      supabase.from('profiles').select('fandom_score, quick_reacts').eq('id', activeUserId).maybeSingle().then(({ data }) => {
+        if (data) {
+          supabase.from('profiles').update({ 
+            fandom_score: (data.fandom_score || 0) + 2,
+            quick_reacts: (data.quick_reacts || 0) + 1
+          }).eq('id', activeUserId).then(() => {
+             window.dispatchEvent(new Event('profileUpdated'));
+          });
+        }
+      });
+    }
+  };
+
   const handleClose = useCallback(async (e?: any) => {
     if (e) e.stopPropagation();
     await saveProgressToDB(currentPageRef.current);
@@ -455,7 +473,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const currentPageHotspots = hotspots.filter(h => h.page_index === currentPage);
 
   const EndOfChapterPrompt = () => {
-    // Silently triggers the +1 Read Point Postgres function instantly when the user reaches the end of the chapter
     useEffect(() => {
       const activeUserId = activeUserRef.current;
       if (activeUserId && chapterId) {
@@ -515,7 +532,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         @keyframes fade-in { 0% { opacity: 0; } 100% { opacity: 1; } }
         .animate-fade-in { animation: fade-in 0.2s ease-out forwards; }
         
-        /* Stop native iOS overscroll rubber-banding */
         body { overscroll-behavior-y: none; }
         .react-transform-wrapper { touch-action: none; }
       `}</style>
@@ -527,7 +543,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         onClose={() => setForceTutorial(false)}
       />
 
-      {/* --- HOTSPOT MODAL --- */}
       {activeHotspot && (
         <div className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in pointer-events-auto" onClick={(e) => { e.stopPropagation(); setActiveHotspot(null); }}>
           <div className="bg-zinc-900 border border-zinc-700 p-6 sm:p-8 rounded-2xl w-full max-w-md shadow-2xl relative flex flex-col" onClick={e => e.stopPropagation()}>
@@ -552,7 +567,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         </div>
       )}
 
-      {/* Conditionally unmount the toast entirely when UI is hidden */}
       {isUIVisible && <QuickReactToast toastConfig={qr.toastConfig} />}
       
       <ShareModal 
@@ -663,7 +677,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
          </div>
       </div>
 
-      {/* TOP LEFT CONTROLS */}
       <div className={`absolute top-2 left-2 sm:top-3 sm:left-3 z-50 flex flex-row items-center gap-2 sm:gap-3 transition-all duration-300 ${isUIVisible ? 'translate-y-0 opacity-100' : '-translate-y-8 opacity-0'}`}>
         <button onClick={handleClose} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg hover:bg-[#fe9a00] hover:text-black rounded-full transition-colors text-white cursor-pointer pointer-events-auto" title="Back to Series">
           <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -676,13 +689,11 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         </div>
       </div>
 
-      {/* TOP RIGHT INFO */}
       <div className={`absolute top-2 right-2 sm:top-3 sm:right-3 bg-black/40 backdrop-blur-md border border-white/5 rounded-full px-4 py-2 z-50 flex flex-col items-end pointer-events-none transition-all duration-300 shadow-xl ${isUIVisible ? 'translate-y-0 opacity-100' : '-translate-y-8 opacity-0'}`}>
         <span className="text-white/90 text-[10px] font-bold tracking-wider">{title || 'Reading'}</span>
         <span className="text-[#fe9a00] text-[9px] font-black uppercase tracking-widest mt-0.5">Page {currentPage + 1} / {pages.length}</span>
       </div>
 
-      {/* BOTTOM BAR */}
       <div 
         className={`absolute left-2 right-2 sm:left-4 sm:right-4 h-12 sm:h-14 flex flex-row items-center z-50 transition-transform duration-300 ${isUIVisible ? 'translate-y-0' : 'translate-y-[200%]'}`}
         style={{ bottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}
@@ -721,7 +732,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
              setIsReactInputOpen={qr.setIsReactInputOpen}
              reactText={qr.reactText}
              setReactText={qr.setReactText}
-             submitReact={qr.submitReact}
+             submitReact={handleQuickReactSubmit} // <-- Injects score logic before executing standard quick react
              isPremium={internalIsPremium}
              onNavigate={onNavigate}
            />

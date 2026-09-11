@@ -9,7 +9,8 @@ import { HamburgerMenu } from './Components/HamburgerMenu';
 import { ShareModal } from './Components/ShareModal';
 import { SplashIntro } from './Components/SplashIntro'; 
 import { GlobalHypeTracker } from './Components/GlobalHypeTracker';
-import { BetaGate } from './Components/BetaGate'; // <-- ADDED BETA GATE
+import { BetaGate } from './Components/BetaGate'; 
+import { HypeEconomyProvider } from './HypeEconomyContext'; // <-- NEW CONTEXT PROVIDER
 
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
@@ -323,218 +324,221 @@ export default function App() {
 
   return (
     <BetaGate>
-      {showIntro && <SplashIntro onComplete={handleIntroComplete} />}
-      
-      {/* --- FIRST-TIME BETA WARNING MODAL --- */}
-      {showBetaWarning && !showIntro && (
-        <div className="fixed inset-0 z-[9000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
-          <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm flex flex-col items-center text-center shadow-[0_0_50px_rgba(0,0,0,0.8)] relative">
-            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-6 border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.2)]">
-              <AlertTriangle className="w-8 h-8 text-red-500" />
+      <HypeEconomyProvider>
+        {showIntro && <SplashIntro onComplete={handleIntroComplete} />}
+        
+        {/* --- FIRST-TIME BETA WARNING MODAL --- */}
+        {showBetaWarning && !showIntro && (
+          <div className="fixed inset-0 z-[9000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
+            <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm flex flex-col items-center text-center shadow-[0_0_50px_rgba(0,0,0,0.8)] relative">
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-6 border border-red-500/30 shadow-[0_0_20px_rgba(239,68,68,0.2)]">
+                <AlertTriangle className="w-8 h-8 text-red-500" />
+              </div>
+              <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Closed Beta</h2>
+              <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-8">
+                Welcome to the Saturday AM App 2.0 Closed Beta! This version is strictly confidential. <span className="text-red-400">Please do not share screenshots, screen recordings, or invite codes publicly.</span>
+              </p>
+              <button 
+                onClick={handleCloseBetaWarning} 
+                className="w-full bg-red-600 text-white font-black uppercase tracking-widest py-4 rounded-xl hover:bg-red-500 transition-colors shadow-lg"
+              >
+                I Understand
+              </button>
             </div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Closed Beta</h2>
-            <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-8">
-              Welcome to the Saturday AM App 2.0 Closed Beta! This version is strictly confidential. <span className="text-red-400">Please do not share screenshots, screen recordings, or invite codes publicly.</span>
-            </p>
-            <button 
-              onClick={handleCloseBetaWarning} 
-              className="w-full bg-red-600 text-white font-black uppercase tracking-widest py-4 rounded-xl hover:bg-red-500 transition-colors shadow-lg"
-            >
-              I Understand
-            </button>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* --- RECURRING FEEDBACK MODAL --- */}
-      {showFeedbackPrompt && (
-        <div className="fixed inset-0 z-[8500] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in" onClick={() => setShowFeedbackPrompt(false)}>
-          <div className="bg-zinc-900 border border-zinc-700 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setShowFeedbackPrompt(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
-            <div className="w-16 h-16 bg-[#fe9a00]/10 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
-              <MessageSquare className="w-8 h-8 text-[#fe9a00]" />
+        {/* --- RECURRING FEEDBACK MODAL --- */}
+        {showFeedbackPrompt && (
+          <div className="fixed inset-0 z-[8500] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in" onClick={() => setShowFeedbackPrompt(false)}>
+            <div className="bg-zinc-900 border border-zinc-700 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
+              <button onClick={() => setShowFeedbackPrompt(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+              <div className="w-16 h-16 bg-[#fe9a00]/10 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+                <MessageSquare className="w-8 h-8 text-[#fe9a00]" />
+              </div>
+              <h2 className="text-xl font-black italic uppercase tracking-tighter text-white mb-2">We Need Your Feedback!</h2>
+              <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-6">
+                Spot a bug? Have a suggestion? Let us know so we can improve the app before launch!
+              </p>
+              <a 
+                href="https://www.saturday-am.com/contact/" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                onClick={() => setShowFeedbackPrompt(false)}
+                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] mb-3 block text-center"
+              >
+                Submit Feedback
+              </a>
+              <button onClick={() => setShowFeedbackPrompt(false)} className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest hover:text-white transition-colors mt-2">Continue Exploring</button>
             </div>
-            <h2 className="text-xl font-black italic uppercase tracking-tighter text-white mb-2">We Need Your Feedback!</h2>
-            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-6">
-              Spot a bug? Have a suggestion? Let us know so we can improve the app before launch!
-            </p>
-            <a 
-              href="https://www.saturday-am.com/contact/" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              onClick={() => setShowFeedbackPrompt(false)}
-              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] mb-3 block text-center"
-            >
-              Submit Feedback
-            </a>
-            <button onClick={() => setShowFeedbackPrompt(false)} className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest hover:text-white transition-colors mt-2">Continue Exploring</button>
           </div>
+        )}
+
+        <style>
+          {`
+            @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Unbounded:wght@700;800;900&display=swap');
+            @keyframes fade-out { 0% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+            .animate-fade-out { animation: fade-out 3s forwards; }
+            
+            /* --- CUSTOM HYPE LOADING ANIMATION --- */
+            @keyframes flame-fill {
+              0% { height: 0%; opacity: 0.5; }
+              100% { height: 100%; opacity: 1; }
+            }
+            .animate-flame-fill { animation: flame-fill 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate; }
+
+            html, body { font-family: 'Plus Jakarta Sans', sans-serif; overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; background-color: #000000; }
+            h1, h2, h3, h4, h5, h6, .font-black { font-family: 'Unbounded', sans-serif !important; font-style: italic !important; letter-spacing: -0.03em !important; }
+            .tracking-widest { letter-spacing: 0.15em !important; font-style: normal !important; font-family: 'Plus Jakarta Sans', sans-serif !important; font-weight: 800; }
+            .no-scrollbar::-webkit-scrollbar { display: none; }
+            .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+            .card-perspective { perspective: 1000px; }
+            .card-flipper { transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform-style: preserve-3d; }
+            .card-flipper.is-flipped { transform: rotateY(180deg); }
+            .card-face { -webkit-backface-visibility: hidden; backface-visibility: hidden; }
+            .card-back { transform: rotateY(180deg); }
+            #main-app-container > div { background-color: transparent !important; }
+            .z-\\[-1\\].bg-black.fixed.inset-0 { display: none !important; }
+          `}
+        </style>
+
+        <div className="fixed inset-0 z-0 bg-black pointer-events-none">
+          <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden opacity-100" />
+          <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover opacity-100" />
+          <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black/90 via-black/40 to-transparent pointer-events-none" />
+          <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black/90 via-black/60 to-transparent pointer-events-none" />
         </div>
-      )}
 
-      <style>
-        {`
-          @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Unbounded:wght@700;800;900&display=swap');
-          @keyframes fade-out { 0% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
-          .animate-fade-out { animation: fade-out 3s forwards; }
-          
-          /* --- CUSTOM HYPE LOADING ANIMATION --- */
-          @keyframes flame-fill {
-            0% { height: 0%; opacity: 0.5; }
-            100% { height: 100%; opacity: 1; }
-          }
-          .animate-flame-fill { animation: flame-fill 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate; }
+        {showLogin && <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => setShowLogin(false)} />}
+        <ShareModal isOpen={showGlobalShareModal} onClose={() => setShowGlobalShareModal(false)} currentUser={currentUser} series={null} />
 
-          html, body { font-family: 'Plus Jakarta Sans', sans-serif; overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; background-color: #000000; }
-          h1, h2, h3, h4, h5, h6, .font-black { font-family: 'Unbounded', sans-serif !important; font-style: italic !important; letter-spacing: -0.03em !important; }
-          .tracking-widest { letter-spacing: 0.15em !important; font-style: normal !important; font-family: 'Plus Jakarta Sans', sans-serif !important; font-weight: 800; }
-          .no-scrollbar::-webkit-scrollbar { display: none; }
-          .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-          .card-perspective { perspective: 1000px; }
-          .card-flipper { transition: transform 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275); transform-style: preserve-3d; }
-          .card-flipper.is-flipped { transform: rotateY(180deg); }
-          .card-face { -webkit-backface-visibility: hidden; backface-visibility: hidden; }
-          .card-back { transform: rotateY(180deg); }
-          #main-app-container > div { background-color: transparent !important; }
-          .z-\\[-1\\].bg-black.fixed.inset-0 { display: none !important; }
-        `}
-      </style>
-
-      <div className="fixed inset-0 z-0 bg-black pointer-events-none">
-        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden opacity-100" />
-        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover opacity-100" />
-        <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black/90 via-black/40 to-transparent pointer-events-none" />
-        <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black/90 via-black/60 to-transparent pointer-events-none" />
-      </div>
-
-      {showLogin && <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => setShowLogin(false)} />}
-      <ShareModal isOpen={showGlobalShareModal} onClose={() => setShowGlobalShareModal(false)} currentUser={currentUser} series={null} />
-
-      {showPasswordReset && (
-        <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
-          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col shadow-2xl relative">
-            <button onClick={() => setShowPasswordReset(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
-            <h2 className="text-2xl font-black italic uppercase text-[#fe9a00] mb-2">New Password</h2>
-            <p className="text-xs text-zinc-400 font-bold mb-6">Enter your new password below.</p>
-            <input type="password" placeholder="New Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full bg-black border border-zinc-700 text-white px-4 py-3 rounded-lg mb-4 focus:border-[#fe9a00] outline-none font-bold" />
-            <button onClick={async () => { const { error } = await supabase.auth.updateUser({ password: newPassword }); if (!error) { alert("Password updated successfully!"); setShowPasswordReset(false); setNewPassword(''); } else { alert(error.message); } }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Save Password</button>
+        {showPasswordReset && (
+          <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
+            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col shadow-2xl relative">
+              <button onClick={() => setShowPasswordReset(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+              <h2 className="text-2xl font-black italic uppercase text-[#fe9a00] mb-2">New Password</h2>
+              <p className="text-xs text-zinc-400 font-bold mb-6">Enter your new password below.</p>
+              <input type="password" placeholder="New Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full bg-black border border-zinc-700 text-white px-4 py-3 rounded-lg mb-4 focus:border-[#fe9a00] outline-none font-bold" />
+              <button onClick={async () => { const { error } = await supabase.auth.updateUser({ password: newPassword }); if (!error) { alert("Password updated successfully!"); setShowPasswordReset(false); setNewPassword(''); } else { alert(error.message); } }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Save Password</button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {upsellConfig && (
-        <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
-          <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
-            <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
-            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
-            <button onClick={() => { setUpsellConfig(null); handleNavigate({ action: 'sub' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Upgrade to Pro</button>
+        {upsellConfig && (
+          <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
+            <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
+              <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+              <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
+              <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
+              <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
+              <button onClick={() => { setUpsellConfig(null); handleNavigate({ action: 'sub' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Upgrade to Pro</button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <HamburgerMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} onNavigate={handleNavigate} onOpenFlexCard={() => setIsFlexCardOpen(true)} userTier={userTier} onUpsell={setUpsellConfig} currentUser={currentUser} canInstall={!!deferredPrompt || isIOSDevice} onInstall={handleInstallClick} onLoginClick={() => setShowLogin(true)} onShareClick={() => setShowGlobalShareModal(true)} />
+        <HamburgerMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} onNavigate={handleNavigate} onOpenFlexCard={() => setIsFlexCardOpen(true)} userTier={userTier} onUpsell={setUpsellConfig} currentUser={currentUser} canInstall={!!deferredPrompt || isIOSDevice} onInstall={handleInstallClick} onLoginClick={() => setShowLogin(true)} onShareClick={() => setShowGlobalShareModal(true)} />
 
-      {isFlexCardOpen && <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} />}
+        {isFlexCardOpen && <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} />}
 
-      <AppErrorBoundary>
-        <Suspense fallback={
-          <div className="min-h-[100dvh] bg-transparent flex flex-col items-center justify-center gap-4 pb-20">
-            {/* --- CLEAN HYPE FILL LOADER WITHOUT TEXT --- */}
-            <div className="relative w-12 h-12 flex justify-center">
-              <Flame className="w-12 h-12 text-zinc-800 absolute bottom-0" strokeWidth={1.5} />
-              <div className="absolute bottom-0 overflow-hidden w-12 flex justify-center animate-flame-fill">
-                <Flame className="w-12 h-12 text-[#fe9a00] fill-[#fe9a00] absolute bottom-0" strokeWidth={1.5} />
+        <AppErrorBoundary>
+          <Suspense fallback={
+            <div className="min-h-[100dvh] bg-transparent flex flex-col items-center justify-center gap-4 pb-20">
+              {/* --- CLEAN HYPE FILL LOADER WITHOUT TEXT --- */}
+              <div className="relative w-12 h-12 flex justify-center">
+                <Flame className="w-12 h-12 text-zinc-800 absolute bottom-0" strokeWidth={1.5} />
+                <div className="absolute bottom-0 overflow-hidden w-12 flex justify-center animate-flame-fill">
+                  <Flame className="w-12 h-12 text-[#fe9a00] fill-[#fe9a00] absolute bottom-0" strokeWidth={1.5} />
+                </div>
               </div>
             </div>
-          </div>
-        }>
-          <div id="main-app-container" className="relative z-10 min-h-screen w-full bg-transparent">
-            {currentView === 'home' && (<HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />)}
-            {currentView === 'series' && (<SeriesDetailPage userTier={userTier} series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />)}
-            {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
-            {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} />)}
-            {currentView === 'sub' && (<SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />)}
-            {currentView === 'leaderboard' && (<Leaderboard userTier={userTier} currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
-            {currentView === 'settings' && (<SettingsPage userTier={userTier} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onBack={() => setCurrentView('home')} onSignOut={() => { setCurrentView('home'); }} />)}
-            {currentView === 'news' && (<AMNewsPage onBack={() => setCurrentView('home')} />)}
-            {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
-            {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}
-            {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
-            {currentView === 'shop' && (<Shop userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
-            {currentView === 'legal' && (<LegalPages onBack={() => setCurrentView('home')} />)}
-            {currentView === 'characters' && (<CharacterRoster currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
-          </div>
-        </Suspense>
-      </AppErrorBoundary>
-
-      {!['settings', 'admin', 'sub'].includes(currentView) && (
-        <FloatingPillNav 
-          currentView={currentView} 
-          onNavigate={handleNavigate} 
-          currentUser={currentUser} 
-          userTier={userTier}
-          onOpenFlexCard={() => setIsFlexCardOpen(true)}
-          onUpsell={setUpsellConfig}
-        />
-      )}
-
-      {!['admin', 'sub', 'settings', 'legal'].includes(currentView) && currentUser && userTier !== 'visitor' && (
-        <GlobalHypeTracker hypesRemaining={currentUser?.total_hypes ?? 5} /> 
-      )}
-
-      {!['home', 'settings', 'admin', 'sub', 'shop', 'legal'].includes(currentView) && (
-        <button 
-          onClick={() => setIsMenuOpen(true)}
-          className="fixed top-4 sm:top-6 right-4 sm:right-6 z-[150] p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] shadow-lg transition-all group"
-          aria-label="Open Menu"
-        >
-          <Menu className="w-5 h-5 sm:w-6 sm:h-6 group-hover:scale-110 transition-transform" />
-        </button>
-      )}
-
-      {showInstallPrompt && !showIosPrompt && (
-        <div className="fixed top-4 sm:top-6 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-[6000] bg-zinc-900 border border-[#fe9a00] p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex items-center justify-between animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-black rounded-lg border border-zinc-700 p-1 flex items-center justify-center">
-              <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-full h-full object-contain" alt="Logo" />
+          }>
+            <div id="main-app-container" className="relative z-10 min-h-screen w-full bg-transparent">
+              {currentView === 'home' && (<HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />)}
+              {currentView === 'series' && (<SeriesDetailPage userTier={userTier} series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />)}
+              {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
+              {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} />)}
+              {currentView === 'sub' && (<SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />)}
+              {currentView === 'leaderboard' && (<Leaderboard userTier={userTier} currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+              {currentView === 'settings' && (<SettingsPage userTier={userTier} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onBack={() => setCurrentView('home')} onSignOut={() => { setCurrentView('home'); }} />)}
+              {currentView === 'news' && (<AMNewsPage onBack={() => setCurrentView('home')} />)}
+              {currentView === 'bingobook' && (<BingoBook userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+              {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}
+              {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
+              {currentView === 'shop' && (<Shop userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+              {currentView === 'legal' && (<LegalPages onBack={() => setCurrentView('home')} />)}
+              {currentView === 'characters' && (<CharacterRoster currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
             </div>
-            <div className="flex flex-col">
-              <span className="text-white font-black italic uppercase text-sm tracking-widest leading-tight">Saturday AM</span>
-              <span className="text-[#fe9a00] text-[9px] font-bold uppercase tracking-widest mt-0.5">For the best experience, install the app</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={dismissInstallPrompt} className="p-2 text-zinc-500 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
-            <button onClick={handleInstallClick} className="bg-[#fe9a00] text-black px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">Install</button>
-          </div>
-        </div>
-      )}
+          </Suspense>
+        </AppErrorBoundary>
 
-      {showIosPrompt && (
-        <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-6 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-4 animate-fade-in-up pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          <div className="flex items-start justify-between">
+        {!['settings', 'admin', 'sub'].includes(currentView) && (
+          <FloatingPillNav 
+            currentView={currentView} 
+            onNavigate={handleNavigate} 
+            currentUser={currentUser} 
+            userTier={userTier}
+            onOpenFlexCard={() => setIsFlexCardOpen(true)}
+            onUpsell={setUpsellConfig}
+          />
+        )}
+
+        {/* --- GLOBAL TRACKER: NO PROPS NEEDED NOW --- */}
+        {!['admin', 'sub', 'settings', 'legal'].includes(currentView) && currentUser && userTier !== 'visitor' && (
+          <GlobalHypeTracker /> 
+        )}
+
+        {!['home', 'settings', 'admin', 'sub', 'shop', 'legal'].includes(currentView) && (
+          <button 
+            onClick={() => setIsMenuOpen(true)}
+            className="fixed top-4 sm:top-6 right-4 sm:right-6 z-[150] p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] shadow-lg transition-all group"
+            aria-label="Open Menu"
+          >
+            <Menu className="w-5 h-5 sm:w-6 sm:h-6 group-hover:scale-110 transition-transform" />
+          </button>
+        )}
+
+        {showInstallPrompt && !showIosPrompt && (
+          <div className="fixed top-4 sm:top-6 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-[6000] bg-zinc-900 border border-[#fe9a00] p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex items-center justify-between animate-fade-in">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-black rounded-xl border border-zinc-700 p-1.5 flex items-center justify-center shadow-inner">
+              <div className="w-10 h-10 bg-black rounded-lg border border-zinc-700 p-1 flex items-center justify-center">
                 <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-full h-full object-contain" alt="Logo" />
               </div>
               <div className="flex flex-col">
-                <span className="text-white font-black italic uppercase text-sm tracking-widest leading-tight">Install App</span>
-                <span className="text-[#fe9a00] text-[10px] font-bold mt-0.5 leading-snug">For the best reading experience, install the app.</span>
+                <span className="text-white font-black italic uppercase text-sm tracking-widest leading-tight">Saturday AM</span>
+                <span className="text-[#fe9a00] text-[9px] font-bold uppercase tracking-widest mt-0.5">For the best experience, install the app</span>
               </div>
             </div>
-            <button onClick={dismissIosPrompt} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors"><X className="w-4 h-4" /></button>
+            <div className="flex items-center gap-2">
+              <button onClick={dismissInstallPrompt} className="p-2 text-zinc-500 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
+              <button onClick={handleInstallClick} className="bg-[#fe9a00] text-black px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">Install</button>
+            </div>
           </div>
-          
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col gap-3">
-            <p className="text-xs text-zinc-300 font-bold flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">1</span>Tap the <Share className="w-4 h-4 text-[#fe9a00] mx-1" /> icon in your Safari menu bar</p>
-            <p className="text-xs text-zinc-300 font-bold flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">2</span>Scroll down and select <strong className="text-white">"Add to Home Screen"</strong></p>
-          </div>
-        </div>
-      )}
+        )}
 
-      <ScrollToTopButton />
+        {showIosPrompt && (
+          <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-6 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-4 animate-fade-in-up pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-black rounded-xl border border-zinc-700 p-1.5 flex items-center justify-center shadow-inner">
+                  <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-full h-full object-contain" alt="Logo" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-white font-black italic uppercase text-sm tracking-widest leading-tight">Install App</span>
+                  <span className="text-[#fe9a00] text-[10px] font-bold mt-0.5 leading-snug">For the best reading experience, install the app.</span>
+                </div>
+              </div>
+              <button onClick={dismissIosPrompt} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors"><X className="w-4 h-4" /></button>
+            </div>
+            
+            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col gap-3">
+              <p className="text-xs text-zinc-300 font-bold flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">1</span>Tap the <Share className="w-4 h-4 text-[#fe9a00] mx-1" /> icon in your Safari menu bar</p>
+              <p className="text-xs text-zinc-300 font-bold flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">2</span>Scroll down and select <strong className="text-white">"Add to Home Screen"</strong></p>
+            </div>
+          </div>
+        )}
+
+        <ScrollToTopButton />
+      </HypeEconomyProvider>
     </BetaGate>
   );
 }

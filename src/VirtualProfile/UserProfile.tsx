@@ -16,14 +16,15 @@ let memUserProfile: any = null;
 
 const getFandomTier = (lifetimeScore: number) => {
   const score = lifetimeScore || 0;
+  // Added custom glow classes for the target rank text
   const tiers = [
-    { name: 'Leaf', min: 0, max: 99, color: 'text-emerald-500', bar: 'bg-emerald-500' },
-    { name: 'Stone', min: 100, max: 999, color: 'text-white', bar: 'bg-white' },
-    { name: 'Bronze', min: 1000, max: 4999, color: 'text-amber-600', bar: 'bg-amber-600' },
-    { name: 'Silver', min: 5000, max: 19999, color: 'text-slate-300', bar: 'bg-slate-300' },
-    { name: 'Gold', min: 20000, max: 49999, color: 'text-yellow-400', bar: 'bg-yellow-400' },
-    { name: 'Platinum', min: 50000, max: 99999, color: 'text-cyan-300', bar: 'bg-cyan-300' },
-    { name: 'Diamond', min: 100000, max: Infinity, color: 'text-fuchsia-400', bar: 'bg-fuchsia-400' }
+    { name: 'Leaf', min: 0, max: 99, color: 'text-emerald-500', bar: 'bg-emerald-500', glow: 'drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]' },
+    { name: 'Stone', min: 100, max: 999, color: 'text-white', bar: 'bg-white', glow: 'drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]' },
+    { name: 'Bronze', min: 1000, max: 4999, color: 'text-amber-600', bar: 'bg-amber-600', glow: 'drop-shadow-[0_0_8px_rgba(217,119,6,0.8)]' },
+    { name: 'Silver', min: 5000, max: 19999, color: 'text-slate-300', bar: 'bg-slate-300', glow: 'drop-shadow-[0_0_8px_rgba(203,213,225,0.8)]' },
+    { name: 'Gold', min: 20000, max: 49999, color: 'text-yellow-400', bar: 'bg-yellow-400', glow: 'drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]' },
+    { name: 'Platinum', min: 50000, max: 99999, color: 'text-cyan-300', bar: 'bg-cyan-300', glow: 'drop-shadow-[0_0_8px_rgba(103,232,249,0.8)]' },
+    { name: 'Diamond', min: 100000, max: Infinity, color: 'text-fuchsia-400', bar: 'bg-fuchsia-400', glow: 'drop-shadow-[0_0_8px_rgba(232,121,249,0.8)]' }
   ];
 
   const currentIndex = tiers.findIndex(t => score >= t.min && score <= t.max);
@@ -112,7 +113,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
       const now = new Date();
       const nextSaturday = new Date();
       
-      // Force UTC math to match the Supabase server reset
       nextSaturday.setUTCHours(0, 0, 0, 0);
       const daysUntilSaturday = (6 - now.getUTCDay() + 7) % 7;
       const daysToAdd = daysUntilSaturday === 0 ? 7 : daysUntilSaturday;
@@ -176,7 +176,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
             quick_reacts: data.quick_reacts || 0, 
             chapters_read: data.chapters_read || 0, 
             rank: myRank as string, 
-            score: data.lifetime_score !== undefined ? data.lifetime_score : data.score || myScore,
+            score: data.fandom_score || myScore || 0, 
             hypes_remaining: actualHypes 
           };
           setProfileStats(newStats);
@@ -386,12 +386,9 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
                     Lifetime Fandom Tier
                   </span>
                   <h3 className="text-lg font-black uppercase tracking-widest italic text-[#fe9a00] drop-shadow-md">
-                    AM Super Fan <span className={currentTier.color}>• {currentTier.name}</span>
+                    AM Super Fan <span className={currentTier.color}>| {currentTier.name}</span>
                   </h3>
                 </div>
-                <span className="text-xs font-black text-white bg-zinc-900 px-2 py-1 rounded border border-zinc-700">
-                  {profileStats.score?.toLocaleString() || 0} <span className="text-zinc-500 text-[9px] uppercase">Pts</span>
-                </span>
               </div>
 
               <div className="relative h-3 w-full bg-zinc-900 rounded-full border border-zinc-800 overflow-hidden shadow-inner mt-2">
@@ -404,10 +401,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
               {nextTier ? (
                 <div className="flex justify-between items-center mt-2">
                   <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
-                    {Math.round(progressPercent)}% to {nextTier.name}
-                  </span>
-                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
-                    Next: {nextTier.min.toLocaleString()} Pts
+                    {Math.round(progressPercent)}% to <span className={`${nextTier.color} ${nextTier.glow} font-black`}>{nextTier.name}</span>
                   </span>
                 </div>
               ) : (

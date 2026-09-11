@@ -165,6 +165,18 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
          setComments(prev => [newCommentWithFrame, ...prev]); 
       }
       setCommentText(''); 
+      
+      // --- FANDOM SCORE INCREMENT (+3 for Comments) ---
+      supabase.from('profiles').select('fandom_score').eq('id', user.id).maybeSingle().then(({ data: profileData }) => {
+        if (profileData) {
+          supabase.from('profiles').update({ 
+            fandom_score: (profileData.fandom_score || 0) + 3 
+          }).eq('id', user.id).then(() => {
+            window.dispatchEvent(new Event('profileUpdated'));
+          });
+        }
+      });
+      
     } else {
       console.error("Supabase insert error:", error);
       setToastConfig({ 

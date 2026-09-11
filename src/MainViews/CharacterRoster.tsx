@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, X, Flame, ArrowLeft, Shield, Swords, MapPin, Activity, User, ChevronDown, ChevronUp, Lock, Heart } from 'lucide-react';
+import { Search, X, ArrowLeft, Shield, Swords, MapPin, Activity, User, ChevronDown, ChevronUp, Lock, Heart } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+import { HypeButton } from '../Components/HypeButton';
+import { LikeButton } from '../Components/LikeButton';
 
 const getGridGlowClasses = (role: string, isMc: boolean) => {
   if (role === 'Support' && isMc) return 'border-[#fe9a00] shadow-[0_0_20px_rgba(254,154,0,0.8)]';
@@ -40,25 +42,11 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
   const [viewSelection, setViewSelection] = useState('Sort:Role'); 
   const [selectedChar, setSelectedChar] = useState<any>(null);
   
-  const [charHypes, setCharHypes] = useState<Record<string, boolean>>({});
+  // We keep this local state ONLY for the grid quick-like icons
   const [charLikes, setCharLikes] = useState<Record<string, boolean>>({});
-  const [showHypeConfirm, setShowHypeConfirm] = useState<any>(null);
-  const [hypesRemaining, setHypesRemaining] = useState(0); 
 
   const [showMobileDetails, setShowMobileDetails] = useState(false);
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
-
-  // --- NEW: Sync Live Balance ---
-  useEffect(() => {
-    const fetchHypes = async () => {
-      if (!currentUser?.id) return;
-      const { data } = await supabase.from('profiles').select('hypes_remaining').eq('id', currentUser.id).maybeSingle();
-      if (data && data.hypes_remaining !== undefined) setHypesRemaining(data.hypes_remaining);
-    };
-    if (currentUser?.id) fetchHypes();
-    window.addEventListener('profileUpdated', fetchHypes);
-    return () => window.removeEventListener('profileUpdated', fetchHypes);
-  }, [currentUser]);
 
   useEffect(() => {
     const fetchCharacters = async () => {
@@ -155,50 +143,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     return groups;
   }, [characters, searchQuery, viewSelection]);
 
-  const initiateHype = (char: any) => {
-    if (!currentUser) {
-      setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype characters!" });
-      return;
-    }
-    if (hypesRemaining <= 0) {
-      alert("You are out of Hypes! They will automatically replenish this Saturday.");
-      return;
-    }
-    setShowHypeConfirm(char);
-  };
-
-  const executeHype = async () => {
-    const char = showHypeConfirm;
-    setShowHypeConfirm(null);
-    if (!char) return;
-
-    setCharHypes(prev => ({ ...prev, [char.id]: true }));
-    setHypesRemaining(prev => Math.max(0, prev - 1)); // Optimistic UI update
-
-    try {
-      await supabase.from('hypes').insert([{ user_id: currentUser.id, target_type: 'character', target_id: String(char.id) }]);
-      const { data: profile } = await supabase.from('profiles').select('total_hypes, fandom_score, hypes_remaining').eq('id', currentUser.id).maybeSingle();
-      if (profile) {
-        // --- NEW: Deducts from live balance ---
-        const newHypesLeft = Math.max(0, (profile.hypes_remaining || 0) - 1);
-        await supabase.from('profiles').update({ 
-          total_hypes: (profile.total_hypes || 0) + 1, 
-          fandom_score: (profile.fandom_score || 0) + 5,
-          hypes_remaining: newHypesLeft
-        }).eq('id', currentUser.id);
-        
-        window.dispatchEvent(new Event('profileUpdated'));
-      }
-      if (char.series_slug) {
-        const { data: seriesData } = await supabase.from('series').select('weekly_hype, total_hype').eq('slug', char.series_slug).maybeSingle();
-        if (seriesData) {
-          await supabase.from('series').update({ weekly_hype: (seriesData.weekly_hype || 0) + 5, total_hype: (seriesData.total_hype || 0) + 5 }).eq('slug', char.series_slug);
-        }
-      }
-    } catch(e) { console.error("Error updating leaderboard scores for character hype:", e); }
-  };
-
-  const handleToggleLike = async (e: React.MouseEvent, char: any) => {
+  const handleToggleGridLike = async (e: React.MouseEvent, char: any) => {
     e.stopPropagation();
     if (!currentUser) {
       setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like characters!" });
@@ -222,28 +167,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
   return (
     <div className="min-h-screen bg-transparent text-white relative z-[100] pb-48">
       
-      {showHypeConfirm && (
-        <div className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setShowHypeConfirm(null)}>
-          <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <div className="w-16 h-16 bg-[#fe9a00]/10 rounded-full flex items-center justify-center mb-4 border border-[#fe9a00]/30 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
-              <Flame className="w-8 h-8 text-[#fe9a00]" />
-            </div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Drop a Hype?</h2>
-            <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-6">
-              Are you sure you want to spend a Hype on <span className="text-white">{showHypeConfirm.name}</span>? You can hype the same item multiple times!
-            </p>
-            <div className="bg-zinc-900 w-full py-3 rounded-lg border border-zinc-800 mb-6">
-              <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-1">Current Balance</p>
-              <p className="text-lg font-black text-white">{hypesRemaining} <span className="text-[#fe9a00]">Remaining</span></p>
-            </div>
-            <div className="flex gap-3 w-full">
-              <button onClick={() => setShowHypeConfirm(null)} className="flex-1 bg-zinc-900 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:bg-zinc-800 transition-colors">Cancel</button>
-              <button onClick={executeHype} className="flex-1 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">Confirm</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {upsellConfig && (
         <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
@@ -335,7 +258,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                         
                         {/* QUICK LIKE ICON */}
                         <button 
-                          onClick={(e) => handleToggleLike(e, char)}
+                          onClick={(e) => handleToggleGridLike(e, char)}
                           className="absolute top-2 left-2 z-30 p-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/10 hover:bg-zinc-800 transition-all shadow-md"
                         >
                           <Heart className={`w-3.5 h-3.5 transition-colors ${charLikes[char.id] ? 'fill-red-500 text-red-500' : 'text-zinc-400 hover:text-red-400'}`} />
@@ -399,21 +322,26 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
               </p>
               
               {/* ACTION BUTTONS: HYPE & LIKE */}
-              <div className="flex gap-2 w-full max-w-[240px] relative z-10 shadow-lg mt-2">
-                <button 
-                  onClick={() => initiateHype(selectedChar)} 
-                  className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-xl font-black uppercase tracking-widest transition-all text-xs ${charHypes[selectedChar?.id] ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00]' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_15px_rgba(254,154,0,0.3)]'}`}
-                >
-                  <Flame className={`w-4 h-4 ${charHypes[selectedChar?.id] ? 'fill-[#fe9a00]' : ''}`} />
-                  {charHypes[selectedChar?.id] ? 'HYPE AGAIN' : 'HYPE'}
-                </button>
-                <button 
-                  onClick={(e) => handleToggleLike(e, selectedChar)}
-                  className={`w-14 flex flex-shrink-0 items-center justify-center rounded-xl border transition-all ${charLikes[selectedChar?.id] ? 'bg-red-500/20 border-red-500 text-red-500' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-white'}`}
-                  title="Like Character"
-                >
-                  <Heart className={`w-5 h-5 ${charLikes[selectedChar?.id] ? 'fill-red-500' : ''}`} />
-                </button>
+              <div className="flex gap-3 w-full max-w-[240px] relative z-10 shadow-lg mt-2">
+                <div className="flex-1">
+                  <HypeButton 
+                    targetType="character" 
+                    targetId={selectedChar?.id} 
+                    seriesSlug={selectedChar?.series_slug} 
+                    userId={currentUser?.id} 
+                    variant="default" 
+                    onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype characters!" })} 
+                  />
+                </div>
+                <div className="flex-shrink-0">
+                  <LikeButton 
+                    targetType="character" 
+                    targetId={selectedChar?.id} 
+                    userId={currentUser?.id} 
+                    variant="default" 
+                    onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like characters!" })} 
+                  />
+                </div>
               </div>
 
               <button 

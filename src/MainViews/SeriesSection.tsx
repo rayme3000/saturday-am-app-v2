@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Heart } from 'lucide-react';
 import { supabase } from '../supabase';
 
@@ -22,11 +22,22 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, onReq
   const scrollRef = useRef(null);
   const [localLikes, setLocalLikes] = useState<Record<string, boolean>>({});
 
+  const seriesSlugs = useMemo(() => series?.map((s: any) => s.slug).join(',') || '', [series]);
+
   useEffect(() => {
-    if (!currentUser?.id || !series || series.length === 0) return;
+    if (!currentUser?.id || !seriesSlugs) return;
+    
     const fetchLikes = async () => {
-      const slugs = series.map((s: any) => s.slug);
-      const { data } = await supabase.from('series_likes').select('series_slug').eq('user_id', currentUser.id).in('series_slug', slugs);
+      const slugs = seriesSlugs.split(',').filter(Boolean);
+      if (slugs.length === 0) return;
+
+      const { data, error } = await supabase.from('series_likes').select('series_slug').eq('user_id', currentUser.id).in('series_slug', slugs);
+      
+      if (error) {
+        console.error("Fetch likes error:", error.message);
+        return;
+      }
+
       if (data) {
         const map: Record<string, boolean> = {};
         data.forEach((row: any) => { map[row.series_slug] = true; });
@@ -34,7 +45,7 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, onReq
       }
     };
     fetchLikes();
-  }, [currentUser, series]);
+  }, [currentUser?.id, seriesSlugs]);
 
   const scroll = (direction: string) => {
     if (scrollRef.current) {
@@ -44,25 +55,46 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, onReq
     }
   };
 
-  const handleToggleLike = async (e: React.MouseEvent, seriesSlug: string) => {
+  const handleToggleLike = (e: React.MouseEvent, seriesSlug: string) => {
+    e.preventDefault();
     e.stopPropagation();
+    
     if (!currentUser?.id) {
       if (onRequireAuth) onRequireAuth();
       return;
     }
+    
     const currentlyLiked = localLikes[seriesSlug];
-    setLocalLikes(prev => ({ ...prev, [seriesSlug]: !currentlyLiked }));
+    const newLikedState = !currentlyLiked;
+    
+    // Optimistic UI update instantly locks the heart in place without waiting for the DB
+    setLocalLikes(prev => ({ ...prev, [seriesSlug]: newLikedState }));
 
-    try {
-      if (currentlyLiked) {
-        await supabase.from('series_likes').delete().match({ user_id: currentUser.id, series_slug: seriesSlug });
-      } else {
-        await supabase.from('series_likes').insert([{ user_id: currentUser.id, series_slug: seriesSlug }]);
+    // Floating background task for DB and Scoring
+    const syncWithDatabase = async () => {
+      try {
+        if (currentlyLiked) {
+          await supabase.from('series_likes').delete().match({ user_id: currentUser.id, series_slug: seriesSlug });
+        } else {
+          await supabase.from('series_likes').insert([{ user_id: currentUser.id, series_slug: seriesSlug }]);
+        }
+
+        const { data } = await supabase.from('profiles').select('fandom_score').eq('id', currentUser.id).maybeSingle();
+        
+        if (data) {
+          const newScore = newLikedState 
+            ? (data.fandom_score || 0) + 1 
+            : Math.max(0, (data.fandom_score || 0) - 1);
+
+          await supabase.from('profiles').update({ fandom_score: newScore }).eq('id', currentUser.id);
+          window.dispatchEvent(new Event('profileUpdated'));
+        }
+      } catch (err: any) {
+        console.error("Silently caught like error:", err.message);
       }
-    } catch (err) {
-      console.error("Failed to sync like:", err);
-      setLocalLikes(prev => ({ ...prev, [seriesSlug]: currentlyLiked }));
-    }
+    };
+
+    syncWithDatabase();
   };
 
   if (!series || series.length === 0) return null;

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { User, Trophy, Flame, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
+import { useHypeEconomy } from '../HypeEconomyContext'; 
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -167,7 +169,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
           shares: data.shares || 0,
           creator_supports: data.creator_supports || 0,
           rank: myRank as string,
-          score: data.lifetime_score !== undefined ? data.lifetime_score : data.score || 0
+          score: data.fandom_score || 0
         });
         setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', cardSkin: data.card_skin || '', frameId: data.avatar_frame_id || '', topFive: data.top_five || [null, null, null, null, null] });
       }
@@ -193,9 +195,15 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   
   const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score);
 
-  return (
-    <div className="fixed inset-0 z-[5000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden" onClick={onClose}>
+  // WE EXTRACT THE CONTENT SO WE CAN PORTAL IT
+  const cardContent = (
+    <div className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden" onClick={onClose}>
       
+      {/* CSS TO FORCE-HIDE HAMBURGER & NAV */}
+      <style>{`
+        button[aria-label="Open Menu"], nav, .nav-pill { display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important; }
+      `}</style>
+
       <FeatureTutorialModal 
         tutorialId="flex_hype_card" 
         slides={hypeCardTutorialSlides} 
@@ -203,12 +211,15 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
         onClose={() => setForceTutorial(false)}
       />
 
-      <div className="absolute top-4 left-4 md:top-6 md:left-6 z-[5010]">
+      <div className="absolute top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[999999]">
         <TutorialHelpButton onClick={(e: any) => { e.stopPropagation(); setForceTutorial(true); }} />
       </div>
 
-      <button onClick={onClose} className="absolute top-4 right-4 md:top-6 md:right-6 p-2 bg-zinc-900/60 backdrop-blur-md border border-white/10 rounded-full text-white/70 hover:text-white hover:bg-black transition-colors z-[5010] shadow-xl">
-        <X className="w-6 h-6" />
+      <button 
+        onClick={onClose} 
+        className="absolute top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] p-3 text-zinc-500 hover:text-white transition-colors z-[999999] cursor-pointer"
+      >
+        <X className="w-8 h-8" />
       </button>
 
       <div 
@@ -279,7 +290,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                 }
               `}</style>
               
-              {/* Cranked-Up Radial Background Glow */}
               <div 
                 className="absolute inset-0 z-0 pointer-events-none mix-blend-screen"
                 style={{ 
@@ -327,10 +337,6 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                             #{profileStats.rank}
                           </span>
                         </div>
-                        <span className="font-black text-[#fe9a00] flex flex-col items-end justify-center" style={{ fontSize: '3cqi', textShadow: '0 0 1.5cqi rgba(254,154,0,0.5)' }}>
-                          {profileStats.score?.toLocaleString() || 0} 
-                          <span className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.2cqi', textShadow: 'none' }}>Points</span>
-                        </span>
                       </div>
 
                       <div className="relative w-full bg-zinc-900 rounded-full border border-white/10 overflow-hidden shadow-inner" style={{ height: '2cqi', marginTop: '1.5cqi' }}>
@@ -414,10 +420,12 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
         )}
       </div>
       
-      {/* Footer Text Anchored to bottom of physical screen */}
-      <p className="absolute bottom-8 md:bottom-12 text-zinc-500 font-bold uppercase tracking-widest animate-pulse flex items-center gap-2 pointer-events-none text-xs z-[5010]">
+      <p className="absolute bottom-8 md:bottom-12 text-zinc-500 font-bold uppercase tracking-widest animate-pulse flex items-center gap-2 pointer-events-none text-xs z-[999999]">
         <RotateCcw className="w-4 h-4" /> Tap anywhere on card to flip
       </p>
     </div>
   );
+
+  // WE PORTAL IT TO THE BODY
+  return createPortal(cardContent, document.body);
 };

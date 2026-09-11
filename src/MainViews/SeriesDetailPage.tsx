@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, ArrowDown, User, Heart, Lock, X, MessageSquare, PenTool, Crown, Share2, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { supabase } from '../supabase';
 import { MangaReader } from './MangaReader';
-import { SuperHypeButton } from '../Components/SuperHypeButton';
-import { HypeButton } from '../Components/HypeButton';
+import { HypeButton } from '../Components/HypeButton'; 
+import { LikeButton } from '../Components/LikeButton';
 import { SeriesCommentsSection } from '../Components/SeriesCommentsSection';
 import { PromoModal } from '../Components/PromoModal'; 
 import { ShareModal } from '../Components/ShareModal';
@@ -82,17 +82,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
   const [isFavorited, setIsFavorited] = useState(false);
-  const [isSeriesLiked, setIsSeriesLiked] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  
-  const [creatorHypes, setCreatorHypes] = useState<Record<string, boolean>>({});
-  const [showCreatorHypeConfirm, setShowCreatorHypeConfirm] = useState<any>(null);
-  const [hypesRemaining, setHypesRemaining] = useState(0);
   
   const [seriesCharacters, setSeriesCharacters] = useState<any[]>([]);
   const [showAllChars, setShowAllChars] = useState(false);
   
-  const [likedChapters, setLikedChapters] = useState<Record<string, boolean>>({});
   const [collectedSignatures, setCollectedSignatures] = useState<Record<string, string>>({});
 
   const { trackEvent } = useTelemetry(currentUserId || undefined);
@@ -173,18 +167,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }
   }, [userTier]);
 
-  // --- NEW: Sync Live Balance ---
-  useEffect(() => {
-    const fetchHypes = async () => {
-      if (!currentUserId) return;
-      const { data } = await supabase.from('profiles').select('hypes_remaining').eq('id', currentUserId).maybeSingle();
-      if (data && data.hypes_remaining !== undefined) setHypesRemaining(data.hypes_remaining);
-    };
-    if (currentUserId) fetchHypes();
-    window.addEventListener('profileUpdated', fetchHypes);
-    return () => window.removeEventListener('profileUpdated', fetchHypes);
-  }, [currentUserId]);
-
   useEffect(() => {
     const checkFavoriteAndLikeStatus = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -197,11 +179,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         }
         if (data?.is_premium) {
           setIsPremiumUser(true);
-        }
-        
-        const { data: likeData } = await supabase.from('series_likes').select('id').eq('user_id', user.id).eq('series_slug', localSeries.slug).maybeSingle();
-        if (likeData) {
-          setIsSeriesLiked(true);
         }
       }
     };
@@ -294,63 +271,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       setHasAutoOpened(true); 
     }
   }, [chapters, series, hasAutoOpened]);
-
-  const handleChapterHypeUpdate = useCallback((chapterId: string, isNowHyped: boolean) => {
-    setChapterStats((prev: any) => ({
-      ...prev,
-      [chapterId]: {
-        ...prev[chapterId],
-        hypes: Math.max(0, (prev[chapterId]?.hypes || 0) + (isNowHyped ? 1 : -1))
-      }
-    }));
-  }, []);
-
-  const handleToggleLike = (e: React.MouseEvent, chapterId: string) => {
-    e.stopPropagation();
-    if (!currentUserId) {
-      setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like chapters!" });
-      return;
-    }
-    const currentlyLiked = likedChapters[chapterId];
-    setLikedChapters(prev => ({ ...prev, [chapterId]: !currentlyLiked }));
-    
-    setChapterStats((prev: any) => ({
-      ...prev,
-      [chapterId]: {
-        ...prev[chapterId],
-        reacts: Math.max(0, (prev[chapterId]?.reacts || 0) + (currentlyLiked ? -1 : 1))
-      }
-    }));
-  };
-
-  const handleToggleSeriesLike = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!currentUserId || userTier === 'visitor') {
-      setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like this series!" });
-      return;
-    }
-    
-    const previousState = isSeriesLiked;
-    setIsSeriesLiked(!previousState);
-
-    try {
-      if (previousState) {
-        await supabase.from('series_likes').delete().match({ user_id: currentUserId, series_slug: localSeries.slug });
-      } else {
-        await supabase.from('series_likes').insert([{ user_id: currentUserId, series_slug: localSeries.slug }]);
-      }
-    } catch (err) {
-      console.error("Failed to sync series like:", err);
-      setIsSeriesLiked(previousState);
-    }
-  };
-
-  const handleSeriesLike = useCallback((isNowHyped: boolean) => {
-    setLocalSeries((prev: any) => ({
-      ...prev,
-      hype_count: Math.max(0, (prev?.hype_count || 0) + (isNowHyped ? 1 : -1))
-    }));
-  }, []);
 
   const sortedChapters = [...chapters].sort((a, b) => {
     if (sortOrder === 'asc') return a.chapter_number - b.chapter_number;
@@ -473,48 +393,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }, 2000);
   };
 
-  const initiateHypeCreator = (creator: any) => {
-    if (!currentUserId) {
-      setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" });
-      return;
-    }
-    if (hypesRemaining <= 0) {
-      alert("You are out of Hypes! They will automatically replenish this Saturday.");
-      return;
-    }
-    setShowCreatorHypeConfirm(creator);
-  };
-
-  const executeHypeCreator = async () => {
-    const creator = showCreatorHypeConfirm;
-    setShowCreatorHypeConfirm(null);
-    if (!creator) return;
-
-    const creatorId = creator.id || creator.name;
-    setCreatorHypes(prev => ({...prev, [creatorId]: true}));
-    setHypesRemaining(prev => Math.max(0, prev - 1)); // Optimistic UI update
-
-    try {
-      await supabase.from('hypes').insert([{ 
-        user_id: currentUserId, target_type: 'creator', target_id: String(creatorId) 
-      }]);
-      const { data: profile } = await supabase.from('profiles').select('total_hypes, hypes_remaining, fandom_score').eq('id', currentUserId).single();
-      if (profile) {
-        // --- NEW: Deducts from live balance ---
-        const newHypesLeft = Math.max(0, (profile.hypes_remaining || 0) - 1);
-        await supabase.from('profiles').update({ 
-          total_hypes: (profile.total_hypes || 0) + 1,
-          fandom_score: (profile.fandom_score || 0) + 5,
-          hypes_remaining: newHypesLeft
-        }).eq('id', currentUserId);
-        
-        window.dispatchEvent(new Event('profileUpdated'));
-      }
-    } catch(e) {
-      console.error("Error hyping creator:", e);
-    }
-  };
-
   if (!localSeries) return null;
 
   const safeSynopsis = localSeries.synopsis || '';
@@ -528,29 +406,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         forceOpen={forceTutorial}
         onClose={() => setForceTutorial(false)}
       />
-
-      {/* CREATOR HYPE CONFIRMATION MODAL */}
-      {showCreatorHypeConfirm && (
-        <div className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setShowCreatorHypeConfirm(null)}>
-          <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <div className="w-16 h-16 bg-[#fe9a00]/10 rounded-full flex items-center justify-center mb-4 border border-[#fe9a00]/30 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
-              <Flame className="w-8 h-8 text-[#fe9a00]" />
-            </div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Drop a Hype?</h2>
-            <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-6">
-              Are you sure you want to spend a Hype on <span className="text-white">{showCreatorHypeConfirm.name || 'this creator'}</span>? You can hype them multiple times!
-            </p>
-            <div className="bg-zinc-900 w-full py-3 rounded-lg border border-zinc-800 mb-6">
-              <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-1">Current Balance</p>
-              <p className="text-lg font-black text-white">{hypesRemaining} <span className="text-[#fe9a00]">Remaining</span></p>
-            </div>
-            <div className="flex gap-3 w-full">
-              <button onClick={() => setShowCreatorHypeConfirm(null)} className="flex-1 bg-zinc-900 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:bg-zinc-800 transition-colors">Cancel</button>
-              <button onClick={executeHypeCreator} className="flex-1 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">Confirm</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {isAutoLoading && (
         <div className="fixed inset-0 z-[6000] bg-black flex flex-col items-center justify-center">
@@ -702,7 +557,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             hasNext={hasNext}
             hasPrev={hasPrev}
             onNavigate={onNavigate} 
-            onHypeUpdate={handleChapterHypeUpdate}
+            onHypeUpdate={null} // Reader has its own internal like handling for pages now
             onSupportCreator={(e: any) => {
               window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } }));
               setIsReaderOpen(false); 
@@ -820,7 +675,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           <div ref={actionsRef} className="flex flex-col items-center gap-4 mt-8 w-full max-w-sm mx-auto scroll-mt-32">
             
             <div className="w-full flex flex-col gap-3 [&>button]:w-full [&>button]:justify-center">
-              <SuperHypeButton 
+              <HypeButton 
+                variant="series-main"
+                targetType="series"
+                targetId={localSeries.slug}
                 seriesSlug={localSeries.slug} 
                 userId={currentUserId} 
                 isPremium={isPremiumUser}
@@ -846,20 +704,19 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   bonusCount={aggregatedSubHypes}
                   variant="icon"
                   onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype this series!" })}
-                  onToggle={handleSeriesLike}
                 />
                 <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Hypes</span>
               </div>
               
               <div className="flex flex-col items-center gap-2">
-                <button 
-                  onClick={handleToggleSeriesLike} 
-                  className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 border shadow-xl flex items-center justify-center cursor-pointer ${isSeriesLiked ? 'bg-red-500/20 border-red-500/30 text-red-500' : 'bg-black/40 backdrop-blur-md hover:bg-black/60 border-white/5 text-white/70 hover:text-white'}`}
-                  title={isSeriesLiked ? "Liked" : "Like Series"}
-                >
-                  <Heart className={`w-5 h-5 sm:w-6 sm:h-6 ${isSeriesLiked ? 'fill-red-500' : ''}`} />
-                </button>
-                <span className={`text-[9px] font-black uppercase tracking-widest ${isSeriesLiked ? 'text-red-500' : 'text-zinc-500'}`}>Like</span>
+                <LikeButton 
+                  targetType="series" 
+                  targetId={localSeries.slug} 
+                  userId={currentUserId} 
+                  variant="icon" 
+                  onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like this series!" })} 
+                />
+                <span className={`text-[9px] font-black uppercase tracking-widest text-zinc-500`}>Like</span>
               </div>
 
               <div className="flex flex-col items-center gap-2">
@@ -991,20 +848,20 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                            targetId={ch.id}
                            seriesSlug={localSeries.slug} 
                            userId={currentUserId} 
-                           initialCount={0} 
                            variant="chapter-hype-icon"
                            onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype chapters!" })}
-                           onToggle={(isHyped: boolean) => handleChapterHypeUpdate(ch.id, isHyped)}
                          />
                       </div>
 
-                      <button 
-                        onClick={(e) => handleToggleLike(e, ch.id)}
-                        className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-red-500 hover:bg-zinc-800 transition-all"
-                        title="Like Chapter"
-                      >
-                        <Heart className={`w-4 h-4 sm:w-5 sm:h-5 transition-colors ${likedChapters[ch.id] ? 'fill-red-500 text-red-500' : 'group-hover:text-red-400'}`} />
-                      </button>
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <LikeButton 
+                          targetType="chapter" 
+                          targetId={ch.id} 
+                          userId={currentUserId} 
+                          variant="chapter-action-icon" 
+                          onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like chapters!" })} 
+                        />
+                      </div>
 
                       <button 
                         onClick={(e) => scrollToSection(e, commentsRef)} 
@@ -1138,13 +995,15 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     <Heart className="w-4 h-4 fill-black" /> Support {safeName.split(' ')[0]}
                   </button>
 
-                  <button 
-                    onClick={() => initiateHypeCreator(c)}
-                    className={`flex items-center justify-center gap-2 w-full max-w-xs mx-auto mb-8 border transition-all px-8 py-3 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-widest ${creatorHypes[creatorId] ? 'bg-zinc-800 text-[#fe9a00] border-[#fe9a00]' : 'bg-black text-white border-zinc-700 hover:border-white hover:text-white'}`}
-                  >
-                    <Flame className={`w-4 h-4 ${creatorHypes[creatorId] ? 'fill-[#fe9a00]' : ''}`} />
-                    {creatorHypes[creatorId] ? 'HYPE AGAIN' : `HYPE ${safeName.split(' ')[0]}`}
-                  </button>
+                  <div className="w-full max-w-xs mx-auto mb-8">
+                    <HypeButton 
+                      targetType="creator" 
+                      targetId={creatorId} 
+                      userId={currentUserId} 
+                      variant="default" 
+                      onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" })} 
+                    />
+                  </div>
 
                   <div className="flex flex-wrap justify-center gap-3 w-full">
                     {c.twitter_url && <a href={c.twitter_url} target="_blank" rel="noreferrer" className="flex-1 max-w-[140px] text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-4 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]">Twitter</a>}
