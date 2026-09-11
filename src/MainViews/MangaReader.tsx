@@ -329,16 +329,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
     if (currentPageRef.current >= pages.length - 1) {
       setShowEndPrompt(true);
-      const activeUserId = activeUserRef.current;
-      if (activeUserId) {
-        try {
-          const { data: profile } = await supabase.from('profiles').select('chapters_read').eq('id', activeUserId).single();
-          if (profile) {
-            await supabase.from('profiles').update({ chapters_read: (profile.chapters_read || 0) + 1 }).eq('id', activeUserId);
-            window.dispatchEvent(new Event('profileUpdated'));
-          }
-        } catch (error) {}
-      }
       return;
     }
     setCurrentPage((p) => p + 1);
@@ -464,39 +454,52 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   const currentPageHotspots = hotspots.filter(h => h.page_index === currentPage);
 
-  const EndOfChapterPrompt = () => (
-    <div className="flex flex-col gap-3 w-full" onClick={(e) => e.stopPropagation()}>
-      
-      {currentUser?.id && (
-        <div className="w-full mb-2">
-          <HypeButton 
-            targetType="chapter" 
-            targetId={chapterId} 
-            seriesSlug={fallbackSeries.slug}
-            userId={currentUser.id} 
-            initialCount={0} 
-            variant="default"
-            onRequireAuth={() => alert("Create a Free Account to hype chapters!")} 
-            onToggle={(isHyped: boolean) => { if(onHypeUpdate) onHypeUpdate(chapterId, isHyped); }} 
-          />
-        </div>
-      )}
+  const EndOfChapterPrompt = () => {
+    // Silently triggers the +1 Read Point Postgres function instantly when the user reaches the end of the chapter
+    useEffect(() => {
+      const activeUserId = activeUserRef.current;
+      if (activeUserId && chapterId) {
+        supabase.from('completed_reads')
+          .insert([{ user_id: activeUserId, chapter_id: chapterId }])
+          .then(({ error }) => {
+            if (!error) window.dispatchEvent(new Event('profileUpdated'));
+          });
+      }
+    }, []);
 
-      {hasNext && (
-        <button onClick={handleNextChapter} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors flex items-center justify-center gap-2">
-          Read Next <SkipForward className="w-5 h-5" />
+    return (
+      <div className="flex flex-col gap-3 w-full" onClick={(e) => e.stopPropagation()}>
+        {currentUser?.id && (
+          <div className="w-full mb-2">
+            <HypeButton 
+              targetType="chapter" 
+              targetId={chapterId} 
+              seriesSlug={fallbackSeries.slug}
+              userId={currentUser.id} 
+              initialCount={0} 
+              variant="default"
+              onRequireAuth={() => alert("Create a Free Account to hype chapters!")} 
+              onToggle={(isHyped: boolean) => { if(onHypeUpdate) onHypeUpdate(chapterId, isHyped); }} 
+            />
+          </div>
+        )}
+
+        {hasNext && (
+          <button onClick={handleNextChapter} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-full hover:bg-white transition-colors flex items-center justify-center gap-2">
+            Read Next <SkipForward className="w-5 h-5" />
+          </button>
+        )}
+
+        <button onClick={onSupportCreator} className="w-full bg-[#fe9a00]/10 border border-[#fe9a00]/50 text-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-full hover:bg-[#fe9a00] hover:text-black transition-colors flex items-center justify-center gap-2">
+          <Heart className="w-5 h-5" /> Support the Creator
         </button>
-      )}
 
-      <button onClick={onSupportCreator} className="w-full bg-[#fe9a00]/10 border border-[#fe9a00]/50 text-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-full hover:bg-[#fe9a00] hover:text-black transition-colors flex items-center justify-center gap-2">
-        <Heart className="w-5 h-5" /> Support the Creator
-      </button>
-
-      <button onClick={handleClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
-        <ArrowLeft className="w-5 h-5" /> Back to Series
-      </button>
-    </div>
-  );
+        <button onClick={handleClose} className="w-full bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-zinc-700 transition-colors flex items-center justify-center gap-2">
+          <ArrowLeft className="w-5 h-5" /> Back to Series
+        </button>
+      </div>
+    );
+  };
 
   const readerContent = (
     <div 

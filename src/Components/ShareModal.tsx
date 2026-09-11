@@ -8,13 +8,13 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
 
   const isAppShare = !series;
 
-  // 1. Construct the base target URL (where the human goes)
-  const refId = currentUser?.id ? `?ref=${currentUser.id}` : '';
+  // Includes the precise target slug so the recipient device knows exactly which entry to log into the database
+  const targetSlug = series?.slug || 'app';
+  const trackingParams = currentUser?.id ? `?ref=${currentUser.id}&slug=${targetSlug}` : '';
   const baseTargetUrl = isAppShare 
-    ? `https://saturday-am-app-v2.pages.dev/${refId}`
-    : `https://saturday-am-app-v2.pages.dev/series/${series.slug}${refId}`;
+    ? `https://saturday-am-app-v2.pages.dev/${trackingParams}`
+    : `https://saturday-am-app-v2.pages.dev/series/${series.slug}${trackingParams}`;
   
-  // 2. THE MAGIC TRICK: If sharing a panel, wrap it in our Edge Function Link!
   const finalShareUrl = targetImage 
     ? `https://saturday-am-app-v2.pages.dev/share?panel=${encodeURIComponent(targetImage)}&target=${encodeURIComponent(baseTargetUrl)}`
     : baseTargetUrl;

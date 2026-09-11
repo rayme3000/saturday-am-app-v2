@@ -14,6 +14,30 @@ const isNewItem = (createdAt: string | undefined) => {
 let memProfileStats: any = null;
 let memUserProfile: any = null;
 
+const getFandomTier = (lifetimeScore: number) => {
+  const score = lifetimeScore || 0;
+  const tiers = [
+    { name: 'Leaf', min: 0, max: 99, color: 'text-emerald-500', bar: 'bg-emerald-500' },
+    { name: 'Stone', min: 100, max: 999, color: 'text-white', bar: 'bg-white' },
+    { name: 'Bronze', min: 1000, max: 4999, color: 'text-amber-600', bar: 'bg-amber-600' },
+    { name: 'Silver', min: 5000, max: 19999, color: 'text-slate-300', bar: 'bg-slate-300' },
+    { name: 'Gold', min: 20000, max: 49999, color: 'text-yellow-400', bar: 'bg-yellow-400' },
+    { name: 'Platinum', min: 50000, max: 99999, color: 'text-cyan-300', bar: 'bg-cyan-300' },
+    { name: 'Diamond', min: 100000, max: Infinity, color: 'text-fuchsia-400', bar: 'bg-fuchsia-400' }
+  ];
+
+  const currentIndex = tiers.findIndex(t => score >= t.min && score <= t.max);
+  const currentTier = tiers[currentIndex !== -1 ? currentIndex : 0];
+  const nextTier = currentIndex < tiers.length - 1 ? tiers[currentIndex + 1] : null;
+
+  let progressPercent = 100;
+  if (nextTier) {
+    progressPercent = Math.min(100, Math.max(0, ((score - currentTier.min) / (nextTier.min - currentTier.min)) * 100));
+  }
+
+  return { currentTier, nextTier, progressPercent };
+};
+
 const RenderFrameAnimations = ({ anim, color }: { anim: string, color: string }) => {
   if (!anim || anim === 'none') return null;
   return (
@@ -87,11 +111,12 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
     const calculateTimeUntilSaturday = () => {
       const now = new Date();
       const nextSaturday = new Date();
-      const daysUntilSaturday = (6 - now.getDay() + 7) % 7;
-      const daysToAdd = daysUntilSaturday === 0 ? 7 : daysUntilSaturday;
       
-      nextSaturday.setDate(now.getDate() + daysToAdd);
-      nextSaturday.setHours(0, 0, 0, 0);
+      // Force UTC math to match the Supabase server reset
+      nextSaturday.setUTCHours(0, 0, 0, 0);
+      const daysUntilSaturday = (6 - now.getUTCDay() + 7) % 7;
+      const daysToAdd = daysUntilSaturday === 0 ? 7 : daysUntilSaturday;
+      nextSaturday.setUTCDate(now.getUTCDate() + daysToAdd);
 
       const diff = nextSaturday.getTime() - now.getTime();
       const d = Math.floor(diff / (1000 * 60 * 60 * 24));
@@ -151,7 +176,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
             quick_reacts: data.quick_reacts || 0, 
             chapters_read: data.chapters_read || 0, 
             rank: myRank as string, 
-            score: myScore,
+            score: data.lifetime_score !== undefined ? data.lifetime_score : data.score || myScore,
             hypes_remaining: actualHypes 
           };
           setProfileStats(newStats);
@@ -264,6 +289,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
     </div>
   );
 
+  const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score);
+
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-32 sm:pb-40">
       <GlobalFlexCard isOpen={showFlexCard} onClose={() => setShowFlexCard(false)} />
@@ -342,17 +369,54 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         <div className="px-6 mb-10">
           <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-6 bg-gradient-to-r from-zinc-900/90 via-black/80 to-zinc-900/90 border border-zinc-800 rounded-2xl p-6 shadow-2xl backdrop-blur-md relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-[#fe9a00]/10 rounded-bl-full blur-2xl pointer-events-none" />
+            
             <div className="flex items-center gap-4">
               <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shadow-[0_0_15px_rgba(254,154,0,0.3)]"><Trophy className="w-8 h-8 sm:w-10 sm:h-10 text-[#fe9a00]" /></div>
               <div className="flex flex-col text-center sm:text-left">
-                <h3 className="text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1">Global AM Super Fan Rank</h3>
+                <h3 className="text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1">Monthly Leaderboard Rank</h3>
                 <div className="text-4xl sm:text-5xl font-black italic uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-[#fe9a00] drop-shadow-md">#{profileStats.rank}</div>
+                <button onClick={() => onNavigate({ action: 'leaderboard' })} className="mt-2 w-max bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(0,0,0,0.3)] mx-auto sm:mx-0">View Leaderboard</button>
               </div>
             </div>
-            <div className="flex flex-col items-center sm:items-end sm:ml-auto border-t sm:border-t-0 sm:border-l border-zinc-800 pt-4 sm:pt-0 sm:pl-6 w-full sm:w-auto">
-              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Total Fandom Score</span>
-              <div className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 mb-3"><Activity className="w-4 h-4 text-[#fe9a00]" /> {profileStats.score.toLocaleString()}</div>
-              <button onClick={() => onNavigate({ action: 'leaderboard' })} className="w-full sm:w-auto bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-[0_0_10px_rgba(0,0,0,0.3)] hover:shadow-[0_0_15px_rgba(254,154,0,0.4)]">View Leaderboard</button>
+
+            <div className="w-full sm:w-1/2 flex flex-col border-t sm:border-t-0 sm:border-l border-zinc-800 pt-4 sm:pt-0 sm:pl-6 relative z-10">
+              <div className="flex justify-between items-end mb-2">
+                <div>
+                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-0.5">
+                    Lifetime Fandom Tier
+                  </span>
+                  <h3 className="text-lg font-black uppercase tracking-widest italic text-[#fe9a00] drop-shadow-md">
+                    AM Super Fan <span className={currentTier.color}>• {currentTier.name}</span>
+                  </h3>
+                </div>
+                <span className="text-xs font-black text-white bg-zinc-900 px-2 py-1 rounded border border-zinc-700">
+                  {profileStats.score?.toLocaleString() || 0} <span className="text-zinc-500 text-[9px] uppercase">Pts</span>
+                </span>
+              </div>
+
+              <div className="relative h-3 w-full bg-zinc-900 rounded-full border border-zinc-800 overflow-hidden shadow-inner mt-2">
+                <div 
+                  className={`absolute top-0 left-0 h-full transition-all duration-1000 ease-out ${currentTier.bar} shadow-[0_0_10px_rgba(255,255,255,0.3)]`}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+
+              {nextTier ? (
+                <div className="flex justify-between items-center mt-2">
+                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
+                    {Math.round(progressPercent)}% to {nextTier.name}
+                  </span>
+                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
+                    Next: {nextTier.min.toLocaleString()} Pts
+                  </span>
+                </div>
+              ) : (
+                <div className="text-center mt-2">
+                  <span className="text-[9px] font-black text-[#fe9a00] uppercase tracking-widest">
+                    Max Rank Achieved
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -361,7 +425,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><Flame className="w-6 h-6 text-[#fe9a00] mb-2" /><span className="text-3xl font-black">{profileStats.total_hypes.toLocaleString()}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes</span></div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><Star className="w-6 h-6 text-[#fe9a00] mb-2" /><span className="text-3xl font-black">{profileStats.super_hypes?.toLocaleString() || 0}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes</span></div>
-            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" /><span className="text-3xl font-black">{profileStats.quick_reacts.toLocaleString()}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Quick Reacts</span></div>
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" /><span className="text-3xl font-black">{profileStats.quick_reacts.toLocaleString()}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Smart Comments</span></div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><BookOpen className="w-6 h-6 text-[#fe9a00] mb-2" /><span className="text-3xl font-black">{profileStats.chapters_read.toLocaleString()}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Chapters Read</span></div>
             <div className={`flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border relative overflow-hidden shadow-xl ${isSubscriber ? 'border-[#fe9a00]/30' : 'border-zinc-800 opacity-50'}`}>
               <div className={`absolute top-0 right-0 w-16 h-16 rounded-bl-full ${isSubscriber ? 'bg-[#fe9a00]/10' : 'bg-zinc-800'}`}></div>

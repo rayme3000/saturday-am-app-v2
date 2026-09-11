@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, X, Flame, ArrowLeft, Shield, Swords, MapPin, Activity, User, ChevronDown, ChevronUp, Lock } from 'lucide-react';
+import { Search, X, Flame, ArrowLeft, Shield, Swords, MapPin, Activity, User, ChevronDown, ChevronUp, Lock, Heart } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
@@ -41,11 +41,24 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
   const [selectedChar, setSelectedChar] = useState<any>(null);
   
   const [charHypes, setCharHypes] = useState<Record<string, boolean>>({});
+  const [charLikes, setCharLikes] = useState<Record<string, boolean>>({});
   const [showHypeConfirm, setShowHypeConfirm] = useState<any>(null);
-  const [hypesRemaining, setHypesRemaining] = useState(5); 
+  const [hypesRemaining, setHypesRemaining] = useState(0); 
 
   const [showMobileDetails, setShowMobileDetails] = useState(false);
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
+
+  // --- NEW: Sync Live Balance ---
+  useEffect(() => {
+    const fetchHypes = async () => {
+      if (!currentUser?.id) return;
+      const { data } = await supabase.from('profiles').select('hypes_remaining').eq('id', currentUser.id).maybeSingle();
+      if (data && data.hypes_remaining !== undefined) setHypesRemaining(data.hypes_remaining);
+    };
+    if (currentUser?.id) fetchHypes();
+    window.addEventListener('profileUpdated', fetchHypes);
+    return () => window.removeEventListener('profileUpdated', fetchHypes);
+  }, [currentUser]);
 
   useEffect(() => {
     const fetchCharacters = async () => {
@@ -64,6 +77,20 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     };
     fetchCharacters();
   }, []);
+
+  useEffect(() => {
+    if (!currentUser || !rawCharacters.length) return;
+    const fetchCharLikes = async () => {
+      const charIds = rawCharacters.map(c => c.id);
+      const { data } = await supabase.from('character_likes').select('character_id').eq('user_id', currentUser.id).in('character_id', charIds);
+      if (data) {
+        const likesMap: Record<string, boolean> = {};
+        data.forEach(row => { likesMap[row.character_id] = true; });
+        setCharLikes(likesMap);
+      }
+    };
+    fetchCharLikes();
+  }, [currentUser, rawCharacters]);
 
   const characters = useMemo(() => {
     if (!Array.isArray(rawCharacters)) return [];
@@ -146,13 +173,20 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     if (!char) return;
 
     setCharHypes(prev => ({ ...prev, [char.id]: true }));
-    setHypesRemaining(prev => Math.max(0, prev - 1));
+    setHypesRemaining(prev => Math.max(0, prev - 1)); // Optimistic UI update
 
     try {
       await supabase.from('hypes').insert([{ user_id: currentUser.id, target_type: 'character', target_id: String(char.id) }]);
-      const { data: profile } = await supabase.from('profiles').select('total_hypes, fandom_score').eq('id', currentUser.id).maybeSingle();
+      const { data: profile } = await supabase.from('profiles').select('total_hypes, fandom_score, hypes_remaining').eq('id', currentUser.id).maybeSingle();
       if (profile) {
-        await supabase.from('profiles').update({ total_hypes: (profile.total_hypes || 0) + 1, fandom_score: (profile.fandom_score || 0) + 5 }).eq('id', currentUser.id);
+        // --- NEW: Deducts from live balance ---
+        const newHypesLeft = Math.max(0, (profile.hypes_remaining || 0) - 1);
+        await supabase.from('profiles').update({ 
+          total_hypes: (profile.total_hypes || 0) + 1, 
+          fandom_score: (profile.fandom_score || 0) + 5,
+          hypes_remaining: newHypesLeft
+        }).eq('id', currentUser.id);
+        
         window.dispatchEvent(new Event('profileUpdated'));
       }
       if (char.series_slug) {
@@ -162,6 +196,27 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
         }
       }
     } catch(e) { console.error("Error updating leaderboard scores for character hype:", e); }
+  };
+
+  const handleToggleLike = async (e: React.MouseEvent, char: any) => {
+    e.stopPropagation();
+    if (!currentUser) {
+      setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like characters!" });
+      return;
+    }
+    const currentlyLiked = charLikes[char.id];
+    setCharLikes(prev => ({ ...prev, [char.id]: !currentlyLiked }));
+
+    try {
+      if (currentlyLiked) {
+        await supabase.from('character_likes').delete().match({ user_id: currentUser.id, character_id: char.id });
+      } else {
+        await supabase.from('character_likes').insert([{ user_id: currentUser.id, character_id: char.id }]);
+      }
+    } catch (err) {
+      console.error("Failed to sync character like:", err);
+      setCharLikes(prev => ({ ...prev, [char.id]: currentlyLiked }));
+    }
   };
 
   return (
@@ -277,6 +332,15 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                         <User className="w-10 h-10 text-zinc-600 absolute z-0" />
                         {char?.headshot_url && <img src={char.headshot_url} alt={char?.name} loading="lazy" decoding="async" onError={(e) => { e.currentTarget.style.display = 'none'; }} className="w-full h-full object-cover relative z-10 bg-zinc-900" />}
                         {char?.is_mc && <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-20 uppercase">MC</div>}
+                        
+                        {/* QUICK LIKE ICON */}
+                        <button 
+                          onClick={(e) => handleToggleLike(e, char)}
+                          className="absolute top-2 left-2 z-30 p-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/10 hover:bg-zinc-800 transition-all shadow-md"
+                        >
+                          <Heart className={`w-3.5 h-3.5 transition-colors ${charLikes[char.id] ? 'fill-red-500 text-red-500' : 'text-zinc-400 hover:text-red-400'}`} />
+                        </button>
+
                         <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent z-20 pointer-events-none" />
                         {char?.element && char.element !== 'None' && <span className="absolute bottom-1.5 right-1.5 text-[8px] font-black uppercase tracking-widest bg-black/60 px-1.5 py-0.5 rounded backdrop-blur-sm border border-white/10 z-30">{char.element}</span>}
                       </div>
@@ -334,13 +398,23 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                 {selectedChar?.series_title}
               </p>
               
-              <button 
-                onClick={() => initiateHype(selectedChar)} 
-                className={`w-full max-w-[240px] flex items-center justify-center gap-2 py-4 rounded-xl font-black uppercase tracking-widest transition-all text-xs relative z-10 shadow-lg ${charHypes[selectedChar?.id] ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00]' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_15px_rgba(254,154,0,0.3)]'}`}
-              >
-                <Flame className={`w-4 h-4 ${charHypes[selectedChar?.id] ? 'fill-[#fe9a00]' : ''}`} />
-                {charHypes[selectedChar?.id] ? 'HYPE AGAIN' : 'HYPE CHARACTER'}
-              </button>
+              {/* ACTION BUTTONS: HYPE & LIKE */}
+              <div className="flex gap-2 w-full max-w-[240px] relative z-10 shadow-lg mt-2">
+                <button 
+                  onClick={() => initiateHype(selectedChar)} 
+                  className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-xl font-black uppercase tracking-widest transition-all text-xs ${charHypes[selectedChar?.id] ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00]' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_15px_rgba(254,154,0,0.3)]'}`}
+                >
+                  <Flame className={`w-4 h-4 ${charHypes[selectedChar?.id] ? 'fill-[#fe9a00]' : ''}`} />
+                  {charHypes[selectedChar?.id] ? 'HYPE AGAIN' : 'HYPE'}
+                </button>
+                <button 
+                  onClick={(e) => handleToggleLike(e, selectedChar)}
+                  className={`w-14 flex flex-shrink-0 items-center justify-center rounded-xl border transition-all ${charLikes[selectedChar?.id] ? 'bg-red-500/20 border-red-500 text-red-500' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-white'}`}
+                  title="Like Character"
+                >
+                  <Heart className={`w-5 h-5 ${charLikes[selectedChar?.id] ? 'fill-red-500' : ''}`} />
+                </button>
+              </div>
 
               <button 
                 onClick={() => { const seriesSlug = selectedChar?.series_slug; setSelectedChar(null); if (seriesSlug) onNavigate({ slug: seriesSlug, action: 'series' }); }} 

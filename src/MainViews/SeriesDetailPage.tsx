@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, ArrowDown, User, Heart, Lock, X, MessageSquare, PenTool, Crown, Share2, Loader2, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, ArrowDown, User, Heart, Lock, X, MessageSquare, PenTool, Crown, Share2, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { supabase } from '../supabase';
 import { MangaReader } from './MangaReader';
 import { SuperHypeButton } from '../Components/SuperHypeButton';
@@ -82,11 +82,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
   const [isFavorited, setIsFavorited] = useState(false);
+  const [isSeriesLiked, setIsSeriesLiked] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   const [creatorHypes, setCreatorHypes] = useState<Record<string, boolean>>({});
   const [showCreatorHypeConfirm, setShowCreatorHypeConfirm] = useState<any>(null);
-  const [hypesRemaining, setHypesRemaining] = useState(5);
+  const [hypesRemaining, setHypesRemaining] = useState(0);
   
   const [seriesCharacters, setSeriesCharacters] = useState<any[]>([]);
   const [showAllChars, setShowAllChars] = useState(false);
@@ -172,8 +173,20 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }
   }, [userTier]);
 
+  // --- NEW: Sync Live Balance ---
   useEffect(() => {
-    const checkFavoriteStatus = async () => {
+    const fetchHypes = async () => {
+      if (!currentUserId) return;
+      const { data } = await supabase.from('profiles').select('hypes_remaining').eq('id', currentUserId).maybeSingle();
+      if (data && data.hypes_remaining !== undefined) setHypesRemaining(data.hypes_remaining);
+    };
+    if (currentUserId) fetchHypes();
+    window.addEventListener('profileUpdated', fetchHypes);
+    return () => window.removeEventListener('profileUpdated', fetchHypes);
+  }, [currentUserId]);
+
+  useEffect(() => {
+    const checkFavoriteAndLikeStatus = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user && localSeries) {
         setCurrentUserId(user.id);
@@ -185,9 +198,14 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         if (data?.is_premium) {
           setIsPremiumUser(true);
         }
+        
+        const { data: likeData } = await supabase.from('series_likes').select('id').eq('user_id', user.id).eq('series_slug', localSeries.slug).maybeSingle();
+        if (likeData) {
+          setIsSeriesLiked(true);
+        }
       }
     };
-    checkFavoriteStatus();
+    checkFavoriteAndLikeStatus();
   }, [localSeries]);
 
   useEffect(() => {
@@ -303,6 +321,28 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         reacts: Math.max(0, (prev[chapterId]?.reacts || 0) + (currentlyLiked ? -1 : 1))
       }
     }));
+  };
+
+  const handleToggleSeriesLike = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUserId || userTier === 'visitor') {
+      setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like this series!" });
+      return;
+    }
+    
+    const previousState = isSeriesLiked;
+    setIsSeriesLiked(!previousState);
+
+    try {
+      if (previousState) {
+        await supabase.from('series_likes').delete().match({ user_id: currentUserId, series_slug: localSeries.slug });
+      } else {
+        await supabase.from('series_likes').insert([{ user_id: currentUserId, series_slug: localSeries.slug }]);
+      }
+    } catch (err) {
+      console.error("Failed to sync series like:", err);
+      setIsSeriesLiked(previousState);
+    }
   };
 
   const handleSeriesLike = useCallback((isNowHyped: boolean) => {
@@ -452,15 +492,22 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
     const creatorId = creator.id || creator.name;
     setCreatorHypes(prev => ({...prev, [creatorId]: true}));
-    setHypesRemaining(prev => Math.max(0, prev - 1));
+    setHypesRemaining(prev => Math.max(0, prev - 1)); // Optimistic UI update
 
     try {
       await supabase.from('hypes').insert([{ 
         user_id: currentUserId, target_type: 'creator', target_id: String(creatorId) 
       }]);
-      const { data: profile } = await supabase.from('profiles').select('total_hypes').eq('id', currentUserId).single();
+      const { data: profile } = await supabase.from('profiles').select('total_hypes, hypes_remaining, fandom_score').eq('id', currentUserId).single();
       if (profile) {
-        await supabase.from('profiles').update({ total_hypes: (profile.total_hypes || 0) + 1 }).eq('id', currentUserId);
+        // --- NEW: Deducts from live balance ---
+        const newHypesLeft = Math.max(0, (profile.hypes_remaining || 0) - 1);
+        await supabase.from('profiles').update({ 
+          total_hypes: (profile.total_hypes || 0) + 1,
+          fandom_score: (profile.fandom_score || 0) + 5,
+          hypes_remaining: newHypesLeft
+        }).eq('id', currentUserId);
+        
         window.dispatchEvent(new Event('profileUpdated'));
       }
     } catch(e) {
@@ -550,6 +597,18 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               <>
                 <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20"><X className="w-6 h-6" /></button>
                 <div className="p-6 sm:p-8 animate-fade-in">
+                  
+                  {/* BETA WARNING BANNER */}
+                  <div className="bg-yellow-500/10 border border-yellow-500/50 p-4 rounded-xl flex items-start gap-3 mb-6">
+                    <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                    <div className="text-left">
+                      <h3 className="text-yellow-500 font-black uppercase tracking-widest text-[10px] mb-1">Beta Test Warning</h3>
+                      <p className="text-zinc-300 text-[10px] sm:text-xs font-bold leading-relaxed">
+                        This feature is currently in testing. Any tips made right now are simulated. No real money will be charged, and no funds will be sent to the creator.
+                      </p>
+                    </div>
+                  </div>
+
                   <div className="flex flex-col items-center mb-6 text-center mt-2">
                     <img src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]" alt={donationCreator.name} />
                     <h3 className="text-xl font-black italic uppercase text-white leading-tight">Support {donationCreator.name}</h3>
@@ -790,6 +849,17 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   onToggle={handleSeriesLike}
                 />
                 <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Hypes</span>
+              </div>
+              
+              <div className="flex flex-col items-center gap-2">
+                <button 
+                  onClick={handleToggleSeriesLike} 
+                  className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 border shadow-xl flex items-center justify-center cursor-pointer ${isSeriesLiked ? 'bg-red-500/20 border-red-500/30 text-red-500' : 'bg-black/40 backdrop-blur-md hover:bg-black/60 border-white/5 text-white/70 hover:text-white'}`}
+                  title={isSeriesLiked ? "Liked" : "Like Series"}
+                >
+                  <Heart className={`w-5 h-5 sm:w-6 sm:h-6 ${isSeriesLiked ? 'fill-red-500' : ''}`} />
+                </button>
+                <span className={`text-[9px] font-black uppercase tracking-widest ${isSeriesLiked ? 'text-red-500' : 'text-zinc-500'}`}>Like</span>
               </div>
 
               <div className="flex flex-col items-center gap-2">
@@ -1057,6 +1127,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   
                   <button 
                     onClick={() => {
+                      alert("BETA WARNING: This feature is currently in testing. Any tips made right now are simulated. No real money will be charged, and no funds will be sent to the creator.");
                       setDonationCreator(c);
                       setDonationStep('input');
                       setDonationAmount(5);

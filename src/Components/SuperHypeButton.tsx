@@ -6,20 +6,16 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequireAuth, 
   const [hasSuperHyped, setHasSuperHyped] = useState(false);
   const [hypesLeft, setHypesLeft] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  
-  // --- NEW: CONFIRMATION MODAL STATE ---
   const [showConfirm, setShowConfirm] = useState(false);
 
-  // Dynamically calculate days until Saturday 12:00 AM
+  // Dynamically calculate days until Saturday 12:00 AM (UTC)
   const getDaysUntilReset = () => {
     const now = new Date();
-    const nextSaturday = new Date(now);
-    nextSaturday.setDate(now.getDate() + ((6 - now.getDay() + 7) % 7));
-    nextSaturday.setHours(0, 0, 0, 0);
-    
-    if (now >= nextSaturday) {
-      nextSaturday.setDate(nextSaturday.getDate() + 7);
-    }
+    const nextSaturday = new Date();
+    nextSaturday.setUTCHours(0, 0, 0, 0);
+    const daysUntilSaturday = (6 - now.getUTCDay() + 7) % 7;
+    const daysToAdd = daysUntilSaturday === 0 ? 7 : daysUntilSaturday;
+    nextSaturday.setUTCDate(now.getUTCDate() + daysToAdd);
     
     const diffTime = Math.abs(nextSaturday.getTime() - now.getTime());
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -34,7 +30,6 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequireAuth, 
   }, [userId, seriesSlug, isPremium]);
 
   const checkSuperHypeStatus = async () => {
-    // Added .limit(1) to prevent errors now that multiple hypes are allowed
     const { data: hypeData } = await supabase
       .from('super_hypes')
       .select('id')
@@ -47,12 +42,32 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequireAuth, 
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('super_hypes_left')
+      .select('hypes_remaining, last_hype_refill')
       .eq('id', userId)
       .maybeSingle();
       
-    if (profile && profile.super_hypes_left !== undefined) {
-      setHypesLeft(profile.super_hypes_left);
+    if (profile) {
+      let actualHypes = profile.hypes_remaining !== undefined ? profile.hypes_remaining : 0;
+      
+      // UTC Math to check if we passed last Saturday
+      const now = new Date();
+      const nextSaturday = new Date();
+      nextSaturday.setUTCHours(0, 0, 0, 0);
+      const daysUntilSaturday = (6 - now.getUTCDay() + 7) % 7;
+      const daysToAdd = daysUntilSaturday === 0 ? 7 : daysUntilSaturday;
+      nextSaturday.setUTCDate(now.getUTCDate() + daysToAdd);
+      
+      const lastSaturday = new Date(nextSaturday);
+      lastSaturday.setUTCDate(lastSaturday.getUTCDate() - 7);
+      
+      const lastRefill = new Date(profile.last_hype_refill || 0);
+
+      // If the last refill was before last Saturday, automatically grant the new weekly allowance
+      if (lastRefill < lastSaturday) {
+        actualHypes = isPremium ? 7 : 1;
+      }
+      
+      setHypesLeft(actualHypes);
     }
 
     setIsLoading(false);
@@ -77,11 +92,10 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequireAuth, 
     if (isLoading) return;
 
     if (hypesLeft !== null && hypesLeft !== undefined && hypesLeft <= 0) {
-      alert("You are out of Super Hypes! They will automatically replenish this Saturday.");
+      alert("You are out of Hypes! They will automatically replenish this Saturday.");
       return;
     }
 
-    // Trigger the modal instead of instantly firing
     setShowConfirm(true);
   };
 
@@ -98,18 +112,19 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequireAuth, 
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('super_hypes, super_hypes_left')
+        .select('super_hypes')
         .eq('id', userId)
         .single();
       
-      if (profile && profile.super_hypes_left > 0) {
-        const newHypesLeft = profile.super_hypes_left - 1;
+      if (hypesLeft !== null && hypesLeft > 0) {
+        const newHypesLeft = hypesLeft - 1;
         
+        // Deduct from the shared hypes_remaining column
         await supabase
           .from('profiles')
           .update({ 
-            super_hypes_left: newHypesLeft,
-            super_hypes: (profile.super_hypes || 0) + 1
+            hypes_remaining: newHypesLeft,
+            super_hypes: (profile?.super_hypes || 0) + 1
           })
           .eq('id', userId);
           
@@ -117,6 +132,10 @@ export const SuperHypeButton = ({ seriesSlug, userId, isPremium, onRequireAuth, 
       }
 
       setHasSuperHyped(true);
+
+      // Instantly trigger the global tracker to update its number
+      window.dispatchEvent(new Event('profileUpdated'));
+
     } catch (err) {
       console.error("Failed to hype:", err);
     } finally {

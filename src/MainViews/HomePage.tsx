@@ -396,7 +396,16 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             .sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99));
             
           if (seriesInSection.length === 0) return null; 
-          return <SeriesSection key={section.id} title={section.title} series={seriesInSection} onSeriesClick={onNavigate} />;
+          return (
+            <SeriesSection 
+              key={section.id} 
+              title={section.title} 
+              series={seriesInSection} 
+              onSeriesClick={onNavigate} 
+              currentUser={currentUser}
+              onRequireAuth={onLoginClick}
+            />
+          );
         })}
       </div>
     </div>

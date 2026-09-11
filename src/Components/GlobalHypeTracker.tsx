@@ -44,25 +44,30 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
       
     if (!profile) return;
 
+    // Bulletproof UTC time-math to find the most recent Saturday at 00:00:00 UTC
     const now = new Date();
-    // Find the most recent Saturday at 12:00 AM local time
-    const lastSaturday = new Date(now);
-    lastSaturday.setDate(now.getDate() - ((now.getDay() + 1) % 7));
-    lastSaturday.setHours(0, 0, 0, 0);
+    const dayOfWeek = now.getUTCDay();
+    const daysSinceSaturday = (dayOfWeek + 1) % 7;
+    const lastSaturday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysSinceSaturday));
 
     const lastRefill = new Date(profile.last_hype_refill || 0);
 
-    // If they haven't been refilled since last Saturday, reset them
+    // If they haven't been refilled since last Saturday (UTC), reset them
     if (lastRefill < lastSaturday) {
       const newHypes = profile.is_premium ? 7 : 1;
       
-      await supabase.from('profiles').update({
+      // Removed the missing ads column to prevent a silent error that was causing infinite resets
+      const { error } = await supabase.from('profiles').update({
         hypes_remaining: newHypes,
-        ads_watched_this_week: 0,
         last_hype_refill: now.toISOString()
       }).eq('id', resolvedUser.id);
 
-      setLocalHypes(newHypes);
+      if (!error) {
+        setLocalHypes(newHypes);
+      } else {
+        // Fallback to DB state if update fails, to avoid artificially inflating the UI
+        setLocalHypes(profile.hypes_remaining || 0);
+      }
     } else {
       setLocalHypes(profile.hypes_remaining || 0);
     }
