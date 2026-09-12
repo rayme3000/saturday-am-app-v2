@@ -35,16 +35,65 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
       setIsLoading(true);
 
       try {
-        const { data: topFans, error: fansError } = await supabase.rpc('fetch_top_ten_fans');
-        if (topFans && !fansError) {
-          const formattedTop10 = topFans.map((fan: any, index: number) => {
-            let rankClass = 'C-Class Rank';
-            if (index < 3) rankClass = 'S-Class Rank';
-            else if (index < 6) rankClass = 'A-Class Rank';
-            else if (index < 9) rankClass = 'B-Class Rank';
-            return { ...fan, class: rankClass, score: Number(fan.score) };
+        const now = new Date();
+        const lastSaturday = new Date(now);
+        lastSaturday.setDate(now.getDate() - ((now.getDay() + 1) % 7));
+        lastSaturday.setHours(0, 0, 0, 0);
+
+        // --- WEEKLY TOP SUPPORTERS (Bypassing RPC for strict date filtering) ---
+        const [
+          { data: weeklyHypes },
+          { data: weeklySeriesLikes },
+          { data: weeklyChapterLikes },
+          { data: weeklyComments }
+        ] = await Promise.all([
+          supabase.from('hypes').select('user_id').gte('created_at', lastSaturday.toISOString()),
+          supabase.from('series_likes').select('user_id').gte('created_at', lastSaturday.toISOString()),
+          supabase.from('chapter_likes').select('user_id').gte('created_at', lastSaturday.toISOString()),
+          supabase.from('series_comments').select('user_id').gte('created_at', lastSaturday.toISOString())
+        ]);
+
+        const fanActivityCounts: Record<string, number> = {};
+        const countActivity = (arr: any[] | null, points: number) => {
+          if (!arr) return;
+          arr.forEach(item => {
+            if (item.user_id) fanActivityCounts[item.user_id] = (fanActivityCounts[item.user_id] || 0) + points;
           });
-          setSuperFans(formattedTop10);
+        };
+
+        countActivity(weeklyHypes, 1);
+        countActivity(weeklySeriesLikes, 1);
+        countActivity(weeklyChapterLikes, 1);
+        countActivity(weeklyComments, 3); // Comments weighted higher
+
+        const activeUserIds = Object.keys(fanActivityCounts);
+        if (activeUserIds.length > 0) {
+          const top10Ids = activeUserIds.sort((a, b) => fanActivityCounts[b] - fanActivityCounts[a]).slice(0, 10);
+          
+          const { data: topProfiles } = await supabase.from('profiles').select('id, username, avatar_url, avatar_frame_id, is_premium').in('id', top10Ids);
+          
+          if (topProfiles) {
+            const formattedTop10 = top10Ids.map((id, index) => {
+              const profile = topProfiles.find((p: any) => p.id === id) || { username: 'Unknown Fan' };
+              let rankClass = 'C-Class Rank';
+              if (index < 3) rankClass = 'S-Class Rank';
+              else if (index < 6) rankClass = 'A-Class Rank';
+              else if (index < 9) rankClass = 'B-Class Rank';
+              
+              return { 
+                id,
+                username: profile.username,
+                avatar_url: profile.avatar_url,
+                frame_id: profile.avatar_frame_id || profile.frame_id,
+                is_premium: profile.is_premium,
+                rank: index + 1,
+                class: rankClass
+              };
+            });
+            setSuperFans(formattedTop10);
+          }
+        } else {
+          setSuperFans([]);
         }
 
         if (currentUser) {
@@ -70,15 +119,23 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             .sort((a: any, b: any) => b.hypeScore - a.hypeScore);
 
           setBig3(rankedSeries.slice(0, 3));
-          setTopSeries(rankedSeries.slice(0, 5));
         }
 
-        const { data: creatorHypesData } = await supabase.from('hypes').select('target_id').eq('target_type', 'creator');
+        if (seriesList.length > 0) {
+          const weeklyRankedSeries = [...seriesList]
+            .map((s: any) => ({ ...s, hypeScore: s.weekly_hype || 0 }))
+            .sort((a, b) => b.hypeScore - a.hypeScore);
+          setTopSeries(weeklyRankedSeries.slice(0, 5));
+        }
+
+        const { data: allCreatorHypes } = await supabase.from('hypes').select('target_id, created_at').eq('target_type', 'creator');
         const { data: allCreatorsData } = await supabase.from('series_creators').select('name, avatar_url, role, series_slug');
         
-        if (creatorHypesData && allCreatorsData) {
+        if (allCreatorHypes && allCreatorsData) {
+            const weeklyCreatorHypes = allCreatorHypes.filter((h: any) => new Date(h.created_at) >= lastSaturday);
             const creatorHypeCounts: Record<string, number> = {};
-            creatorHypesData.forEach((h: any) => { creatorHypeCounts[h.target_id] = (creatorHypeCounts[h.target_id] || 0) + 1; });
+            weeklyCreatorHypes.forEach((h: any) => { creatorHypeCounts[h.target_id] = (creatorHypeCounts[h.target_id] || 0) + 1; });
+            
             const uniqueCreatorsMap = new Map();
             allCreatorsData.forEach((c: any) => { if (!uniqueCreatorsMap.has(c.name)) uniqueCreatorsMap.set(c.name, c); });
             const rankedCreators = Array.from(uniqueCreatorsMap.values())
@@ -87,12 +144,13 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             setTopCreators(rankedCreators);
         }
 
-        const { data: charHypesData } = await supabase.from('hypes').select('target_id').eq('target_type', 'character');
+        const { data: allCharHypes } = await supabase.from('hypes').select('target_id, created_at').eq('target_type', 'character');
         const { data: allCharsData } = await supabase.from('series_characters').select('id, name, headshot_url, series_slug');
         
-        if (charHypesData && allCharsData) {
+        if (allCharHypes && allCharsData) {
+            const weeklyCharHypes = allCharHypes.filter((h: any) => new Date(h.created_at) >= lastSaturday);
             const charHypeCounts: Record<string, number> = {};
-            charHypesData.forEach((h: any) => { charHypeCounts[h.target_id] = (charHypeCounts[h.target_id] || 0) + 1; });
+            weeklyCharHypes.forEach((h: any) => { charHypeCounts[h.target_id] = (charHypeCounts[h.target_id] || 0) + 1; });
             
             const rankedChars = allCharsData
                 .map((c: any) => {
@@ -103,18 +161,55 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             setTopCharacters(rankedChars);
         }
 
-        // --- FETCH TOP 3 HYPED CHAPTERS (FRESH FUNCTION) ---
-        const { data: weeklyChaptersData } = await supabase.rpc('get_trending_chapters');
-        if (weeklyChaptersData && weeklyChaptersData.length > 0) {
-          setTopWeeklyChapters(weeklyChaptersData.slice(0, 3));
+        // --- WEEKLY TOP CHAPTERS (Bypassing RPC for strict date filtering) ---
+        const [chapterHypesRes, chapterLikesRes] = await Promise.all([
+          supabase.from('hypes').select('target_id').eq('target_type', 'chapter').gte('created_at', lastSaturday.toISOString()),
+          supabase.from('chapter_likes').select('chapter_id').gte('created_at', lastSaturday.toISOString())
+        ]);
+
+        const chapterInteractionCounts: Record<string, number> = {};
+        
+        if (chapterHypesRes.data) {
+          chapterHypesRes.data.forEach((h: any) => { 
+            chapterInteractionCounts[h.target_id] = (chapterInteractionCounts[h.target_id] || 0) + 1; 
+          });
+        }
+        if (chapterLikesRes.data) {
+          chapterLikesRes.data.forEach((l: any) => { 
+            chapterInteractionCounts[l.chapter_id] = (chapterInteractionCounts[l.chapter_id] || 0) + 1; 
+          });
         }
 
-        // --- MONTHLY BIG 3 CREATORS ---
+        const trendingChapIds = Object.keys(chapterInteractionCounts);
+        
+        if (trendingChapIds.length > 0) {
+          const { data: chapsData } = await supabase
+            .from('chapters')
+            .select('id, title, chapter_number, series_slug, thumbnail_url')
+            .in('id', trendingChapIds);
+            
+          if (chapsData) {
+            const rankedChaps = chapsData.map((c: any) => {
+              const sData = seriesList.find((s:any) => s.slug === c.series_slug);
+              return { 
+                ...c, 
+                series_title: sData?.title || 'Unknown Series', 
+                cover_url: sData?.cover_url,
+                hypeScore: chapterInteractionCounts[c.id] || 0 
+              };
+            }).sort((a: any, b: any) => b.hypeScore - a.hypeScore);
+            
+            setTopWeeklyChapters(rankedChaps.slice(0, 3));
+          }
+        } else {
+          setTopWeeklyChapters([]);
+        }
+
         if (allCreatorsData) {
           const combinedCreatorScores: Record<string, number> = {};
           
-          if (creatorHypesData) {
-            creatorHypesData.forEach((h: any) => {
+          if (allCreatorHypes) {
+            allCreatorHypes.forEach((h: any) => {
               combinedCreatorScores[h.target_id] = (combinedCreatorScores[h.target_id] || 0) + 1;
             });
           }
@@ -203,7 +298,9 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                </div>
             </div>
           )) : (
-            <p className="text-zinc-500 text-xs font-bold uppercase text-center py-6">Gathering Data...</p>
+            <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest text-center py-8">
+              {activeTab === 'weekly' ? 'No hypes yet this week. Be the first!' : 'Not enough rankings data yet.'}
+            </p>
           )}
        </div>
     </div>
@@ -225,7 +322,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/95 to-transparent" />
       </div>
 
-      <div className="sticky top-0 z-50 w-full bg-black/80 backdrop-blur-lg border-b border-zinc-800/50 pt-6 pb-4 px-4 sm:pt-8 sm:px-8 pr-16 sm:pr-24 shadow-xl">
+      <div className="sticky top-0 z-50 w-full bg-black/80 backdrop-blur-lg border-b border-zinc-800/50 pt-6 pb-4 px-4 sm:pt-8 sm:px-8 pr-24 sm:pr-32 shadow-xl">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3 sm:gap-4">
             <button onClick={onBack} className="p-3 bg-zinc-900/90 backdrop-blur-md rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors transform -skew-x-12 shadow-xl shrink-0">
@@ -236,7 +333,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             </div>
           </div>
           
-          <div className="flex flex-col items-end drop-shadow-lg pointer-events-none">
+          <div className="flex flex-col items-end drop-shadow-lg pointer-events-none mr-12 sm:mr-16 md:mr-0">
             <h1 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] flex items-center gap-2">
               <Trophy className="w-6 h-6 sm:w-8 sm:h-8" /> Leaderboard
             </h1>
@@ -297,7 +394,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                         onClick={(e) => handleRouteToSeries(e, big3[1])}
                       >
                         <div className="pointer-events-none flex flex-col items-center w-full">
-                          <div className="text-[10px] sm:text-xs font-black text-zinc-400 uppercase tracking-widest mb-3 flex items-center gap-1"><span className="text-sm">🥈</span> #2</div>
+                          <div className="text-[10px] sm:text-xs font-black text-zinc-400 uppercase tracking-widest mb-3 flex items-center gap-1"><Star className="w-4 h-4 text-zinc-400" /> #2</div>
                           <div className="relative rounded-full overflow-hidden bg-[#f4f4f5] w-24 h-24 sm:w-32 sm:h-32 border-[4px] border-zinc-400 shadow-[0_10px_30px_rgba(161,161,170,0.4)] transform -rotate-6 transition-transform group-hover:rotate-0">
                             <img src={big3[1].sticker_url || big3[1].character_url || big3[1].cover_url} className="w-full h-full object-cover object-top" alt="Rank 2" />
                           </div>
@@ -329,7 +426,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                         onClick={(e) => handleRouteToSeries(e, big3[2])}
                       >
                         <div className="pointer-events-none flex flex-col items-center w-full">
-                          <div className="text-[10px] sm:text-xs font-black text-amber-600 uppercase tracking-widest mb-3 flex items-center gap-1"><span className="text-sm">🥉</span> #3</div>
+                          <div className="text-[10px] sm:text-xs font-black text-amber-600 uppercase tracking-widest mb-3 flex items-center gap-1"><Star className="w-4 h-4 text-amber-600" /> #3</div>
                           <div className="relative rounded-full overflow-hidden bg-[#f4f4f5] w-24 h-24 sm:w-32 sm:h-32 border-[4px] border-amber-700 shadow-[0_10px_30px_rgba(180,83,9,0.4)] transform rotate-6 transition-transform group-hover:rotate-0">
                             <img src={big3[2].sticker_url || big3[2].character_url || big3[2].cover_url} className="w-full h-full object-cover object-top" alt="Rank 3" />
                           </div>
@@ -357,7 +454,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                     <div className="flex items-end justify-center gap-4 sm:gap-8 w-full px-2 mt-8 pointer-events-none">
                       {/* Rank 2 */}
                       <div className="flex flex-col items-center w-[30%] opacity-90 transition-all group">
-                        <div className="text-[10px] sm:text-xs font-black text-zinc-400 uppercase tracking-widest mb-3 flex items-center gap-1"><span className="text-sm">🥈</span> #2</div>
+                        <div className="text-[10px] sm:text-xs font-black text-zinc-400 uppercase tracking-widest mb-3 flex items-center gap-1"><Star className="w-4 h-4 text-zinc-400" /> #2</div>
                         <div className="relative rounded-full overflow-hidden bg-zinc-800 w-24 h-24 sm:w-32 sm:h-32 border-[4px] border-zinc-400 shadow-[0_10px_30px_rgba(161,161,170,0.4)] transform -rotate-6 transition-transform">
                           <img src={big3Creators[1].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 2" />
                         </div>
@@ -377,7 +474,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
                       {/* Rank 3 */}
                       <div className="flex flex-col items-center w-[30%] opacity-90 transition-all group">
-                        <div className="text-[10px] sm:text-xs font-black text-amber-600 uppercase tracking-widest mb-3 flex items-center gap-1"><span className="text-sm">🥉</span> #3</div>
+                        <div className="text-[10px] sm:text-xs font-black text-amber-600 uppercase tracking-widest mb-3 flex items-center gap-1"><Star className="w-4 h-4 text-amber-600" /> #3</div>
                         <div className="relative rounded-full overflow-hidden bg-zinc-800 w-24 h-24 sm:w-32 sm:h-32 border-[4px] border-amber-700 shadow-[0_10px_30px_rgba(180,83,9,0.4)] transform rotate-6 transition-transform">
                           <img src={big3Creators[2].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 3" />
                         </div>
@@ -419,7 +516,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                           {fan.is_premium && <span className="text-[7px] bg-purple-900/30 text-purple-400 border border-purple-900 px-1.5 py-0.5 rounded uppercase font-black tracking-widest">Pro</span>}
                         </div>
                         <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-400 mt-0.5 flex items-center gap-1">
-                          <Activity className="w-3 h-3 text-[#fe9a00]" /> Fandom Score: {fan.score.toLocaleString()}
+                          <Activity className="w-3 h-3 text-[#fe9a00]" /> Active Supporter
                         </span>
                       </div>
                       <div className="hidden sm:flex flex-col items-end pl-4 border-l border-zinc-800">
@@ -428,7 +525,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                     </div>
                   )) : (
                     <div className="text-center py-12 border border-zinc-800 rounded-xl bg-black/40 pointer-events-none">
-                      <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">No supporters found yet. Start supporting to rank up!</p>
+                      <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">No supporters found yet this week. Start supporting to rank up!</p>
                     </div>
                   )}
                 </div>
@@ -441,10 +538,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                         <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00]">Your Global Rank</span>
                         <span className="text-xl font-black italic uppercase text-white tracking-wider">#{userRank.rank}</span>
                       </div>
-                    </div>
-                    <div className="text-center sm:text-right flex flex-col items-center sm:items-end w-full sm:w-auto">
-                       <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Total Fandom Score</span>
-                       <span className="text-sm font-black text-zinc-200 uppercase tracking-widest flex items-center justify-center sm:justify-end gap-1 w-full"><Activity className="w-3 h-3 text-zinc-400"/> {userRank.score.toLocaleString()} Points</span>
                     </div>
                   </div>
                 )}

@@ -42,7 +42,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
   const [viewSelection, setViewSelection] = useState('Sort:Role'); 
   const [selectedChar, setSelectedChar] = useState<any>(null);
   
-  // We keep this local state ONLY for the grid quick-like icons
   const [charLikes, setCharLikes] = useState<Record<string, boolean>>({});
 
   const [showMobileDetails, setShowMobileDetails] = useState(false);
@@ -256,7 +255,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                         {char?.headshot_url && <img src={char.headshot_url} alt={char?.name} loading="lazy" decoding="async" onError={(e) => { e.currentTarget.style.display = 'none'; }} className="w-full h-full object-cover relative z-10 bg-zinc-900" />}
                         {char?.is_mc && <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-20 uppercase">MC</div>}
                         
-                        {/* QUICK LIKE ICON */}
                         <button 
                           onClick={(e) => handleToggleGridLike(e, char)}
                           className="absolute top-2 left-2 z-30 p-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/10 hover:bg-zinc-800 transition-all shadow-md"
@@ -290,7 +288,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
         )}
       </div>
 
-      {/* MODAL */}
       {selectedChar && (
         <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center animate-fade-in p-4 sm:p-6" onClick={() => setSelectedChar(null)}>
           
@@ -321,9 +318,9 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                 {selectedChar?.series_title}
               </p>
               
-              {/* ACTION BUTTONS: HYPE & LIKE */}
-              <div className="flex gap-3 w-full max-w-[240px] relative z-10 shadow-lg mt-2">
-                <div className="flex-1">
+              {/* FIXED ACTION BUTTONS CONTAINER */}
+              <div className="flex gap-3 w-full max-w-[240px] relative z-10 mt-4 h-12 sm:h-14">
+                <div className="flex-1 [&>*]:h-full [&>*]:w-full">
                   <HypeButton 
                     targetType="character" 
                     targetId={selectedChar?.id} 
@@ -333,7 +330,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                     onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype characters!" })} 
                   />
                 </div>
-                <div className="flex-shrink-0">
+                <div className="w-12 sm:w-14 shrink-0 [&>*]:h-full [&>*]:w-full">
                   <LikeButton 
                     targetType="character" 
                     targetId={selectedChar?.id} 
@@ -346,7 +343,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
 
               <button 
                 onClick={() => { const seriesSlug = selectedChar?.series_slug; setSelectedChar(null); if (seriesSlug) onNavigate({ slug: seriesSlug, action: 'series' }); }} 
-                className="md:hidden w-full max-w-[240px] bg-zinc-800 text-white py-4 mt-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-zinc-700 transition-colors relative z-10 shadow-lg"
+                className="md:hidden w-full max-w-[240px] bg-zinc-800 text-white py-4 mt-4 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-zinc-700 transition-colors relative z-10 shadow-lg"
               >
                 Read Series
               </button>
@@ -362,7 +359,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
 
             <div className={`w-full md:w-3/5 px-6 pt-6 sm:px-10 sm:pt-10 overflow-visible md:overflow-y-auto no-scrollbar bg-black flex-col relative z-10 ${showMobileDetails ? 'flex' : 'hidden md:flex'}`}>
               
-              {/* --- ROLE / MC BADGE (Mutually Exclusive Logic) --- */}
               <div className="flex items-center gap-3 mb-8 shrink-0">
                 {selectedChar?.is_mc ? (
                   <span className="px-2.5 py-1 text-[10px] font-black uppercase tracking-widest rounded bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/50">
