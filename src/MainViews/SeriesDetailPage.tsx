@@ -793,9 +793,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 const displayReacts = (ch.react_count || 0) + pageReacts;
 
                 return (
-                <div key={ch.id} onClick={() => handleReadChapter(ch, absoluteIndex)} className="flex items-center gap-3 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-2 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
+                <div key={ch.id} onClick={() => handleReadChapter(ch, absoluteIndex)} className="flex items-start sm:items-center gap-3 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
                   
-                  <div className="relative overflow-hidden rounded-lg min-w-[72px] w-[72px] h-[72px] sm:min-w-[128px] sm:w-32 sm:h-32 flex-shrink-0">
+                  <div className="relative overflow-hidden rounded-lg min-w-[80px] w-20 h-20 sm:min-w-[128px] sm:w-32 sm:h-32 flex-shrink-0">
                     <img src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className={`w-full h-full object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`} alt="Thumbnail" />
                     <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
                     {isLocked && (
@@ -805,89 +805,91 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     )}
                   </div>
                   
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
-                      <p className={`text-[9px] sm:text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
-                      
-                      <div className="flex items-center gap-1.5 sm:gap-2">
-                        <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-900/80 border border-zinc-800 px-1.5 sm:px-2 py-0.5 rounded-full cursor-default">
-                           <Heart className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-500 fill-red-500" />
-                           <span className="text-[8px] sm:text-[9px] text-zinc-300 font-bold">{displayReacts}</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center flex-1 min-w-0 gap-3 sm:gap-4 w-full">
+                    <div className="flex-1 min-w-0 w-full">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
+                        <p className={`text-[9px] sm:text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
+                        
+                        <div className="flex items-center gap-1.5 sm:gap-2">
+                          <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-900/80 border border-zinc-800 px-1.5 sm:px-2 py-0.5 rounded-full cursor-default">
+                             <Heart className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-500 fill-red-500" />
+                             <span className="text-[8px] sm:text-[9px] text-zinc-300 font-bold">{displayReacts}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    
-                    <h3 className={`font-bold text-sm sm:text-lg mb-1.5 sm:mb-2 leading-snug ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
-                    {hasTempUnlock && (
-                      <span className="text-green-500 text-[9px] font-black uppercase tracking-widest mt-1 block">
-                        Unlocked (24h)
-                      </span>
-                    )}
-                    
-                    {userTier !== 'visitor' && (
-                      <div className="flex flex-col gap-1 w-full max-w-[150px] sm:max-w-[200px] mt-1">
-                         <div className="flex items-center gap-2">
-                           <div className="flex-1 h-1 sm:h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                             <div 
-                               className="h-full bg-[#fe9a00] rounded-full transition-all duration-500" 
-                               style={{ width: `${isLocked ? 0 : actualProgress}%` }} 
-                             />
-                           </div>
-                           <span className="text-[8px] sm:text-[10px] font-black text-zinc-500">{isLocked ? 0 : actualProgress}%</span>
-                         </div>
-                         {actualProgress === 100 && !isLocked && (
-                           <span className="text-[8px] sm:text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
-                         )}
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="flex items-center gap-1 sm:gap-3 flex-nowrap shrink-0">
-                    <div className="flex items-center gap-1 sm:gap-2">
                       
-                      <div onClick={(e) => e.stopPropagation()}>
-                         <HypeButton 
-                           targetType="chapter" 
-                           targetId={ch.id}
-                           seriesSlug={localSeries.slug} 
-                           userId={currentUserId} 
-                           variant="chapter-hype-icon"
-                           onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype chapters!" })}
-                         />
-                      </div>
-
-                      <div onClick={(e) => e.stopPropagation()}>
-                        <LikeButton 
-                          targetType="chapter" 
-                          targetId={ch.id} 
-                          userId={currentUserId} 
-                          variant="chapter-action-icon" 
-                          onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like chapters!" })} 
-                        />
-                      </div>
-
-                      <button 
-                        onClick={(e) => scrollToSection(e, commentsRef)} 
-                        className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0"
-                        title="Jump to Comments"
-                      >
-                        <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
-                      </button>
-                      <button 
-                        onClick={(e) => scrollToSection(e, creatorRef)} 
-                        className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0"
-                        title="Jump to Creator"
-                      >
-                        <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
-                      </button>
-                    </div>
-
-                    <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full transition-colors flex-shrink-0 ${isLocked ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-800 group-hover:bg-[#fe9a00]'}`}>
-                      {isLocked ? (
-                         <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-zinc-600" />
-                      ) : (
-                         <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white group-hover:text-black transition-colors ml-0.5 sm:ml-1" />
+                      <h3 className={`font-bold text-sm sm:text-lg mb-1.5 sm:mb-2 leading-snug break-words pr-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
+                      {hasTempUnlock && (
+                        <span className="text-green-500 text-[9px] font-black uppercase tracking-widest mt-1 block">
+                          Unlocked (24h)
+                        </span>
                       )}
+                      
+                      {userTier !== 'visitor' && (
+                        <div className="flex flex-col gap-1 w-full max-w-[150px] sm:max-w-[200px] mt-1">
+                           <div className="flex items-center gap-2">
+                             <div className="flex-1 h-1 sm:h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                               <div 
+                                 className="h-full bg-[#fe9a00] rounded-full transition-all duration-500" 
+                                 style={{ width: `${isLocked ? 0 : actualProgress}%` }} 
+                               />
+                             </div>
+                             <span className="text-[8px] sm:text-[10px] font-black text-zinc-500">{isLocked ? 0 : actualProgress}%</span>
+                           </div>
+                           {actualProgress === 100 && !isLocked && (
+                             <span className="text-[8px] sm:text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
+                           )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto mt-1 sm:mt-0 border-t border-zinc-800/50 sm:border-0 pt-2 sm:pt-0">
+                      <div className="flex items-center gap-1 sm:gap-2">
+                        
+                        <div onClick={(e) => e.stopPropagation()}>
+                           <HypeButton 
+                             targetType="chapter" 
+                             targetId={ch.id}
+                             seriesSlug={localSeries.slug} 
+                             userId={currentUserId} 
+                             variant="chapter-hype-icon"
+                             onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype chapters!" })}
+                           />
+                        </div>
+
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <LikeButton 
+                            targetType="chapter" 
+                            targetId={ch.id} 
+                            userId={currentUserId} 
+                            variant="chapter-action-icon" 
+                            onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like chapters!" })} 
+                          />
+                        </div>
+
+                        <button 
+                          onClick={(e) => scrollToSection(e, commentsRef)} 
+                          className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0"
+                          title="Jump to Comments"
+                        >
+                          <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </button>
+                        <button 
+                          onClick={(e) => scrollToSection(e, creatorRef)} 
+                          className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0"
+                          title="Jump to Creator"
+                        >
+                          <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </button>
+                      </div>
+
+                      <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full transition-colors flex-shrink-0 ml-auto sm:ml-0 ${isLocked ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-800 group-hover:bg-[#fe9a00]'}`}>
+                        {isLocked ? (
+                           <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-zinc-600" />
+                        ) : (
+                           <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white group-hover:text-black transition-colors ml-0.5 sm:ml-1" />
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
