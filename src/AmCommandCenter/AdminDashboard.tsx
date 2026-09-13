@@ -148,9 +148,43 @@ const MasterSignatureManager = ({ Dropzone }: any) => {
   const [creatorName, setCreatorName] = useState('');
   const [signatureUrl, setSignatureUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [dbCreators, setDbCreators] = useState<string[]>([]);
+
+  const fetchSignaturesAndPins = async () => {
+    const { data: sigs } = await supabase.from('creator_signatures').select('*').order('creator_name', { ascending: true });
+    if (sigs) setSignatures(sigs);
+
+    const { data: codes } = await supabase.from('bingo_codes').select('code, creator_name, expires_at');
+    if (codes) {
+      const pinMap: Record<string, string> = {};
+      const now = new Date();
+      codes.forEach(c => {
+        if (new Date(c.expires_at) > now) {
+          pinMap[c.creator_name] = c.code;
+        }
+      });
+      setActivePins(pinMap);
+    }
+  };
+
+  useEffect(() => { 
+    const fetchDbCreators = async () => {
+      const { data } = await supabase.from('series_creators').select('name');
+      if (data) setDbCreators(data.map((c: any) => c.name));
+    };
+    fetchDbCreators();
+    fetchSignaturesAndPins(); 
+  }, []);
 
   const creatorOptions = useMemo(() => {
     const uniqueMap = new Map();
+    
+    dbCreators.forEach((name: string) => {
+      if (name && name.trim().length >= 2) {
+        uniqueMap.set(name.trim().toLowerCase(), name.trim());
+      }
+    });
+
     const processName = (nameInput: any) => {
       if (!nameInput) return;
       const namesArray = Array.isArray(nameInput) ? nameInput.flat(Infinity) : [nameInput];
@@ -183,26 +217,7 @@ const MasterSignatureManager = ({ Dropzone }: any) => {
       }
     });
     return Array.from(uniqueMap.values()).sort((a: any, b: any) => a.localeCompare(b));
-  }, [seriesList]);
-
-  const fetchSignaturesAndPins = async () => {
-    const { data: sigs } = await supabase.from('creator_signatures').select('*').order('creator_name', { ascending: true });
-    if (sigs) setSignatures(sigs);
-
-    const { data: codes } = await supabase.from('bingo_codes').select('code, creator_name, expires_at');
-    if (codes) {
-      const pinMap: Record<string, string> = {};
-      const now = new Date();
-      codes.forEach(c => {
-        if (new Date(c.expires_at) > now) {
-          pinMap[c.creator_name] = c.code;
-        }
-      });
-      setActivePins(pinMap);
-    }
-  };
-
-  useEffect(() => { fetchSignaturesAndPins(); }, []);
+  }, [seriesList, dbCreators]);
 
   const handleCreatorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedName = e.target.value;
@@ -296,9 +311,31 @@ const BingoCodeManager = () => {
   const [creatorName, setCreatorName] = useState('');
   const [duration, setDuration] = useState('24h');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [dbCreators, setDbCreators] = useState<string[]>([]);
+
+  const fetchCodes = async () => {
+    const { data } = await supabase.from('bingo_codes').select('*').order('created_at', { ascending: false });
+    if (data) setCodes(data);
+  };
+
+  useEffect(() => { 
+    const fetchDbCreators = async () => {
+      const { data } = await supabase.from('series_creators').select('name');
+      if (data) setDbCreators(data.map((c: any) => c.name));
+    };
+    fetchDbCreators();
+    fetchCodes(); 
+  }, []);
 
   const creatorOptions = useMemo(() => {
     const uniqueMap = new Map();
+
+    dbCreators.forEach((name: string) => {
+      if (name && name.trim().length >= 2) {
+        uniqueMap.set(name.trim().toLowerCase(), name.trim());
+      }
+    });
+
     const processName = (nameInput: any) => {
       if (!nameInput) return;
       const namesArray = Array.isArray(nameInput) ? nameInput.flat(Infinity) : [nameInput];
@@ -331,14 +368,7 @@ const BingoCodeManager = () => {
       }
     });
     return Array.from(uniqueMap.values()).sort((a: any, b: any) => a.localeCompare(b));
-  }, [seriesList]);
-
-  const fetchCodes = async () => {
-    const { data } = await supabase.from('bingo_codes').select('*').order('created_at', { ascending: false });
-    if (data) setCodes(data);
-  };
-
-  useEffect(() => { fetchCodes(); }, []);
+  }, [seriesList, dbCreators]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

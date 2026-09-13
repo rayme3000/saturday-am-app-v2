@@ -284,6 +284,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return sum + (ch.hype_count || 0) + pageHypes;
   }, 0);
   
+  const aggregatedSeriesReacts = chapters.reduce((sum: number, ch: any) => {
+    const pageReacts = chapterStats[String(ch.id)]?.reacts || 0;
+    return sum + (ch.react_count || 0) + pageReacts;
+  }, 0);
+  
   const checkIsLocked = (chapterId: string) => {
     if (userTier === 'premium') return false; 
     const absoluteIndex = chapters.findIndex(c => c.id === chapterId);
@@ -557,7 +562,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             hasNext={hasNext}
             hasPrev={hasPrev}
             onNavigate={onNavigate} 
-            onHypeUpdate={null} // Reader has its own internal like handling for pages now
+            onHypeUpdate={null} 
             onSupportCreator={(e: any) => {
               window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } }));
               setIsReaderOpen(false); 
@@ -620,7 +625,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             ))}
           </div>
 
-          {/* --- COLLECTED BINGO BOOK SIGNATURES DISPLAY --- */}
           {userTier === 'premium' && Object.keys(collectedSignatures).length > 0 && (
             <div className="flex flex-wrap justify-center gap-6 mt-8 w-full max-w-2xl">
               <style>{`
@@ -694,7 +698,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               </button>
             </div>
 
-            <div className="flex items-start justify-around w-full mt-4 px-2 sm:px-6">
+            <div className="flex items-start justify-center gap-4 sm:gap-8 w-full mt-4 px-2 sm:px-6 flex-nowrap shrink-0">
               <div className="flex flex-col items-center gap-2">
                 <HypeButton 
                   targetType="series" 
@@ -705,18 +709,17 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   variant="icon"
                   onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype this series!" })}
                 />
-                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Hypes</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Hypes</span>
               </div>
               
               <div className="flex flex-col items-center gap-2">
-                <LikeButton 
-                  targetType="series" 
-                  targetId={localSeries.slug} 
-                  userId={currentUserId} 
-                  variant="icon" 
-                  onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like this series!" })} 
-                />
-                <span className={`text-[9px] font-black uppercase tracking-widest text-zinc-500`}>Like</span>
+                <div className="relative p-2.5 sm:p-3 rounded-full transition-all duration-300 bg-black/40 backdrop-blur-md border border-white/5 shadow-xl flex items-center justify-center text-white/70">
+                   <Heart className="w-5 h-5 sm:w-6 sm:h-6 fill-red-500 text-red-500" />
+                   <div className="absolute -top-1 -right-2 bg-zinc-800 text-white text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-700 shadow-md transform scale-90 sm:scale-100">
+                     {aggregatedSeriesReacts}
+                   </div>
+                </div>
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Likes</span>
               </div>
 
               <div className="flex flex-col items-center gap-2">
@@ -727,7 +730,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 >
                   <Bookmark className={`w-5 h-5 sm:w-6 sm:h-6 ${isFavorited ? 'fill-[#fe9a00]' : ''}`} />
                 </button>
-                <span className={`text-[9px] font-black uppercase tracking-widest ${isFavorited ? 'text-[#fe9a00]' : 'text-zinc-500'}`}>Fave</span>
+                <span className={`text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${isFavorited ? 'text-[#fe9a00]' : 'text-zinc-500'}`}>Save</span>
               </div>
 
               <div className="flex flex-col items-center gap-2">
@@ -738,7 +741,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 >
                   <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6" />
                 </button>
-                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Discuss</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Discuss</span>
               </div>
             </div>
           </div>
@@ -839,7 +842,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     )}
                   </div>
                   
-                  <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
+                  <div className="flex items-center gap-1 sm:gap-3 flex-nowrap shrink-0">
                     <div className="flex items-center gap-1 sm:gap-2">
                       
                       <div onClick={(e) => e.stopPropagation()}>
@@ -865,14 +868,14 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
                       <button 
                         onClick={(e) => scrollToSection(e, commentsRef)} 
-                        className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                        className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0"
                         title="Jump to Comments"
                       >
                         <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
                       </button>
                       <button 
                         onClick={(e) => scrollToSection(e, creatorRef)} 
-                        className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all"
+                        className="flex p-1.5 sm:p-2.5 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0"
                         title="Jump to Creator"
                       >
                         <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
