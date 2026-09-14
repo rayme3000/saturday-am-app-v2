@@ -40,60 +40,16 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         lastSaturday.setDate(now.getDate() - ((now.getDay() + 1) % 7));
         lastSaturday.setHours(0, 0, 0, 0);
 
-        // --- WEEKLY TOP SUPPORTERS (Bypassing RPC for strict date filtering) ---
-        const [
-          { data: weeklyHypes },
-          { data: weeklySeriesLikes },
-          { data: weeklyChapterLikes },
-          { data: weeklyComments }
-        ] = await Promise.all([
-          supabase.from('hypes').select('user_id').gte('created_at', lastSaturday.toISOString()),
-          supabase.from('series_likes').select('user_id').gte('created_at', lastSaturday.toISOString()),
-          supabase.from('chapter_likes').select('user_id').gte('created_at', lastSaturday.toISOString()),
-          supabase.from('series_comments').select('user_id').gte('created_at', lastSaturday.toISOString())
-        ]);
-
-        const fanActivityCounts: Record<string, number> = {};
-        const countActivity = (arr: any[] | null, points: number) => {
-          if (!arr) return;
-          arr.forEach(item => {
-            if (item.user_id) fanActivityCounts[item.user_id] = (fanActivityCounts[item.user_id] || 0) + points;
+        const { data: topFans, error: fansError } = await supabase.rpc('fetch_top_ten_fans');
+        if (topFans && !fansError) {
+          const formattedTop10 = topFans.map((fan: any, index: number) => {
+            let rankClass = 'C-Class Rank';
+            if (index < 3) rankClass = 'S-Class Rank';
+            else if (index < 6) rankClass = 'A-Class Rank';
+            else if (index < 9) rankClass = 'B-Class Rank';
+            return { ...fan, class: rankClass, score: Number(fan.score) };
           });
-        };
-
-        countActivity(weeklyHypes, 1);
-        countActivity(weeklySeriesLikes, 1);
-        countActivity(weeklyChapterLikes, 1);
-        countActivity(weeklyComments, 3); // Comments weighted higher
-
-        const activeUserIds = Object.keys(fanActivityCounts);
-        if (activeUserIds.length > 0) {
-          const top10Ids = activeUserIds.sort((a, b) => fanActivityCounts[b] - fanActivityCounts[a]).slice(0, 10);
-          
-          const { data: topProfiles } = await supabase.from('profiles').select('id, username, avatar_url, avatar_frame_id, is_premium').in('id', top10Ids);
-          
-          if (topProfiles) {
-            const formattedTop10 = top10Ids.map((id, index) => {
-              const profile = topProfiles.find((p: any) => p.id === id) || { username: 'Unknown Fan' };
-              let rankClass = 'C-Class Rank';
-              if (index < 3) rankClass = 'S-Class Rank';
-              else if (index < 6) rankClass = 'A-Class Rank';
-              else if (index < 9) rankClass = 'B-Class Rank';
-              
-              return { 
-                id,
-                username: profile.username,
-                avatar_url: profile.avatar_url,
-                frame_id: profile.avatar_frame_id || profile.frame_id,
-                is_premium: profile.is_premium,
-                rank: index + 1,
-                class: rankClass
-              };
-            });
-            setSuperFans(formattedTop10);
-          }
-        } else {
-          setSuperFans([]);
+          setSuperFans(formattedTop10);
         }
 
         if (currentUser) {
@@ -161,7 +117,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             setTopCharacters(rankedChars);
         }
 
-        // --- WEEKLY TOP CHAPTERS (Bypassing RPC for strict date filtering) ---
+        // --- WEEKLY TOP CHAPTERS ---
         const [chapterHypesRes, chapterLikesRes] = await Promise.all([
           supabase.from('hypes').select('target_id').eq('target_type', 'chapter').gte('created_at', lastSaturday.toISOString()),
           supabase.from('chapter_likes').select('chapter_id').gte('created_at', lastSaturday.toISOString())
@@ -205,6 +161,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setTopWeeklyChapters([]);
         }
 
+        // --- MONTHLY BIG 3 CREATORS ---
         if (allCreatorsData) {
           const combinedCreatorScores: Record<string, number> = {};
           
@@ -322,23 +279,40 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/95 to-transparent" />
       </div>
 
-      <div className="sticky top-0 z-50 w-full bg-black/80 backdrop-blur-lg border-b border-zinc-800/50 pt-6 pb-4 px-4 sm:pt-8 sm:px-8 pr-24 sm:pr-32 shadow-xl">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <button onClick={onBack} className="p-3 bg-zinc-900/90 backdrop-blur-md rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors transform -skew-x-12 shadow-xl shrink-0">
-              <div className="transform skew-x-12 flex items-center gap-2"><ArrowLeft className="w-5 h-5" /><span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Home</span></div>
+      <div className="sticky top-0 z-50 w-full bg-black/80 backdrop-blur-lg border-b border-zinc-800/50 pt-6 pb-4 px-4 sm:pt-8 sm:px-8 shadow-xl">
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4 relative">
+          
+          {/* Left Side: Back Button + Mobile-only Title */}
+          <div className="flex items-center gap-2 sm:gap-4 shrink min-w-0 z-10">
+            <button onClick={onBack} className="p-2 sm:p-3 bg-zinc-900/90 backdrop-blur-md rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors transform -skew-x-12 shadow-xl shrink-0">
+              <div className="transform skew-x-12 flex items-center gap-1 sm:gap-2">
+                <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Home</span>
+              </div>
             </button>
-            <div className="pointer-events-auto shrink-0">
-              <TutorialHelpButton onClick={(e: any) => { e.stopPropagation(); setForceTutorial(true); }} />
+
+            {/* Mobile Title */}
+            <div className="flex sm:hidden flex-col items-start drop-shadow-lg pointer-events-none shrink min-w-0">
+              <h1 className="text-lg font-black italic uppercase tracking-tighter text-[#fe9a00] flex items-center gap-1.5 text-left truncate">
+                <Trophy className="w-4 h-4 shrink-0" /> Leaderboard
+              </h1>
+              <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest text-left truncate">Live Global Rankings</span>
             </div>
           </div>
           
-          <div className="flex flex-col items-end drop-shadow-lg pointer-events-none mr-12 sm:mr-16 md:mr-0">
-            <h1 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] flex items-center gap-2">
-              <Trophy className="w-6 h-6 sm:w-8 sm:h-8" /> Leaderboard
+          {/* Center: Desktop-only Title */}
+          <div className="hidden sm:flex flex-col items-center absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 drop-shadow-lg pointer-events-none z-0 w-max">
+            <h1 className="text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] flex items-center gap-2 text-center">
+              <Trophy className="w-8 h-8 shrink-0" /> Leaderboard
             </h1>
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Live Global Rankings</span>
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">Live Global Rankings</span>
           </div>
+
+          {/* Right Side: Help Button */}
+          <div className="pointer-events-auto shrink-0 flex items-center mr-14 sm:mr-0 z-10">
+            <TutorialHelpButton onClick={(e: any) => { e.stopPropagation(); setForceTutorial(true); }} />
+          </div>
+
         </div>
       </div>
 
