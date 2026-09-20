@@ -10,7 +10,8 @@ import { ShareModal } from './Components/ShareModal';
 import { SplashIntro } from './Components/SplashIntro'; 
 import { GlobalHypeTracker } from './Components/GlobalHypeTracker';
 import { BetaGate } from './Components/BetaGate'; 
-import { HypeEconomyProvider } from './HypeEconomyContext'; // <-- NEW CONTEXT PROVIDER
+import { HypeEconomyProvider } from './HypeEconomyContext';
+import { useIntegrations } from "./Components/useIntegrations";
 
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
@@ -82,6 +83,9 @@ const ScrollToTopButton = () => {
 };
 
 export default function App() {
+  // --- INITIALIZE THIRD-PARTY INTEGRATIONS ---
+  useIntegrations();
+
   const [currentView, setCurrentView] = useState(() => {
     return sessionStorage.getItem('currentView') || 'home';
   });

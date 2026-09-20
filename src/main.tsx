@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
 import { registerSW } from 'virtual:pwa-register';
-import { SeriesProvider } from './userSeriesData'; // <-- Import the new caching provider
+import { SeriesProvider } from './userSeriesData.tsx'; // <-- Import the new caching provider
 
 // Initializes the service worker for offline caching and installation
 const updateSW = registerSW({

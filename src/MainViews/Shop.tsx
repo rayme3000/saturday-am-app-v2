@@ -1,19 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, ShoppingBag, ExternalLink } from 'lucide-react';
+import { ArrowLeft, ShoppingBag, ExternalLink, PackageX } from 'lucide-react';
+import { supabase } from '../supabase';
 
 export const Shop = ({ onBack }: any) => {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [shopDomain, setShopDomain] = useState<string | null>(null);
 
   useEffect(() => {
     window.scrollTo(0, 0);
-    const fetchProducts = async () => {
+    
+    const initShop = async () => {
       try {
-        const res = await fetch('https://shopsaturdayam.com/products.json?limit=24');
-        if (!res.ok) throw new Error('Failed to fetch store feed');
+        const { data } = await supabase.from('app_settings').select('shopify_domain').eq('id', 1).maybeSingle();
         
-        const data = await res.json();
-        setProducts(data.products || []);
+        if (data?.shopify_domain) {
+          const cleanDomain = data.shopify_domain.replace(/^https?:\/\//, '');
+          setShopDomain(cleanDomain);
+          
+          const res = await fetch(`https://${cleanDomain}/products.json?limit=24`);
+          if (!res.ok) throw new Error('Failed to fetch store feed');
+          
+          const storeData = await res.json();
+          setProducts(storeData.products || []);
+        }
       } catch (err) {
         console.error("Error fetching shop products:", err);
       } finally {
@@ -21,7 +31,7 @@ export const Shop = ({ onBack }: any) => {
       }
     };
     
-    fetchProducts();
+    initShop();
   }, []);
 
   return (
@@ -45,22 +55,36 @@ export const Shop = ({ onBack }: any) => {
           </h1>
         </div>
 
-        <a 
-          href="https://shopsaturdayam.com/" 
-          target="_blank" 
-          rel="noopener noreferrer" 
-          className="text-[10px] text-white hover:text-[#fe9a00] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors bg-zinc-900 border border-zinc-700 px-5 py-3 rounded-full hover:border-[#fe9a00] shadow-lg mb-1 w-full sm:w-auto"
-        >
-          View Full Store <ExternalLink className="w-4 h-4" />
-        </a>
+        {shopDomain && (
+          <a 
+            href={`https://${shopDomain}?utm_source=saturday_am_app&utm_medium=in_app_shop`} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-[10px] text-white hover:text-[#fe9a00] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors bg-zinc-900 border border-zinc-700 px-5 py-3 rounded-full hover:border-[#fe9a00] shadow-lg mb-1 w-full sm:w-auto"
+          >
+            View Full Store <ExternalLink className="w-4 h-4" />
+          </a>
+        )}
       </div>
 
-      {/* PRODUCT GRID */}
+      {/* PRODUCT GRID OR PLACEHOLDER */}
       <div className="relative z-10 max-w-7xl mx-auto px-4 py-8">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-32 gap-4 bg-zinc-900/40 backdrop-blur-sm rounded-3xl border border-zinc-800">
             <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin" />
             <span className="text-zinc-500 font-bold tracking-widest text-xs uppercase animate-pulse">Loading Inventory...</span>
+          </div>
+        ) : !shopDomain ? (
+          <div className="flex flex-col items-center justify-center py-32 gap-6 bg-zinc-900/20 backdrop-blur-sm rounded-3xl border border-zinc-800 text-center px-4">
+            <div className="w-20 h-20 bg-zinc-900 rounded-full flex items-center justify-center border-2 border-zinc-800 shadow-[0_0_30px_rgba(254,154,0,0.1)]">
+              <PackageX className="w-10 h-10 text-zinc-600" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Merch Dropping Soon</h2>
+              <p className="text-zinc-500 text-xs font-bold tracking-widest uppercase max-w-sm mx-auto">
+                We are currently stocking the digital shelves. Check back later for official Saturday AM gear!
+              </p>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
@@ -72,7 +96,7 @@ export const Shop = ({ onBack }: any) => {
               return (
                 <a 
                   key={product.id} 
-                  href={`https://shopsaturdayam.com/products/${product.handle}`}
+                  href={`https://${shopDomain}/products/${product.handle}?utm_source=saturday_am_app&utm_medium=in_app_shop`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden group cursor-pointer hover:border-[#fe9a00] transition-all shadow-lg flex flex-col"
@@ -102,7 +126,6 @@ export const Shop = ({ onBack }: any) => {
           </div>
         )}
       </div>
-
     </div>
   );
 };

@@ -9,7 +9,7 @@ import { CardSkinMaker } from './CardSkinMaker';
 import { FrameMaker } from './FrameMaker'; 
 import { ModerationDashboard } from './ModerationDashboard';
 import { supabase } from '../supabase';
-import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool } from 'lucide-react';
+import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
@@ -23,6 +23,159 @@ const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
+};
+
+// --- THIRD-PARTY INTEGRATIONS EDITOR ---
+const IntegrationsManager = ({ setIsDirty }: any) => {
+  const [settings, setSettings] = useState({
+    stripe_public_key: '',
+    shopify_domain: '',
+    admob_id: '',
+    applixr_id: '',
+    google_analytics_id: '',
+    meta_pixel_id: '',
+    tiktok_pixel_id: ''
+  });
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data } = await supabase.from('app_settings').select('*').eq('id', 1).maybeSingle();
+      if (data) {
+        setSettings({
+          stripe_public_key: data.stripe_public_key || '',
+          shopify_domain: data.shopify_domain || '',
+          admob_id: data.admob_id || '',
+          applixr_id: data.applixr_id || '',
+          google_analytics_id: data.google_analytics_id || '',
+          meta_pixel_id: data.meta_pixel_id || '',
+          tiktok_pixel_id: data.tiktok_pixel_id || ''
+        });
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const handleChange = (field: string, value: string) => {
+    setSettings(prev => ({ ...prev, [field]: value }));
+    setIsDirty(true);
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    const { error } = await supabase.from('app_settings').upsert({ id: 1, ...settings });
+    setIsSaving(false);
+    if (error) alert("Error saving integrations: " + error.message);
+    else { alert("Integrations Updated Successfully!"); setIsDirty(false); }
+  };
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-lg animate-fade-in-up max-w-4xl">
+      <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
+        <LinkIcon className="w-6 h-6 text-[#fe9a00]" />
+        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Third-Party Integrations</h2>
+      </div>
+      
+      <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-8 leading-relaxed">
+        Connect Saturday AM to industry-leading e-commerce, advertising, and analytics platforms. Enter your official tracking and API keys below.
+      </p>
+
+      <div className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-6">
+        <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
+          <CreditCard className="w-4 h-4 text-[#fe9a00]" /> E-Commerce & Ads
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Stripe Publishable Key</label>
+            <input 
+              type="text" 
+              placeholder="pk_live_..." 
+              value={settings.stripe_public_key} 
+              onChange={(e) => handleChange('stripe_public_key', e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Shopify Store URL (Live Feed)</label>
+            <input 
+              type="text" 
+              placeholder="shopsaturdayam.com" 
+              value={settings.shopify_domain} 
+              onChange={(e) => handleChange('shopify_domain', e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">AdMob App ID</label>
+            <input 
+              type="text" 
+              placeholder="ca-app-pub-..." 
+              value={settings.admob_id} 
+              onChange={(e) => handleChange('admob_id', e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Applixr Tag ID</label>
+            <input 
+              type="text" 
+              placeholder="Enter Applixr ID..." 
+              value={settings.applixr_id} 
+              onChange={(e) => handleChange('applixr_id', e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-6">
+        <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
+          <LineChart className="w-4 h-4 text-[#fe9a00]" /> Analytics & Pixels
+        </h3>
+
+        <div>
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Google Analytics (G-Tag / GAM ID)</label>
+          <input 
+            type="text" 
+            placeholder="G-XXXXXXXXXX" 
+            value={settings.google_analytics_id} 
+            onChange={(e) => handleChange('google_analytics_id', e.target.value)}
+            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+          />
+        </div>
+
+        <div>
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Meta (Facebook) Pixel ID</label>
+          <input 
+            type="text" 
+            placeholder="Enter your Meta Pixel ID..." 
+            value={settings.meta_pixel_id} 
+            onChange={(e) => handleChange('meta_pixel_id', e.target.value)}
+            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+          />
+        </div>
+
+        <div>
+          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">TikTok Pixel ID</label>
+          <input 
+            type="text" 
+            placeholder="Enter your TikTok Pixel ID..." 
+            value={settings.tiktok_pixel_id} 
+            onChange={(e) => handleChange('tiktok_pixel_id', e.target.value)}
+            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+          />
+        </div>
+      </div>
+
+      <button onClick={handleSave} disabled={isSaving} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-xl hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">
+        {isSaving ? 'UPDATING...' : 'Save Integrations'}
+      </button>
+    </div>
+  );
 };
 
 const PromoCodeManager = () => {
@@ -399,7 +552,7 @@ const BingoCodeManager = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm("Are you sure you want to revoke this PIN?")) return;
+    if (!window.confirm("Are you sure you want to revoke this PIN? No one will be able to claim it anymore.")) return;
     const { error } = await supabase.from('bingo_codes').delete().eq('id', id);
     if (!error) fetchCodes();
   };
@@ -472,8 +625,12 @@ const BingoCodeManager = () => {
                   </div>
                   <p className="text-[9px] text-zinc-600 mt-2 font-mono">Expires: {new Date(c.expires_at).getFullYear() > 2090 ? 'Never (Permanent)' : new Date(c.expires_at).toLocaleString()}</p>
                 </div>
-                <button onClick={() => handleDelete(c.id)} className="p-2 text-zinc-600 hover:text-red-500 hover:bg-red-900/20 rounded transition-colors">
-                  <Trash2 className="w-5 h-5" />
+                
+                <button 
+                  onClick={() => handleDelete(c.id)} 
+                  className="flex items-center gap-2 px-4 py-2.5 bg-red-950/30 text-red-500 hover:text-white hover:bg-red-600 border border-red-900/50 hover:border-red-600 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest mt-4 sm:mt-0 shadow-sm"
+                >
+                  <XCircle className="w-4 h-4" /> Revoke PIN
                 </button>
               </div>
             )
@@ -582,14 +739,20 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   };
 
   const tabs = [
-    { id: 'analytics', label: 'Analytics' }, { id: 'home', label: 'Home Editor' },
-    { id: 'series', label: 'Series Page Editor' }, { id: 'chapter', label: 'Chapter Upload' },
-    { id: 'avatars', label: 'Avatar Maker' }, { id: 'frames', label: 'Frame Maker' }, 
-    { id: 'stickers', label: 'Sticker Maker' }, { id: 'cardskins', label: 'Card Skin Studio' },
+    { id: 'analytics', label: 'Analytics' }, 
+    { id: 'home', label: 'Home Editor' },
+    { id: 'series', label: 'Series Page Editor' }, 
+    { id: 'chapter', label: 'Chapter Upload' },
+    { id: 'avatars', label: 'Avatar Maker' }, 
+    { id: 'frames', label: 'Frame Maker' }, 
+    { id: 'stickers', label: 'Sticker Maker' }, 
+    { id: 'cardskins', label: 'Card Skin Studio' },
     { id: 'accesskeys', label: 'Access Keys' }, 
     { id: 'signatures', label: 'Signature Vault' },
     { id: 'bingocodes', label: 'Bingo Codes' },
-    { id: 'moderation', label: 'Moderation' }, { id: 'notifications', label: 'Push Alerts' }
+    { id: 'integrations', label: 'Third-Party Integrations' },
+    { id: 'moderation', label: 'Moderation' }, 
+    { id: 'notifications', label: 'Push Alerts' }
   ];
 
   return (
@@ -625,6 +788,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           {activeTab === 'accesskeys' && <PromoCodeManager />} 
           {activeTab === 'signatures' && <MasterSignatureManager Dropzone={Dropzone} />}
           {activeTab === 'bingocodes' && <BingoCodeManager />} 
+          {activeTab === 'integrations' && <IntegrationsManager setIsDirty={setIsDirty} />}
           {activeTab === 'moderation' && <ModerationDashboard />}
           {activeTab === 'notifications' && <NotificationCenter />}
         </div>

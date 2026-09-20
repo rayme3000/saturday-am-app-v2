@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2, X, Info, Heart, Home } from 'lucide-react';
+import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2, X, Info, Heart, Home, PlayCircle } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
@@ -134,6 +134,10 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const [internalIsPremium, setInternalIsPremium] = useState(isPremium);
   const [currentUser, setCurrentUser] = useState<any>(null);
 
+  // --- AD NETWORK IDS ---
+  const [adMobId, setAdMobId] = useState<string | null>(null);
+  const [applixrId, setApplixrId] = useState<string | null>(null);
+
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isAnimatingPage, setIsAnimatingPage] = useState(false);
@@ -166,6 +170,17 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const fallbackChapter = chapter || { 
     chapter_number: title?.match(/\d+/)?.[0] || '1' 
   };
+
+  useEffect(() => {
+    const fetchAds = async () => {
+      const { data } = await supabase.from('app_settings').select('admob_id, applixr_id').eq('id', 1).maybeSingle();
+      if (data) {
+        setAdMobId(data.admob_id || null);
+        setApplixrId(data.applixr_id || null);
+      }
+    };
+    fetchAds();
+  }, []);
 
   useEffect(() => {
     if (!chapterId) return;
@@ -301,7 +316,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     return () => clearTimeout(saveTimer);
   }, [currentPage, isLoadingProgress, saveProgressToDB]);
 
-  // --- WRAPPED QUICK REACT TO INJECT SCORE ---
   const handleQuickReactSubmit = async (...args: any[]) => {
     await qr.submitReact(...args);
     const activeUserId = activeUserRef.current;
@@ -486,6 +500,23 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
     return (
       <div className="flex flex-col gap-3 w-full" onClick={(e) => e.stopPropagation()}>
+        
+        {/* --- ADVERTISEMENT BLOCK FOR FREE USERS --- */}
+        {!internalIsPremium && (adMobId || applixrId) && (
+          <div className="w-full bg-zinc-900 border border-zinc-700 p-4 rounded-xl flex flex-col items-center justify-center mb-4 text-center">
+             <span className="text-[8px] text-zinc-500 uppercase tracking-widest font-black mb-2">Advertisement</span>
+             {applixrId ? (
+               <button className="bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest py-3 px-6 rounded-full text-[10px] transition-colors flex items-center justify-center gap-2 w-full">
+                 <PlayCircle className="w-4 h-4" /> Watch Video to Support Creator
+               </button>
+             ) : (
+               <div className="w-full h-16 bg-black flex items-center justify-center border border-zinc-800 text-zinc-600 text-[10px] font-black uppercase tracking-widest">
+                 AdMob Banner Active: {adMobId}
+               </div>
+             )}
+          </div>
+        )}
+
         {currentUser?.id && (
           <div className="w-full mb-2">
             <HypeButton 
@@ -732,7 +763,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
              setIsReactInputOpen={qr.setIsReactInputOpen}
              reactText={qr.reactText}
              setReactText={qr.setReactText}
-             submitReact={handleQuickReactSubmit} // <-- Injects score logic before executing standard quick react
+             submitReact={handleQuickReactSubmit} 
              isPremium={internalIsPremium}
              onNavigate={onNavigate}
            />

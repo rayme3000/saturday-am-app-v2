@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Check, Crown, Zap, Star, Flame, CreditCard, X, Loader2, RefreshCcw, BookOpen, Trophy, AlertTriangle, Tag } from 'lucide-react';
 import { supabase } from '../supabase';
 
@@ -7,12 +7,22 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   const [checkoutStep, setCheckoutStep] = useState<'plan' | 'processing' | 'success'>('plan');
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('monthly');
   const [showDowngradeConfirm, setShowDowngradeConfirm] = useState(false);
+  
+  const [stripeKey, setStripeKey] = useState<string | null>(null);
 
   // --- PROMO CODE STATE ---
   const [promoCode, setPromoCode] = useState('');
   const [promoStatus, setPromoStatus] = useState<'applied' | 'invalid' | null>(null);
 
   const isPremium = userTier === 'premium';
+
+  useEffect(() => {
+    const fetchStripe = async () => {
+      const { data } = await supabase.from('app_settings').select('stripe_public_key').eq('id', 1).maybeSingle();
+      if (data?.stripe_public_key) setStripeKey(data.stripe_public_key);
+    };
+    fetchStripe();
+  }, []);
 
   const handleSubscribeClick = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -26,10 +36,9 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
   const handleApplyPromo = () => {
     const code = promoCode.trim().toUpperCase();
-    // Simulate valid codes for sales or influencers
     if (code === 'BLACK25' || code === 'AMCLUB26' || code === 'WHYT50') {
       setPromoStatus('applied');
-      setSelectedPlan('yearly'); // Auto-select yearly to show off the discount
+      setSelectedPlan('yearly'); 
     } else {
       setPromoStatus('invalid');
     }
@@ -182,10 +191,11 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               </div>
             ) : (
               <button 
-                onClick={handleSubscribeClick}
-                className="w-full py-4 bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black font-black uppercase tracking-widest rounded-xl transition-all duration-300 shadow-[0_0_20px_rgba(254,154,0,0.4)] hover:shadow-[0_0_30px_rgba(255,255,255,0.6)] hover:scale-105"
+                onClick={stripeKey ? handleSubscribeClick : undefined}
+                disabled={!stripeKey}
+                className={`w-full py-4 font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${stripeKey ? 'bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black shadow-[0_0_20px_rgba(254,154,0,0.4)] hover:shadow-[0_0_30px_rgba(255,255,255,0.6)] hover:scale-105' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
               >
-                Upgrade to Pro
+                {stripeKey ? 'Upgrade to Pro' : 'Subscriptions Coming Soon'}
               </button>
             )}
           </div>
@@ -274,7 +284,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                     </div>
                   </div>
 
-                  {/* --- NEW PROMO CODE WIDGET --- */}
                   <div className="mb-8">
                     <div className="flex items-center gap-2 mb-2">
                       <Tag className="w-3.5 h-3.5 text-zinc-400" />

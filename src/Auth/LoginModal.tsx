@@ -9,10 +9,12 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [username, setUsername] = useState('');
   const [country, setCountry] = useState('');
   const [referral, setReferral] = useState('');
-  const [accessCode, setAccessCode] = useState(''); // NEW: Access Code State
+  const [accessCode, setAccessCode] = useState(''); 
   
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -65,7 +67,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         return;
       }
 
-      // --- NEW: VALIDATE ACCESS CODE ---
       let appliedTier = 'free';
       let codeIdToUpdate = null;
       let currentTimesUsed = 0;
@@ -105,6 +106,8 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         password,
         options: {
           data: {
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
             username: username.trim(),
             county: country, 
             referral_source: referral
@@ -122,14 +125,16 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         if (authData?.user) {
           await supabase.from('profiles').upsert({
             id: authData.user.id,
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
             username: username.trim(),
             email: cleanEmail,
             county: country,
             referral_source: referral,
-            is_premium: appliedTier === 'premium' // DYNAMIC TIER ASSIGNMENT
+            is_premium: appliedTier === 'premium', 
+            is_beta: true 
           }, { onConflict: 'id' });
 
-          // INCREMENT PROMO CODE USAGE
           if (codeIdToUpdate) {
             await supabase.from('promo_codes')
               .update({ times_used: currentTimesUsed + 1 })
@@ -227,6 +232,25 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           <form onSubmit={handleEmailSubmit} className="space-y-4">
             {isSignUp && (
               <>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="First Name" 
+                    value={firstName} 
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className="w-1/2 bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+                    required
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="Last Name" 
+                    value={lastName} 
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="w-1/2 bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+                    required
+                  />
+                </div>
+
                 <input 
                   type="text" 
                   placeholder="Choose a Username" 
