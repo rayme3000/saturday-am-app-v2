@@ -191,6 +191,16 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     return () => clearInterval(timer);
   }, [heroSlides.length]);
 
+  // --- NEW: INSTANT LOGOUT PATCH ---
+  useEffect(() => {
+    const handleInstantLogout = () => {
+      memRecentReads = null;
+      setRecentReads([]);
+    };
+    window.addEventListener('instantLogout', handleInstantLogout);
+    return () => window.removeEventListener('instantLogout', handleInstantLogout);
+  }, []);
+
   const handleSlideClick = (slide: any) => {
     trackEvent('banner_click', { target: slide.link_target, link_type: slide.link_type });
     

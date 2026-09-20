@@ -131,6 +131,20 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
     return () => clearInterval(timer);
   }, []);
 
+  // --- NEW: INSTANT LOGOUT PATCH ---
+  useEffect(() => {
+    const handleInstantLogout = () => {
+      memProfileStats = null;
+      memUserProfile = null;
+      setIsLoggedIn(false);
+      setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] });
+      setProfileStats({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---", score: 0, hypes_remaining: 0 });
+    };
+
+    window.addEventListener('instantLogout', handleInstantLogout);
+    return () => window.removeEventListener('instantLogout', handleInstantLogout);
+  }, []);
+
   useEffect(() => {
     const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
     setUnlockedHunts(savedHunts.length);
