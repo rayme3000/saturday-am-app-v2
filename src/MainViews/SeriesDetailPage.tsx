@@ -1000,15 +1000,15 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     <Heart className="w-4 h-4 fill-black" /> Support {safeName.split(' ')[0]}
                   </button>
 
-                  <div className="w-full max-w-xs mx-auto mb-8">
-                    <HypeButton 
-                      targetType="creator" 
-                      targetId={creatorId} 
-                      userId={currentUserId} 
-                      variant="default" 
-                      onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" })} 
-                    />
-                  </div>
+                  <div className="w-full max-w-xs mx-auto mb-8 [&_button]:w-full [&_button]:justify-center">
+  <HypeButton 
+    targetType="creator" 
+    targetId={creatorId} 
+    userId={currentUserId} 
+    variant="default" 
+    onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" })} 
+  />
+</div>
 
                   <div className="flex flex-wrap justify-center gap-3 w-full">
                     {c.twitter_url && <a href={c.twitter_url} target="_blank" rel="noreferrer" className="flex-1 max-w-[140px] text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-4 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]">Twitter</a>}

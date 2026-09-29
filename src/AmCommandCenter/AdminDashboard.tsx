@@ -9,7 +9,7 @@ import { CardSkinMaker } from './CardSkinMaker';
 import { FrameMaker } from './FrameMaker'; 
 import { ModerationDashboard } from './ModerationDashboard';
 import { supabase } from '../supabase';
-import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard } from 'lucide-react';
+import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
@@ -23,6 +23,302 @@ const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
+};
+
+// --- NEW: HYPE ECONOMY MANAGER ---
+const HypeManager = ({ setIsDirty }: any) => {
+  const [settings, setSettings] = useState({
+    free_allowance: 1,
+    premium_allowance: 7,
+    refill_period: 'weekly',
+    shop_multiplier: 10,
+  });
+  
+  const [airdrop, setAirdrop] = useState({ amount: 10, target: 'all', username: '' });
+  const [isSaving, setIsSaving] = useState(false);
+  const [isBlasting, setIsBlasting] = useState(false);
+
+  // --- SPLIT KILL SWITCH STATES ---
+  const [hypeResetConfirm, setHypeResetConfirm] = useState('');
+  const [isResettingHypes, setIsResettingHypes] = useState(false);
+  
+  const [leaderboardResetConfirm, setLeaderboardResetConfirm] = useState('');
+  const [isResettingLeaderboards, setIsResettingLeaderboards] = useState(false);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data } = await supabase.from('app_settings').select('*').eq('id', 1).maybeSingle();
+      if (data) {
+        setSettings({
+          free_allowance: data.free_hype_allowance ?? 1,
+          premium_allowance: data.premium_hype_allowance ?? 7,
+          refill_period: data.hype_refill_period || 'weekly',
+          shop_multiplier: data.shop_hype_multiplier ?? 10,
+        });
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const handleChange = (field: string, value: any) => {
+    setSettings(prev => ({ ...prev, [field]: value }));
+    setIsDirty(true);
+  };
+
+  const handleSaveSettings = async () => {
+    setIsSaving(true);
+    const { error } = await supabase.from('app_settings').upsert({ 
+      id: 1, 
+      free_hype_allowance: settings.free_allowance,
+      premium_hype_allowance: settings.premium_allowance,
+      hype_refill_period: settings.refill_period,
+      shop_hype_multiplier: settings.shop_multiplier
+    });
+    
+    setIsSaving(false);
+    if (error) alert("Error saving Hype settings: " + error.message);
+    else { alert("Hype Economy Updated Successfully!"); setIsDirty(false); }
+  };
+
+  const handleAirdrop = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (airdrop.amount <= 0) return alert("Amount must be greater than zero.");
+    if (!window.confirm(`Are you sure you want to blast ${airdrop.amount} Hypes to ${airdrop.target === 'all' ? 'EVERYONE' : airdrop.username}?`)) return;
+    
+    setIsBlasting(true);
+    try {
+      if (airdrop.target === 'all') {
+        const { error } = await supabase.rpc('airdrop_hypes_global', { hype_amount: airdrop.amount });
+        if (error) throw error;
+      } else {
+        const { data: user, error: fetchErr } = await supabase.from('profiles').select('id, hypes_remaining').ilike('username', airdrop.username.trim()).maybeSingle();
+        if (fetchErr || !user) throw new Error("User not found!");
+        
+        const { error: updateErr } = await supabase.from('profiles').update({ hypes_remaining: (user.hypes_remaining || 0) + airdrop.amount }).eq('id', user.id);
+        if (updateErr) throw updateErr;
+      }
+      alert("Hypes Airdropped Successfully!");
+      setAirdrop({ amount: 10, target: 'all', username: '' });
+    } catch (err: any) {
+      alert("Error dropping hypes: " + err.message);
+    }
+    setIsBlasting(false);
+  };
+
+  const handleHypeReset = async () => {
+    if (hypeResetConfirm !== 'RESET HYPES') return;
+    if (!window.confirm("WARNING: You are about to reset ALL user hype balances to their base tier allowances (e.g., 1 for Free, 3 for Pro). Are you absolutely sure?")) return;
+    
+    setIsResettingHypes(true);
+    try {
+      const { error } = await supabase.rpc('reset_user_hypes');
+      if (error) throw error;
+      alert("SUCCESS: All user hype balances have been reset to their base allowances.");
+      setHypeResetConfirm('');
+    } catch (err: any) {
+      alert("Hype Reset Failed: " + err.message);
+    }
+    setIsResettingHypes(false);
+  };
+
+  const handleLeaderboardReset = async () => {
+    if (leaderboardResetConfirm !== 'RESET LEADERBOARDS') return;
+    if (!window.confirm("WARNING: You are about to wipe all current weekly leaderboard progress (Series, Chapters, Characters, Creators, and Top Fans). This cannot be undone. Are you absolutely sure?")) return;
+    
+    setIsResettingLeaderboards(true);
+    try {
+      const { error } = await supabase.rpc('reset_leaderboards');
+      if (error) throw error;
+      alert("SUCCESS: All leaderboards have been wiped clean.");
+      setLeaderboardResetConfirm('');
+    } catch (err: any) {
+      alert("Leaderboard Reset Failed: " + err.message);
+    }
+    setIsResettingLeaderboards(false);
+  };
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-lg animate-fade-in-up max-w-4xl">
+      <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
+        <Flame className="w-6 h-6 text-[#fe9a00]" />
+        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Hype Economy</h2>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div className="bg-black p-6 rounded-xl border border-zinc-800 space-y-6">
+          <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
+            <Settings2 className="w-4 h-4 text-[#fe9a00]" /> Allowance Rules
+          </h3>
+          
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Free Tier Refill Amount</label>
+            <input 
+              type="number" min="0" 
+              value={settings.free_allowance} 
+              onChange={(e) => handleChange('free_allowance', Number(e.target.value))}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Premium Tier Refill Amount</label>
+            <input 
+              type="number" min="0" 
+              value={settings.premium_allowance} 
+              onChange={(e) => handleChange('premium_allowance', Number(e.target.value))}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Refill Schedule</label>
+            <select 
+              value={settings.refill_period} 
+              onChange={(e) => handleChange('refill_period', e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            >
+              <option value="weekly">Every Saturday (Weekly)</option>
+              <option value="monthly">1st of the Month (Monthly)</option>
+              <option value="never">Manual Only (Events)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="bg-black p-6 rounded-xl border border-zinc-800 space-y-6">
+          <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
+            <CreditCard className="w-4 h-4 text-[#fe9a00]" /> Commerce Multipliers
+          </h3>
+          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-relaxed">
+            Set the reward ratio for Shopify merch purchases. (Requires active Shopify Webhook).
+          </p>
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Bonus Hypes per $1 Spent</label>
+            <div className="flex items-center gap-3">
+              <input 
+                type="number" min="0" 
+                value={settings.shop_multiplier} 
+                onChange={(e) => handleChange('shop_multiplier', Number(e.target.value))}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-[#fe9a00] text-xl font-black focus:border-[#fe9a00] outline-none transition-colors"
+              />
+              <span className="text-zinc-500 font-black uppercase tracking-widest text-xs">Hypes</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button onClick={handleSaveSettings} disabled={isSaving} className="w-full mb-8 bg-zinc-800 text-white border border-zinc-700 font-black uppercase tracking-widest py-4 rounded-xl hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-colors shadow-lg">
+        {isSaving ? 'UPDATING...' : 'Save All Hype Settings'}
+      </button>
+
+      <form onSubmit={handleAirdrop} className="bg-black p-6 rounded-xl border border-[#fe9a00]/30 shadow-[0_0_30px_rgba(254,154,0,0.1)] mb-8">
+        <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-6">
+          <Gift className="w-4 h-4" /> Live Event & Prize Airdrop
+        </h3>
+        
+        <div className="flex flex-col md:flex-row gap-6 mb-6">
+          <div className="flex-1">
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Hype Amount</label>
+            <input 
+              type="number" min="1" required
+              value={airdrop.amount} 
+              onChange={(e) => setAirdrop(prev => ({ ...prev, amount: Number(e.target.value) }))}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-[#fe9a00] text-xl font-black focus:border-[#fe9a00] outline-none transition-colors"
+            />
+          </div>
+
+          <div className="flex-1">
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Target Audience</label>
+            <select 
+              value={airdrop.target} 
+              onChange={(e) => setAirdrop(prev => ({ ...prev, target: e.target.value }))}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-4 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            >
+              <option value="all">Global (All Registered Users)</option>
+              <option value="specific">Specific User (Prize Winner)</option>
+            </select>
+          </div>
+
+          {airdrop.target === 'specific' && (
+            <div className="flex-1 animate-fade-in">
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Winner Username</label>
+              <input 
+                type="text" required
+                value={airdrop.username} 
+                onChange={(e) => setAirdrop(prev => ({ ...prev, username: e.target.value }))}
+                placeholder="Enter exact username..."
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-4 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+              />
+            </div>
+          )}
+        </div>
+
+        <button type="submit" disabled={isBlasting} className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black font-black uppercase tracking-widest text-sm py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] disabled:opacity-50">
+          <Send className="w-5 h-5" />{isBlasting ? 'Blasting...' : 'Blast Hypes Now'}
+        </button>
+      </form>
+
+      {/* --- SPLIT KILL SWITCHES --- */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        {/* Kill Switch 1: Hype Balances */}
+        <div className="bg-red-950/20 border border-red-900/50 p-6 rounded-xl relative overflow-hidden flex flex-col">
+          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay pointer-events-none" />
+          <h3 className="text-sm font-black text-red-500 uppercase tracking-widest flex items-center gap-2 border-b border-red-900/50 pb-3 mb-4 relative z-10">
+            <XCircle className="w-4 h-4" /> Reset User Balances
+          </h3>
+          <p className="text-[10px] font-bold text-red-400/80 uppercase tracking-widest leading-relaxed mb-6 relative z-10">
+            This will instantly reset ALL user hype balances to their base tier allowances (Free or Premium). (Does not affect leaderboards).
+          </p>
+
+          <div className="flex flex-col gap-3 relative z-10 mt-auto">
+            <input 
+              type="text" 
+              placeholder="Type 'RESET HYPES'"
+              value={hypeResetConfirm}
+              onChange={(e) => setHypeResetConfirm(e.target.value)}
+              className="w-full bg-black border border-red-900/50 rounded-lg p-4 text-red-500 text-sm font-black tracking-widest focus:border-red-500 outline-none text-center transition-colors placeholder:text-red-900/40"
+            />
+            <button 
+              onClick={handleHypeReset}
+              disabled={hypeResetConfirm !== 'RESET HYPES' || isResettingHypes}
+              className="w-full py-4 bg-red-600 text-white font-black uppercase tracking-widest rounded-lg hover:bg-red-500 transition-colors shadow-[0_0_20px_rgba(220,38,38,0.3)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            >
+              {isResettingHypes ? 'WIPING...' : 'WIPE BALANCES'}
+            </button>
+          </div>
+        </div>
+
+        {/* Kill Switch 2: Leaderboards */}
+        <div className="bg-red-950/20 border border-red-900/50 p-6 rounded-xl relative overflow-hidden flex flex-col">
+          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay pointer-events-none" />
+          <h3 className="text-sm font-black text-red-500 uppercase tracking-widest flex items-center gap-2 border-b border-red-900/50 pb-3 mb-4 relative z-10">
+            <XCircle className="w-4 h-4" /> Reset Leaderboards
+          </h3>
+          <p className="text-[10px] font-bold text-red-400/80 uppercase tracking-widest leading-relaxed mb-6 relative z-10">
+            This wipes all aggregated hype tracking across Series, Creators, Chapters, and Characters for the current cycle.
+          </p>
+
+          <div className="flex flex-col gap-3 relative z-10 mt-auto">
+            <input 
+              type="text" 
+              placeholder="Type 'RESET LEADERBOARDS'"
+              value={leaderboardResetConfirm}
+              onChange={(e) => setLeaderboardResetConfirm(e.target.value)}
+              className="w-full bg-black border border-red-900/50 rounded-lg p-4 text-red-500 text-sm font-black tracking-widest focus:border-red-500 outline-none text-center transition-colors placeholder:text-red-900/40"
+            />
+            <button 
+              onClick={handleLeaderboardReset}
+              disabled={leaderboardResetConfirm !== 'RESET LEADERBOARDS' || isResettingLeaderboards}
+              className="w-full py-4 bg-red-600 text-white font-black uppercase tracking-widest rounded-lg hover:bg-red-500 transition-colors shadow-[0_0_20px_rgba(220,38,38,0.3)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            >
+              {isResettingLeaderboards ? 'WIPING...' : 'WIPE LEADERBOARDS'}
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
 };
 
 // --- THIRD-PARTY INTEGRATIONS EDITOR ---
@@ -743,6 +1039,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
     { id: 'home', label: 'Home Editor' },
     { id: 'series', label: 'Series Page Editor' }, 
     { id: 'chapter', label: 'Chapter Upload' },
+    { id: 'hype', label: 'Hype Economy' }, 
     { id: 'avatars', label: 'Avatar Maker' }, 
     { id: 'frames', label: 'Frame Maker' }, 
     { id: 'stickers', label: 'Sticker Maker' }, 
@@ -781,6 +1078,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           {activeTab === 'home' && <HomeEditor Dropzone={Dropzone} setIsDirty={setIsDirty} />}
           {activeTab === 'series' && <SeriesEditor Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
           {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
+          {activeTab === 'hype' && <HypeManager setIsDirty={setIsDirty} />}
           {activeTab === 'avatars' && <AvatarMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
           {activeTab === 'frames' && <FrameMaker setIsDirty={setIsDirty} />} 
           {activeTab === 'stickers' && <StickerMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}

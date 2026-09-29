@@ -122,16 +122,35 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   // --- LIVE SYNC SIGNATURES ON LOAD ---
   useEffect(() => {
     const syncSignatures = async () => {
-      const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
-      const savedSigs = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
+      // 1. Check who is logged in
+      const { data: { user } } = await supabase.auth.getUser();
       
-      setUnlockedCreators(savedHunts);
+      let knownHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
+      let knownSigs = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
+
+      // 2. If logged in, fetch their official permanent history from the database!
+      if (user) {
+        const { data: logs } = await supabase
+          .from('bingo_signatures_log')
+          .select('creator_name')
+          .eq('user_id', user.id);
+
+        if (logs && logs.length > 0) {
+          const dbHunts = logs.map(log => log.creator_name);
+          // Combine DB history with local history (removes duplicates)
+          knownHunts = Array.from(new Set([...knownHunts, ...dbHunts]));
+          localStorage.setItem('am_bingo_hunts', JSON.stringify(knownHunts));
+        }
+      }
       
-      if (savedHunts.length > 0) {
+      setUnlockedCreators(knownHunts);
+      
+      // 3. Fetch the actual signature images for their unlocked creators
+      if (knownHunts.length > 0) {
         const { data } = await supabase
           .from('creator_signatures')
           .select('creator_name, signature_url')
-          .in('creator_name', savedHunts);
+          .in('creator_name', knownHunts);
           
         if (data && data.length > 0) {
           const freshSigs: Record<string, string> = {};
@@ -139,12 +158,13 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
           setSignatures(freshSigs);
           localStorage.setItem('am_bingo_sigs', JSON.stringify(freshSigs));
         } else {
-          setSignatures(savedSigs);
+          setSignatures(knownSigs);
         }
       } else {
-        setSignatures(savedSigs);
+        setSignatures(knownSigs);
       }
     };
+    
     syncSignatures();
   }, []);
 

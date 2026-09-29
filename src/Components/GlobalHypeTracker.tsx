@@ -7,7 +7,6 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
   const [overlayCount, setOverlayCount] = useState(0);
   const [localHypes, setLocalHypes] = useState(0);
   
-  // Fallback state to fetch the user independently if the prop is lost in the layout tree
   const [resolvedUser, setResolvedUser] = useState<any>(currentUser);
 
   useEffect(() => {
@@ -36,15 +35,20 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
   const syncEconomy = useCallback(async () => {
     if (!resolvedUser?.id) return;
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('hypes_remaining, last_hype_refill, is_premium')
-      .eq('id', resolvedUser.id)
-      .single();
+    const [profileRes, settingsRes] = await Promise.all([
+      supabase.from('profiles').select('hypes_remaining, last_hype_refill, is_premium').eq('id', resolvedUser.id).single(),
+      supabase.from('app_settings').select('*').eq('id', 1).maybeSingle()
+    ]);
       
+    const profile = profileRes.data;
+    const appSettings = settingsRes.data || {};
+
     if (!profile) return;
 
-    // Bulletproof UTC time-math to find the most recent Saturday at 00:00:00 UTC
+    // Checks both column naming conventions to guarantee it grabs your new rule
+    const premiumLimit = appSettings.premium_tier_hypes ?? appSettings.premium_hype_allowance ?? 7;
+    const freeLimit = appSettings.free_tier_hypes ?? appSettings.free_hype_allowance ?? 1;
+
     const now = new Date();
     const dayOfWeek = now.getUTCDay();
     const daysSinceSaturday = (dayOfWeek + 1) % 7;
@@ -52,11 +56,9 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
 
     const lastRefill = new Date(profile.last_hype_refill || 0);
 
-    // If they haven't been refilled since last Saturday (UTC), reset them
     if (lastRefill < lastSaturday) {
-      const newHypes = profile.is_premium ? 7 : 1;
+      const newHypes = profile.is_premium ? premiumLimit : freeLimit;
       
-      // Removed the missing ads column to prevent a silent error that was causing infinite resets
       const { error } = await supabase.from('profiles').update({
         hypes_remaining: newHypes,
         last_hype_refill: now.toISOString()
@@ -65,7 +67,6 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
       if (!error) {
         setLocalHypes(newHypes);
       } else {
-        // Fallback to DB state if update fails, to avoid artificially inflating the UI
         setLocalHypes(profile.hypes_remaining || 0);
       }
     } else {
@@ -75,20 +76,14 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
 
   useEffect(() => {
     syncEconomy();
-    // Listen for anywhere in the app that spends a hype to re-sync
     window.addEventListener('profileUpdated', syncEconomy);
     return () => window.removeEventListener('profileUpdated', syncEconomy);
   }, [syncEconomy]);
 
-  // Completely unmount if the reader is open OR if a modal/menu is open
   if (isHidden || overlayCount > 0 || !resolvedUser) return null;
 
   return (
-    // Wrapper locked to the exact width and position of the global nav pill. 
-    // Z-index lowered to 150 to sit above page content but below modals.
     <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] sm:bottom-[calc(6rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 w-full max-w-[340px] sm:max-w-[400px] z-[150] pointer-events-none flex justify-start">
-      
-      {/* The compact, sleek badge anchored to the top left with a persistent gold border */}
       <div 
         className="relative pointer-events-auto bg-zinc-950 border border-[#fe9a00] backdrop-blur-md px-2.5 py-1 rounded-full shadow-[0_5px_15px_rgba(0,0,0,0.9)] flex items-center gap-1.5 transition-all hover:bg-black ml-2 sm:-ml-2 mb-1"
         title="Hypes Remaining"
@@ -96,7 +91,6 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
         <Flame className="w-3.5 h-3.5 text-[#fe9a00] animate-pulse drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]" />
         <span className="text-white font-black text-[11px] leading-none pt-0.5 tracking-wider">{localHypes}</span>
       </div>
-      
     </div>
   );
 };

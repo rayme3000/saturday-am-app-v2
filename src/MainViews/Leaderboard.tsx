@@ -279,8 +279,9 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/95 to-transparent" />
       </div>
 
-      <div className="sticky top-0 z-50 w-full bg-black/80 backdrop-blur-lg border-b border-zinc-800/50 pt-6 pb-4 px-4 sm:pt-8 sm:px-8 shadow-xl">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4 relative">
+      <div className="sticky top-0 z-50 w-full bg-black/95 backdrop-blur-xl border-b border-zinc-800/80 pt-6 pb-4 px-4 sm:pt-8 sm:px-8 shadow-2xl">
+        {/* ROW 1: Title and Navigation */}
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4 relative mb-5">
           
           {/* Left Side: Back Button + Mobile-only Title */}
           <div className="flex items-center gap-2 sm:gap-4 shrink min-w-0 z-10">
@@ -314,22 +315,22 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           </div>
 
         </div>
-      </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-6 relative z-10">
-        
-        <div className="flex bg-zinc-900/60 backdrop-blur-md p-1 rounded-full mb-10 border border-zinc-800 shadow-xl max-w-lg mx-auto">
-          <button onClick={() => setActiveTab('weekly')} className={`flex-1 py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 ${activeTab === 'weekly' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
+        {/* ROW 2: The Tabs (Now safely inside the sticky header) */}
+        <div className="flex bg-black/50 p-1 rounded-full border border-zinc-800 shadow-inner max-w-lg mx-auto">
+          <button onClick={() => setActiveTab('weekly')} className={`flex-1 py-2.5 sm:py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 ${activeTab === 'weekly' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
             <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 hidden sm:block" /> Weekly Hype
           </button>
-          <button onClick={() => setActiveTab('monthly')} className={`flex-1 py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 ${activeTab === 'monthly' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
+          <button onClick={() => setActiveTab('monthly')} className={`flex-1 py-2.5 sm:py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 ${activeTab === 'monthly' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
             <Calendar className="w-3 h-3 sm:w-4 sm:h-4 hidden sm:block" /> The Big 3
           </button>
-          <button onClick={() => setActiveTab('fans')} className={`flex-1 py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 ${activeTab === 'fans' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
+          <button onClick={() => setActiveTab('fans')} className={`flex-1 py-2.5 sm:py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 ${activeTab === 'fans' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
             <Users className="w-3 h-3 sm:w-4 sm:h-4 hidden sm:block" /> Top Fans
           </button>
         </div>
+      </div>
 
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-6 relative z-10">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
              <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>

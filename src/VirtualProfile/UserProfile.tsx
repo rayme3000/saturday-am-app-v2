@@ -16,7 +16,6 @@ let memUserProfile: any = null;
 
 const getFandomTier = (lifetimeScore: number) => {
   const score = lifetimeScore || 0;
-  // Added custom glow classes for the target rank text
   const tiers = [
     { name: 'Leaf', min: 0, max: 99, color: 'text-emerald-500', bar: 'bg-emerald-500', glow: 'drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]' },
     { name: 'Stone', min: 100, max: 999, color: 'text-white', bar: 'bg-white', glow: 'drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]' },
@@ -161,7 +160,19 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
       if (user) {
         setIsLoggedIn(true);
         const fallbackName = user.user_metadata?.username || 'Reader';
-        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+
+        // --- NEW: DYNAMIC ECONOMY FETCH ---
+        const [profileRes, settingsRes] = await Promise.all([
+          supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+          supabase.from('app_settings').select('*').eq('id', 1).maybeSingle()
+        ]);
+        
+        const data = profileRes.data;
+        const appSettings = settingsRes.data || {};
+        
+        // Gracefully support whichever column names are currently active in your database
+        const premiumLimit = appSettings.premium_tier_hypes ?? appSettings.premium_hype_allowance ?? 7;
+        const freeLimit = appSettings.free_tier_hypes ?? appSettings.free_hype_allowance ?? 1;
         
         let myRank: string | number = "---";
         let myScore = 0;
@@ -181,7 +192,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
           const lastRefill = new Date(data.last_hype_refill || 0);
 
           if (lastRefill < lastSaturday) {
-            actualHypes = data.is_premium ? 7 : 1;
+            // APPLYING THE LIVE RULES INSTEAD OF 7 OR 1
+            actualHypes = data.is_premium ? premiumLimit : freeLimit;
           }
 
           const newStats = { 
