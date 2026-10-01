@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Lock, Flame, Flag, AlertCircle, CheckCircle2, MessageSquare, CornerDownRight, Shield } from 'lucide-react';
 import { supabase } from '../supabase';
 import { DecoratedAvatar } from './DecoratedAvatar'; 
-import { cleanText } from '../profanityFilter';
+import { cleanText, containsInappropriateLanguage } from '../profanityFilter';
 
 export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlug: string, onRequireAuth: () => void }) => {
   const [commentText, setCommentText] = useState('');
@@ -40,13 +40,18 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
     if (!seriesSlug) return;
     if (!isInitialLoad) setIsLoadingMore(true);
 
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id || '00000000-0000-0000-0000-000000000000';
+
     const from = pageIndex * COMMENTS_PER_PAGE;
     const to = from + COMMENTS_PER_PAGE - 1;
 
+    // SHADOW-BAN FILTER: Fetch unflagged comments OR comments authored by current user
     const { data } = await supabase.from('series_comments')
       .select('*')
       .eq('series_slug', seriesSlug)
       .is('parent_id', null)
+      .or(`is_flagged.eq.false,user_id.eq.${currentUserId}`)
       .order('created_at', { ascending: false })
       .range(from, to);
 
@@ -111,7 +116,17 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
       setExpandedReplies(prev => ({...prev, [parentId]: false}));
       return;
     }
-    const { data } = await supabase.from('series_comments').select('*').eq('parent_id', parentId).order('created_at', { ascending: true });
+
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id || '00000000-0000-0000-0000-000000000000';
+
+    // SHADOW-BAN FILTER: Fetch unflagged replies OR replies authored by current user
+    const { data } = await supabase.from('series_comments')
+      .select('*')
+      .eq('parent_id', parentId)
+      .or(`is_flagged.eq.false,user_id.eq.${currentUserId}`)
+      .order('created_at', { ascending: true });
+
     if (data) {
       const userIds = [...new Set(data.map((c: any) => c.user_id))].filter(Boolean);
       let profileMap: any = {};
@@ -142,6 +157,8 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
       return;
     }
 
+    // CHECK LOCAL PROFANITY FILTER AND MARK SHADOW-BAN STATUS ON INSERT
+    const isFlagged = containsInappropriateLanguage(commentText);
     const cleaned = cleanText(commentText.trim());
 
     const newComment = { 
@@ -150,7 +167,8 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
       user_name: currentUser?.name || user.user_metadata?.username || 'Reader', 
       avatar_url: currentUser?.avatar || '', 
       text: cleaned, 
-      parent_id: parentId
+      parent_id: parentId,
+      is_flagged: isFlagged
     };
     
     const { data, error } = await supabase.from('series_comments').insert([newComment]).select().single();

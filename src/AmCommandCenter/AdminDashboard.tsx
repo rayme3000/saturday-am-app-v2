@@ -9,7 +9,7 @@ import { CardSkinMaker } from './CardSkinMaker';
 import { FrameMaker } from './FrameMaker'; 
 import { ModerationDashboard } from './ModerationDashboard';
 import { supabase } from '../supabase';
-import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users } from 'lucide-react';
+import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users, ShieldAlert } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
@@ -25,7 +25,7 @@ const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
   }, [hasUnsavedChanges]);
 };
 
-// --- NEW: HYPE ECONOMY MANAGER ---
+// --- HYPE ECONOMY MANAGER ---
 const HypeManager = ({ setIsDirty }: any) => {
   const [settings, setSettings] = useState({
     free_allowance: 1,
@@ -330,7 +330,11 @@ const IntegrationsManager = ({ setIsDirty }: any) => {
     applixr_id: '',
     google_analytics_id: '',
     meta_pixel_id: '',
-    tiktok_pixel_id: ''
+    tiktok_pixel_id: '',
+    openai_api_key: '',
+    resend_api_key: '',
+    moderator_emails: '',
+    moderator_email_mode: 'flagged_only'
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -345,7 +349,11 @@ const IntegrationsManager = ({ setIsDirty }: any) => {
           applixr_id: data.applixr_id || '',
           google_analytics_id: data.google_analytics_id || '',
           meta_pixel_id: data.meta_pixel_id || '',
-          tiktok_pixel_id: data.tiktok_pixel_id || ''
+          tiktok_pixel_id: data.tiktok_pixel_id || '',
+          openai_api_key: data.openai_api_key || '',
+          resend_api_key: data.resend_api_key || '',
+          moderator_emails: data.moderator_emails ? data.moderator_emails.join(', ') : '',
+          moderator_email_mode: data.moderator_email_mode || 'flagged_only'
         });
       }
     };
@@ -359,7 +367,19 @@ const IntegrationsManager = ({ setIsDirty }: any) => {
 
   const handleSave = async () => {
     setIsSaving(true);
-    const { error } = await supabase.from('app_settings').upsert({ id: 1, ...settings });
+    
+    const emailsArray = settings.moderator_emails
+      .split(',')
+      .map(e => e.trim())
+      .filter(e => e.length > 0);
+
+    const payloadToSave = { 
+      id: 1, 
+      ...settings,
+      moderator_emails: emailsArray 
+    };
+
+    const { error } = await supabase.from('app_settings').upsert(payloadToSave);
     setIsSaving(false);
     if (error) alert("Error saving integrations: " + error.message);
     else { alert("Integrations Updated Successfully!"); setIsDirty(false); }
@@ -371,10 +391,63 @@ const IntegrationsManager = ({ setIsDirty }: any) => {
         <LinkIcon className="w-6 h-6 text-[#fe9a00]" />
         <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Third-Party Integrations</h2>
       </div>
-      
-      <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-8 leading-relaxed">
-        Connect Saturday AM to industry-leading e-commerce, advertising, and analytics platforms. Enter your official tracking and API keys below.
-      </p>
+
+      {/* AI MODERATION & ALERTS */}
+      <div className="bg-[#fe9a00]/10 p-6 rounded-xl border border-[#fe9a00]/30 mb-8 space-y-6">
+        <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-[#fe9a00]/30 pb-3">
+          <ShieldAlert className="w-4 h-4" /> AI Moderation & Email Alerts
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Moderator Emails (Comma Separated)</label>
+            <input 
+              type="text" 
+              placeholder="admin@saturdayam.com, mod2@saturdayam.com" 
+              value={settings.moderator_emails} 
+              onChange={(e) => handleChange('moderator_emails', e.target.value)}
+              className="w-full bg-black border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Email Dispatch Mode</label>
+            <select 
+              value={settings.moderator_email_mode} 
+              onChange={(e) => handleChange('moderator_email_mode', e.target.value)}
+              className="w-full bg-black border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors cursor-pointer"
+            >
+              <option value="flagged_only">Flagged Comments Only (Recommended)</option>
+              <option value="all">All Comments (Flagged & Clean)</option>
+              <option value="clean_only">Non-Flagged Comments Only</option>
+              <option value="off">Muted (Off)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">OpenAI API Key (Context Moderation)</label>
+            <input 
+              type="password" 
+              placeholder="sk-..." 
+              value={settings.openai_api_key} 
+              onChange={(e) => handleChange('openai_api_key', e.target.value)}
+              className="w-full bg-black border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Resend API Key (Email Alerts)</label>
+            <input 
+              type="password" 
+              placeholder="re_..." 
+              value={settings.resend_api_key} 
+              onChange={(e) => handleChange('resend_api_key', e.target.value)}
+              className="w-full bg-black border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            />
+          </div>
+        </div>
+      </div>
 
       <div className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-6">
         <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">

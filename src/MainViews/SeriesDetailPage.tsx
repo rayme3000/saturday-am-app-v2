@@ -9,6 +9,7 @@ import { PromoModal } from '../Components/PromoModal';
 import { ShareModal } from '../Components/ShareModal';
 import { useTelemetry } from '../Components/useTelemetry';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
+import { trackTelemetry } from '../supabase';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -131,7 +132,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   useEffect(() => {
     if (localSeries?.slug) {
+      // 1. Fire your existing analytics/telemetry
       trackEvent('series_page_visit', { series_slug: localSeries.slug });
+      
+      // 2. Fire the NEW Global Telemetry Tracker to power the Dashboard
+      trackTelemetry('series_visit', { series_slug: localSeries.slug });
+      
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
   }, [localSeries?.slug, trackEvent]);
