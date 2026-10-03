@@ -3,7 +3,7 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { SeriesSection } from "./SeriesSection";
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
-import { Menu, X, Bell, CheckCircle, Play, Flame } from 'lucide-react';
+import { Menu, X, Bell, CheckCircle, Play } from 'lucide-react';
 import { useTelemetry } from '../Components/useTelemetry'; 
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
@@ -222,11 +222,20 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   if (isLoading || isLoadingSlides) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
-        <div className="relative w-12 h-12 flex justify-center">
-          <Flame className="w-12 h-12 text-zinc-800 absolute bottom-0" strokeWidth={1.5} />
-          <div className="absolute bottom-0 overflow-hidden w-12 flex justify-center animate-flame-fill">
-            <Flame className="w-12 h-12 text-[#fe9a00] fill-[#fe9a00] absolute bottom-0" strokeWidth={1.5} />
-          </div>
+        <div className="relative flex items-center justify-center">
+          <div 
+            className="w-20 h-20 md:w-24 md:h-24 bg-[#fe9a00] animate-hype-glow"
+            style={{
+              WebkitMaskImage: "url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png')",
+              WebkitMaskSize: 'contain',
+              WebkitMaskRepeat: 'no-repeat',
+              WebkitMaskPosition: 'center',
+              maskImage: "url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png')",
+              maskSize: 'contain',
+              maskRepeat: 'no-repeat',
+              maskPosition: 'center'
+            }}
+          />
         </div>
       </div>
     );

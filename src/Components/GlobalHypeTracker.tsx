@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Flame } from 'lucide-react';
 import { supabase } from '../supabase';
+
+const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
+const iconMaskStyle = {
+  WebkitMaskImage: `url('${fullIconUrl}')`,
+  WebkitMaskSize: 'contain',
+  WebkitMaskRepeat: 'no-repeat',
+  WebkitMaskPosition: 'center',
+  maskImage: `url('${fullIconUrl}')`,
+  maskSize: 'contain',
+  maskRepeat: 'no-repeat',
+  maskPosition: 'center'
+};
 
 export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
   const [isHidden, setIsHidden] = useState(false);
@@ -45,7 +56,6 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
 
     if (!profile) return;
 
-    // Checks both column naming conventions to guarantee it grabs your new rule
     const premiumLimit = appSettings.premium_tier_hypes ?? appSettings.premium_hype_allowance ?? 7;
     const freeLimit = appSettings.free_tier_hypes ?? appSettings.free_hype_allowance ?? 1;
 
@@ -88,7 +98,7 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
         className="relative pointer-events-auto bg-zinc-950 border border-[#fe9a00] backdrop-blur-md px-2.5 py-1 rounded-full shadow-[0_5px_15px_rgba(0,0,0,0.9)] flex items-center gap-1.5 transition-all hover:bg-black ml-2 sm:-ml-2 mb-1"
         title="Hypes Remaining"
       >
-        <Flame className="w-3.5 h-3.5 text-[#fe9a00] animate-pulse drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]" />
+        <div className="w-3.5 h-3.5 bg-[#fe9a00] animate-pulse drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]" style={iconMaskStyle} />
         <span className="text-white font-black text-[11px] leading-none pt-0.5 tracking-wider">{localHypes}</span>
       </div>
     </div>

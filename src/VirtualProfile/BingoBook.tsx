@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Target, Lock, X, Sparkles, KeyRound } from 'lucide-react';
+import { ArrowLeft, Target, Lock, X, Sparkles, KeyRound, User } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
@@ -95,6 +95,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const [pinInput, setPinInput] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [alertConfig, setAlertConfig] = useState<{ title: string, message: string } | null>(null);
+  const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const progressPercentage = CREATOR_TARGETS.length > 0 ? (unlockedCreators.length / CREATOR_TARGETS.length) * 100 : 0;
@@ -102,42 +103,39 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   useEffect(() => {
     if (CREATOR_TARGETS.length > 0) {
       localStorage.setItem('am_bingo_total', CREATOR_TARGETS.length.toString());
-      setUnlockedCreators(prev => {
-        const validHunts = prev.filter(id => CREATOR_TARGETS.some(t => t.id === id));
-        if (validHunts.length !== prev.length) {
-          localStorage.setItem('am_bingo_hunts', JSON.stringify(validHunts));
-          setSignatures(prevSigs => {
-            const validSigs: Record<string, string> = {};
-            validHunts.forEach(id => { if (prevSigs[id]) validSigs[id] = prevSigs[id]; });
-            localStorage.setItem('am_bingo_sigs', JSON.stringify(validSigs));
-            return validSigs;
-          });
-          return validHunts;
-        }
-        return prev;
-      });
     }
   }, [CREATOR_TARGETS]);
 
-  // --- LIVE SYNC SIGNATURES ON LOAD ---
   useEffect(() => {
+    if (userTier === 'visitor') return; // Skip DB fetch if visitor
+
     const syncSignatures = async () => {
-      // 1. Check who is logged in
       const { data: { user } } = await supabase.auth.getUser();
       
       let knownHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
       let knownSigs = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
 
-      // 2. If logged in, fetch their official permanent history from the database!
       if (user) {
-        const { data: logs } = await supabase
+        const { data: logs, error } = await supabase
           .from('bingo_signatures_log')
           .select('creator_name')
           .eq('user_id', user.id);
 
-        if (logs && logs.length > 0) {
-          const dbHunts = logs.map(log => log.creator_name);
-          // Combine DB history with local history (removes duplicates)
+        if (!error && logs) {
+          const dbHunts = logs.map((log: any) => log.creator_name);
+          
+          const unsavedLocalHunts = knownHunts.filter((name: string) => !dbHunts.includes(name));
+          
+          if (unsavedLocalHunts.length > 0) {
+            const backups = unsavedLocalHunts.map((name: string) => ({
+              user_id: user.id,
+              creator_name: name,
+              event_name: 'Local Cache Auto-Sync',
+              signature_type: 'Standard'
+            }));
+            await supabase.from('bingo_signatures_log').insert(backups);
+          }
+
           knownHunts = Array.from(new Set([...knownHunts, ...dbHunts]));
           localStorage.setItem('am_bingo_hunts', JSON.stringify(knownHunts));
         }
@@ -145,7 +143,6 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       
       setUnlockedCreators(knownHunts);
       
-      // 3. Fetch the actual signature images for their unlocked creators
       if (knownHunts.length > 0) {
         const { data } = await supabase
           .from('creator_signatures')
@@ -153,7 +150,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
           .in('creator_name', knownHunts);
           
         if (data && data.length > 0) {
-          const freshSigs: Record<string, string> = {};
+          const freshSigs: Record<string, string> = { ...knownSigs };
           data.forEach((row: any) => { freshSigs[row.creator_name] = row.signature_url; });
           setSignatures(freshSigs);
           localStorage.setItem('am_bingo_sigs', JSON.stringify(freshSigs));
@@ -166,7 +163,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     };
     
     syncSignatures();
-  }, []);
+  }, [userTier]);
 
   const claimSignature = async (creatorName: string, creatorId: string) => {
     const { data: sigData } = await supabase.from('creator_signatures').select('signature_url').eq('creator_name', creatorName).maybeSingle();
@@ -245,24 +242,39 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     setPinInput('');
   };
 
-  if (userTier !== 'premium') {
+  // --- NEW: VISITOR LOCKOUT SCREEN ---
+  if (userTier === 'visitor') {
     return (
-      <div className="min-h-screen bg-transparent text-white relative flex flex-col">
+      <div className="min-h-screen bg-transparent text-white relative flex flex-col animate-fade-in">
         <div className="fixed inset-0 z-[-1] bg-black">
           <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
           <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
           <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
           <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
         </div>
-        <div className="absolute top-6 left-6 z-40"><button onClick={onBack} className="p-3 bg-zinc-900 hover:bg-zinc-800 rounded-full transition-colors shadow-lg"><ArrowLeft className="w-5 h-5 text-white" /></button></div>
+        
+        <div className="absolute top-6 left-6 z-40">
+          <button onClick={onBack} className="p-3 bg-zinc-900 hover:bg-zinc-800 rounded-full transition-colors shadow-lg">
+            <ArrowLeft className="w-5 h-5 text-white" />
+          </button>
+        </div>
         
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-24 h-24 bg-zinc-900 rounded-full flex items-center justify-center mb-6 border border-zinc-800 shadow-[0_0_30px_rgba(254,154,0,0.2)]"><Lock className="w-10 h-10 text-[#fe9a00]" /></div>
-          <h1 className="text-3xl md:text-4xl font-black uppercase italic tracking-widest text-white mb-4">Bingo <span className="text-red-600">Book</span></h1>
+          <div className="w-24 h-24 bg-zinc-900 rounded-full flex items-center justify-center mb-6 border border-zinc-800 shadow-[0_0_30px_rgba(254,154,0,0.2)]">
+            <User className="w-10 h-10 text-[#fe9a00]" />
+          </div>
+          <h1 className="text-3xl md:text-4xl font-black uppercase italic tracking-widest text-white mb-4">
+            Bingo <span className="text-red-600">Book</span>
+          </h1>
           <p className="text-zinc-400 font-bold max-w-md mb-8 leading-relaxed bg-black/40 p-4 rounded-xl backdrop-blur-sm border border-zinc-800">
-            The Bingo Book hunt is exclusively for Saturday AM Pro Members. Upgrade your account to collect digital autographs from your favorite creators!
+            The Bingo Book hunt requires a free profile so we can securely save your digital autographs to the cloud! Create an account today to start collecting.
           </p>
-          <button onClick={() => onNavigate({ action: 'sub' })} className="bg-[#fe9a00] text-black px-8 py-4 rounded-full font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)]">Upgrade to Pro</button>
+          <button 
+            onClick={() => onNavigate({ action: 'settings' })} 
+            className="bg-[#fe9a00] text-black px-8 py-4 rounded-full font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)]"
+          >
+            Create Free Account
+          </button>
         </div>
       </div>
     );
@@ -322,7 +334,18 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
             return (
               <button 
                 key={target.id}
-                onClick={() => { setSelectedTarget(target); setIsUnlocked(isCaught); }}
+                onClick={() => {
+                  if (!isCaught && userTier !== 'premium' && unlockedCreators.length >= 1) {
+                    setUpsellConfig({
+                      title: 'Premium Feature',
+                      message: 'Free members can only collect 1 digital autograph! Upgrade to Pro to complete your Bingo Book and get a massive boost to your Fandom Score.'
+                    });
+                    return;
+                  }
+                  
+                  setSelectedTarget(target); 
+                  setIsUnlocked(isCaught); 
+                }}
                 className={`relative group aspect-[3/4] rounded-xl overflow-hidden border-2 transition-all duration-300 ${isCaught ? 'border-zinc-700 grayscale opacity-90' : 'border-zinc-800 hover:border-red-600 hover:shadow-[0_0_20px_rgba(220,38,38,0.3)]'}`}
               >
                 <img src={target.avatar} alt={target.name} className={`w-full h-full object-cover transition-all duration-500 ${isCaught ? 'opacity-30' : 'opacity-100 group-hover:scale-105'}`} />
@@ -449,6 +472,7 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
         </div>
       )}
 
+      {/* GENERAL ALERTS */}
       {alertConfig && (
         <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setAlertConfig(null)}>
           <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
@@ -456,6 +480,26 @@ const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
             <h2 className="text-xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-2">{alertConfig.title}</h2>
             <p className="text-zinc-300 text-xs font-bold leading-relaxed mb-8">{alertConfig.message}</p>
             <button onClick={() => setAlertConfig(null)} className="w-full font-black uppercase tracking-widest py-3 rounded-lg transition-colors bg-[#fe9a00] text-black hover:bg-white">Acknowledge</button>
+          </div>
+        </div>
+      )}
+
+      {/* PREMIUM UPSELL MODAL */}
+      {upsellConfig && (
+        <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
+          <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <Lock className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
+            <button 
+              onClick={() => { setUpsellConfig(null); onNavigate({ action: 'sub' }); }} 
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]"
+            >
+              Upgrade to Pro
+            </button>
           </div>
         </div>
       )}

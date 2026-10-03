@@ -34,14 +34,11 @@ const HypeManager = ({ setIsDirty }: any) => {
     shop_multiplier: 10,
   });
   
-  const [airdrop, setAirdrop] = useState({ amount: 10, target: 'all', username: '' });
+  const [airdrop, setAirdrop] = useState({ amount: 0, target: 'specific', username: '' });
   const [isSaving, setIsSaving] = useState(false);
   const [isBlasting, setIsBlasting] = useState(false);
 
-  // --- SPLIT KILL SWITCH STATES ---
-  const [hypeResetConfirm, setHypeResetConfirm] = useState('');
-  const [isResettingHypes, setIsResettingHypes] = useState(false);
-  
+  // --- LEADERBOARD KILL SWITCH ---
   const [leaderboardResetConfirm, setLeaderboardResetConfirm] = useState('');
   const [isResettingLeaderboards, setIsResettingLeaderboards] = useState(false);
 
@@ -65,9 +62,13 @@ const HypeManager = ({ setIsDirty }: any) => {
     setIsDirty(true);
   };
 
-  const handleSaveSettings = async () => {
+  const handleSaveSettings = async (forceSyncNow: boolean) => {
+    if (forceSyncNow && !window.confirm(`This will instantly overwrite everyone's current hype balance to ${settings.free_allowance} (Standard) and ${settings.premium_allowance} (Pro). Proceed?`)) return;
+
     setIsSaving(true);
-    const { error } = await supabase.from('app_settings').upsert({ 
+    
+    // 1. Save global rules for the future
+    const { error: settingsError } = await supabase.from('app_settings').upsert({ 
       id: 1, 
       free_hype_allowance: settings.free_allowance,
       premium_hype_allowance: settings.premium_allowance,
@@ -75,9 +76,27 @@ const HypeManager = ({ setIsDirty }: any) => {
       shop_hype_multiplier: settings.shop_multiplier
     });
     
+    if (settingsError) {
+      alert("Error saving Hype settings: " + settingsError.message);
+      setIsSaving(false);
+      return;
+    }
+
+    // 2. Direct Frontend Override (Bypasses buggy SQL RPCs entirely!)
+    if (forceSyncNow) {
+      try {
+        await supabase.from('profiles').update({ hypes_remaining: settings.free_allowance }).eq('is_premium', false);
+        await supabase.from('profiles').update({ hypes_remaining: settings.premium_allowance }).eq('is_premium', true);
+        alert(`SUCCESS! Rules saved and all user wallets instantly synced.`);
+      } catch (err: any) {
+        alert("Error syncing user balances: " + err.message);
+      }
+    } else {
+      alert("Hype Rules Updated! They will apply automatically on the next scheduled refill.");
+    }
+    
+    setIsDirty(false);
     setIsSaving(false);
-    if (error) alert("Error saving Hype settings: " + error.message);
-    else { alert("Hype Economy Updated Successfully!"); setIsDirty(false); }
   };
 
   const handleAirdrop = async (e: React.FormEvent) => {
@@ -98,32 +117,16 @@ const HypeManager = ({ setIsDirty }: any) => {
         if (updateErr) throw updateErr;
       }
       alert("Hypes Airdropped Successfully!");
-      setAirdrop({ amount: 10, target: 'all', username: '' });
+      setAirdrop({ amount: 0, target: 'specific', username: '' });
     } catch (err: any) {
       alert("Error dropping hypes: " + err.message);
     }
     setIsBlasting(false);
   };
 
-  const handleHypeReset = async () => {
-    if (hypeResetConfirm !== 'RESET HYPES') return;
-    if (!window.confirm("WARNING: You are about to reset ALL user hype balances to their base tier allowances (e.g., 1 for Free, 3 for Pro). Are you absolutely sure?")) return;
-    
-    setIsResettingHypes(true);
-    try {
-      const { error } = await supabase.rpc('reset_user_hypes');
-      if (error) throw error;
-      alert("SUCCESS: All user hype balances have been reset to their base allowances.");
-      setHypeResetConfirm('');
-    } catch (err: any) {
-      alert("Hype Reset Failed: " + err.message);
-    }
-    setIsResettingHypes(false);
-  };
-
   const handleLeaderboardReset = async () => {
     if (leaderboardResetConfirm !== 'RESET LEADERBOARDS') return;
-    if (!window.confirm("WARNING: You are about to wipe all current weekly leaderboard progress (Series, Chapters, Characters, Creators, and Top Fans). This cannot be undone. Are you absolutely sure?")) return;
+    if (!window.confirm("WARNING: You are about to wipe all current weekly leaderboard progress. This cannot be undone. Are you absolutely sure?")) return;
     
     setIsResettingLeaderboards(true);
     try {
@@ -151,7 +154,7 @@ const HypeManager = ({ setIsDirty }: any) => {
           </h3>
           
           <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Free Tier Refill Amount</label>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Standard Refill Amount</label>
             <input 
               type="number" min="0" 
               value={settings.free_allowance} 
@@ -161,7 +164,7 @@ const HypeManager = ({ setIsDirty }: any) => {
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Premium Tier Refill Amount</label>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Pro Refill Amount</label>
             <input 
               type="number" min="0" 
               value={settings.premium_allowance} 
@@ -175,7 +178,7 @@ const HypeManager = ({ setIsDirty }: any) => {
             <select 
               value={settings.refill_period} 
               onChange={(e) => handleChange('refill_period', e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors cursor-pointer"
             >
               <option value="weekly">Every Saturday (Weekly)</option>
               <option value="monthly">1st of the Month (Monthly)</option>
@@ -206,9 +209,14 @@ const HypeManager = ({ setIsDirty }: any) => {
         </div>
       </div>
 
-      <button onClick={handleSaveSettings} disabled={isSaving} className="w-full mb-8 bg-zinc-800 text-white border border-zinc-700 font-black uppercase tracking-widest py-4 rounded-xl hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-colors shadow-lg">
-        {isSaving ? 'UPDATING...' : 'Save All Hype Settings'}
-      </button>
+      <div className="flex flex-col sm:flex-row gap-4 mb-8">
+        <button onClick={() => handleSaveSettings(false)} disabled={isSaving} className="flex-1 bg-zinc-800 text-white hover:text-black border border-zinc-700 font-black uppercase tracking-widest py-4 rounded-xl hover:bg-[#fe9a00] transition-colors shadow-lg">
+          {isSaving ? 'UPDATING...' : 'Save Rules (Future)'}
+        </button>
+        <button onClick={() => handleSaveSettings(true)} disabled={isSaving} className="flex-1 bg-[#fe9a00] text-black border border-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-xl hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">
+          {isSaving ? 'UPDATING...' : 'Save & Sync All Instantly'}
+        </button>
+      </div>
 
       <form onSubmit={handleAirdrop} className="bg-black p-6 rounded-xl border border-[#fe9a00]/30 shadow-[0_0_30px_rgba(254,154,0,0.1)] mb-8">
         <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-6">
@@ -231,10 +239,10 @@ const HypeManager = ({ setIsDirty }: any) => {
             <select 
               value={airdrop.target} 
               onChange={(e) => setAirdrop(prev => ({ ...prev, target: e.target.value }))}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-4 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-4 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors cursor-pointer"
             >
-              <option value="all">Global (All Registered Users)</option>
               <option value="specific">Specific User (Prize Winner)</option>
+              <option value="all">Global (All Registered Users)</option>
             </select>
           </div>
 
@@ -257,65 +265,33 @@ const HypeManager = ({ setIsDirty }: any) => {
         </button>
       </form>
 
-      {/* --- SPLIT KILL SWITCHES --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Kill Switch 1: Hype Balances */}
-        <div className="bg-red-950/20 border border-red-900/50 p-6 rounded-xl relative overflow-hidden flex flex-col">
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay pointer-events-none" />
-          <h3 className="text-sm font-black text-red-500 uppercase tracking-widest flex items-center gap-2 border-b border-red-900/50 pb-3 mb-4 relative z-10">
-            <XCircle className="w-4 h-4" /> Reset User Balances
-          </h3>
-          <p className="text-[10px] font-bold text-red-400/80 uppercase tracking-widest leading-relaxed mb-6 relative z-10">
-            This will instantly reset ALL user hype balances to their base tier allowances (Free or Premium). (Does not affect leaderboards).
-          </p>
-
-          <div className="flex flex-col gap-3 relative z-10 mt-auto">
-            <input 
-              type="text" 
-              placeholder="Type 'RESET HYPES'"
-              value={hypeResetConfirm}
-              onChange={(e) => setHypeResetConfirm(e.target.value)}
-              className="w-full bg-black border border-red-900/50 rounded-lg p-4 text-red-500 text-sm font-black tracking-widest focus:border-red-500 outline-none text-center transition-colors placeholder:text-red-900/40"
-            />
-            <button 
-              onClick={handleHypeReset}
-              disabled={hypeResetConfirm !== 'RESET HYPES' || isResettingHypes}
-              className="w-full py-4 bg-red-600 text-white font-black uppercase tracking-widest rounded-lg hover:bg-red-500 transition-colors shadow-[0_0_20px_rgba(220,38,38,0.3)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-            >
-              {isResettingHypes ? 'WIPING...' : 'WIPE BALANCES'}
-            </button>
-          </div>
-        </div>
-
-        {/* Kill Switch 2: Leaderboards */}
-        <div className="bg-red-950/20 border border-red-900/50 p-6 rounded-xl relative overflow-hidden flex flex-col">
-          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay pointer-events-none" />
-          <h3 className="text-sm font-black text-red-500 uppercase tracking-widest flex items-center gap-2 border-b border-red-900/50 pb-3 mb-4 relative z-10">
+      {/* Leaderboards Kill Switch */}
+      <div className="bg-red-950/20 border border-red-900/50 p-6 rounded-xl relative overflow-hidden flex flex-col md:flex-row items-center gap-6">
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay pointer-events-none" />
+        <div className="flex-1 relative z-10">
+          <h3 className="text-sm font-black text-red-500 uppercase tracking-widest flex items-center gap-2 border-b border-red-900/50 pb-3 mb-3">
             <XCircle className="w-4 h-4" /> Reset Leaderboards
           </h3>
-          <p className="text-[10px] font-bold text-red-400/80 uppercase tracking-widest leading-relaxed mb-6 relative z-10">
+          <p className="text-[10px] font-bold text-red-400/80 uppercase tracking-widest leading-relaxed">
             This wipes all aggregated hype tracking across Series, Creators, Chapters, and Characters for the current cycle.
           </p>
-
-          <div className="flex flex-col gap-3 relative z-10 mt-auto">
-            <input 
-              type="text" 
-              placeholder="Type 'RESET LEADERBOARDS'"
-              value={leaderboardResetConfirm}
-              onChange={(e) => setLeaderboardResetConfirm(e.target.value)}
-              className="w-full bg-black border border-red-900/50 rounded-lg p-4 text-red-500 text-sm font-black tracking-widest focus:border-red-500 outline-none text-center transition-colors placeholder:text-red-900/40"
-            />
-            <button 
-              onClick={handleLeaderboardReset}
-              disabled={leaderboardResetConfirm !== 'RESET LEADERBOARDS' || isResettingLeaderboards}
-              className="w-full py-4 bg-red-600 text-white font-black uppercase tracking-widest rounded-lg hover:bg-red-500 transition-colors shadow-[0_0_20px_rgba(220,38,38,0.3)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-            >
-              {isResettingLeaderboards ? 'WIPING...' : 'WIPE LEADERBOARDS'}
-            </button>
-          </div>
         </div>
-
+        <div className="flex flex-col gap-3 relative z-10 w-full md:w-auto min-w-[250px]">
+          <input 
+            type="text" 
+            placeholder="Type 'RESET LEADERBOARDS'"
+            value={leaderboardResetConfirm}
+            onChange={(e) => setLeaderboardResetConfirm(e.target.value)}
+            className="w-full bg-black border border-red-900/50 rounded-lg p-4 text-red-500 text-[10px] font-black tracking-widest focus:border-red-500 outline-none text-center transition-colors placeholder:text-red-900/40"
+          />
+          <button 
+            onClick={handleLeaderboardReset}
+            disabled={leaderboardResetConfirm !== 'RESET LEADERBOARDS' || isResettingLeaderboards}
+            className="w-full py-3 bg-red-600 text-white font-black uppercase tracking-widest rounded-lg hover:bg-red-500 transition-colors shadow-[0_0_20px_rgba(220,38,38,0.3)] disabled:opacity-50 flex items-center justify-center text-xs"
+          >
+            {isResettingLeaderboards ? 'WIPING...' : 'WIPE LEADERBOARDS'}
+          </button>
+        </div>
       </div>
     </div>
   );

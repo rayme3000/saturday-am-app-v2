@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
-import { Flame, Gift, ShoppingBag, Search, CheckCircle, AlertTriangle, Settings } from 'lucide-react';
+import { Gift, ShoppingBag, Search, CheckCircle, AlertTriangle, Settings } from 'lucide-react';
+
+const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
+const iconMaskStyle = {
+  WebkitMaskImage: `url('${fullIconUrl}')`,
+  WebkitMaskSize: 'contain',
+  WebkitMaskRepeat: 'no-repeat',
+  WebkitMaskPosition: 'center',
+  maskImage: `url('${fullIconUrl}')`,
+  maskSize: 'contain',
+  maskRepeat: 'no-repeat',
+  maskPosition: 'center'
+};
 
 export const HypeManager = ({ setIsDirty }: any) => {
   const [settings, setSettings] = useState({
@@ -94,7 +106,7 @@ export const HypeManager = ({ setIsDirty }: any) => {
   return (
     <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-lg animate-fade-in max-w-5xl">
       <div className="flex items-center gap-3 mb-8 border-b border-zinc-800 pb-4">
-        <Flame className="w-8 h-8 text-[#fe9a00]" />
+        <div className="w-8 h-8 bg-[#fe9a00]" style={iconMaskStyle} />
         <div>
           <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Hype Economy Manager</h2>
           <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">Control distribution, refills, and rewards</p>
@@ -199,9 +211,12 @@ export const HypeManager = ({ setIsDirty }: any) => {
                   <p className="text-lg font-black text-white">{targetUser.username}</p>
                   <p className="text-[10px] text-zinc-500 font-mono mt-1">{targetUser.email}</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Current Balance</p>
-                  <p className="text-xl font-black text-[#fe9a00]">{targetUser.hypes_remaining || 0} <Flame className="inline w-4 h-4 -mt-1" /></p>
+                <div className="text-right flex items-center gap-1.5 justify-end">
+                  <div className="flex flex-col items-end">
+                    <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Current Balance</p>
+                    <p className="text-xl font-black text-[#fe9a00]">{targetUser.hypes_remaining || 0}</p>
+                  </div>
+                  <div className="inline-block w-4 h-4 bg-[#fe9a00]" style={iconMaskStyle} />
                 </div>
               </div>
 

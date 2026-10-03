@@ -1,9 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Flame, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, Activity, RefreshCw } from 'lucide-react';
+import { ArrowLeft, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, RefreshCw } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
 import { GlobalFlexCard } from '../Components/GlobalFlexCard';
+
+const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
+const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
+const iconMaskStyle = {
+  WebkitMaskImage: `url('${fullIconUrl}')`,
+  WebkitMaskSize: 'contain',
+  WebkitMaskRepeat: 'no-repeat',
+  WebkitMaskPosition: 'center',
+  maskImage: `url('${fullIconUrl}')`,
+  maskSize: 'contain',
+  maskRepeat: 'no-repeat',
+  maskPosition: 'center'
+};
 
 const isNewItem = (createdAt: string | undefined) => {
   if (!createdAt) return false;
@@ -17,13 +30,13 @@ let memUserProfile: any = null;
 const getFandomTier = (lifetimeScore: number) => {
   const score = lifetimeScore || 0;
   const tiers = [
-    { name: 'Leaf', min: 0, max: 99, color: 'text-emerald-500', bar: 'bg-emerald-500', glow: 'drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]' },
-    { name: 'Stone', min: 100, max: 999, color: 'text-white', bar: 'bg-white', glow: 'drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]' },
-    { name: 'Bronze', min: 1000, max: 4999, color: 'text-amber-600', bar: 'bg-amber-600', glow: 'drop-shadow-[0_0_8px_rgba(217,119,6,0.8)]' },
-    { name: 'Silver', min: 5000, max: 19999, color: 'text-slate-300', bar: 'bg-slate-300', glow: 'drop-shadow-[0_0_8px_rgba(203,213,225,0.8)]' },
-    { name: 'Gold', min: 20000, max: 49999, color: 'text-yellow-400', bar: 'bg-yellow-400', glow: 'drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]' },
-    { name: 'Platinum', min: 50000, max: 99999, color: 'text-cyan-300', bar: 'bg-cyan-300', glow: 'drop-shadow-[0_0_8px_rgba(103,232,249,0.8)]' },
-    { name: 'Diamond', min: 100000, max: Infinity, color: 'text-fuchsia-400', bar: 'bg-fuchsia-400', glow: 'drop-shadow-[0_0_8px_rgba(232,121,249,0.8)]' }
+    { name: 'Ember', min: 0, max: 99, color: 'text-rose-900', bar: 'bg-rose-900', glow: 'drop-shadow-[0_0_8px_rgba(136,19,55,0.8)]' },
+    { name: 'Glint', min: 100, max: 999, color: 'text-red-700', bar: 'bg-red-700', glow: 'drop-shadow-[0_0_8px_rgba(185,28,28,0.8)]' },
+    { name: 'Flare', min: 1000, max: 4999, color: 'text-red-500', bar: 'bg-red-500', glow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]' },
+    { name: 'Hearth', min: 5000, max: 19999, color: 'text-orange-500', bar: 'bg-orange-500', glow: 'drop-shadow-[0_0_8px_rgba(249,115,22,0.8)]' },
+    { name: 'Lux', min: 20000, max: 49999, color: 'text-amber-400', bar: 'bg-amber-400', glow: 'drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]' },
+    { name: 'Fervor', min: 50000, max: 99999, color: 'text-[#fe9a00]', bar: 'bg-[#fe9a00]', glow: 'drop-shadow-[0_0_8px_rgba(254,154,0,0.8)]' },
+    { name: 'Vulcan', min: 100000, max: Infinity, color: 'text-yellow-100', bar: 'bg-yellow-100', glow: 'drop-shadow-[0_0_12px_rgba(254,243,199,1)]' }
   ];
 
   const currentIndex = tiers.findIndex(t => score >= t.min && score <= t.max);
@@ -130,7 +143,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
     return () => clearInterval(timer);
   }, []);
 
-  // --- NEW: INSTANT LOGOUT PATCH ---
   useEffect(() => {
     const handleInstantLogout = () => {
       memProfileStats = null;
@@ -161,7 +173,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         setIsLoggedIn(true);
         const fallbackName = user.user_metadata?.username || 'Reader';
 
-        // --- NEW: DYNAMIC ECONOMY FETCH ---
         const [profileRes, settingsRes] = await Promise.all([
           supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
           supabase.from('app_settings').select('*').eq('id', 1).maybeSingle()
@@ -170,7 +181,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         const data = profileRes.data;
         const appSettings = settingsRes.data || {};
         
-        // Gracefully support whichever column names are currently active in your database
         const premiumLimit = appSettings.premium_tier_hypes ?? appSettings.premium_hype_allowance ?? 7;
         const freeLimit = appSettings.free_tier_hypes ?? appSettings.free_hype_allowance ?? 1;
         
@@ -185,14 +195,15 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
 
         if (data) {
           let actualHypes = data.hypes_remaining || 0;
+          
+          // STRICT UTC MATH TO PREVENT TIMEZONE GHOSTS
           const now = new Date();
-          const lastSaturday = new Date(now);
-          lastSaturday.setDate(now.getDate() - ((now.getDay() + 1) % 7));
-          lastSaturday.setHours(0, 0, 0, 0);
+          const dayOfWeek = now.getUTCDay();
+          const daysSinceSaturday = (dayOfWeek + 1) % 7;
+          const lastSaturday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysSinceSaturday));
           const lastRefill = new Date(data.last_hype_refill || 0);
 
           if (lastRefill < lastSaturday) {
-            // APPLYING THE LIVE RULES INSTEAD OF 7 OR 1
             actualHypes = data.is_premium ? premiumLimit : freeLimit;
           }
 
@@ -348,7 +359,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         {isLoggedIn && (
           <div className="flex flex-row sm:flex-col items-center sm:items-end gap-3 sm:gap-1.5 pt-0 sm:pt-2">
             <div className="flex items-center gap-2 bg-zinc-950 border border-[#fe9a00]/50 px-3 py-1.5 rounded-full shadow-[0_0_15px_rgba(254,154,0,0.2)] cursor-default">
-              <Flame className="w-4 h-4 text-[#fe9a00] animate-pulse drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]" />
+              <div className="w-4 h-4 bg-[#fe9a00] animate-pulse drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]" style={iconMaskStyle} />
               <span className="text-white font-black text-sm leading-none pt-0.5">{profileStats.hypes_remaining}</span>
               <span className="text-zinc-400 font-bold text-[9px] uppercase tracking-widest leading-none pt-0.5">Left</span>
             </div>
@@ -443,7 +454,11 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
 
         <div className="mb-12 border-t border-zinc-800/50 pt-8 px-6">
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><Flame className="w-6 h-6 text-[#fe9a00] mb-2" /><span className="text-3xl font-black">{profileStats.total_hypes.toLocaleString()}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes</span></div>
+            <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
+              <div className="w-6 h-6 bg-[#fe9a00] mb-2" style={iconMaskStyle} />
+              <span className="text-3xl font-black">{profileStats.total_hypes.toLocaleString()}</span>
+              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes</span>
+            </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><Star className="w-6 h-6 text-[#fe9a00] mb-2" /><span className="text-3xl font-black">{profileStats.super_hypes?.toLocaleString() || 0}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes</span></div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" /><span className="text-3xl font-black">{profileStats.quick_reacts.toLocaleString()}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Smart Comments</span></div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl"><BookOpen className="w-6 h-6 text-[#fe9a00] mb-2" /><span className="text-3xl font-black">{profileStats.chapters_read.toLocaleString()}</span><span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Chapters Read</span></div>

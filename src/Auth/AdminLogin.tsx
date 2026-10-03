@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Flame } from 'lucide-react';
 
 export const AdminLogin = ({ onLogin, onBack }: any) => {
   const [username, setUsername] = useState('');
@@ -24,11 +23,27 @@ export const AdminLogin = ({ onLogin, onBack }: any) => {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
-        <div className="relative w-12 h-12 flex justify-center">
-          <Flame className="w-12 h-12 text-zinc-800 absolute bottom-0" strokeWidth={1.5} />
-          <div className="absolute bottom-0 overflow-hidden w-12 flex justify-center animate-flame-fill">
-            <Flame className="w-12 h-12 text-[#fe9a00] fill-[#fe9a00] absolute bottom-0" strokeWidth={1.5} />
-          </div>
+        <div className="relative flex items-center justify-center">
+          <style>{`
+            @keyframes hype-pulse-glow {
+              0%, 100% { filter: drop-shadow(0 0 15px rgba(254,154,0,0.5)); transform: scale(1); }
+              50% { filter: drop-shadow(0 0 30px rgba(254,154,0,1)); transform: scale(1.05); }
+            }
+            .animate-hype-glow { animation: hype-pulse-glow 2s ease-in-out infinite; }
+          `}</style>
+          <div 
+            className="w-20 h-20 md:w-24 md:h-24 bg-[#fe9a00] animate-hype-glow"
+            style={{
+              WebkitMaskImage: "url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png')",
+              WebkitMaskSize: 'contain',
+              WebkitMaskRepeat: 'no-repeat',
+              WebkitMaskPosition: 'center',
+              maskImage: "url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png')",
+              maskSize: 'contain',
+              maskRepeat: 'no-repeat',
+              maskPosition: 'center'
+            }}
+          />
         </div>
       </div>
     );

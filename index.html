@@ -29,7 +29,19 @@
     <meta name="twitter:image" content="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20load%20screen.jpg" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <style>
+        @keyframes hype-pulse-glow {
+          0%, 100% { filter: drop-shadow(0 0 15px rgba(254,154,0,0.5)); transform: scale(1); }
+          50% { filter: drop-shadow(0 0 30px rgba(254,154,0,1)); transform: scale(1.05); }
+        }
+      </style>
+      <div style="min-height: 100vh; background-color: #000000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 5rem;">
+        <div 
+          style="width: 6rem; height: 6rem; background-color: #fe9a00; -webkit-mask-image: url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png'); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; mask-image: url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png'); mask-size: contain; mask-repeat: no-repeat; mask-position: center; animation: hype-pulse-glow 2s ease-in-out infinite;"
+        ></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

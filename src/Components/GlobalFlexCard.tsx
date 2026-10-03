@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { User, Trophy, Flame, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart } from 'lucide-react';
+import { User, Trophy, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
@@ -8,6 +8,17 @@ import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureT
 import { useHypeEconomy } from '../HypeEconomyContext'; 
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
+const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
+const iconMaskStyle = {
+  WebkitMaskImage: `url('${fullIconUrl}')`,
+  WebkitMaskSize: 'contain',
+  WebkitMaskRepeat: 'no-repeat',
+  WebkitMaskPosition: 'center',
+  maskImage: `url('${fullIconUrl}')`,
+  maskSize: 'contain',
+  maskRepeat: 'no-repeat',
+  maskPosition: 'center'
+};
 
 const hypeCardTutorialSlides = [
   {
@@ -27,13 +38,13 @@ const hypeCardTutorialSlides = [
 const getFandomTier = (lifetimeScore: number) => {
   const score = lifetimeScore || 0;
   const tiers = [
-    { name: 'Leaf', min: 0, max: 99, color: 'text-emerald-500', hex: '#10b981', bar: 'bg-emerald-500' },
-    { name: 'Stone', min: 100, max: 999, color: 'text-white', hex: '#ffffff', bar: 'bg-white' },
-    { name: 'Bronze', min: 1000, max: 4999, color: 'text-amber-600', hex: '#d97706', bar: 'bg-amber-600' },
-    { name: 'Silver', min: 5000, max: 19999, color: 'text-slate-300', hex: '#cbd5e1', bar: 'bg-slate-300' },
-    { name: 'Gold', min: 20000, max: 49999, color: 'text-yellow-400', hex: '#facc15', bar: 'bg-yellow-400' },
-    { name: 'Platinum', min: 50000, max: 99999, color: 'text-cyan-300', hex: '#67e8f9', bar: 'bg-cyan-300' },
-    { name: 'Diamond', min: 100000, max: Infinity, color: 'text-fuchsia-400', hex: '#e879f9', bar: 'bg-fuchsia-400' }
+    { name: 'Ember', min: 0, max: 99, color: 'text-rose-900', hex: '#881337', bar: 'bg-rose-900' },
+    { name: 'Glint', min: 100, max: 999, color: 'text-red-700', hex: '#b91c1c', bar: 'bg-red-700' },
+    { name: 'Flare', min: 1000, max: 4999, color: 'text-red-500', hex: '#ef4444', bar: 'bg-red-500' },
+    { name: 'Hearth', min: 5000, max: 19999, color: 'text-orange-500', hex: '#f97316', bar: 'bg-orange-500' },
+    { name: 'Lux', min: 20000, max: 49999, color: 'text-amber-400', hex: '#fbbf24', bar: 'bg-amber-400' },
+    { name: 'Fervor', min: 50000, max: 99999, color: 'text-[#fe9a00]', hex: '#fe9a00', bar: 'bg-[#fe9a00]' },
+    { name: 'Vulcan', min: 100000, max: Infinity, color: 'text-yellow-100', hex: '#fef3c7', bar: 'bg-yellow-100' }
   ];
 
   const currentIndex = tiers.findIndex(t => score >= t.min && score <= t.max);
@@ -195,11 +206,9 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   
   const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score);
 
-  // WE EXTRACT THE CONTENT SO WE CAN PORTAL IT
   const cardContent = (
     <div className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden" onClick={onClose}>
       
-      {/* CSS TO FORCE-HIDE HAMBURGER & NAV */}
       <style>{`
         button[aria-label="Open Menu"], nav, .nav-pill { display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important; }
       `}</style>
@@ -366,7 +375,10 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                   <div className="flex justify-between items-center bg-black/40 border border-white/5 shadow-inner" style={{ padding: '2cqi 0', borderRadius: '2cqi', margin: 'auto 0' }}>
                     <div className="text-center flex-1 border-r border-white/5">
                       <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Hypes</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}><Flame style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.total_hypes)}</p>
+                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
+                        <div className="bg-[#fe9a00]" style={{ width: '2.5cqi', height: '2.5cqi', ...iconMaskStyle }} />
+                        {formatStat(profileStats.total_hypes)}
+                      </p>
                     </div>
                     <div className="text-center flex-1 border-r border-white/5">
                       <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Super</p>
@@ -426,6 +438,5 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
     </div>
   );
 
-  // WE PORTAL IT TO THE BODY
   return createPortal(cardContent, document.body);
 };

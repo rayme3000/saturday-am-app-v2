@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Flame, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { supabase } from '../supabase';
 import { MangaReader } from './MangaReader';
 import { HypeButton } from '../Components/HypeButton'; 
@@ -13,6 +13,18 @@ import { trackTelemetry } from '../supabase';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
+const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
+const iconMaskStyle = {
+  WebkitMaskImage: `url('${fullIconUrl}')`,
+  WebkitMaskSize: 'contain',
+  WebkitMaskRepeat: 'no-repeat',
+  WebkitMaskPosition: 'center',
+  maskImage: `url('${fullIconUrl}')`,
+  maskSize: 'contain',
+  maskRepeat: 'no-repeat',
+  maskPosition: 'center'
+};
+
 const seriesTutorialSlide = [
   {
     id: 'series-icons',
@@ -20,7 +32,7 @@ const seriesTutorialSlide = [
     description: 'Take command of your reading experience. Use these interactive features to support creators, engage with the community, and curate your personalized library.',
     iconsList: [
       {
-        icon: <Flame className="w-6 h-6" />,
+        icon: <div className="w-6 h-6 bg-[#fe9a00]" style={iconMaskStyle} />,
         title: 'Drop a Hype',
         desc: 'Boost the series\' ranking on the leaderboards.'
       },
@@ -132,12 +144,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   useEffect(() => {
     if (localSeries?.slug) {
-      // 1. Fire your existing analytics/telemetry
       trackEvent('series_page_visit', { series_slug: localSeries.slug });
-      
-      // 2. Fire the NEW Global Telemetry Tracker to power the Dashboard
       trackTelemetry('series_visit', { series_slug: localSeries.slug });
-      
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
   }, [localSeries?.slug, trackEvent]);

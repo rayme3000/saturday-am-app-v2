@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
-import { ArrowUp, X, Lock, Share, Menu, AlertTriangle, MessageSquare, Flame } from 'lucide-react'; 
+import { ArrowUp, X, Lock, Share, Menu, AlertTriangle, MessageSquare } from 'lucide-react'; 
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 
@@ -385,11 +385,11 @@ export default function App() {
             .animate-fade-out { animation: fade-out 3s forwards; }
             
             /* --- CUSTOM HYPE LOADING ANIMATION --- */
-            @keyframes flame-fill {
-              0% { height: 0%; opacity: 0.5; }
-              100% { height: 100%; opacity: 1; }
+            @keyframes hype-pulse-glow {
+              0%, 100% { filter: drop-shadow(0 0 10px rgba(254,154,0,0.5)); transform: scale(1); }
+              50% { filter: drop-shadow(0 0 25px rgba(254,154,0,1)); transform: scale(1.05); }
             }
-            .animate-flame-fill { animation: flame-fill 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate; }
+            .animate-hype-glow { animation: hype-pulse-glow 2s ease-in-out infinite; }
 
             html, body { font-family: 'Plus Jakarta Sans', sans-serif; overscroll-behavior-y: none; -webkit-overflow-scrolling: touch; background-color: #000000; }
             h1, h2, h3, h4, h5, h6, .font-black { font-family: 'Unbounded', sans-serif !important; font-style: italic !important; letter-spacing: -0.03em !important; }
@@ -447,12 +447,21 @@ export default function App() {
         <AppErrorBoundary>
           <Suspense fallback={
             <div className="min-h-[100dvh] bg-transparent flex flex-col items-center justify-center gap-4 pb-20">
-              {/* --- CLEAN HYPE FILL LOADER WITHOUT TEXT --- */}
-              <div className="relative w-12 h-12 flex justify-center">
-                <Flame className="w-12 h-12 text-zinc-800 absolute bottom-0" strokeWidth={1.5} />
-                <div className="absolute bottom-0 overflow-hidden w-12 flex justify-center animate-flame-fill">
-                  <Flame className="w-12 h-12 text-[#fe9a00] fill-[#fe9a00] absolute bottom-0" strokeWidth={1.5} />
-                </div>
+              {/* --- CUSTOM HYPE LOGO PULSE LOADER --- */}
+              <div className="relative flex items-center justify-center">
+                <div 
+                  className="w-14 h-14 bg-[#fe9a00] animate-hype-glow"
+                  style={{
+                    WebkitMaskImage: "url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png')",
+                    WebkitMaskSize: 'contain',
+                    WebkitMaskRepeat: 'no-repeat',
+                    WebkitMaskPosition: 'center',
+                    maskImage: "url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png')",
+                    maskSize: 'contain',
+                    maskRepeat: 'no-repeat',
+                    maskPosition: 'center'
+                  }}
+                />
               </div>
             </div>
           }>
