@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { User, Trophy, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart } from 'lucide-react';
+import { User, Trophy, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart, Lock } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
@@ -35,24 +35,33 @@ const hypeCardTutorialSlides = [
   }
 ];
 
-const getFandomTier = (lifetimeScore: number) => {
+const getFandomTier = (lifetimeScore: number, isPremium: boolean = false) => {
   const score = lifetimeScore || 0;
   const tiers = [
-    { name: 'Ember', min: 0, max: 99, color: 'text-rose-900', hex: '#881337', bar: 'bg-rose-900' },
-    { name: 'Glint', min: 100, max: 999, color: 'text-red-700', hex: '#b91c1c', bar: 'bg-red-700' },
-    { name: 'Flare', min: 1000, max: 4999, color: 'text-red-500', hex: '#ef4444', bar: 'bg-red-500' },
-    { name: 'Hearth', min: 5000, max: 19999, color: 'text-orange-500', hex: '#f97316', bar: 'bg-orange-500' },
-    { name: 'Lux', min: 20000, max: 49999, color: 'text-amber-400', hex: '#fbbf24', bar: 'bg-amber-400' },
-    { name: 'Fervor', min: 50000, max: 99999, color: 'text-[#fe9a00]', hex: '#fe9a00', bar: 'bg-[#fe9a00]' },
-    { name: 'Vulcan', min: 100000, max: Infinity, color: 'text-yellow-100', hex: '#fef3c7', bar: 'bg-yellow-100' }
+    { name: 'Ember', min: 0, max: 99, color: 'text-rose-900', hex: '#881337', bar: 'bg-rose-900', glow: 'drop-shadow-[0_0_8px_rgba(136,19,55,0.8)]' },
+    { name: 'Glint', min: 100, max: 999, color: 'text-red-700', hex: '#b91c1c', bar: 'bg-red-700', glow: 'drop-shadow-[0_0_8px_rgba(185,28,28,0.8)]' },
+    { name: 'Flare', min: 1000, max: 4999, color: 'text-red-500', hex: '#ef4444', bar: 'bg-red-500', glow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]' },
+    { name: 'Hearth', min: 5000, max: 19999, color: 'text-orange-500', hex: '#f97316', bar: 'bg-orange-500', glow: 'drop-shadow-[0_0_8px_rgba(249,115,22,0.8)]' },
+    { name: 'Lux', min: 20000, max: 49999, color: 'text-amber-400', hex: '#fbbf24', bar: 'bg-amber-400', glow: 'drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]' },
+    { name: 'Fervor', min: 50000, max: 99999, color: 'text-[#fe9a00]', hex: '#fe9a00', bar: 'bg-[#fe9a00]', glow: 'drop-shadow-[0_0_8px_rgba(254,154,0,0.8)]' },
+    { name: 'Vulcan', min: 100000, max: Infinity, color: 'text-yellow-100', hex: '#fef3c7', bar: 'bg-yellow-100', glow: 'drop-shadow-[0_0_12px_rgba(254,243,199,1)]' }
   ];
+
+  // FREE USER CAP: Freeze them at Glint (index 1) if they hit 1000+ points
+  if (!isPremium && score >= 1000) {
+    return {
+      currentTier: tiers[1], 
+      nextTier: { name: 'Flare', color: 'text-zinc-500', hex: '#71717a', isLocked: true },
+      progressPercent: 100
+    };
+  }
 
   const currentIndex = tiers.findIndex(t => score >= t.min && score <= t.max);
   const currentTier = tiers[currentIndex !== -1 ? currentIndex : 0];
   const nextTier = currentIndex < tiers.length - 1 ? tiers[currentIndex + 1] : null;
 
   let progressPercent = 100;
-  if (nextTier) {
+  if (nextTier && !nextTier.isLocked) {
     progressPercent = Math.min(100, Math.max(0, ((score - currentTier.min) / (nextTier.min - currentTier.min)) * 100));
   }
 
@@ -125,6 +134,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const [activeSkins, setActiveSkins] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [forceTutorial, setForceTutorial] = useState(false);
+  const [isSubscriber, setIsSubscriber] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -172,6 +182,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
       }
 
       if (data) {
+        setIsSubscriber(data.is_premium || false);
         setProfileStats({ 
           total_hypes: data.total_hypes || 0, 
           super_hypes: data.super_hypes || 0, 
@@ -204,7 +215,7 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   };
   const currentSkin = appliedSkin || defaultSkin;
   
-  const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score);
+  const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score, isSubscriber);
 
   const cardContent = (
     <div className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden" onClick={onClose}>
@@ -357,9 +368,15 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
 
                       {nextTier ? (
                         <div className="flex justify-start items-center" style={{ marginTop: '1cqi' }}>
-                          <span className="font-bold text-zinc-400 uppercase tracking-widest" style={{ fontSize: '1.4cqi' }}>
-                            {Math.round(progressPercent)}% to <span style={{ color: nextTier.hex, textShadow: `0 0 1.5cqi ${nextTier.hex}` }}>{nextTier.name} Rank</span>
-                          </span>
+                          {nextTier.isLocked ? (
+                            <span className="font-bold text-zinc-400 uppercase tracking-widest flex items-center" style={{ fontSize: '1.4cqi', gap: '0.8cqi' }}>
+                              <Lock style={{ width: '1.4cqi', height: '1.4cqi', color: '#fe9a00' }} /> Max Free Rank <span style={{ color: '#fe9a00', borderLeft: '0.15cqi solid rgba(255,255,255,0.2)', paddingLeft: '0.8cqi' }}>Subscribe to Level Up</span>
+                            </span>
+                          ) : (
+                            <span className="font-bold text-zinc-400 uppercase tracking-widest" style={{ fontSize: '1.4cqi' }}>
+                              {Math.round(progressPercent)}% to <span style={{ color: nextTier.hex, textShadow: `0 0 1.5cqi ${nextTier.hex}` }}>{nextTier.name} Rank</span>
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <div className="text-left" style={{ marginTop: '1cqi' }}>

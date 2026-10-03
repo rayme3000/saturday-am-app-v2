@@ -27,24 +27,33 @@ const isNewItem = (createdAt: string | undefined) => {
 let memProfileStats: any = null;
 let memUserProfile: any = null;
 
-const getFandomTier = (lifetimeScore: number) => {
+const getFandomTier = (lifetimeScore: number, isPremium: boolean = false) => {
   const score = lifetimeScore || 0;
   const tiers = [
-    { name: 'Ember', min: 0, max: 99, color: 'text-rose-900', bar: 'bg-rose-900', glow: 'drop-shadow-[0_0_8px_rgba(136,19,55,0.8)]' },
-    { name: 'Glint', min: 100, max: 999, color: 'text-red-700', bar: 'bg-red-700', glow: 'drop-shadow-[0_0_8px_rgba(185,28,28,0.8)]' },
-    { name: 'Flare', min: 1000, max: 4999, color: 'text-red-500', bar: 'bg-red-500', glow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]' },
-    { name: 'Hearth', min: 5000, max: 19999, color: 'text-orange-500', bar: 'bg-orange-500', glow: 'drop-shadow-[0_0_8px_rgba(249,115,22,0.8)]' },
-    { name: 'Lux', min: 20000, max: 49999, color: 'text-amber-400', bar: 'bg-amber-400', glow: 'drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]' },
-    { name: 'Fervor', min: 50000, max: 99999, color: 'text-[#fe9a00]', bar: 'bg-[#fe9a00]', glow: 'drop-shadow-[0_0_8px_rgba(254,154,0,0.8)]' },
-    { name: 'Vulcan', min: 100000, max: Infinity, color: 'text-yellow-100', bar: 'bg-yellow-100', glow: 'drop-shadow-[0_0_12px_rgba(254,243,199,1)]' }
+    { name: 'Ember', min: 0, max: 99, color: 'text-rose-900', hex: '#881337', bar: 'bg-rose-900', glow: 'drop-shadow-[0_0_8px_rgba(136,19,55,0.8)]' },
+    { name: 'Glint', min: 100, max: 999, color: 'text-red-700', hex: '#b91c1c', bar: 'bg-red-700', glow: 'drop-shadow-[0_0_8px_rgba(185,28,28,0.8)]' },
+    { name: 'Flare', min: 1000, max: 4999, color: 'text-red-500', hex: '#ef4444', bar: 'bg-red-500', glow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]' },
+    { name: 'Hearth', min: 5000, max: 19999, color: 'text-orange-500', hex: '#f97316', bar: 'bg-orange-500', glow: 'drop-shadow-[0_0_8px_rgba(249,115,22,0.8)]' },
+    { name: 'Lux', min: 20000, max: 49999, color: 'text-amber-400', hex: '#fbbf24', bar: 'bg-amber-400', glow: 'drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]' },
+    { name: 'Fervor', min: 50000, max: 99999, color: 'text-[#fe9a00]', hex: '#fe9a00', bar: 'bg-[#fe9a00]', glow: 'drop-shadow-[0_0_8px_rgba(254,154,0,0.8)]' },
+    { name: 'Vulcan', min: 100000, max: Infinity, color: 'text-yellow-100', hex: '#fef3c7', bar: 'bg-yellow-100', glow: 'drop-shadow-[0_0_12px_rgba(254,243,199,1)]' }
   ];
+
+  // FREE USER CAP: Freeze them at Glint (index 1) if they hit 1000+ points
+  if (!isPremium && score >= 1000) {
+    return {
+      currentTier: tiers[1], 
+      nextTier: { name: 'Flare', color: 'text-zinc-500', hex: '#71717a', isLocked: true },
+      progressPercent: 100
+    };
+  }
 
   const currentIndex = tiers.findIndex(t => score >= t.min && score <= t.max);
   const currentTier = tiers[currentIndex !== -1 ? currentIndex : 0];
   const nextTier = currentIndex < tiers.length - 1 ? tiers[currentIndex + 1] : null;
 
   let progressPercent = 100;
-  if (nextTier) {
+  if (nextTier && !nextTier.isLocked) {
     progressPercent = Math.min(100, Math.max(0, ((score - currentTier.min) / (nextTier.min - currentTier.min)) * 100));
   }
 
@@ -326,7 +335,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
     </div>
   );
 
-  const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score);
+  const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score, isSubscriber);
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-32 sm:pb-40">
@@ -437,9 +446,18 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
 
               {nextTier ? (
                 <div className="flex justify-between items-center mt-2">
-                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
-                    {Math.round(progressPercent)}% to <span className={`${nextTier.color} ${nextTier.glow} font-black`}>{nextTier.name}</span>
-                  </span>
+                  {nextTier.isLocked ? (
+                    <span 
+                      className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 cursor-pointer hover:text-white transition-colors" 
+                      onClick={() => setUpsellConfig({ title: 'Rank Capped', message: 'Free users are capped at the Glint rank. Subscribe to Pro to unlock Flare and beyond!' })}
+                    >
+                      <Lock className="w-3 h-3 text-[#fe9a00]" /> Max Free Rank <span className="text-[#fe9a00] border-l border-zinc-700 pl-1.5 ml-0.5">Subscribe to Level Up</span>
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
+                      {Math.round(progressPercent)}% to <span className={`${nextTier.color} ${nextTier.glow || ''} font-black`}>{nextTier.name}</span>
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="text-center mt-2">
@@ -501,23 +519,11 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
           </div>
         </div>
 
-        {!isSubscriber ? (
-          <div className="flex flex-col items-center w-full mt-12 mb-12 px-6">
-            <div className="relative w-full max-w-sm aspect-[1.58] rounded-2xl border border-zinc-800 bg-zinc-900 overflow-hidden shadow-2xl mb-6 group cursor-pointer" onClick={() => setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual Hype Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' })}>
-              <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-60 mix-blend-overlay group-hover:scale-105 transition-transform duration-700" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col items-center justify-center p-6 text-center">
-                 <div className="w-14 h-14 bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center mb-4 border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.5)]"><Lock className="w-6 h-6 text-zinc-400"/></div>
-                 <h3 className="text-white font-black italic text-xl uppercase tracking-widest mb-1 drop-shadow-md">Hype Card</h3>
-                 <p className="text-[10px] text-[#fe9a00] font-bold uppercase tracking-widest leading-relaxed drop-shadow-md">Customize and get exclusive perks!</p>
-              </div>
-            </div>
-            <button onClick={() => { setUpsellConfig({ title: 'Premium Feature', message: 'The Virtual Hype Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' }); }} className="flex items-center gap-3 bg-zinc-800 text-white border border-zinc-700 px-8 py-4 rounded-full font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] hover:scale-105 transition-all shadow-lg w-full sm:w-auto justify-center"><CreditCard className="w-5 h-5"/> Subscribe to Unlock</button>
-          </div>
-        ) : (
-          <div className="flex justify-center w-full mt-12 mb-8">
-            <button onClick={() => setShowFlexCard(true)} className="flex items-center gap-4 bg-white text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)] w-max"><CreditCard className="w-6 h-6"/> Flex your Hype Card</button>
-          </div>
-        )}
+        <div className="flex justify-center w-full mt-12 mb-8 px-6">
+          <button onClick={() => setShowFlexCard(true)} className="flex items-center gap-4 bg-white text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)] w-max mx-auto sm:mx-0">
+            <CreditCard className="w-6 h-6"/> Flex your Hype Card
+          </button>
+        </div>
       </div>
 
       {upsellConfig && (
