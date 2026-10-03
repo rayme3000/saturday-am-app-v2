@@ -4,7 +4,8 @@ import { Sparkles, LogOut, Lock, ArrowRight } from 'lucide-react';
 import LoginModal from '../Auth/LoginModal'; 
 
 // 1. Set your target end date here (YYYY-MM-DD)
-const BETA_END_DATE = new Date('2026-10-01T00:00:00Z');
+// Pushed to the end of the year!
+const BETA_END_DATE = new Date('2026-12-31T23:59:59Z');
 
 // 2. Fallback master code just in case
 const VIP_PASSPHRASE = 'VIPBETA'; 
