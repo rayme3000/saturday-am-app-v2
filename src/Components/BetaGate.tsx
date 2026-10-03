@@ -23,12 +23,17 @@ export const BetaGate = ({ children }: { children: React.ReactNode }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         setUser(user);
+        
+        // Use maybeSingle() to prevent silent crashes if a profile is missing
         const { data: profile } = await supabase
           .from('profiles')
           .select('is_admin')
           .eq('id', user.id)
-          .single();
-        setIsAdmin(!!profile?.is_admin);
+          .maybeSingle();
+          
+        // Grant bypass if they have the admin flag OR a company email address
+        const isStaffEmail = user.email?.toLowerCase().endsWith('@saturday-am.com');
+        setIsAdmin(!!profile?.is_admin || isStaffEmail);
       }
       setLoading(false);
     };

@@ -44,9 +44,9 @@ export const cleanText = (text: string): string => {
 
 /**
  * Returns true if the text contains any profanity or slurs.
- * Used to block toxic usernames during account creation.
+ * Used to block toxic usernames and flag inappropriate comments.
  */
-export const containsProfanity = (text: string): boolean => {
+export const containsInappropriateLanguage = (text: string): boolean => {
   if (!text) return false;
   
   return BAD_WORDS.some((word) => {
@@ -60,3 +60,6 @@ export const containsProfanity = (text: string): boolean => {
     }
   });
 };
+
+// Alias to ensure any older imports don't break
+export const containsProfanity = containsInappropriateLanguage;
