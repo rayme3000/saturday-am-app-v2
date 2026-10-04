@@ -190,7 +190,7 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
                       )}
                     </p>
                     <p className="text-xs text-zinc-400 font-bold tracking-wider">
-                      {isPremium ? '$3.99 / month' : 'Free Tier'}
+                      {isPremium ? '$1.99 / month' : 'Free Tier'}
                     </p>
                   </div>
                   <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full ${isPremium ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]' : 'bg-zinc-800 text-zinc-400'}`}>

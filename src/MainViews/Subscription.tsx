@@ -193,7 +193,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                 Saturday AM+ <Zap className="w-5 h-5 text-[#fe9a00]" />
               </h3>
               <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-black text-white">$3.99</span>
+                <span className="text-4xl font-black text-white">$1.99</span>
                 <span className="text-zinc-400 font-bold text-sm">/ month</span>
               </div>
               <p className="text-purple-300 text-xs font-bold mt-3">The ultimate Super Fan experience.</p>
@@ -334,7 +334,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                     >
                       <div className="flex justify-between items-center mb-1">
                         <span className="font-black uppercase tracking-widest text-sm text-white">Monthly</span>
-                        <span className="font-black text-[#fe9a00]">$3.99</span>
+                        <span className="font-black text-[#fe9a00]">$1.99</span>
                       </div>
                       <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Billed every month</p>
                     </div>
