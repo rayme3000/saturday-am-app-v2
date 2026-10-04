@@ -39,6 +39,16 @@ export const BetaGate = ({ children }: { children: React.ReactNode }) => {
       setLoading(false);
     };
     checkAccess();
+
+    // NEW: Check if they unlocked the beta previously OR are returning from an email verification
+    const urlParams = new URLSearchParams(window.location.search);
+    const isReturningFromEmail = urlParams.get('action') === 'login';
+    const hasUnlockedBeta = localStorage.getItem('beta_code_unlocked') === 'true';
+
+    if (isReturningFromEmail || hasUnlockedBeta) {
+      localStorage.setItem('beta_code_unlocked', 'true');
+      setShowLoginModal(true);
+    }
   }, []);
 
   const handleLogout = async () => {
@@ -53,6 +63,7 @@ export const BetaGate = ({ children }: { children: React.ReactNode }) => {
     // 1. Check if it's the master override code
     if (codeToTest === VIP_PASSPHRASE) {
       setError('');
+      localStorage.setItem('beta_code_unlocked', 'true'); // NEW: Save unlock flag
       setShowLoginModal(true);
       return;
     }
@@ -81,6 +92,7 @@ export const BetaGate = ({ children }: { children: React.ReactNode }) => {
 
     // If it passes all checks, unlock the door!
     setError('');
+    localStorage.setItem('beta_code_unlocked', 'true'); // NEW: Save unlock flag
     setShowLoginModal(true); 
   };
 
@@ -132,49 +144,54 @@ export const BetaGate = ({ children }: { children: React.ReactNode }) => {
           />
         )}
 
-        <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#fe9a00] rounded-full mix-blend-screen filter blur-[100px] animate-pulse" />
-        </div>
-        
-        <div className="relative z-10 w-full max-w-sm flex flex-col items-center">
-          <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" alt="Saturday AM" className="w-24 h-24 object-contain mb-8 drop-shadow-[0_0_15px_rgba(254,154,0,0.5)]" />
-          
-          {hasBetaEnded ? (
-            <>
-              <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white mb-4">Beta Concluded</h1>
-              <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-8">
-                The closed beta testing period has ended. Thank you to everyone who participated!
-              </p>
-            </>
-          ) : (
-            <>
-              <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white mb-2">Closed Beta</h1>
-              <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-8">
-                Enter your VIP access code to enter the testing environment.
-              </p>
+        {/* NEW: Hide the Beta form if the login modal is open to prevent UI overlap */}
+        {!showLoginModal && (
+          <>
+            <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
+              <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#fe9a00] rounded-full mix-blend-screen filter blur-[100px] animate-pulse" />
+            </div>
+            
+            <div className="relative z-10 w-full max-w-sm flex flex-col items-center">
+              <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" alt="Saturday AM" className="w-24 h-24 object-contain mb-8 drop-shadow-[0_0_15px_rgba(254,154,0,0.5)]" />
+              
+              {hasBetaEnded ? (
+                <>
+                  <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white mb-4">Beta Concluded</h1>
+                  <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-8">
+                    The closed beta testing period has ended. Thank you to everyone who participated!
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white mb-2">Closed Beta</h1>
+                  <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-8">
+                    Enter your VIP access code to enter the testing environment.
+                  </p>
 
-              <form onSubmit={handlePassphraseSubmit} className="w-full relative mb-4">
-                <input 
-                  type="text" 
-                  placeholder="ENTER CODE" 
-                  value={passphrase}
-                  onChange={(e) => setPassphrase(e.target.value.toUpperCase())}
-                  className="w-full bg-zinc-950 border border-zinc-800 text-white text-center font-black uppercase tracking-widest text-lg py-4 px-4 rounded-2xl focus:outline-none focus:border-[#fe9a00] transition-colors shadow-xl"
-                />
-                <button type="submit" className="absolute right-2 top-2 bottom-2 aspect-square bg-[#fe9a00] rounded-xl flex items-center justify-center text-black hover:bg-white transition-colors">
-                  <ArrowRight className="w-5 h-5" />
+                  <form onSubmit={handlePassphraseSubmit} className="w-full relative mb-4">
+                    <input 
+                      type="text" 
+                      placeholder="ENTER CODE" 
+                      value={passphrase}
+                      onChange={(e) => setPassphrase(e.target.value.toUpperCase())}
+                      className="w-full bg-zinc-950 border border-zinc-800 text-white text-center font-black uppercase tracking-widest text-lg py-4 px-4 rounded-2xl focus:outline-none focus:border-[#fe9a00] transition-colors shadow-xl"
+                    />
+                    <button type="submit" className="absolute right-2 top-2 bottom-2 aspect-square bg-[#fe9a00] rounded-xl flex items-center justify-center text-black hover:bg-white transition-colors">
+                      <ArrowRight className="w-5 h-5" />
+                    </button>
+                  </form>
+                  {error && <p className="text-red-500 text-[10px] font-bold uppercase tracking-widest">{error}</p>}
+                </>
+              )}
+
+              <div className="mt-12 pt-6 border-t border-zinc-800/50 w-full flex justify-center">
+                <button onClick={() => setShowLoginModal(true)} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-400 transition-colors">
+                  <Lock className="w-4 h-4" /> Staff Login
                 </button>
-              </form>
-              {error && <p className="text-red-500 text-[10px] font-bold uppercase tracking-widest">{error}</p>}
-            </>
-          )}
-
-          <div className="mt-12 pt-6 border-t border-zinc-800/50 w-full flex justify-center">
-            <button onClick={() => setShowLoginModal(true)} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-600 hover:text-zinc-400 transition-colors">
-              <Lock className="w-4 h-4" /> Staff Login
-            </button>
-          </div>
-        </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     );
   }
