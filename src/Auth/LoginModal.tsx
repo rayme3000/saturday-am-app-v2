@@ -15,7 +15,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
   const [username, setUsername] = useState('');
   const [country, setCountry] = useState('');
   const [referral, setReferral] = useState('');
-  const [accessCode, setAccessCode] = useState(''); 
+  const [accessCode, setAccessCode] = useState(() => localStorage.getItem('auto_fill_premium_code') || ''); 
   const [tosAccepted, setTosAccepted] = useState(false);
   
   const [showPassword, setShowPassword] = useState(false);
@@ -24,8 +24,19 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
   const [successMsg, setSuccessMsg] = useState('');
 
   useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
+        
+        // Check if a new user had a pending annual code waiting from their sign-up
+        const pendingCode = localStorage.getItem('pending_premium_code');
+        if (pendingCode) {
+          const { error } = await supabase.rpc('redeem_premium_code', { promo_code: pendingCode });
+          if (!error) {
+            localStorage.setItem('beta_code_unlocked', 'true');
+          }
+          localStorage.removeItem('pending_premium_code');
+        }
+        
         onSuccess();
       }
     });
@@ -38,6 +49,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
   const handleEmailSubmit = async (e: any) => {
     e.preventDefault();
     setLoading(true);
+    localStorage.removeItem('auto_fill_premium_code');
     setError('');
     setSuccessMsg('');
 
@@ -78,35 +90,48 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
       let appliedTier = 'free';
       let codeIdToUpdate = null;
       let currentTimesUsed = 0;
+      let isAnnualPremiumCode = false;
 
+      // Check the access code before letting them sign up
       if (accessCode.trim()) {
-        const { data: promoData, error: promoError } = await supabase
+        const codeToTest = accessCode.trim().toUpperCase();
+        
+        // 1. Check old legacy promo_codes table first
+        const { data: promoData } = await supabase
           .from('promo_codes')
           .select('*')
-          .eq('code', accessCode.trim().toUpperCase())
+          .eq('code', codeToTest)
           .maybeSingle();
 
-        if (promoError || !promoData) {
-          setError("Invalid Access Code. Please check and try again.");
-          setLoading(false);
-          return;
-        }
+        if (promoData) {
+          if (new Date() > new Date(promoData.expires_at)) {
+            setError("This Access Code has expired.");
+            setLoading(false); return;
+          }
+          if (promoData.times_used >= promoData.max_uses) {
+            setError("This Access Code has reached its usage limit.");
+            setLoading(false); return;
+          }
+          appliedTier = promoData.tier;
+          codeIdToUpdate = promoData.id;
+          currentTimesUsed = promoData.times_used;
+        } else {
+          // 2. If not found, check the new premium_codes table securely via RPC
+          const { data: codeStatus } = await supabase.rpc('check_premium_code_status', { 
+            code_to_test: codeToTest 
+          });
 
-        if (new Date() > new Date(promoData.expires_at)) {
-          setError("This Access Code has expired.");
-          setLoading(false);
-          return;
+          if (codeStatus === 'VALID') {
+            isAnnualPremiumCode = true;
+            appliedTier = 'premium'; // <--- FIX: Ensure the profile is flagged as premium instantly
+          } else if (codeStatus === 'USED') {
+            setError("This Premium Code has already been used.");
+            setLoading(false); return;
+          } else {
+            setError("Invalid Access Code. Please check and try again.");
+            setLoading(false); return;
+          }
         }
-
-        if (promoData.times_used >= promoData.max_uses) {
-          setError("This Access Code has reached its usage limit.");
-          setLoading(false);
-          return;
-        }
-
-        appliedTier = promoData.tier;
-        codeIdToUpdate = promoData.id;
-        currentTimesUsed = promoData.times_used;
       }
 
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -119,7 +144,9 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
             username: username.trim(),
             county: country, 
             referral_source: referral
-          }
+          },
+          // Routes user directly back to the login state after verifying email
+          emailRedirectTo: 'https://www.mangahype.com/?action=login'
         }
       });
 
@@ -150,6 +177,11 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
               .update({ times_used: currentTimesUsed + 1 })
               .eq('id', codeIdToUpdate);
           }
+
+          // If it was an annual code, save it temporarily until they verify their email
+          if (isAnnualPremiumCode) {
+            localStorage.setItem('pending_premium_code', accessCode.trim().toUpperCase());
+          }
         }
 
         setSuccessMsg("Account created! Please check your email inbox to confirm your registration.");
@@ -159,6 +191,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
       setLoading(false);
 
     } else {
+      // Existing User Login Flow
       const { error: loginError } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password,
@@ -168,6 +201,18 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         setError(loginError.message);
         setLoading(false);
       } else {
+        // If an existing user typed a code into the box during login, redeem it instantly
+        if (accessCode.trim()) {
+          const { error: redeemError } = await supabase.rpc('redeem_premium_code', {
+            promo_code: accessCode.trim().toUpperCase()
+          });
+          if (!redeemError) {
+            localStorage.setItem('beta_code_unlocked', 'true');
+          } else {
+            console.error("Code redemption failed:", redeemError.message);
+          }
+        }
+        // onSuccess is handled by the authListener, but we can call it here as fallback
         onSuccess();
       }
     }
@@ -312,16 +357,16 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                     <option value="Friend">Recommended by a Friend</option>
                     <option value="Other">Other</option>
                   </select>
-
-                  <input 
-                    type="text" 
-                    placeholder="Beta / Promo Access Code (Optional)" 
-                    value={accessCode} 
-                    onChange={(e) => setAccessCode(e.target.value)}
-                    className="w-full bg-black border border-zinc-700 p-3 rounded text-[#fe9a00] font-black tracking-widest text-sm focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-500" 
-                  />
                 </>
               )}
+
+              <input 
+                type="text" 
+                placeholder="Premium / Beta Access Code (Optional)" 
+                value={accessCode} 
+                onChange={(e) => setAccessCode(e.target.value)}
+                className="w-full bg-black border border-zinc-700 p-3 rounded text-[#fe9a00] font-black tracking-widest text-sm focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-500" 
+              />
 
               <input 
                 type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)}

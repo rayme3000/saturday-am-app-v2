@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Lock, CreditCard, Bell, Smartphone, Shield, ChevronRight, LogOut, AlertTriangle, ExternalLink, UserPlus, X, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Lock, CreditCard, Bell, Smartphone, Shield, ChevronRight, LogOut, AlertTriangle, ExternalLink, UserPlus, X, CheckCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../supabase';
 
 // --- ADDED onLoginClick PROP ---
@@ -9,15 +9,18 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
   const [userEmail, setUserEmail] = useState('');
   const [userId, setUserId] = useState('');
 
-  // --- NEW: IN-APP ALERT STATE ---
+  // --- REDEMPTION STATE ---
+  const [redeemCode, setRedeemCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+
+  // --- IN-APP ALERT STATE ---
   const [alertConfig, setAlertConfig] = useState<{ type: 'success' | 'error', title: string, message: string } | null>(null);
 
   const isPremium = userTier === 'premium';
-  const isVisitor = userTier === 'visitor'; // --- ADDED VISITOR CHECK ---
+  const isVisitor = userTier === 'visitor';
 
   // 1. Fetch user data and notification settings on load
   useEffect(() => {
-    // Only fetch if they aren't a visitor
     if (isVisitor) return;
 
     const fetchSettings = async () => {
@@ -26,7 +29,6 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
         setUserId(user.id);
         setUserEmail(user.email || '');
         
-        // Fetch preferences from your profiles table
         const { data } = await supabase.from('profiles').select('push_enabled, email_enabled').eq('id', user.id).single();
         if (data) {
           setPushEnabled(data.push_enabled || false);
@@ -37,7 +39,7 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
     fetchSettings();
   }, [isVisitor]);
 
-  // 2. Handle Password Reset (UPDATED TO USE IN-APP ALERT)
+  // 2. Handle Password Reset 
   const handlePasswordReset = async () => {
     if (!userEmail) return;
     const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
@@ -63,6 +65,49 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
     if (userId) await supabase.from('profiles').update({ email_enabled: newState }).eq('id', userId);
   };
 
+  // 4. Handle Code Redemption
+  const handleRedeemCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!redeemCode.trim()) return;
+
+    setRedeeming(true);
+    const cleanCode = redeemCode.trim().toUpperCase();
+
+    // Securely check the code status first
+    const { data: codeStatus, error: statusError } = await supabase.rpc('check_premium_code_status', { 
+      code_to_test: cleanCode 
+    });
+
+    if (statusError || codeStatus === 'INVALID') {
+      setAlertConfig({ type: 'error', title: 'Invalid Code', message: 'This access code is invalid. Please check and try again.' });
+      setRedeeming(false);
+      return;
+    }
+
+    if (codeStatus === 'USED') {
+      setAlertConfig({ type: 'error', title: 'Code Used', message: 'This premium code has already been redeemed.' });
+      setRedeeming(false);
+      return;
+    }
+
+    // Execute the redemption RPC to update their profile
+    const { error: redeemError } = await supabase.rpc('redeem_premium_code', {
+      promo_code: cleanCode
+    });
+
+    if (redeemError) {
+      setAlertConfig({ type: 'error', title: 'Error', message: redeemError.message });
+    } else {
+      setAlertConfig({ type: 'success', title: 'Premium Unlocked!', message: 'Success! 1-Year Premium Access has been applied. Reloading your profile...' });
+      setRedeemCode('');
+      setTimeout(() => {
+        window.location.reload();
+      }, 2500);
+    }
+    
+    setRedeeming(false);
+  };
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     onSignOut();
@@ -86,7 +131,6 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
           <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] mb-4 pl-2 flex items-center gap-2">
             <Lock className="w-3 h-3" /> Account Security
           </h2>
-          {/* GREY OUT FOR VISITORS */}
           <div className={`bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden ${isVisitor ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
             <button 
               onClick={handlePasswordReset}
@@ -172,13 +216,37 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
                     </div>
                   </>
                 ) : (
-                  <div className="pt-2">
+                  <div className="pt-2 space-y-6">
                     <button 
                       onClick={() => onNavigate({ action: 'sub' })} 
                       className="w-full py-4 bg-[#fe9a00] hover:bg-white text-black rounded-xl font-black uppercase tracking-widest text-[10px] transition-colors flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(254,154,0,0.3)]"
                     >
                       Upgrade to Pro
                     </button>
+
+                    {/* REDEMPTION SECTION FOR FREE USERS */}
+                    <div className="border-t border-zinc-800/50 pt-6">
+                      <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold mb-3 text-center">
+                        Or Redeem a 1-Year Store Access Code
+                      </p>
+                      <form onSubmit={handleRedeemCode} className="relative">
+                        <input 
+                          type="text" 
+                          placeholder="XXXX-XXXX-XXXX" 
+                          value={redeemCode}
+                          onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
+                          className="w-full bg-black border border-zinc-700 text-[#fe9a00] font-black tracking-widest text-sm p-4 rounded-xl focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-600 text-center"
+                          required
+                        />
+                        <button 
+                          type="submit" 
+                          disabled={redeeming || !redeemCode.trim()}
+                          className="absolute right-2 top-2 bottom-2 px-6 bg-zinc-800 rounded-lg flex items-center justify-center text-white hover:bg-[#fe9a00] hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-black text-[10px] uppercase tracking-widest"
+                        >
+                          {redeeming ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Redeem'}
+                        </button>
+                      </form>
+                    </div>
                   </div>
                 )}
               </>
@@ -191,7 +259,6 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
           <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] mb-4 pl-2 flex items-center gap-2">
             <Bell className="w-3 h-3" /> Notifications
           </h2>
-          {/* GREY OUT FOR VISITORS */}
           <div className={`bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden ${isVisitor ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
             
             {/* Push Toggle */}
@@ -239,7 +306,6 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
             <button className="hover:text-white transition-colors">Privacy Policy</button>
           </div>
           
-          {/* HIDE LOGOUT IF VISITOR */}
           {!isVisitor && (
             <button 
               onClick={handleSignOut}
@@ -253,7 +319,7 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
 
       </div>
 
-      {/* --- NEW: IN-APP ALERT MODAL --- */}
+      {/* --- IN-APP ALERT MODAL --- */}
       {alertConfig && (
         <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setAlertConfig(null)}>
           <div className={`bg-zinc-950 border ${alertConfig.type === 'error' ? 'border-red-900/50' : 'border-[#fe9a00]/50'} p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative`} onClick={e => e.stopPropagation()}>

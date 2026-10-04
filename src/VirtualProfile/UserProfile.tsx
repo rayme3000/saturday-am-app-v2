@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, RefreshCw } from 'lucide-react';
+import { ArrowLeft, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, RefreshCw, Key } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
@@ -205,7 +205,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         if (data) {
           let actualHypes = data.hypes_remaining || 0;
           
-          // STRICT UTC MATH TO PREVENT TIMEZONE GHOSTS
           const now = new Date();
           const dayOfWeek = now.getUTCDay();
           const daysSinceSaturday = (dayOfWeek + 1) % 7;
@@ -519,10 +518,19 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
           </div>
         </div>
 
-        <div className="flex justify-center w-full mt-12 mb-8 px-6">
+        {/* --- ADDED REDEEM UPGRADE BUTTON --- */}
+        <div className="flex flex-wrap justify-center items-center w-full mt-12 mb-8 px-6 gap-4">
           <button onClick={() => setShowFlexCard(true)} className="flex items-center gap-4 bg-white text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)] w-max mx-auto sm:mx-0">
             <CreditCard className="w-6 h-6"/> Flex your Hype Card
           </button>
+          {isSubscriber && (
+            <button 
+              onClick={() => onNavigate({ action: 'sub' })} 
+              className="flex items-center gap-4 bg-zinc-900 border border-zinc-700 text-zinc-300 px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-all shadow-[0_0_20px_rgba(0,0,0,0.4)] w-max mx-auto sm:mx-0"
+            >
+              <Key className="w-6 h-6"/> Redeem Upgrade
+            </button>
+          )}
         </div>
       </div>
 

@@ -63,37 +63,53 @@ export const BetaGate = ({ children }: { children: React.ReactNode }) => {
     // 1. Check if it's the master override code
     if (codeToTest === VIP_PASSPHRASE) {
       setError('');
-      localStorage.setItem('beta_code_unlocked', 'true'); // NEW: Save unlock flag
+      localStorage.setItem('beta_code_unlocked', 'true');
       setShowLoginModal(true);
       return;
     }
 
-    // 2. Check the database for dynamic Command Center codes
-    const { data: promoData, error: promoError } = await supabase
+    // 2. Check the standard beta promo codes
+    const { data: promoData } = await supabase
       .from('promo_codes')
       .select('*')
       .eq('code', codeToTest)
       .maybeSingle();
 
-    if (promoError || !promoData) {
-      setError('INVALID ACCESS CODE.');
+    if (promoData) {
+      if (new Date() > new Date(promoData.expires_at)) {
+        setError('THIS ACCESS CODE HAS EXPIRED.');
+        return;
+      }
+      if (promoData.times_used >= promoData.max_uses) {
+        setError('THIS ACCESS CODE HAS REACHED ITS USAGE LIMIT.');
+        return;
+      }
+      setError('');
+      localStorage.setItem('beta_code_unlocked', 'true');
+      setShowLoginModal(true); 
       return;
     }
 
-    if (new Date() > new Date(promoData.expires_at)) {
-      setError('THIS ACCESS CODE HAS EXPIRED.');
+    // 3. NEW: Check the 1-Year Premium Codes table securely via RPC
+    const { data: codeStatus } = await supabase.rpc('check_premium_code_status', { 
+      code_to_test: codeToTest 
+    });
+
+    if (codeStatus === 'USED') {
+      setError('THIS PREMIUM CODE HAS ALREADY BEEN USED.');
+      return;
+    }
+    
+    if (codeStatus === 'VALID') {
+      setError('');
+      localStorage.setItem('beta_code_unlocked', 'true');
+      localStorage.setItem('auto_fill_premium_code', codeToTest);
+      setShowLoginModal(true);
       return;
     }
 
-    if (promoData.times_used >= promoData.max_uses) {
-      setError('THIS ACCESS CODE HAS REACHED ITS USAGE LIMIT.');
-      return;
-    }
-
-    // If it passes all checks, unlock the door!
-    setError('');
-    localStorage.setItem('beta_code_unlocked', 'true'); // NEW: Save unlock flag
-    setShowLoginModal(true); 
+    // If it fails all checks
+    setError('INVALID ACCESS CODE.');
   };
 
   if (loading) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Crown, Zap, Star, Flame, CreditCard, X, Loader2, RefreshCcw, BookOpen, Trophy, AlertTriangle, Tag } from 'lucide-react';
+import { ArrowLeft, Check, Crown, Zap, Star, Flame, CreditCard, X, Loader2, RefreshCcw, BookOpen, Trophy, AlertTriangle, Tag, Key } from 'lucide-react';
 import { supabase } from '../supabase';
 
 export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any) => {
@@ -10,7 +10,11 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   
   const [stripeKey, setStripeKey] = useState<string | null>(null);
 
-  // --- PROMO CODE STATE ---
+  // --- REDEMPTION & PROMO CODE STATE ---
+  const [redeemCode, setRedeemCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+  const [alertConfig, setAlertConfig] = useState<{ type: 'success' | 'error', title: string, message: string } | null>(null);
+
   const [promoCode, setPromoCode] = useState('');
   const [promoStatus, setPromoStatus] = useState<'applied' | 'invalid' | null>(null);
 
@@ -64,6 +68,48 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       await supabase.from('profiles').update({ is_premium: false }).eq('id', user.id);
       window.dispatchEvent(new CustomEvent('profileUpdated'));
     }
+  };
+
+  const handleRedeemCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!redeemCode.trim()) return;
+
+    setRedeeming(true);
+    const cleanCode = redeemCode.trim().toUpperCase();
+
+    // Securely check the code status first
+    const { data: codeStatus, error: statusError } = await supabase.rpc('check_premium_code_status', { 
+      code_to_test: cleanCode 
+    });
+
+    if (statusError || codeStatus === 'INVALID') {
+      setAlertConfig({ type: 'error', title: 'Invalid Code', message: 'This access code is invalid. Please check and try again.' });
+      setRedeeming(false);
+      return;
+    }
+
+    if (codeStatus === 'USED') {
+      setAlertConfig({ type: 'error', title: 'Code Used', message: 'This premium code has already been redeemed.' });
+      setRedeeming(false);
+      return;
+    }
+
+    // Execute the redemption RPC to update their profile
+    const { error: redeemError } = await supabase.rpc('redeem_premium_code', {
+      promo_code: cleanCode
+    });
+
+    if (redeemError) {
+      setAlertConfig({ type: 'error', title: 'Error', message: redeemError.message });
+    } else {
+      setAlertConfig({ type: 'success', title: 'Premium Unlocked!', message: 'Success! 1-Year Premium Access has been applied. Reloading your profile...' });
+      setRedeemCode('');
+      setTimeout(() => {
+        window.location.reload();
+      }, 2500);
+    }
+    
+    setRedeeming(false);
   };
 
   return (
@@ -199,8 +245,37 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               </button>
             )}
           </div>
-
         </div>
+
+        {/* --- NEW REDEMPTION SECTION --- */}
+        <div className="max-w-4xl mx-auto mt-8 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-3xl p-8 flex flex-col md:flex-row items-center gap-6 shadow-xl relative overflow-hidden">
+           <div className="absolute top-0 right-0 w-32 h-32 bg-[#fe9a00]/10 rounded-bl-full blur-2xl pointer-events-none" />
+           <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shrink-0 z-10">
+             <Key className="w-8 h-8 text-[#fe9a00]" />
+           </div>
+           <div className="flex-1 text-center md:text-left z-10">
+             <h3 className="text-xl font-black italic uppercase text-white mb-2">Redeem Store Code</h3>
+             <p className="text-xs font-bold text-zinc-400 max-w-md mx-auto md:mx-0">Have a 12-character premium code from the Shopify store? Enter it here to unlock or extend your Saturday AM+ Annual Subscription.</p>
+           </div>
+           <form onSubmit={handleRedeemCode} className="w-full md:w-auto flex-shrink-0 relative mt-4 md:mt-0 z-10">
+             <input 
+                type="text" 
+                placeholder="XXXX-XXXX-XXXX" 
+                value={redeemCode}
+                onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
+                className="w-full md:w-64 bg-black border border-zinc-700 text-[#fe9a00] font-black tracking-widest text-sm p-4 rounded-xl focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-600 text-center"
+                required
+             />
+             <button 
+                type="submit" 
+                disabled={redeeming || !redeemCode.trim()}
+                className="absolute right-2 top-2 bottom-2 px-6 bg-zinc-800 rounded-lg flex items-center justify-center text-white hover:bg-[#fe9a00] hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-black text-[10px] uppercase tracking-widest"
+             >
+                {redeeming ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Redeem'}
+             </button>
+           </form>
+        </div>
+
       </div>
 
       {showDowngradeConfirm && (
@@ -345,6 +420,32 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               )}
 
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- IN-APP ALERT MODAL FOR REDEMPTION --- */}
+      {alertConfig && (
+        <div className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setAlertConfig(null)}>
+          <div className={`bg-zinc-950 border ${alertConfig.type === 'error' ? 'border-red-900/50' : 'border-[#fe9a00]/50'} p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative`} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setAlertConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-6 ${alertConfig.type === 'error' ? 'bg-red-900/20 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]' : 'bg-[#fe9a00]/20 border border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.3)]'}`}>
+              {alertConfig.type === 'error' ? <AlertTriangle className="w-8 h-8 text-red-500" /> : <Check className="w-8 h-8 text-[#fe9a00]" />}
+            </div>
+            <h2 className="text-xl font-black italic uppercase tracking-tighter text-white mb-2">
+              {alertConfig.title}
+            </h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
+              {alertConfig.message}
+            </p>
+            <button 
+              onClick={() => setAlertConfig(null)} 
+              className={`w-full font-black uppercase tracking-widest py-3 rounded transition-colors ${alertConfig.type === 'error' ? 'bg-red-600 text-white hover:bg-red-500' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_15px_rgba(254,154,0,0.3)]'}`}
+            >
+              Okay
+            </button>
           </div>
         </div>
       )}

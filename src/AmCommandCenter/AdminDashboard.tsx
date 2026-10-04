@@ -9,7 +9,7 @@ import { CardSkinMaker } from './CardSkinMaker';
 import { FrameMaker } from './FrameMaker'; 
 import { ModerationDashboard } from './ModerationDashboard';
 import { supabase } from '../supabase';
-import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users, ShieldAlert } from 'lucide-react';
+import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users, ShieldAlert, Download, Loader2 } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
@@ -523,17 +523,113 @@ const IntegrationsManager = ({ setIsDirty }: any) => {
   );
 };
 
+// --- NEW BATCH GENERATOR COMPONENT ---
+const PremiumCodeGenerator = ({ onGenerateSuccess }: { onGenerateSuccess: () => void }) => {
+  const [batchSize, setBatchSize] = useState<number | ''>('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const handleGenerate = async () => {
+    if (!batchSize || batchSize <= 0) return;
+    setLoading(true);
+    setMessage('');
+
+    const { data, error } = await supabase.rpc('generate_premium_codes', {
+      batch_size: Number(batchSize)
+    });
+
+    if (error) {
+      console.error(error);
+      setMessage(`Error: ${error.message}`);
+      setLoading(false);
+      return;
+    }
+
+    if (data && data.length > 0) {
+      downloadCSV(data);
+      setMessage(`Successfully generated ${data.length} codes! CSV downloaded.`);
+      setBatchSize('');
+      
+      // NEW: Trigger the ledger to refresh!
+      if (onGenerateSuccess) {
+        onGenerateSuccess();
+      }
+    }
+    setLoading(false);
+  };
+
+  const downloadCSV = (codes: { generated_code: string }[]) => {
+    const csvContent = "data:text/csv;charset=utf-8,"
+      + "Premium Code\n"
+      + codes.map(c => c.generated_code).join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Premium_Codes_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div className="bg-black border border-[#fe9a00]/30 shadow-[0_0_30px_rgba(254,154,0,0.1)] p-6 rounded-xl mb-8">
+      <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-4">
+        <Download className="w-4 h-4" /> Batch Generate 1-Year Premium Codes
+      </h3>
+      <p className="text-zinc-400 text-xs font-bold mb-6">
+        Generate a batch of 1-year premium codes for the Shopify store. A CSV file will download automatically.
+      </p>
+
+      <div className="flex gap-4">
+        <input
+          type="number"
+          min="1"
+          max="1000"
+          placeholder="Qty (e.g. 50)"
+          value={batchSize}
+          onChange={(e) => setBatchSize(e.target.value ? Number(e.target.value) : '')}
+          className="flex-1 bg-zinc-900 border border-zinc-700 p-4 rounded-xl text-white text-sm font-bold focus:outline-none focus:border-[#fe9a00] transition-colors"
+        />
+        <button
+          onClick={handleGenerate}
+          disabled={loading || !batchSize}
+          className="bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black px-8 rounded-xl font-black uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] disabled:opacity-50 flex items-center justify-center min-w-[150px]"
+        >
+          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Export CSV'}
+        </button>
+      </div>
+
+      {message && (
+        <p className={`mt-4 text-xs font-bold ${message.includes('Error') ? 'text-red-500' : 'text-emerald-400'}`}>
+          {message}
+        </p>
+      )}
+    </div>
+  );
+};
+
 const PromoCodeManager = () => {
   const [codes, setCodes] = useState<any[]>([]);
+  const [premiumCodes, setPremiumCodes] = useState<any[]>([]);
   const [newCode, setNewCode] = useState('');
   const [tier, setTier] = useState('free');
   const [maxUses, setMaxUses] = useState(100);
   const [expireDays, setExpireDays] = useState(7);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // --- NEW STATE FOR TRACKING DISTRIBUTED CODES ---
+  const [pendingSold, setPendingSold] = useState<Record<string, boolean>>({});
+  const [isSavingLedger, setIsSavingLedger] = useState(false);
+
   const fetchCodes = async () => {
+    // Fetch Standard Beta/Promo Codes
     const { data } = await supabase.from('promo_codes').select('*').order('created_at', { ascending: false });
     if (data) setCodes(data);
+
+    // Fetch 1-Year Premium Codes securely via RPC to bypass RLS
+    const { data: pData } = await supabase.rpc('fetch_premium_ledger');
+    if (pData) setPremiumCodes(pData);
   };
 
   useEffect(() => { fetchCodes(); }, []);
@@ -563,14 +659,34 @@ const PromoCodeManager = () => {
     if (!error) fetchCodes();
   };
 
+  // --- SAVE PENDING LEDGER CHANGES ---
+  const handleSaveLedger = async () => {
+    const changes = Object.entries(pendingSold);
+    if (changes.length === 0) return;
+
+    setIsSavingLedger(true);
+    for (const [code, is_sold] of changes) {
+      await supabase.rpc('update_premium_code_sold', { p_code: code, p_is_sold: is_sold });
+    }
+    setPendingSold({});
+    await fetchCodes();
+    setIsSavingLedger(false);
+  };
+
+  const hasPendingChanges = Object.keys(pendingSold).length > 0;
+
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-4xl">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl">
       <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
         <Key className="w-6 h-6 text-[#fe9a00]" />
         <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Access Key Generator</h2>
       </div>
 
+      {/* BATCH GENERATOR COMPONENT */}
+      <PremiumCodeGenerator onGenerateSuccess={fetchCodes} />
+
       <form onSubmit={handleCreate} className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-4">
+        <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-800 pb-2 mb-4">Generate Standard / Beta Codes</h3>
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Custom Code (or Random)</label>
@@ -599,41 +715,119 @@ const PromoCodeManager = () => {
           </div>
         </div>
 
-        <button type="submit" disabled={isSubmitting} className="mt-4 w-full flex items-center justify-center gap-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] disabled:opacity-50">
-          <Key className="w-4 h-4" />{isSubmitting ? 'Generating...' : 'Generate Access Key'}
+        <button type="submit" disabled={isSubmitting} className="mt-4 w-full flex items-center justify-center gap-3 bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white font-black uppercase tracking-widest text-xs py-4 rounded-xl transition-all disabled:opacity-50">
+          <Key className="w-4 h-4" />{isSubmitting ? 'Generating...' : 'Generate Standard Key'}
         </button>
       </form>
 
-      <div className="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
-        <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-4 sticky top-0 bg-zinc-900 py-2">Active Promos & Beta Keys</h3>
-        {codes.length === 0 ? (
-          <p className="text-zinc-500 text-sm font-bold italic">No active keys found.</p>
-        ) : (
-          codes.map((c) => {
-            const isExpired = new Date() > new Date(c.expires_at);
-            const isDepleted = c.times_used >= c.max_uses;
-            const statusColor = (isExpired || isDepleted) ? 'text-red-500 border-red-900 bg-red-900/10' : 'text-emerald-500 border-emerald-900 bg-emerald-900/10';
-
-            return (
-              <div key={c.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-black border border-zinc-800 p-4 rounded-xl gap-4">
-                <div>
-                  <h4 className="font-black tracking-widest text-[#fe9a00] text-lg">{c.code}</h4>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${statusColor}`}>
-                      {(isExpired || isDepleted) ? 'INACTIVE' : 'ACTIVE'}
-                    </span>
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Tier: <span className="text-white">{c.tier}</span></span>
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Used: <span className="text-white">{c.times_used} / {c.max_uses}</span></span>
-                  </div>
-                  <p className="text-[9px] text-zinc-600 mt-2 font-mono">Expires: {new Date(c.expires_at).toLocaleString()}</p>
-                </div>
-                <button onClick={() => handleDelete(c.id)} className="p-2 text-zinc-600 hover:text-red-500 hover:bg-red-900/20 rounded transition-colors">
-                  <Trash2 className="w-5 h-5" />
+      {/* TRACKING LEDGERS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        
+        {/* LEDGER: PREMIUM BATCH CODES */}
+        <div className="bg-black p-4 rounded-xl border border-zinc-800 flex flex-col h-[500px] relative">
+          <div className="flex justify-between items-end mb-4 border-b border-zinc-800 pb-3 sticky top-0 bg-black z-10 pt-2">
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-[#fe9a00] mb-2">Premium Codes Ledger</h3>
+              {hasPendingChanges ? (
+                <button
+                  onClick={handleSaveLedger}
+                  disabled={isSavingLedger}
+                  className="bg-[#fe9a00] text-black text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded flex items-center gap-1 transition-all shadow-[0_0_10px_rgba(254,154,0,0.4)]"
+                >
+                  {isSavingLedger ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save Changes'}
                 </button>
-              </div>
-            )
-          })
-        )}
+              ) : (
+                <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest px-1">Up to date</span>
+              )}
+            </div>
+            <div className="text-right">
+              <span className="block text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Total: {premiumCodes.length}</span>
+              <span className="block text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Redeemed: {premiumCodes.filter(c => c.is_used).length}</span>
+              <span className="block text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest">Distributed: {premiumCodes.filter(c => c.is_sold).length}</span>
+            </div>
+          </div>
+          
+          <div className="space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-1 pb-4">
+            {premiumCodes.length === 0 ? (
+              <p className="text-zinc-500 text-sm font-bold italic text-center mt-10">No batch codes generated yet.</p>
+            ) : (
+              premiumCodes.map((c) => {
+                const statusColor = c.is_used ? 'text-zinc-500 border-zinc-800 bg-zinc-900/50' : 'text-emerald-500 border-emerald-900 bg-emerald-900/10';
+                
+                // The current visual state of the checkbox (pending changes temporarily override DB state)
+                const isSold = pendingSold[c.code] !== undefined ? pendingSold[c.code] : (c.is_sold || false);
+
+                return (
+                  <div key={c.id} className={`flex flex-col border p-4 rounded-xl gap-2 transition-colors ${isSold && !c.is_used ? 'bg-zinc-900/80 border-[#fe9a00]/30' : 'bg-zinc-950 border-zinc-800'}`}>
+                    <div className="flex justify-between items-center gap-3">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isSold}
+                          onChange={() => setPendingSold(prev => ({ ...prev, [c.code]: !isSold }))}
+                          className="w-4 h-4 accent-[#fe9a00] rounded cursor-pointer shrink-0"
+                          disabled={c.is_used}
+                          title={c.is_used ? "Already redeemed by a user" : "Mark as sold/distributed"}
+                        />
+                        <h4 className={`font-black tracking-widest text-sm sm:text-base ${c.is_used ? 'text-zinc-600 line-through' : (isSold ? 'text-[#fe9a00]' : 'text-white')}`}>
+                          {c.code}
+                        </h4>
+                      </div>
+                      <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border shrink-0 ${statusColor}`}>
+                        {c.is_used ? 'REDEEMED' : 'UNUSED'}
+                      </span>
+                    </div>
+                    {c.is_used && c.redeemed_at && (
+                      <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest ml-7">
+                        Redeemed: {new Date(c.redeemed_at).toLocaleDateString()}
+                      </p>
+                    )}
+                    {!c.is_used && isSold && (
+                      <p className="text-[9px] text-[#fe9a00]/80 font-bold uppercase tracking-widest ml-7">
+                        Marked as Distributed
+                      </p>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+
+        {/* LEDGER: STANDARD BETA CODES */}
+        <div className="bg-black p-4 rounded-xl border border-zinc-800 flex flex-col h-[500px]">
+          <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-4 border-b border-zinc-800 pb-3 sticky top-0 bg-black z-10 pt-2">Active Standard Promos</h3>
+          <div className="space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-1 pb-4">
+            {codes.length === 0 ? (
+              <p className="text-zinc-500 text-sm font-bold italic text-center mt-10">No standard keys found.</p>
+            ) : (
+              codes.map((c) => {
+                const isExpired = new Date() > new Date(c.expires_at);
+                const isDepleted = c.times_used >= c.max_uses;
+                const statusColor = (isExpired || isDepleted) ? 'text-red-500 border-red-900 bg-red-900/10' : 'text-emerald-500 border-emerald-900 bg-emerald-900/10';
+
+                return (
+                  <div key={c.id} className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-zinc-950 border border-zinc-800 p-4 rounded-xl gap-4">
+                    <div>
+                      <h4 className="font-black tracking-widest text-zinc-300 text-sm sm:text-base">{c.code}</h4>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${statusColor}`}>
+                          {(isExpired || isDepleted) ? 'INACTIVE' : 'ACTIVE'}
+                        </span>
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Tier: <span className="text-zinc-300">{c.tier}</span></span>
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Used: <span className="text-zinc-300">{c.times_used} / {c.max_uses}</span></span>
+                      </div>
+                    </div>
+                    <button onClick={() => handleDelete(c.id)} className="p-2 text-zinc-600 hover:text-red-500 hover:bg-red-900/20 rounded transition-colors self-end xl:self-auto">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+
       </div>
     </div>
   );
