@@ -180,7 +180,7 @@ export const AdminLeaderboardHistory = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {rankingData.map((row: any, index: number) => (
+                    {(Array.isArray(rankingData) ? rankingData : []).map((row: any, index: number) => (
                       <tr key={index} className="border-b border-zinc-800/50 hover:bg-zinc-900 transition-colors">
                         <td className="p-4 text-center">
                           <span className={`text-sm font-black ${index === 0 ? 'text-yellow-400' : index === 1 ? 'text-zinc-300' : index === 2 ? 'text-amber-600' : 'text-zinc-600'}`}>
@@ -206,12 +206,12 @@ export const AdminLeaderboardHistory = () => {
                         </td>
                         <td className="p-4 text-right">
                           <span className="text-sm font-black text-white">
-                            {row.score?.toLocaleString() || 0}
+                            {(row.score || 0).toLocaleString()}
                           </span>
                         </td>
                       </tr>
                     ))}
-                    {rankingData.length === 0 && (
+                    {(!Array.isArray(rankingData) || rankingData.length === 0) && (
                       <tr>
                         <td colSpan={3} className="p-12 text-center text-zinc-600 font-bold uppercase tracking-widest text-xs">
                           No data recorded for this period.
@@ -248,7 +248,8 @@ export const AnalyticsDashboard = () => {
 
       const { data: seriesData, error: seriesErr } = await supabase.rpc('get_series_health_analytics');
       if (seriesErr) setDbError(prev => (prev ? prev + ' | ' : '') + 'Series Error: ' + seriesErr.message);
-      else if (seriesData) setSeriesStats(seriesData);
+      // Ensure we ALWAYS set an array to prevent .map crashes
+      else if (seriesData) setSeriesStats(Array.isArray(seriesData) ? seriesData : []);
 
       const { data: tData } = await supabase.rpc('get_telemetry_stats');
       if (tData) setTelemetryStats(tData);
@@ -333,7 +334,7 @@ export const AnalyticsDashboard = () => {
                 <div className="p-2 bg-blue-500/10 rounded-lg"><Users className="w-4 h-4 text-blue-500" /></div>
                 <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Total Accounts</span>
               </div>
-              <span className="text-3xl font-black tracking-tighter text-white">{globalStats.total_users.toLocaleString()}</span>
+              <span className="text-3xl font-black tracking-tighter text-white">{(globalStats?.total_users || 0).toLocaleString()}</span>
             </div>
 
             <div className="bg-black border border-zinc-800 p-5 rounded-xl flex flex-col justify-between">
@@ -344,7 +345,7 @@ export const AnalyticsDashboard = () => {
                 </div>
                 <span className="text-purple-400 font-bold text-[10px] bg-purple-900/40 px-2 py-0.5 rounded">{conversionRate}%</span>
               </div>
-              <span className="text-3xl font-black tracking-tighter text-white">{globalStats.premium_users.toLocaleString()}</span>
+              <span className="text-3xl font-black tracking-tighter text-white">{(globalStats?.premium_users || 0).toLocaleString()}</span>
             </div>
 
             <div className="bg-black border border-zinc-800 p-5 rounded-xl flex flex-col justify-between">
@@ -352,7 +353,7 @@ export const AnalyticsDashboard = () => {
                 <div className="p-2 bg-zinc-800 rounded-lg"><UserCheck className="w-4 h-4 text-zinc-400" /></div>
                 <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">Free Accounts</span>
               </div>
-              <span className="text-3xl font-black tracking-tighter text-white">{globalStats.free_users.toLocaleString()}</span>
+              <span className="text-3xl font-black tracking-tighter text-white">{(globalStats?.free_users || 0).toLocaleString()}</span>
             </div>
 
             <div className="bg-black border border-[#fe9a00]/30 p-5 rounded-xl flex flex-col justify-between relative overflow-hidden">
@@ -361,7 +362,7 @@ export const AnalyticsDashboard = () => {
                 <div className="p-2 bg-[#fe9a00]/20 rounded-lg"><Activity className="w-4 h-4 text-[#fe9a00]" /></div>
                 <span className="text-[10px] text-[#fe9a00] font-black uppercase tracking-widest">30-Day Active</span>
               </div>
-              <span className="text-3xl font-black tracking-tighter text-white relative z-10">{globalStats.active_30d.toLocaleString()}</span>
+              <span className="text-3xl font-black tracking-tighter text-white relative z-10">{(globalStats?.active_30d || 0).toLocaleString()}</span>
             </div>
           </div>
 
@@ -375,7 +376,7 @@ export const AnalyticsDashboard = () => {
                     <Globe className="w-3 h-3 text-zinc-500" />
                     <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Total App Sessions</span>
                   </div>
-                  <span className="text-2xl font-black text-white">{telemetryStats.total_sessions.toLocaleString()}</span>
+                  <span className="text-2xl font-black text-white">{(telemetryStats?.total_sessions || 0).toLocaleString()}</span>
                 </div>
 
                 <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
@@ -383,7 +384,7 @@ export const AnalyticsDashboard = () => {
                     <Users className="w-3 h-3 text-zinc-500" />
                     <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Unique Visitors</span>
                   </div>
-                  <span className="text-2xl font-black text-white">{telemetryStats.unique_visitors.toLocaleString()}</span>
+                  <span className="text-2xl font-black text-white">{(telemetryStats?.unique_visitors || 0).toLocaleString()}</span>
                 </div>
 
                 <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
@@ -391,7 +392,7 @@ export const AnalyticsDashboard = () => {
                     <ShoppingCart className="w-3 h-3 text-zinc-500" />
                     <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Store Clicks</span>
                   </div>
-                  <span className="text-2xl font-black text-white">{telemetryStats.store_visits.toLocaleString()}</span>
+                  <span className="text-2xl font-black text-white">{(telemetryStats?.store_visits || 0).toLocaleString()}</span>
                 </div>
 
                 <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
@@ -399,7 +400,7 @@ export const AnalyticsDashboard = () => {
                     <MousePointerClick className="w-3 h-3 text-zinc-500" />
                     <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Banner Clicks</span>
                   </div>
-                  <span className="text-2xl font-black text-white">{telemetryStats.banner_clicks.toLocaleString()}</span>
+                  <span className="text-2xl font-black text-white">{(telemetryStats?.banner_clicks || 0).toLocaleString()}</span>
                 </div>
               </div>
             </>
@@ -416,9 +417,9 @@ export const AnalyticsDashboard = () => {
                   <Clock className="w-3 h-3 text-zinc-500" />
                   <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">Today</span>
                 </div>
-                <TrendBadge current={globalStats.reads_today} past={globalStats.reads_yesterday} />
+                <TrendBadge current={globalStats?.reads_today || 0} past={globalStats?.reads_yesterday || 0} />
               </div>
-              <span className="text-2xl font-black text-white">{globalStats.reads_today.toLocaleString()}</span>
+              <span className="text-2xl font-black text-white">{(globalStats?.reads_today || 0).toLocaleString()}</span>
             </div>
             
             <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
@@ -427,9 +428,9 @@ export const AnalyticsDashboard = () => {
                   <Calendar className="w-3 h-3 text-zinc-500" />
                   <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">This Week</span>
                 </div>
-                <TrendBadge current={globalStats.reads_week} past={globalStats.reads_last_week} />
+                <TrendBadge current={globalStats?.reads_week || 0} past={globalStats?.reads_last_week || 0} />
               </div>
-              <span className="text-2xl font-black text-white">{globalStats.reads_week.toLocaleString()}</span>
+              <span className="text-2xl font-black text-white">{(globalStats?.reads_week || 0).toLocaleString()}</span>
             </div>
 
             <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
@@ -438,9 +439,9 @@ export const AnalyticsDashboard = () => {
                   <Calendar className="w-3 h-3 text-zinc-500" />
                   <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">This Month</span>
                 </div>
-                <TrendBadge current={globalStats.reads_month} past={globalStats.reads_last_month} />
+                <TrendBadge current={globalStats?.reads_month || 0} past={globalStats?.reads_last_month || 0} />
               </div>
-              <span className="text-2xl font-black text-white">{globalStats.reads_month.toLocaleString()}</span>
+              <span className="text-2xl font-black text-white">{(globalStats?.reads_month || 0).toLocaleString()}</span>
             </div>
 
             <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
@@ -449,9 +450,9 @@ export const AnalyticsDashboard = () => {
                   <Activity className="w-3 h-3 text-zinc-500" />
                   <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">This Quarter</span>
                 </div>
-                <TrendBadge current={globalStats.reads_quarter} past={globalStats.reads_last_quarter} />
+                <TrendBadge current={globalStats?.reads_quarter || 0} past={globalStats?.reads_last_quarter || 0} />
               </div>
-              <span className="text-2xl font-black text-white">{globalStats.reads_quarter.toLocaleString()}</span>
+              <span className="text-2xl font-black text-white">{(globalStats?.reads_quarter || 0).toLocaleString()}</span>
             </div>
 
             <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
@@ -460,9 +461,9 @@ export const AnalyticsDashboard = () => {
                   <TrendingUp className="w-3 h-3 text-zinc-500" />
                   <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest">This Year</span>
                 </div>
-                <TrendBadge current={globalStats.reads_year} past={globalStats.reads_last_year} />
+                <TrendBadge current={globalStats?.reads_year || 0} past={globalStats?.reads_last_year || 0} />
               </div>
-              <span className="text-2xl font-black text-white">{globalStats.reads_year.toLocaleString()}</span>
+              <span className="text-2xl font-black text-white">{(globalStats?.reads_year || 0).toLocaleString()}</span>
             </div>
 
             <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl bg-gradient-to-br from-black to-zinc-900">
@@ -472,7 +473,7 @@ export const AnalyticsDashboard = () => {
                   <span className="text-[9px] text-[#fe9a00] font-black uppercase tracking-widest">Lifetime Total</span>
                 </div>
               </div>
-              <span className="text-2xl font-black text-[#fe9a00]">{globalStats.reads_lifetime.toLocaleString()}</span>
+              <span className="text-2xl font-black text-[#fe9a00]">{(globalStats?.reads_lifetime || 0).toLocaleString()}</span>
             </div>
           </div>
 
@@ -497,28 +498,28 @@ export const AnalyticsDashboard = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
-                {seriesStats.map((series, index) => (
-                  <tr key={series.series_slug} className="hover:bg-zinc-900/50 transition-colors group">
+                {(Array.isArray(seriesStats) ? seriesStats : []).map((series, index) => (
+                  <tr key={series.series_slug || index} className="hover:bg-zinc-900/50 transition-colors group">
                     <td className="p-4 w-12 text-center font-black italic text-zinc-600 group-hover:text-white transition-colors">{index + 1}</td>
                     <td className="p-4 flex items-center gap-3">
                       <img src={series.cover_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} className="w-8 h-8 rounded object-cover border border-zinc-700" alt="Cover" />
-                      <span className="font-bold text-sm text-white">{series.title}</span>
+                      <span className="font-bold text-sm text-white">{series.title || 'Unknown Series'}</span>
                     </td>
                     <td className="p-4 text-center">
-                       <SqlTrendBadge pct={series.trend_percentage} />
+                       <SqlTrendBadge pct={series.trend_percentage || 0} />
                     </td>
-                    <td className="p-4 text-right font-bold text-zinc-300">{Number(series.page_visits).toLocaleString()}</td>
-                    <td className="p-4 text-right font-black tracking-wider text-[#fe9a00]">{Number(series.total_reads).toLocaleString()}</td>
-                    <td className="p-4 text-right font-bold text-blue-400 bg-blue-900/10">{Number(series.ctr_percentage).toFixed(1)}%</td>
-                    <td className="p-4 text-right font-bold text-zinc-300">{Number(series.total_hypes).toLocaleString()}</td>
-                    <td className="p-4 text-right font-bold text-zinc-400">{Number(series.total_reacts).toLocaleString()}</td>
-                    <td className="p-4 text-right font-bold text-zinc-500">{Number(series.total_comments).toLocaleString()}</td>
+                    <td className="p-4 text-right font-bold text-zinc-300">{(Number(series.page_visits) || 0).toLocaleString()}</td>
+                    <td className="p-4 text-right font-black tracking-wider text-[#fe9a00]">{(Number(series.total_reads) || 0).toLocaleString()}</td>
+                    <td className="p-4 text-right font-bold text-blue-400 bg-blue-900/10">{(Number(series.ctr_percentage) || 0).toFixed(1)}%</td>
+                    <td className="p-4 text-right font-bold text-zinc-300">{(Number(series.total_hypes) || 0).toLocaleString()}</td>
+                    <td className="p-4 text-right font-bold text-zinc-400">{(Number(series.total_reacts) || 0).toLocaleString()}</td>
+                    <td className="p-4 text-right font-bold text-zinc-500">{(Number(series.total_comments) || 0).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {seriesStats.length === 0 && !dbError && (
+          {(!Array.isArray(seriesStats) || seriesStats.length === 0) && !dbError && (
              <div className="p-8 text-center text-zinc-500 font-bold text-xs tracking-widest uppercase">No series data available.</div>
           )}
         </div>
