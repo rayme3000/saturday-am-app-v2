@@ -189,7 +189,7 @@ const CreatorVisibilityManager = () => {
 const HypeManager = ({ setIsDirty }: any) => {
   const [settings, setSettings] = useState({
     free_allowance: 1,
-    premium_allowance: 7,
+    premium_allowance: 3,
     refill_period: 'weekly',
     shop_multiplier: 10,
   });
@@ -198,7 +198,6 @@ const HypeManager = ({ setIsDirty }: any) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isBlasting, setIsBlasting] = useState(false);
 
-  // --- LEADERBOARD KILL SWITCH ---
   const [leaderboardResetConfirm, setLeaderboardResetConfirm] = useState('');
   const [isResettingLeaderboards, setIsResettingLeaderboards] = useState(false);
 
@@ -207,8 +206,8 @@ const HypeManager = ({ setIsDirty }: any) => {
       const { data } = await supabase.from('app_settings').select('*').eq('id', 1).maybeSingle();
       if (data) {
         setSettings({
-          free_allowance: data.free_hype_allowance ?? 1,
-          premium_allowance: data.premium_hype_allowance ?? 7,
+          free_allowance: data.free_hype_allowance ?? data.free_tier_hypes ?? 1,
+          premium_allowance: data.premium_hype_allowance ?? data.premium_tier_hypes ?? 3,
           refill_period: data.hype_refill_period || 'weekly',
           shop_multiplier: data.shop_hype_multiplier ?? 10,
         });
@@ -227,11 +226,12 @@ const HypeManager = ({ setIsDirty }: any) => {
 
     setIsSaving(true);
     
-    // 1. Save global rules for the future
     const { error: settingsError } = await supabase.from('app_settings').upsert({ 
       id: 1, 
       free_hype_allowance: settings.free_allowance,
       premium_hype_allowance: settings.premium_allowance,
+      free_tier_hypes: settings.free_allowance,
+      premium_tier_hypes: settings.premium_allowance,
       hype_refill_period: settings.refill_period,
       shop_hype_multiplier: settings.shop_multiplier
     });
@@ -242,12 +242,11 @@ const HypeManager = ({ setIsDirty }: any) => {
       return;
     }
 
-    // 2. Direct Frontend Override (Bypasses buggy SQL RPCs entirely!)
     if (forceSyncNow) {
       try {
         await supabase.from('profiles').update({ hypes_remaining: settings.free_allowance }).eq('is_premium', false);
         await supabase.from('profiles').update({ hypes_remaining: settings.premium_allowance }).eq('is_premium', true);
-        alert(`SUCCESS! Rules saved and all user wallets instantly synced.`);
+        alert(`SUCCESS! Rules saved and all user wallets synced to ${settings.free_allowance} (Free) / ${settings.premium_allowance} (Pro).`);
       } catch (err: any) {
         alert("Error syncing user balances: " + err.message);
       }
@@ -314,7 +313,7 @@ const HypeManager = ({ setIsDirty }: any) => {
           </h3>
           
           <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Standard Refill Amount</label>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Standard Refill Amount (Weekly)</label>
             <input 
               type="number" min="0" 
               value={settings.free_allowance} 
@@ -324,7 +323,7 @@ const HypeManager = ({ setIsDirty }: any) => {
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Pro Refill Amount</label>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Pro Refill Amount (Weekly)</label>
             <input 
               type="number" min="0" 
               value={settings.premium_allowance} 
@@ -427,7 +426,6 @@ const HypeManager = ({ setIsDirty }: any) => {
 
       {/* Leaderboards Kill Switch */}
       <div className="bg-red-950/20 border border-red-900/50 p-6 rounded-xl relative overflow-hidden flex flex-col md:flex-row items-center gap-6">
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay pointer-events-none" />
         <div className="flex-1 relative z-10">
           <h3 className="text-sm font-black text-red-500 uppercase tracking-widest flex items-center gap-2 border-b border-red-900/50 pb-3 mb-3">
             <XCircle className="w-4 h-4" /> Reset Leaderboards
@@ -528,7 +526,6 @@ const IntegrationsManager = ({ setIsDirty }: any) => {
         <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Third-Party Integrations</h2>
       </div>
 
-      {/* AI MODERATION & ALERTS */}
       <div className="bg-[#fe9a00]/10 p-6 rounded-xl border border-[#fe9a00]/30 mb-8 space-y-6">
         <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-[#fe9a00]/30 pb-3">
           <ShieldAlert className="w-4 h-4" /> AI Moderation & Email Alerts

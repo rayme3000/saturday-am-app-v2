@@ -56,8 +56,8 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
 
     if (!profile) return;
 
-    const premiumLimit = appSettings.premium_tier_hypes ?? appSettings.premium_hype_allowance ?? 7;
-    const freeLimit = appSettings.free_tier_hypes ?? appSettings.free_hype_allowance ?? 1;
+    const premiumLimit = appSettings.premium_hype_allowance ?? appSettings.premium_tier_hypes ?? 3;
+    const freeLimit = appSettings.free_hype_allowance ?? appSettings.free_tier_hypes ?? 1;
 
     const now = new Date();
     const dayOfWeek = now.getUTCDay();

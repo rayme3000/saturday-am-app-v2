@@ -23,7 +23,6 @@ const isNewItem = (createdAt: string | undefined) => {
   return Date.now() - new Date(createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
 };
 
-// --- MODULE-LEVEL MEMORY CACHE ---
 let memProfileStats: any = null;
 let memUserProfile: any = null;
 
@@ -39,7 +38,6 @@ const getFandomTier = (lifetimeScore: number, isPremium: boolean = false) => {
     { name: 'Vulcan', min: 100000, max: Infinity, color: 'text-yellow-100', hex: '#fef3c7', bar: 'bg-yellow-100', glow: 'drop-shadow-[0_0_12px_rgba(254,243,199,1)]' }
   ];
 
-  // FREE USER CAP: Freeze them at Glint (index 1) if they hit 1000+ points
   if (!isPremium && score >= 1000) {
     return {
       currentTier: tiers[1], 
@@ -190,8 +188,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
         const data = profileRes.data;
         const appSettings = settingsRes.data || {};
         
-        const premiumLimit = appSettings.premium_tier_hypes ?? appSettings.premium_hype_allowance ?? 7;
-        const freeLimit = appSettings.free_tier_hypes ?? appSettings.free_hype_allowance ?? 1;
+        const premiumLimit = appSettings.premium_hype_allowance ?? appSettings.premium_tier_hypes ?? 3;
+        const freeLimit = appSettings.free_hype_allowance ?? appSettings.free_tier_hypes ?? 1;
         
         let myRank: string | number = "---";
         let myScore = 0;
@@ -400,7 +398,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
             ) : (
               <button 
                 onClick={onLoginClick} 
-                className="bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-xs hover:bg-white transition-all shadow-[0_0_15px_rgba(254,154,0,0.3)]"
+                className="bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-xs hover:bg-white transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)]"
               >
                 Log In
               </button>
@@ -518,7 +516,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick }: any) => {
           </div>
         </div>
 
-        {/* --- ADDED REDEEM UPGRADE BUTTON --- */}
         <div className="flex flex-wrap justify-center items-center w-full mt-12 mb-8 px-6 gap-4">
           <button onClick={() => setShowFlexCard(true)} className="flex items-center gap-4 bg-white text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)] w-max mx-auto sm:mx-0">
             <CreditCard className="w-6 h-6"/> Flex your Hype Card
