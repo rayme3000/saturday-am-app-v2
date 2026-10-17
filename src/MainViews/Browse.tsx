@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useSeriesData } from '../userSeriesData';
-import { Search, Library } from 'lucide-react';
+import { supabase } from '../supabase';
+import { Search, Library, ArrowUpDown } from 'lucide-react';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -21,21 +22,69 @@ const getPatternStyle = (color: string, pattern: string) => {
 const Browse = ({ onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // --- UPDATED: Sort Series A-Z & Filter out Hidden Series ---
-  const sortedSeries = useMemo(() => {
-    const filtered = seriesList.filter((s: any) =>
-      !s.is_hidden && s.title.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    return [...filtered].sort((a, b) => a.title.localeCompare(b.title));
-  }, [seriesList, searchQuery]);
+  const [sortBy, setSortBy] = useState<'title-asc' | 'title-desc' | 'creator-asc'>('title-asc');
+  const [creatorsMap, setCreatorsMap] = useState<Record<string, string[]>>({});
 
-  const activeData = sortedSeries;
+  useEffect(() => {
+    const fetchAllCredits = async () => {
+      try {
+        const { data } = await supabase
+          .from('series_creators')
+          .select('series_slug, name');
+        
+        if (data) {
+          const map: Record<string, string[]> = {};
+          data.forEach((row: any) => {
+            if (!row.series_slug || !row.name) return;
+            if (!map[row.series_slug]) map[row.series_slug] = [];
+            map[row.series_slug].push(row.name.toLowerCase());
+          });
+          setCreatorsMap(map);
+        }
+      } catch (err) {
+        console.error("Failed to load creator credits:", err);
+      }
+    };
+    fetchAllCredits();
+  }, []);
+
+  const sortedSeries = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+
+    const filtered = seriesList.filter((s: any) => {
+      if (s.is_hidden) return false;
+      if (!query) return true;
+
+      const titleMatch = s.title?.toLowerCase().includes(query);
+      const primaryCreatorMatch = s.creator_name?.toLowerCase().includes(query);
+      const coCreators = creatorsMap[s.slug] || [];
+      const coCreatorMatch = coCreators.some(name => name.includes(query));
+
+      return titleMatch || primaryCreatorMatch || coCreatorMatch;
+    });
+
+    return [...filtered].sort((a, b) => {
+      if (sortBy === 'title-asc') {
+        return (a.title || '').localeCompare(b.title || '');
+      }
+      if (sortBy === 'title-desc') {
+        return (b.title || '').localeCompare(a.title || '');
+      }
+      if (sortBy === 'creator-asc') {
+        const creatorA = (a.creator_name || '').trim().toLowerCase();
+        const creatorB = (b.creator_name || '').trim().toLowerCase();
+        if (!creatorA) return 1;
+        if (!creatorB) return -1;
+        return creatorA.localeCompare(creatorB);
+      }
+      return 0;
+    });
+  }, [seriesList, searchQuery, creatorsMap, sortBy]);
 
   return (
     <div className="min-h-screen bg-transparent text-white pb-24 relative px-4 pt-6">
 
-      {/* Fixed Header & Search */}
+      {/* Fixed Header & Search / Sort Controls */}
       <div className="sticky top-0 z-40 bg-black/80 backdrop-blur-xl pb-4 pt-2 mb-4 border-b border-zinc-800 rounded-b-2xl px-2">
         
         <div className="flex justify-between items-end mb-4 pr-16 sm:pr-20">
@@ -45,39 +94,52 @@ const Browse = ({ onNavigate }: any) => {
           <div className="flex items-center gap-2 text-zinc-400 bg-zinc-900/80 px-3 py-1.5 rounded-full border border-zinc-800">
             <Library className="w-4 h-4" />
             <span className="text-[10px] font-black uppercase tracking-widest">
-              {activeData.length} Series
+              {sortedSeries.length} Series
             </span>
           </div>
         </div>
 
-        <div className="relative w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-          <input 
-            type="text" 
-            placeholder="Search series..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-zinc-900/90 backdrop-blur-sm border border-zinc-800 text-white pl-10 pr-4 py-3 rounded-xl text-sm focus:outline-none focus:border-[#fe9a00] transition-colors shadow-inner"
-          />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <input 
+              type="text" 
+              placeholder="Search by series title or creator..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-zinc-900/90 backdrop-blur-sm border border-zinc-800 text-white pl-10 pr-4 py-3 rounded-xl text-sm focus:outline-none focus:border-[#fe9a00] transition-colors shadow-inner"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 bg-zinc-900/90 border border-zinc-800 px-3 py-1.5 rounded-xl">
+            <ArrowUpDown className="w-4 h-4 text-[#fe9a00] shrink-0" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              aria-label="Sort series"
+              className="bg-transparent text-white text-xs font-black uppercase tracking-wider py-1.5 focus:outline-none cursor-pointer"
+            >
+              <option value="title-asc" className="bg-zinc-950 text-white">Title: A-Z</option>
+              <option value="title-desc" className="bg-zinc-950 text-white">Title: Z-A</option>
+              <option value="creator-asc" className="bg-zinc-950 text-white">Creator: A-Z</option>
+            </select>
+          </div>
         </div>
       </div>
 
       {/* Grid Content */}
-      {activeData.length === 0 ? (
+      {sortedSeries.length === 0 ? (
         <div className="text-center text-zinc-500 py-16 font-bold uppercase tracking-widest text-xs border-2 border-dashed border-zinc-800 rounded-xl mt-8 bg-black/40 backdrop-blur-sm">
           No series found matching "{searchQuery}".
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 gap-y-6 mt-6 pb-8">
-          {activeData.map((item: any) => (
+          {sortedSeries.map((item: any) => (
             <div 
-              key={item.id} 
+              key={item.id || item.slug} 
               className="flex-shrink-0 cursor-pointer group/card"
               onClick={() => onNavigate(item)}
-              onMouseEnter={() => import('./SeriesDetailPage').then(mod => mod.SeriesDetailPage)}
-              onTouchStart={() => import('./SeriesDetailPage').then(mod => mod.SeriesDetailPage)}
             >
-              {/* --- NEO-BRUTALIST SERIES CARD LAYOUT (1px Border) --- */}
               <div 
                 className="relative overflow-hidden rounded-lg aspect-[2/3] border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
                 style={getPatternStyle(item.card_color, item.card_pattern)}
@@ -111,7 +173,6 @@ const Browse = ({ onNavigate }: any) => {
                 </div>
               </div>
               
-              {/* Title & Creator Info */}
               <div className="px-1 text-left bg-black/60 backdrop-blur-[2px] rounded-lg mt-1 p-2 border border-zinc-800/50">
                 <h3 className="text-white font-bold text-xs truncate tracking-wide group-hover/card:text-[#fe9a00] transition-colors">
                   {item.title}

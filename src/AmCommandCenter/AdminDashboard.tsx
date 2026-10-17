@@ -8,8 +8,9 @@ import { StickerMaker } from './StickerMaker';
 import { CardSkinMaker } from './CardSkinMaker';
 import { FrameMaker } from './FrameMaker'; 
 import { ModerationDashboard } from './ModerationDashboard';
+import { UserManager } from './UserManager';
 import { supabase } from '../supabase';
-import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users, ShieldAlert, Download, Loader2 } from 'lucide-react';
+import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users, ShieldAlert, Download, Loader2, Eye, EyeOff, Search } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
@@ -23,6 +24,165 @@ const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
+};
+
+// --- GLOBAL CREATOR VISIBILITY MANAGER ---
+const CreatorVisibilityManager = () => {
+  const [creators, setCreators] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [updatingName, setUpdatingName] = useState<string | null>(null);
+
+  const fetchCreators = async () => {
+    setLoading(true);
+    try {
+      const { data } = await supabase
+        .from('series_creators')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (data) {
+        const unique = new Map<string, any>();
+        data.forEach((row: any) => {
+          if (!row.name) return;
+          const key = row.name.trim();
+          if (!unique.has(key)) {
+            unique.set(key, {
+              name: key,
+              role: row.role || 'Creator',
+              avatar_url: row.avatar_url,
+              is_visible: row.is_visible !== false,
+              series_slugs: [row.series_slug]
+            });
+          } else {
+            const existing = unique.get(key)!;
+            if (row.is_visible === false) existing.is_visible = false;
+            if (!existing.series_slugs.includes(row.series_slug)) {
+              existing.series_slugs.push(row.series_slug);
+            }
+          }
+        });
+        setCreators(Array.from(unique.values()));
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCreators();
+  }, []);
+
+  const handleToggle = async (creator: any) => {
+    const nextState = !creator.is_visible;
+    setUpdatingName(creator.name);
+
+    try {
+      const { error } = await supabase
+        .from('series_creators')
+        .update({ is_visible: nextState })
+        .ilike('name', creator.name.trim());
+
+      if (error) throw error;
+      setCreators(prev => prev.map(c => c.name === creator.name ? { ...c, is_visible: nextState } : c));
+    } catch (err: any) {
+      alert("Failed to update visibility: " + err.message);
+    } finally {
+      setUpdatingName(null);
+    }
+  };
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return creators;
+    return creators.filter(c => c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q));
+  }, [creators, search]);
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-4xl animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-zinc-800 pb-4">
+        <div className="flex items-center gap-3">
+          <Users className="w-6 h-6 text-[#fe9a00]" />
+          <div>
+            <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Creator Directory</h2>
+            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Toggle creator visibility across the app & Bingo Book</p>
+          </div>
+        </div>
+
+        <div className="relative w-full sm:w-64">
+          <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Search creator..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-black border border-zinc-700 text-white pl-9 pr-3 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00]"
+          />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="py-12 flex justify-center items-center text-zinc-500 text-xs font-bold uppercase tracking-widest">
+          <Loader2 className="w-6 h-6 animate-spin text-[#fe9a00] mr-2" /> Loading Creators...
+        </div>
+      ) : filtered.length === 0 ? (
+        <p className="text-zinc-500 text-sm font-bold italic py-8 text-center">No creators found.</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[550px] overflow-y-auto custom-scrollbar pr-2">
+          {filtered.map((c) => {
+            const isUpdating = updatingName === c.name;
+
+            return (
+              <div 
+                key={c.name}
+                className={`p-4 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+                  c.is_visible 
+                    ? 'bg-black border-zinc-800' 
+                    : 'bg-red-950/20 border-red-900/40'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-zinc-800 border border-zinc-700 overflow-hidden shrink-0">
+                    <img 
+                      src={c.avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} 
+                      alt={c.name} 
+                      className="w-full h-full object-cover"
+                      onError={(e) => { e.currentTarget.src = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'; }}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-black text-xs uppercase tracking-wider text-white truncate">{c.name}</h4>
+                    <span className="text-[9px] text-[#fe9a00] font-bold uppercase tracking-widest block truncate">{c.role}</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggle(c)}
+                  disabled={isUpdating}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-all shrink-0 ${
+                    c.is_visible
+                      ? 'bg-green-950/40 border border-green-800 text-green-400 hover:bg-green-900/60'
+                      : 'bg-red-900/30 border border-red-800 text-red-400 hover:bg-red-900/50'
+                  }`}
+                >
+                  {isUpdating ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : c.is_visible ? (
+                    <><Eye className="w-3 h-3" /> Visible</>
+                  ) : (
+                    <><EyeOff className="w-3 h-3" /> Hidden</>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 };
 
 // --- HYPE ECONOMY MANAGER ---
@@ -523,7 +683,7 @@ const IntegrationsManager = ({ setIsDirty }: any) => {
   );
 };
 
-// --- NEW BATCH GENERATOR COMPONENT ---
+// --- BATCH GENERATOR COMPONENT ---
 const PremiumCodeGenerator = ({ onGenerateSuccess }: { onGenerateSuccess: () => void }) => {
   const [batchSize, setBatchSize] = useState<number | ''>('');
   const [loading, setLoading] = useState(false);
@@ -550,7 +710,6 @@ const PremiumCodeGenerator = ({ onGenerateSuccess }: { onGenerateSuccess: () => 
       setMessage(`Successfully generated ${data.length} codes! CSV downloaded.`);
       setBatchSize('');
       
-      // NEW: Trigger the ledger to refresh!
       if (onGenerateSuccess) {
         onGenerateSuccess();
       }
@@ -618,16 +777,13 @@ const PromoCodeManager = () => {
   const [expireDays, setExpireDays] = useState(7);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- NEW STATE FOR TRACKING DISTRIBUTED CODES ---
   const [pendingSold, setPendingSold] = useState<Record<string, boolean>>({});
   const [isSavingLedger, setIsSavingLedger] = useState(false);
 
   const fetchCodes = async () => {
-    // Fetch Standard Beta/Promo Codes
     const { data } = await supabase.from('promo_codes').select('*').order('created_at', { ascending: false });
     if (data) setCodes(data);
 
-    // Fetch 1-Year Premium Codes securely via RPC to bypass RLS
     const { data: pData } = await supabase.rpc('fetch_premium_ledger');
     if (pData) setPremiumCodes(pData);
   };
@@ -659,7 +815,6 @@ const PromoCodeManager = () => {
     if (!error) fetchCodes();
   };
 
-  // --- SAVE PENDING LEDGER CHANGES ---
   const handleSaveLedger = async () => {
     const changes = Object.entries(pendingSold);
     if (changes.length === 0) return;
@@ -682,11 +837,10 @@ const PromoCodeManager = () => {
         <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Access Key Generator</h2>
       </div>
 
-      {/* BATCH GENERATOR COMPONENT */}
       <PremiumCodeGenerator onGenerateSuccess={fetchCodes} />
 
       <form onSubmit={handleCreate} className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-4">
-        <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-800 pb-2 mb-4">Generate Standard / Beta Codes</h3>
+        <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-800 pb-2 mb-4">Generate Standard / Promo Codes</h3>
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
             <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Custom Code (or Random)</label>
@@ -753,8 +907,6 @@ const PromoCodeManager = () => {
             ) : (
               premiumCodes.map((c) => {
                 const statusColor = c.is_used ? 'text-zinc-500 border-zinc-800 bg-zinc-900/50' : 'text-emerald-500 border-emerald-900 bg-emerald-900/10';
-                
-                // The current visual state of the checkbox (pending changes temporarily override DB state)
                 const isSold = pendingSold[c.code] !== undefined ? pendingSold[c.code] : (c.is_sold || false);
 
                 return (
@@ -794,7 +946,7 @@ const PromoCodeManager = () => {
           </div>
         </div>
 
-        {/* LEDGER: STANDARD BETA CODES */}
+        {/* LEDGER: STANDARD PROMO CODES */}
         <div className="bg-black p-4 rounded-xl border border-zinc-800 flex flex-col h-[500px]">
           <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-4 border-b border-zinc-800 pb-3 sticky top-0 bg-black z-10 pt-2">Active Standard Promos</h3>
           <div className="space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-1 pb-4">
@@ -1281,6 +1433,8 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
     { id: 'analytics', label: 'Analytics' }, 
     { id: 'home', label: 'Home Editor' },
     { id: 'series', label: 'Series Page Editor' }, 
+    { id: 'creators', label: 'Creator Directory' },
+    { id: 'users', label: 'User Directory' },
     { id: 'chapter', label: 'Chapter Upload' },
     { id: 'hype', label: 'Hype Economy' }, 
     { id: 'avatars', label: 'Avatar Maker' }, 
@@ -1320,6 +1474,8 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           {activeTab === 'analytics' && <AnalyticsDashboard />}
           {activeTab === 'home' && <HomeEditor Dropzone={Dropzone} setIsDirty={setIsDirty} />}
           {activeTab === 'series' && <SeriesEditor Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
+          {activeTab === 'creators' && <CreatorVisibilityManager />}
+          {activeTab === 'users' && <UserManager />}
           {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
           {activeTab === 'hype' && <HypeManager setIsDirty={setIsDirty} />}
           {activeTab === 'avatars' && <AvatarMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}

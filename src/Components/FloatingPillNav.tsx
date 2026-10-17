@@ -1,5 +1,5 @@
-import React, { memo, useState } from 'react';
-import { Home, Library, Search, ShoppingCart, User, Plus, Trophy, Users, BookOpen, Newspaper, CreditCard, Target } from 'lucide-react';
+import { memo, useState } from 'react';
+import { Home, Library, Search, ShoppingCart, User, Plus, Trophy, Users, Newspaper, CreditCard, Target, PenTool } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const RenderPillAnimations = ({ anim, color }: { anim: string, color: string }) => {
@@ -66,27 +66,34 @@ export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser, onO
   return (
     <div className="fixed bottom-4 sm:bottom-8 left-0 w-full z-[150] pb-[max(0.75rem,env(safe-area-inset-bottom))] flex flex-col items-center pointer-events-none">
       
-      {/* EXPANDABLE GRID (Popping out above) */}
+      {/* EXPANDABLE GRID */}
       <div className={`mb-4 bg-zinc-900/95 backdrop-blur-xl border border-zinc-700 rounded-3xl p-4 shadow-2xl transition-all duration-300 origin-bottom pointer-events-auto ${isExpanded ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-8 pointer-events-none'}`}>
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-4 sm:gap-6 justify-center">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-4 sm:gap-6 justify-center">
           <button onClick={() => handleNav('leaderboard')} className="flex flex-col items-center gap-2 group">
             <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
             <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">Rankings</span>
           </button>
+          
+          <button onClick={() => handleNav('creators')} className="flex flex-col items-center gap-2 group">
+            <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><PenTool className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">Creators</span>
+          </button>
+
           <button onClick={() => handleNav('characters')} className="flex flex-col items-center gap-2 group">
             <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><Users className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
             <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">Characters</span>
           </button>
+
           <button onClick={() => handleNav('bingobook')} className="flex flex-col items-center gap-2 group">
             <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><Target className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
             <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white whitespace-nowrap">Bingo Book</span>
           </button>
+
           <button onClick={() => handleNav('news')} className="flex flex-col items-center gap-2 group">
             <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors"><Newspaper className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" /></div>
             <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white whitespace-nowrap">AM News</span>
           </button>
           
-          {/* CORRECTED: NOW OPENS MODAL DIRECTLY */}
           <button onClick={() => {
             setIsExpanded(false);
             if (userTier !== 'premium') {
@@ -113,7 +120,6 @@ export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser, onO
               <Home className={`w-5 h-5 sm:w-6 sm:h-6 ${currentView === 'home' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
             </button>
 
-            {/* CHANGED TO LIBRARY/BOOKSHELF ICON */}
             <button onClick={() => handleNav('faves')} className="p-2 transition-transform hover:scale-110">
               <Library className={`w-5 h-5 sm:w-6 sm:h-6 ${currentView === 'faves' ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-zinc-300'}`} />
             </button>
@@ -135,7 +141,6 @@ export const FloatingPillNav = memo(({ currentView, onNavigate, currentUser, onO
                )}
              </div>
              
-             {/* Scale the dynamic frame animations up to wrap the new larger avatar */}
              {dynamicFrame && (
                <div className="absolute inset-0 flex items-center justify-center pointer-events-none scale-[1.35] sm:scale-[1.6]">
                  <RenderPillAnimations anim={dynAnim} color={dynamicFrame.border_color} />

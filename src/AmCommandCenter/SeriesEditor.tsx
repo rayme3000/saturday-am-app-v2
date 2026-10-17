@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Monitor, Smartphone, Trash2, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown } from 'lucide-react';
+import { Monitor, Smartphone, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
@@ -274,7 +274,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
         bio: c.bio, 
         avatar_url: c.avatar,
         twitter_url: c.twitter, instagram_url: c.instagram, 
-        support_url: c.supportLink, is_visible: c.is_visible 
+        support_url: c.supportLink, 
+        is_visible: c.is_visible !== false 
       })));
       if (insertError) throw insertError;
 
@@ -716,10 +717,26 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                 return (
                   <div key={i} className="bg-black p-4 rounded border border-zinc-800 space-y-4 relative">
                     
-                    <div className="flex items-center justify-between bg-zinc-900 p-2 rounded border border-zinc-700 mb-2">
-                      <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Bingo Visibility</span>
-                      <button type="button" onClick={() => { const nc = [...formData.creators]; nc[i].is_visible = nc[i].is_visible === false ? true : false; handleInputChange('creators', nc); }} className={`px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded transition-colors ${c.is_visible !== false ? 'bg-green-900/30 text-green-500 hover:bg-green-900/50' : 'bg-zinc-800 text-zinc-500 hover:text-white'}`}>
-                        {c.is_visible !== false ? 'Visible' : 'Hidden'}
+                    {/* Updated App-Wide Creator Visibility Toggle */}
+                    <div className="flex items-center justify-between bg-zinc-900 p-2.5 rounded border border-zinc-700 mb-2">
+                      <div>
+                        <span className="text-[10px] font-black text-white uppercase tracking-wider block">Creator Visibility</span>
+                        <span className="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">Show in Creators Roster & Bingo</span>
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => { 
+                          const nc = [...formData.creators]; 
+                          nc[i].is_visible = nc[i].is_visible === false ? true : false; 
+                          handleInputChange('creators', nc); 
+                        }} 
+                        className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded transition-colors flex items-center gap-1.5 ${
+                          c.is_visible !== false 
+                            ? 'bg-green-900/30 text-green-400 border border-green-800/60 hover:bg-green-900/50' 
+                            : 'bg-red-900/30 text-red-400 border border-red-800/60 hover:bg-red-900/50'
+                        }`}
+                      >
+                        {c.is_visible !== false ? <><Eye className="w-3 h-3" /> Visible</> : <><EyeOff className="w-3 h-3" /> Hidden</>}
                       </button>
                     </div>
 

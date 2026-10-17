@@ -1,5 +1,5 @@
 import { memo, useState, useEffect } from 'react';
-import { X, CreditCard, ShieldAlert, ExternalLink, Download, User, LogOut, Crown, HelpCircle, MoveHorizontal, MoveVertical, Trophy, Zap, Flame, Share2, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, CreditCard, ShieldAlert, ExternalLink, Download, User, LogOut, Crown, HelpCircle, Share2, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../supabase';
 
 export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser, canInstall, onInstall, onLoginClick, onShareClick }: any) => {
@@ -24,11 +24,9 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
   const menuItems = [
     { name: 'AM Shop', action: 'shop', prefetch: () => import('../MainViews/Shop').then(mod => mod.Shop) },
     { name: 'Browse Library', action: 'browse', prefetch: () => import('../MainViews/Browse.tsx') },
+    { name: 'Creators Roster', action: 'creators', prefetch: () => import('../MainViews/CreatorsPage').then(mod => ({ default: mod.CreatorsPage })) },
     { name: 'Profile', action: 'profile', prefetch: () => import('../VirtualProfile/UserProfile').then(mod => mod.UserProfile) },
-    
-    // CHANGED TO MY BOOKSHELF
     { name: 'My Bookshelf', action: 'faves', prefetch: () => import('../MainViews/MyFaves.tsx') },
-    
     { name: 'Subscription', action: 'sub', prefetch: null },
     // --- Hidden behind "See More" ---
     { name: 'Bingo Book', action: 'bingobook', prefetch: () => import('../VirtualProfile/BingoBook') },
@@ -39,7 +37,7 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
     { name: 'Legal & Privacy', action: 'legal', prefetch: () => import('../MainViews/LegalPages').then(mod => mod.LegalPages) }
   ];
 
-  const visibleItems = showMore ? menuItems : menuItems.slice(0, 5);
+  const visibleItems = showMore ? menuItems : menuItems.slice(0, 6);
 
   return (
     <div className="fixed inset-0 z-[200] bg-black animate-fade-in flex flex-col">
@@ -83,7 +81,6 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
           </button>
         )}
 
-        {/* UPDATED: Flex Hype Card Button */}
         <button onClick={() => { 
           onClose(); 
           if (userTier !== 'premium') onUpsell({ title: 'Premium Feature', message: 'The Virtual Hype Card is exclusively for Pro members! Upgrade to customize your skin and flex your stats at live events.' });
@@ -125,8 +122,8 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
                 <X className="w-6 h-6" />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto no-scrollbar space-y-8 bg-black rounded-b-2xl">
-              {/* Help content omitted for brevity, keep your original text here */}
+            <div className="p-6 overflow-y-auto no-scrollbar space-y-4 bg-black rounded-b-2xl text-xs text-zinc-400">
+              <p>Explore titles in the Vault, collect creator signatures in your Bingo Book, and support creators with hypes.</p>
             </div>
           </div>
         </div>

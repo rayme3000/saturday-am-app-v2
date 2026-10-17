@@ -26,14 +26,10 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        
         // Check if a new user had a pending annual code waiting from their sign-up
         const pendingCode = localStorage.getItem('pending_premium_code');
         if (pendingCode) {
-          const { error } = await supabase.rpc('redeem_premium_code', { promo_code: pendingCode });
-          if (!error) {
-            localStorage.setItem('beta_code_unlocked', 'true');
-          }
+          await supabase.rpc('redeem_premium_code', { promo_code: pendingCode });
           localStorage.removeItem('pending_premium_code');
         }
         
@@ -96,7 +92,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
       if (accessCode.trim()) {
         const codeToTest = accessCode.trim().toUpperCase();
         
-        // 1. Check old legacy promo_codes table first
+        // 1. Check promo_codes table
         const { data: promoData } = await supabase
           .from('promo_codes')
           .select('*')
@@ -116,14 +112,14 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
           codeIdToUpdate = promoData.id;
           currentTimesUsed = promoData.times_used;
         } else {
-          // 2. If not found, check the new premium_codes table securely via RPC
+          // 2. Check the premium_codes table via RPC
           const { data: codeStatus } = await supabase.rpc('check_premium_code_status', { 
             code_to_test: codeToTest 
           });
 
           if (codeStatus === 'VALID') {
             isAnnualPremiumCode = true;
-            appliedTier = 'premium'; // <--- FIX: Ensure the profile is flagged as premium instantly
+            appliedTier = 'premium';
           } else if (codeStatus === 'USED') {
             setError("This Premium Code has already been used.");
             setLoading(false); return;
@@ -145,7 +141,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
             county: country, 
             referral_source: referral
           },
-          // Routes user directly back to the login state after verifying email
           emailRedirectTo: 'https://www.mangahype.com/?action=login'
         }
       });
@@ -167,7 +162,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
             county: country,
             referral_source: referral,
             is_premium: appliedTier === 'premium', 
-            is_beta: true,
             tos_accepted: true,
             tos_accepted_at: new Date().toISOString()
           }, { onConflict: 'id' });
@@ -178,7 +172,6 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
               .eq('id', codeIdToUpdate);
           }
 
-          // If it was an annual code, save it temporarily until they verify their email
           if (isAnnualPremiumCode) {
             localStorage.setItem('pending_premium_code', accessCode.trim().toUpperCase());
           }
@@ -201,18 +194,14 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         setError(loginError.message);
         setLoading(false);
       } else {
-        // If an existing user typed a code into the box during login, redeem it instantly
         if (accessCode.trim()) {
           const { error: redeemError } = await supabase.rpc('redeem_premium_code', {
             promo_code: accessCode.trim().toUpperCase()
           });
-          if (!redeemError) {
-            localStorage.setItem('beta_code_unlocked', 'true');
-          } else {
+          if (redeemError) {
             console.error("Code redemption failed:", redeemError.message);
           }
         }
-        // onSuccess is handled by the authListener, but we can call it here as fallback
         onSuccess();
       }
     }
@@ -362,7 +351,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
 
               <input 
                 type="text" 
-                placeholder="Premium / Beta Access Code (Optional)" 
+                placeholder="Promo / Gift Code (Optional)" 
                 value={accessCode} 
                 onChange={(e) => setAccessCode(e.target.value)}
                 className="w-full bg-black border border-zinc-700 p-3 rounded text-[#fe9a00] font-black tracking-widest text-sm focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-500" 
