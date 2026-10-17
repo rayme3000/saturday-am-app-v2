@@ -7,6 +7,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   const [checkoutStep, setCheckoutStep] = useState<'plan' | 'processing' | 'success'>('plan');
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('monthly');
   const [showDowngradeConfirm, setShowDowngradeConfirm] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   
   const [stripeKey, setStripeKey] = useState<string | null>(null);
 
@@ -48,6 +49,39 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
   };
 
+  // --- REAL STRIPE CHECKOUT INTEGRATION ---
+  const handleStripeCheckout = async () => {
+    setCheckoutLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      setCheckoutLoading(false);
+      onLoginClick();
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: {
+          userId: user.id,
+          userEmail: user.email,
+          returnUrl: window.location.origin
+        }
+      });
+
+      if (error) throw error;
+      if (data?.url) {
+        window.location.href = data.url; // Redirects browser directly to Stripe Checkout
+      } else {
+        throw new Error("No checkout URL returned from Stripe.");
+      }
+    } catch (err: any) {
+      alert("Unable to reach Stripe Checkout: " + err.message);
+      setCheckoutLoading(false);
+    }
+  };
+
+  // Simulated upgrade retained for local testing
   const handleDevUpgrade = async () => {
     setCheckoutStep('processing');
     const { data: { user } } = await supabase.auth.getUser();
@@ -237,17 +271,16 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               </div>
             ) : (
               <button 
-                onClick={stripeKey ? handleSubscribeClick : undefined}
-                disabled={!stripeKey}
-                className={`w-full py-4 font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${stripeKey ? 'bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black shadow-[0_0_20px_rgba(254,154,0,0.4)] hover:shadow-[0_0_30px_rgba(255,255,255,0.6)] hover:scale-105' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
+                onClick={handleSubscribeClick}
+                className="w-full py-4 font-black uppercase tracking-widest rounded-xl transition-all duration-300 bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black shadow-[0_0_20px_rgba(254,154,0,0.4)] hover:shadow-[0_0_30px_rgba(255,255,255,0.6)] hover:scale-105"
               >
-                {stripeKey ? 'Upgrade to Pro' : 'Subscriptions Coming Soon'}
+                Upgrade to Pro
               </button>
             )}
           </div>
         </div>
 
-        {/* --- NEW REDEMPTION SECTION --- */}
+        {/* --- STORE CODE REDEMPTION --- */}
         <div className="max-w-4xl mx-auto mt-8 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-3xl p-8 flex flex-col md:flex-row items-center gap-6 shadow-xl relative overflow-hidden">
            <div className="absolute top-0 right-0 w-32 h-32 bg-[#fe9a00]/10 rounded-bl-full blur-2xl pointer-events-none" />
            <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shrink-0 z-10">
@@ -323,7 +356,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               {checkoutStep === 'plan' && (
                 <div className="animate-fade-in">
                   <div className="flex items-center gap-2 mb-6">
-                    <span className="bg-red-500 text-white text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded animate-pulse">Test Mode</span>
+                    <span className="bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded">Stripe Secure</span>
                     <h3 className="text-xl font-black italic uppercase text-white">Checkout</h3>
                   </div>
 
@@ -384,11 +417,29 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                     {promoStatus === 'invalid' && <p className="text-red-400 text-[9px] font-black mt-2 uppercase tracking-widest">Invalid or expired code.</p>}
                   </div>
 
+                  {/* REAL STRIPE CHECKOUT BUTTON */}
+                  <button 
+                    onClick={handleStripeCheckout}
+                    disabled={checkoutLoading}
+                    className="w-full py-4 bg-gradient-to-r from-[#fe9a00] to-yellow-500 text-black font-black uppercase tracking-widest rounded-xl hover:from-white hover:to-white transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] disabled:opacity-50"
+                  >
+                    {checkoutLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" /> Connecting to Stripe...
+                      </>
+                    ) : (
+                      <>
+                        Pay with Stripe ($1.99/mo) <ArrowLeft className="w-4 h-4 rotate-180" />
+                      </>
+                    )}
+                  </button>
+
+                  {/* Dev Simulation Fallback */}
                   <button 
                     onClick={handleDevUpgrade}
-                    className="w-full py-4 bg-white text-black font-black uppercase tracking-widest rounded-xl hover:bg-[#fe9a00] transition-colors flex items-center justify-center gap-2"
+                    className="w-full mt-3 py-2 text-zinc-500 hover:text-zinc-300 font-bold uppercase tracking-widest text-[9px] transition-colors"
                   >
-                    Simulate Payment <ArrowLeft className="w-4 h-4 rotate-180" />
+                    Simulate Payment (Dev Sandbox)
                   </button>
                 </div>
               )}
@@ -403,7 +454,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
               {checkoutStep === 'success' && (
                 <div className="py-8 flex flex-col items-center justify-center animate-fade-in text-center">
-                  <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center border-2 border-emerald-500 mb-6 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+                  <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center border-2 border-emerald-500 mb-6 shadow-[0_0_30px_rgba(168,85,247,0.3)]">
                     <Check className="w-10 h-10 text-emerald-400" />
                   </div>
                   <h3 className="text-2xl font-black italic uppercase text-white mb-2">Welcome to Pro</h3>

@@ -83,7 +83,6 @@ const ScrollToTopButton = () => {
 };
 
 export default function App() {
-  // --- INITIALIZE THIRD-PARTY INTEGRATIONS ---
   useIntegrations();
 
   const [currentView, setCurrentView] = useState(() => {
@@ -103,7 +102,7 @@ export default function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isFlexCardOpen, setIsFlexCardOpen] = useState(false);
-  const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
+  const [upsellConfig, setUpsellConfig] = useState<{ title: string; message: string; target?: 'signup' | 'sub'; buttonText?: string } | null>(null);
   const [showGlobalShareModal, setShowGlobalShareModal] = useState(false);
 
   const [showPasswordReset, setShowPasswordReset] = useState(false);
@@ -154,6 +153,36 @@ export default function App() {
     }
   }, [currentView, selectedSeries]);
 
+  // --- AUTOMATIC PAGE VISIT UPSELL TRACKER ---
+  useEffect(() => {
+    if (['sub', 'admin', 'settings', 'legal'].includes(currentView)) return;
+
+    const rawVisits = sessionStorage.getItem('am_nav_counter') || '0';
+    const nextVisits = parseInt(rawVisits, 10) + 1;
+    sessionStorage.setItem('am_nav_counter', nextVisits.toString());
+
+    // 1. Visitors: Every 3rd page visit -> Sign up for Free account
+    if (userTier === 'visitor' && nextVisits % 3 === 0) {
+      setUpsellConfig({
+        title: 'Start Reading Free',
+        message: 'Create a free Saturday AM account to read standard chapters, save your reading history, drop reactions, and earn fandom points!',
+        target: 'signup',
+        buttonText: 'Create Free Account'
+      });
+      return;
+    }
+
+    // 2. Free account holders: Every 5th page visit -> Upgrade to Pro
+    if (userTier === 'free' && nextVisits % 5 === 0) {
+      setUpsellConfig({
+        title: 'Enjoying Saturday AM?',
+        message: 'Upgrade to Saturday AM+ for $1.99/mo to get 3 weekly Super Hypes, custom card skins, animated frames, and unlimited reading!',
+        target: 'sub',
+        buttonText: 'Upgrade to Pro'
+      });
+    }
+  }, [currentView, userTier]);
+
   const handleIntroComplete = () => {
     localStorage.setItem('am_has_seen_intro', 'true');
     setShowIntro(false);
@@ -170,16 +199,15 @@ export default function App() {
       } else {
         setUserTier('free');
         await supabase.from('profiles').insert([
-          { id: sessionUser.id, username: fallbackName, is_premium: false }
+          { id: sessionUser.id, username: fallbackName, is_premium: false, super_hypes_left: 1 }
         ]);
-        setCurrentUser({ username: fallbackName, avatar_url: '', frame_id: 'none', total_hypes: 5 }); 
+        setCurrentUser({ username: fallbackName, avatar_url: '', frame_id: 'none', total_hypes: 0, super_hypes_left: 1 }); 
       }
     };
 
     const checkSessionAndFetch = () => {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
-          setCurrentUser((prev: any) => prev || { username: session.user.user_metadata?.username || 'Reader', avatar_url: '', frame_id: 'none', total_hypes: 5 });
           fetchUserProfile(session.user);
         } else {
           setCurrentUser(null);
@@ -219,7 +247,6 @@ export default function App() {
         setCurrentUser(null);
         setUserTier('visitor');
       } else if (session?.user) {
-        setCurrentUser((prev: any) => prev || { username: session.user.user_metadata?.username || 'Reader', avatar_url: '', frame_id: 'none', total_hypes: 5 });
         fetchUserProfile(session.user);
       } else {
         setCurrentUser(null);
@@ -300,6 +327,10 @@ export default function App() {
   };
 
   const handleNavigate = useCallback((data: any) => {
+    if (data.action === 'login' || data.action === 'signup') {
+      setShowLogin(true);
+      return;
+    }
     if (data.action && data.action !== 'series') {
       setCurrentView(data.action);
       return;
@@ -318,10 +349,9 @@ export default function App() {
           @keyframes fade-out { 0% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
           .animate-fade-out { animation: fade-out 3s forwards; }
           
-          /* --- CUSTOM HYPE LOADING ANIMATION --- */
           @keyframes hype-pulse-glow {
-            0%, 100% { filter: drop-shadow(0 0 10px rgba(254,154,0,0.5)); transform: scale(1); }
-            50% { filter: drop-shadow(0 0 25px rgba(254,154,0,1)); transform: scale(1.05); }
+            0%, 100% { filter: drop-shadow(0 0 15px rgba(254,154,0,0.6)); transform: scale(1); }
+            50% { filter: drop-shadow(0 0 35px rgba(254,154,0,1)); transform: scale(1.06); }
           }
           .animate-hype-glow { animation: hype-pulse-glow 2s ease-in-out infinite; }
 
@@ -339,6 +369,20 @@ export default function App() {
           .z-\\[-1\\].bg-black.fixed.inset-0 { display: none !important; }
         `}
       </style>
+
+      {/* SVG Color Filter: Remaps black to #fe9a00 while preserving pure white 'AM' */}
+      <svg className="absolute w-0 h-0 pointer-events-none" aria-hidden="true">
+        <filter id="hype-flame-color" colorInterpolationFilters="sRGB">
+          <feColorMatrix
+            type="matrix"
+            values="
+              0.004  0      0      0.996  0
+              0      0.396  0      0.604  0
+              0      0      1      0      0
+              0      0      0      1      0"
+          />
+        </filter>
+      </svg>
 
       <div className="fixed inset-0 z-0 bg-black pointer-events-none">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden opacity-100" />
@@ -365,11 +409,24 @@ export default function App() {
       {upsellConfig && (
         <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
           <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
             <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
             <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
             <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
-            <button onClick={() => { setUpsellConfig(null); handleNavigate({ action: 'sub' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Upgrade to Pro</button>
+            <button 
+              onClick={() => { 
+                const isSignup = upsellConfig.target === 'signup' || userTier === 'visitor';
+                setUpsellConfig(null); 
+                if (isSignup) {
+                  setShowLogin(true);
+                } else {
+                  handleNavigate({ action: 'sub' }); 
+                }
+              }} 
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
+            >
+              {upsellConfig.buttonText || (userTier === 'visitor' ? 'Create Free Account' : 'Upgrade to Pro')}
+            </button>
           </div>
         </div>
       )}
@@ -381,28 +438,21 @@ export default function App() {
       <AppErrorBoundary>
         <Suspense fallback={
           <div className="min-h-[100dvh] bg-transparent flex flex-col items-center justify-center gap-4 pb-20">
-            <div className="relative flex items-center justify-center">
-              <div 
-                className="w-14 h-14 bg-[#fe9a00] animate-hype-glow"
-                style={{
-                  WebkitMaskImage: "url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png')",
-                  WebkitMaskSize: 'contain',
-                  WebkitMaskRepeat: 'no-repeat',
-                  WebkitMaskPosition: 'center',
-                  maskImage: "url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png')",
-                  maskSize: 'contain',
-                  maskRepeat: 'no-repeat',
-                  maskPosition: 'center'
-                }}
+            <div className="relative flex items-center justify-center animate-hype-glow">
+              <img 
+                src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Hype%20flame.png" 
+                alt="Saturday AM Loading" 
+                className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
+                style={{ filter: 'url(#hype-flame-color)' }}
               />
             </div>
           </div>
         }>
           <div id="main-app-container" className="relative z-10 min-h-screen w-full bg-transparent">
             {currentView === 'home' && (<HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />)}
-            {currentView === 'series' && (<SeriesDetailPage userTier={userTier} series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />)}
+            {currentView === 'series' && (<SeriesDetailPage userTier={userTier} series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} onUpsell={setUpsellConfig} />)}
             {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
-            {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} />)}
+            {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onUpsell={setUpsellConfig} />)}
             {currentView === 'sub' && (<SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />)}
             {currentView === 'leaderboard' && (<Leaderboard userTier={userTier} currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
             {currentView === 'settings' && (<SettingsPage userTier={userTier} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onBack={() => setCurrentView('home')} onSignOut={() => { setCurrentView('home'); }} />)}
@@ -430,13 +480,13 @@ export default function App() {
       )}
 
       {!['admin', 'sub', 'settings', 'legal'].includes(currentView) && currentUser && userTier !== 'visitor' && (
-        <GlobalHypeTracker /> 
+        <GlobalHypeTracker currentUser={currentUser} /> 
       )}
 
       {!['home', 'settings', 'admin', 'sub', 'shop', 'legal'].includes(currentView) && (
         <button 
           onClick={() => setIsMenuOpen(true)}
-          className="fixed top-4 sm:top-6 right-4 sm:right-6 z-[150] p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] shadow-lg transition-all group"
+          className="fixed top-4 sm:top-6 right-4 sm:right-6 z-[150] p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] shadow-lg transition-all group cursor-pointer"
           aria-label="Open Menu"
         >
           <Menu className="w-5 h-5 sm:w-6 sm:h-6 group-hover:scale-110 transition-transform" />
@@ -455,8 +505,8 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={dismissInstallPrompt} className="p-2 text-zinc-500 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
-            <button onClick={handleInstallClick} className="bg-[#fe9a00] text-black px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">Install</button>
+            <button onClick={dismissInstallPrompt} className="p-2 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-4 h-4" /></button>
+            <button onClick={handleInstallClick} className="bg-[#fe9a00] text-black px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)] cursor-pointer">Install</button>
           </div>
         </div>
       )}
@@ -473,7 +523,7 @@ export default function App() {
                 <span className="text-[#fe9a00] text-[10px] font-bold mt-0.5 leading-snug">For the best reading experience, install the app.</span>
               </div>
             </div>
-            <button onClick={dismissIosPrompt} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors"><X className="w-4 h-4" /></button>
+            <button onClick={dismissIosPrompt} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors cursor-pointer"><X className="w-4 h-4" /></button>
           </div>
           
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col gap-3">

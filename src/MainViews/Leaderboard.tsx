@@ -1,9 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Trophy, Flame, Crown, Star, Zap, Activity, TrendingUp, Calendar, Users, MessageSquare, PenTool, BookOpen, Library, User } from 'lucide-react';
+import { ArrowLeft, Trophy, Crown, Star, Zap, Activity, TrendingUp, Calendar, Users, MessageSquare, PenTool, BookOpen, Library, User } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
+
+const HYPE_FLAME_URL = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Hype%20flame.png";
+
+const HypeFlameIcon = ({ className = "w-3.5 h-3.5" }: { className?: string }) => (
+  <img 
+    src={HYPE_FLAME_URL} 
+    alt="Hype" 
+    className={`${className} object-contain inline-block shrink-0 drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]`} 
+    style={{ filter: 'url(#hype-flame-color)' }}
+  />
+);
 
 const leaderboardTutorialSlides = [
   {
@@ -40,6 +51,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         lastSaturday.setDate(now.getDate() - ((now.getDay() + 1) % 7));
         lastSaturday.setHours(0, 0, 0, 0);
 
+        // 1. TOP SUPPORTERS
         const { data: topFans, error: fansError } = await supabase.rpc('fetch_top_ten_fans');
         if (topFans && !fansError) {
           const formattedTop10 = topFans.map((fan: any, index: number) => {
@@ -52,7 +64,8 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setSuperFans(formattedTop10);
         }
 
-        if (currentUser) {
+        // 2. PERSONAL USER RANK
+        if (currentUser?.id) {
           const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: currentUser.id });
           if (myRankData && myRankData.length > 0) {
             const score = Number(myRankData[0].score);
@@ -65,76 +78,120 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           }
         }
 
+        // 3. BIG 3 MONTHLY SERIES (Super Hypes)
         const { data: superHypes } = await supabase.from('super_hypes').select('series_slug');
-        if (superHypes && seriesList.length > 0) {
+        if (seriesList.length > 0) {
           const hypeCounts: Record<string, number> = {};
-          superHypes.forEach((h: any) => { hypeCounts[h.series_slug] = (hypeCounts[h.series_slug] || 0) + 1; });
+          (superHypes || []).forEach((h: any) => { 
+            hypeCounts[h.series_slug] = (hypeCounts[h.series_slug] || 0) + 1; 
+          });
 
-          const rankedSeries = seriesList
-            .map((s: any) => ({ ...s, hypeScore: hypeCounts[s.slug] || 0 }))
+          const rankedBig3 = seriesList
+            .filter((s: any) => !s.is_hidden)
+            .map((s: any) => ({ ...s, hypeScore: hypeCounts[s.slug] || s.hype_count || 0 }))
             .sort((a: any, b: any) => b.hypeScore - a.hypeScore);
 
-          setBig3(rankedSeries.slice(0, 3));
+          setBig3(rankedBig3.slice(0, 3));
         }
 
+        // 4. WEEKLY SERIES HYPES
+        const { data: weeklySeriesHypes } = await supabase
+          .from('hypes')
+          .select('target_id, series_slug, created_at')
+          .eq('target_type', 'series')
+          .gte('created_at', lastSaturday.toISOString());
+
         if (seriesList.length > 0) {
+          const seriesWeeklyMap: Record<string, number> = {};
+          (weeklySeriesHypes || []).forEach((h: any) => {
+            const key = h.series_slug || h.target_id;
+            if (key) seriesWeeklyMap[key] = (seriesWeeklyMap[key] || 0) + 1;
+          });
+
           const weeklyRankedSeries = [...seriesList]
-            .map((s: any) => ({ ...s, hypeScore: s.weekly_hype || 0 }))
+            .filter((s: any) => !s.is_hidden)
+            .map((s: any) => ({ 
+              ...s, 
+              hypeScore: seriesWeeklyMap[s.slug] || s.weekly_hype || 0 
+            }))
             .sort((a, b) => b.hypeScore - a.hypeScore);
+
           setTopSeries(weeklyRankedSeries.slice(0, 5));
         }
 
-        const { data: allCreatorHypes } = await supabase.from('hypes').select('target_id, created_at').eq('target_type', 'creator');
-        const { data: allCreatorsData } = await supabase.from('series_creators').select('name, avatar_url, role, series_slug');
+        // 5. WEEKLY CREATOR HYPES
+        const { data: allCreatorHypes } = await supabase
+          .from('hypes')
+          .select('target_id, created_at')
+          .eq('target_type', 'creator')
+          .gte('created_at', lastSaturday.toISOString());
+
+        const { data: allCreatorsData } = await supabase
+          .from('series_creators')
+          .select('name, avatar_url, role, series_slug')
+          .eq('is_visible', true);
         
-        if (allCreatorHypes && allCreatorsData) {
-            const weeklyCreatorHypes = allCreatorHypes.filter((h: any) => new Date(h.created_at) >= lastSaturday);
-            const creatorHypeCounts: Record<string, number> = {};
-            weeklyCreatorHypes.forEach((h: any) => { creatorHypeCounts[h.target_id] = (creatorHypeCounts[h.target_id] || 0) + 1; });
-            
-            const uniqueCreatorsMap = new Map();
-            allCreatorsData.forEach((c: any) => { if (!uniqueCreatorsMap.has(c.name)) uniqueCreatorsMap.set(c.name, c); });
-            const rankedCreators = Array.from(uniqueCreatorsMap.values())
-                .map((c: any) => ({ ...c, hypeScore: creatorHypeCounts[c.name] || 0 }))
-                .sort((a, b) => b.hypeScore - a.hypeScore).slice(0, 5);
-            setTopCreators(rankedCreators);
+        if (allCreatorsData) {
+          const creatorHypeCounts: Record<string, number> = {};
+          (allCreatorHypes || []).forEach((h: any) => { 
+            creatorHypeCounts[h.target_id] = (creatorHypeCounts[h.target_id] || 0) + 1; 
+          });
+          
+          const uniqueCreatorsMap = new Map();
+          allCreatorsData.forEach((c: any) => { 
+            if (!uniqueCreatorsMap.has(c.name)) uniqueCreatorsMap.set(c.name, c); 
+          });
+
+          const rankedCreators = Array.from(uniqueCreatorsMap.values())
+            .map((c: any) => ({ ...c, hypeScore: creatorHypeCounts[c.name] || 0 }))
+            .sort((a, b) => b.hypeScore - a.hypeScore)
+            .slice(0, 5);
+
+          setTopCreators(rankedCreators);
         }
 
-        const { data: allCharHypes } = await supabase.from('hypes').select('target_id, created_at').eq('target_type', 'character');
-        const { data: allCharsData } = await supabase.from('series_characters').select('id, name, headshot_url, series_slug');
+        // 6. WEEKLY CHARACTER HYPES
+        const { data: allCharHypes } = await supabase
+          .from('hypes')
+          .select('target_id, created_at')
+          .eq('target_type', 'character')
+          .gte('created_at', lastSaturday.toISOString());
+
+        const { data: allCharsData } = await supabase
+          .from('series_characters')
+          .select('id, name, headshot_url, series_slug')
+          .eq('is_hidden', false);
         
-        if (allCharHypes && allCharsData) {
-            const weeklyCharHypes = allCharHypes.filter((h: any) => new Date(h.created_at) >= lastSaturday);
-            const charHypeCounts: Record<string, number> = {};
-            weeklyCharHypes.forEach((h: any) => { charHypeCounts[h.target_id] = (charHypeCounts[h.target_id] || 0) + 1; });
-            
-            const rankedChars = allCharsData
-                .map((c: any) => {
-                  const sTitle = seriesList.find((s:any) => s.slug === c.series_slug)?.title || 'Unknown Series';
-                  return { ...c, series_title: sTitle, hypeScore: charHypeCounts[String(c.id)] || 0 };
-                })
-                .sort((a: any, b: any) => b.hypeScore - a.hypeScore).slice(0, 5);
-            setTopCharacters(rankedChars);
+        if (allCharsData) {
+          const charHypeCounts: Record<string, number> = {};
+          (allCharHypes || []).forEach((h: any) => { 
+            charHypeCounts[h.target_id] = (charHypeCounts[h.target_id] || 0) + 1; 
+          });
+          
+          const rankedChars = allCharsData
+            .map((c: any) => {
+              const sTitle = seriesList.find((s: any) => s.slug === c.series_slug)?.title || 'Unknown Series';
+              return { ...c, series_title: sTitle, hypeScore: charHypeCounts[String(c.id)] || 0 };
+            })
+            .sort((a: any, b: any) => b.hypeScore - a.hypeScore)
+            .slice(0, 5);
+
+          setTopCharacters(rankedChars);
         }
 
-        // --- WEEKLY TOP CHAPTERS ---
+        // 7. WEEKLY TOP CHAPTERS
         const [chapterHypesRes, chapterLikesRes] = await Promise.all([
           supabase.from('hypes').select('target_id').eq('target_type', 'chapter').gte('created_at', lastSaturday.toISOString()),
           supabase.from('chapter_likes').select('chapter_id').gte('created_at', lastSaturday.toISOString())
         ]);
 
         const chapterInteractionCounts: Record<string, number> = {};
-        
-        if (chapterHypesRes.data) {
-          chapterHypesRes.data.forEach((h: any) => { 
-            chapterInteractionCounts[h.target_id] = (chapterInteractionCounts[h.target_id] || 0) + 1; 
-          });
-        }
-        if (chapterLikesRes.data) {
-          chapterLikesRes.data.forEach((l: any) => { 
-            chapterInteractionCounts[l.chapter_id] = (chapterInteractionCounts[l.chapter_id] || 0) + 1; 
-          });
-        }
+        (chapterHypesRes.data || []).forEach((h: any) => { 
+          chapterInteractionCounts[h.target_id] = (chapterInteractionCounts[h.target_id] || 0) + 1; 
+        });
+        (chapterLikesRes.data || []).forEach((l: any) => { 
+          chapterInteractionCounts[l.chapter_id] = (chapterInteractionCounts[l.chapter_id] || 0) + 1; 
+        });
 
         const trendingChapIds = Object.keys(chapterInteractionCounts);
         
@@ -146,7 +203,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             
           if (chapsData) {
             const rankedChaps = chapsData.map((c: any) => {
-              const sData = seriesList.find((s:any) => s.slug === c.series_slug);
+              const sData = seriesList.find((s: any) => s.slug === c.series_slug);
               return { 
                 ...c, 
                 series_title: sData?.title || 'Unknown Series', 
@@ -161,31 +218,34 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setTopWeeklyChapters([]);
         }
 
-        // --- MONTHLY BIG 3 CREATORS ---
+        // 8. MONTHLY BIG 3 CREATORS
         if (allCreatorsData) {
           const combinedCreatorScores: Record<string, number> = {};
           
-          if (allCreatorHypes) {
-            allCreatorHypes.forEach((h: any) => {
-              combinedCreatorScores[h.target_id] = (combinedCreatorScores[h.target_id] || 0) + 1;
-            });
-          }
+          const { data: monthlyCreatorHypes } = await supabase
+            .from('hypes')
+            .select('target_id')
+            .eq('target_type', 'creator');
+
+          (monthlyCreatorHypes || []).forEach((h: any) => {
+            combinedCreatorScores[h.target_id] = (combinedCreatorScores[h.target_id] || 0) + 1;
+          });
 
           const seriesToCreatorMap: Record<string, string> = {};
           seriesList.forEach((s: any) => { if (s.creator_name) seriesToCreatorMap[s.slug] = s.creator_name; });
           allCreatorsData.forEach((c: any) => { if (c.series_slug && c.name) seriesToCreatorMap[c.series_slug] = c.name; });
 
-          if (superHypes) {
-            superHypes.forEach((h: any) => {
-              const creatorName = seriesToCreatorMap[h.series_slug];
-              if (creatorName) {
-                combinedCreatorScores[creatorName] = (combinedCreatorScores[creatorName] || 0) + 1;
-              }
-            });
-          }
+          (superHypes || []).forEach((h: any) => {
+            const creatorName = seriesToCreatorMap[h.series_slug];
+            if (creatorName) {
+              combinedCreatorScores[creatorName] = (combinedCreatorScores[creatorName] || 0) + 1;
+            }
+          });
 
           const uniqueCreatorMap = new Map();
-          allCreatorsData.forEach((c: any) => { if (!uniqueCreatorMap.has(c.name)) uniqueCreatorMap.set(c.name, c); });
+          allCreatorsData.forEach((c: any) => { 
+            if (!uniqueCreatorMap.has(c.name)) uniqueCreatorMap.set(c.name, c); 
+          });
           
           const rankedBig3Creators = Array.from(uniqueCreatorMap.values())
             .map((c: any) => ({ ...c, hypeScore: combinedCreatorScores[c.name] || 0 }))
@@ -251,7 +311,9 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   {type === 'chapter' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{item.series_title}</span>}
                </div>
                <div className="flex flex-col items-end shrink-0 pl-2">
-                  <span className="text-[11px] font-black text-[#fe9a00] flex items-center gap-1.5"><Flame className="w-3.5 h-3.5 fill-[#fe9a00]"/> {item.hypeScore || 0}</span>
+                  <span className="text-[11px] font-black text-[#fe9a00] flex items-center gap-1.5">
+                    <HypeFlameIcon className="w-3.5 h-3.5" /> {item.hypeScore || 0}
+                  </span>
                </div>
             </div>
           )) : (
@@ -265,7 +327,20 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-32">
-      
+      {/* SVG Color Filter: Remaps black to #fe9a00 while keeping white AM intact */}
+      <svg className="absolute w-0 h-0 pointer-events-none" aria-hidden="true">
+        <filter id="hype-flame-color" colorInterpolationFilters="sRGB">
+          <feColorMatrix
+            type="matrix"
+            values="
+              0.004  0      0      0.996  0
+              0      0.396  0      0.604  0
+              0      0      1      0      0
+              0      0      0      1      0"
+          />
+        </filter>
+      </svg>
+
       <FeatureTutorialModal 
         tutorialId="leaderboards_guide" 
         slides={leaderboardTutorialSlides} 
@@ -280,19 +355,15 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
       </div>
 
       <div className="sticky top-0 z-50 w-full bg-black/95 backdrop-blur-xl border-b border-zinc-800/80 pt-6 pb-4 px-4 sm:pt-8 sm:px-8 shadow-2xl">
-        {/* ROW 1: Title and Navigation */}
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4 relative mb-5">
-          
-          {/* Left Side: Back Button + Mobile-only Title */}
           <div className="flex items-center gap-2 sm:gap-4 shrink min-w-0 z-10">
-            <button onClick={onBack} className="p-2 sm:p-3 bg-zinc-900/90 backdrop-blur-md rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors transform -skew-x-12 shadow-xl shrink-0">
+            <button onClick={onBack} className="p-2 sm:p-3 bg-zinc-900/90 backdrop-blur-md rounded-none border border-zinc-700 hover:bg-white hover:text-black transition-colors transform -skew-x-12 shadow-xl shrink-0 cursor-pointer">
               <div className="transform skew-x-12 flex items-center gap-1 sm:gap-2">
                 <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
                 <span className="text-[10px] font-black uppercase tracking-widest hidden sm:block">Home</span>
               </div>
             </button>
 
-            {/* Mobile Title */}
             <div className="flex sm:hidden flex-col items-start drop-shadow-lg pointer-events-none shrink min-w-0">
               <h1 className="text-lg font-black italic uppercase tracking-tighter text-[#fe9a00] flex items-center gap-1.5 text-left truncate">
                 <Trophy className="w-4 h-4 shrink-0" /> Leaderboard
@@ -301,7 +372,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             </div>
           </div>
           
-          {/* Center: Desktop-only Title */}
           <div className="hidden sm:flex flex-col items-center absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 drop-shadow-lg pointer-events-none z-0 w-max">
             <h1 className="text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] flex items-center gap-2 text-center">
               <Trophy className="w-8 h-8 shrink-0" /> Leaderboard
@@ -309,22 +379,19 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">Live Global Rankings</span>
           </div>
 
-          {/* Right Side: Help Button */}
           <div className="pointer-events-auto shrink-0 flex items-center mr-14 sm:mr-0 z-10">
             <TutorialHelpButton onClick={(e: any) => { e.stopPropagation(); setForceTutorial(true); }} />
           </div>
-
         </div>
 
-        {/* ROW 2: The Tabs (Now safely inside the sticky header) */}
         <div className="flex bg-black/50 p-1 rounded-full border border-zinc-800 shadow-inner max-w-lg mx-auto">
-          <button onClick={() => setActiveTab('weekly')} className={`flex-1 py-2.5 sm:py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 ${activeTab === 'weekly' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
+          <button onClick={() => setActiveTab('weekly')} className={`flex-1 py-2.5 sm:py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 cursor-pointer ${activeTab === 'weekly' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
             <TrendingUp className="w-3 h-3 sm:w-4 sm:h-4 hidden sm:block" /> Weekly Hype
           </button>
-          <button onClick={() => setActiveTab('monthly')} className={`flex-1 py-2.5 sm:py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 ${activeTab === 'monthly' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
+          <button onClick={() => setActiveTab('monthly')} className={`flex-1 py-2.5 sm:py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 cursor-pointer ${activeTab === 'monthly' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
             <Calendar className="w-3 h-3 sm:w-4 sm:h-4 hidden sm:block" /> The Big 3
           </button>
-          <button onClick={() => setActiveTab('fans')} className={`flex-1 py-2.5 sm:py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 ${activeTab === 'fans' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
+          <button onClick={() => setActiveTab('fans')} className={`flex-1 py-2.5 sm:py-3 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest transition-all flex justify-center items-center gap-1 sm:gap-2 cursor-pointer ${activeTab === 'fans' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>
             <Users className="w-3 h-3 sm:w-4 sm:h-4 hidden sm:block" /> Top Fans
           </button>
         </div>
@@ -362,7 +429,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
                   {big3.length === 3 ? (
                     <div className="flex items-end justify-center gap-4 sm:gap-8 w-full px-2 mt-8">
-                      {/* Rank 2 */}
                       <button 
                         type="button"
                         className="flex flex-col items-center w-[30%] opacity-90 hover:opacity-100 transition-all hover:-translate-y-2 group cursor-pointer bg-transparent border-none p-0 focus:outline-none"
@@ -374,11 +440,12 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                             <img src={big3[1].sticker_url || big3[1].character_url || big3[1].cover_url} className="w-full h-full object-cover object-top" alt="Rank 2" />
                           </div>
                           <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3[1].title}</span>
-                          <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1"><Flame className="w-3 h-3 inline pb-0.5"/> {big3[1].hypeScore}</span>
+                          <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
+                            <HypeFlameIcon className="w-3 h-3" /> {big3[1].hypeScore}
+                          </span>
                         </div>
                       </button>
 
-                      {/* Rank 1 */}
                       <button 
                         type="button"
                         className="flex flex-col items-center w-[35%] z-30 hover:-translate-y-4 transition-all group pb-8 cursor-pointer relative bg-transparent border-none p-0 focus:outline-none"
@@ -390,11 +457,12 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                             <img src={big3[0].sticker_url || big3[0].character_url || big3[0].cover_url} className="w-full h-full object-cover object-top" alt="Rank 1" />
                           </div>
                           <span className="mt-5 text-[10px] sm:text-xs font-black text-[#fe9a00] uppercase tracking-wider text-center line-clamp-2 drop-shadow-md">{big3[0].title}</span>
-                          <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mt-1"><Flame className="w-3.5 h-3.5 inline pb-0.5"/> {big3[0].hypeScore}</span>
+                          <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
+                            <HypeFlameIcon className="w-3.5 h-3.5" /> {big3[0].hypeScore}
+                          </span>
                         </div>
                       </button>
 
-                      {/* Rank 3 */}
                       <button 
                         type="button"
                         className="flex flex-col items-center w-[30%] opacity-90 hover:opacity-100 transition-all hover:-translate-y-2 group cursor-pointer bg-transparent border-none p-0 focus:outline-none"
@@ -406,7 +474,9 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                             <img src={big3[2].sticker_url || big3[2].character_url || big3[2].cover_url} className="w-full h-full object-cover object-top" alt="Rank 3" />
                           </div>
                           <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3[2].title}</span>
-                          <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1"><Flame className="w-3 h-3 inline pb-0.5"/> {big3[2].hypeScore}</span>
+                          <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
+                            <HypeFlameIcon className="w-3 h-3" /> {big3[2].hypeScore}
+                          </span>
                         </div>
                       </button>
                     </div>
@@ -427,34 +497,37 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
                   {big3Creators.length === 3 ? (
                     <div className="flex items-end justify-center gap-4 sm:gap-8 w-full px-2 mt-8 pointer-events-none">
-                      {/* Rank 2 */}
                       <div className="flex flex-col items-center w-[30%] opacity-90 transition-all group">
                         <div className="text-[10px] sm:text-xs font-black text-zinc-400 uppercase tracking-widest mb-3 flex items-center gap-1"><Star className="w-4 h-4 text-zinc-400" /> #2</div>
                         <div className="relative rounded-full overflow-hidden bg-zinc-800 w-24 h-24 sm:w-32 sm:h-32 border-[4px] border-zinc-400 shadow-[0_10px_30px_rgba(161,161,170,0.4)] transform -rotate-6 transition-transform">
                           <img src={big3Creators[1].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 2" />
                         </div>
                         <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3Creators[1].name}</span>
-                        <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1"><Flame className="w-3 h-3 inline pb-0.5"/> {big3Creators[1].hypeScore}</span>
+                        <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
+                          <HypeFlameIcon className="w-3 h-3" /> {big3Creators[1].hypeScore}
+                        </span>
                       </div>
 
-                      {/* Rank 1 */}
                       <div className="flex flex-col items-center w-[35%] z-30 transition-all group pb-8 relative">
                         <div className="text-xs sm:text-sm font-black text-yellow-500 uppercase tracking-widest mb-3 flex items-center gap-1 animate-pulse"><Crown className="w-4 h-4 text-yellow-500" /> #1</div>
                         <div className="relative rounded-full overflow-hidden bg-zinc-800 w-32 h-32 sm:w-44 sm:h-44 border-[6px] border-yellow-500 shadow-[0_15px_40px_rgba(234,179,8,0.6)] transform transition-transform">
                           <img src={big3Creators[0].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 1" />
                         </div>
                         <span className="mt-5 text-[10px] sm:text-xs font-black text-[#fe9a00] uppercase tracking-wider text-center line-clamp-2 drop-shadow-md">{big3Creators[0].name}</span>
-                        <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mt-1"><Flame className="w-3.5 h-3.5 inline pb-0.5"/> {big3Creators[0].hypeScore}</span>
+                        <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
+                          <HypeFlameIcon className="w-3.5 h-3.5" /> {big3Creators[0].hypeScore}
+                        </span>
                       </div>
 
-                      {/* Rank 3 */}
                       <div className="flex flex-col items-center w-[30%] opacity-90 transition-all group">
                         <div className="text-[10px] sm:text-xs font-black text-amber-600 uppercase tracking-widest mb-3 flex items-center gap-1"><Star className="w-4 h-4 text-amber-600" /> #3</div>
                         <div className="relative rounded-full overflow-hidden bg-zinc-800 w-24 h-24 sm:w-32 sm:h-32 border-[4px] border-amber-700 shadow-[0_10px_30px_rgba(180,83,9,0.4)] transform rotate-6 transition-transform">
                           <img src={big3Creators[2].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 3" />
                         </div>
                         <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3Creators[2].name}</span>
-                        <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1"><Flame className="w-3 h-3 inline pb-0.5"/> {big3Creators[2].hypeScore}</span>
+                        <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
+                          <HypeFlameIcon className="w-3 h-3" /> {big3Creators[2].hypeScore}
+                        </span>
                       </div>
                     </div>
                   ) : (
@@ -463,7 +536,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                     </div>
                   )}
                 </div>
-
               </div>
             )}
 
@@ -522,7 +594,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             <div className="mt-12 mb-8 border-t border-zinc-800 pt-8">
               <button 
                 onClick={onBack}
-                className="w-full max-w-sm mx-auto py-4 bg-zinc-900 border border-zinc-800 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2"
+                className="w-full max-w-sm mx-auto py-4 bg-zinc-900 border border-zinc-800 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" /> Return to App
               </button>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { User, Trophy, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart, Lock } from 'lucide-react';
+import { User, Trophy, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart, Lock, Sparkles } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
@@ -47,7 +47,6 @@ const getFandomTier = (lifetimeScore: number, isPremium: boolean = false) => {
     { name: 'Vulcan', min: 100000, max: Infinity, color: 'text-yellow-100', hex: '#fef3c7', bar: 'bg-yellow-100', glow: 'drop-shadow-[0_0_12px_rgba(254,243,199,1)]' }
   ];
 
-  // FREE USER CAP: Freeze them at Glint (index 1) if they hit 1000+ points
   if (!isPremium && score >= 1000) {
     return {
       currentTier: tiers[1], 
@@ -123,7 +122,7 @@ const RenderCardAnimations = ({ anim, color }: { anim: string, color: string }) 
   );
 };
 
-export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
+export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [profileStats, setProfileStats] = useState({ 
     total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---", score: 0, shares: 0, creator_supports: 0 
@@ -217,6 +216,17 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   
   const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score, isSubscriber);
 
+  const handleUpgradeClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClose();
+    if (onNavigate) {
+      onNavigate({ action: 'sub' });
+    } else {
+      window.history.pushState({ view: 'sub' }, '');
+      window.dispatchEvent(new PopStateEvent('popstate', { state: { view: 'sub' } }));
+    }
+  };
+
   const cardContent = (
     <div className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden" onClick={onClose}>
       
@@ -230,6 +240,35 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
         forceOpen={forceTutorial}
         onClose={() => setForceTutorial(false)}
       />
+
+      {/* FREE USER PREVIEW BANNER */}
+      {!isSubscriber && !isLoading && (
+        <div 
+          onClick={(e) => e.stopPropagation()} 
+          className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 z-[1000000] w-[94%] max-w-xl bg-zinc-950/95 border border-[#fe9a00] p-3 sm:p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.9)] flex items-center justify-between gap-3 animate-fade-in backdrop-blur-md"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-[#fe9a00]/10 border border-[#fe9a00]/30 flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5 text-[#fe9a00]" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-white font-black italic uppercase text-xs sm:text-sm tracking-wider">Hype Card Preview</span>
+                <span className="bg-purple-900/40 border border-purple-500 text-purple-400 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded">PRO EXCLUSIVE</span>
+              </div>
+              <p className="text-zinc-400 text-[9px] sm:text-[10px] font-bold truncate mt-0.5">
+                Upgrade to Saturday AM+ for $1.99/mo to equip custom skins, animated frames & get store discounts!
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleUpgradeClick}
+            className="bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-[9px] sm:text-[10px] px-4 py-2.5 rounded-xl shrink-0 transition-all shadow-[0_0_15px_rgba(254,154,0,0.4)] cursor-pointer"
+          >
+            Upgrade ($1.99)
+          </button>
+        </div>
+      )}
 
       <div className="absolute top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[999999]">
         <TutorialHelpButton onClick={(e: any) => { e.stopPropagation(); setForceTutorial(true); }} />

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { HypeButton } from '../Components/HypeButton';
-import { Search, Heart, PenTool, X, Loader2, CheckCircle2, BookOpen, ArrowUpDown } from 'lucide-react';
+import { Search, Heart, PenTool, X, CheckCircle2, ArrowUpDown } from 'lucide-react';
+import { HypeLoader } from '../Components/HypeLoader';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -42,7 +43,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
         const seriesMap = new Map<string, any>();
         (seriesData || []).forEach(s => seriesMap.set(s.slug, s));
 
-        // Identify creators explicitly marked hidden in Command Center
         const hiddenCreatorNames = new Set<string>();
         (creatorRows || []).forEach((row: any) => {
           if (row.is_visible === false && row.name) {
@@ -52,7 +52,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
         const creatorMap = new Map<string, CreatorProfile>();
 
-        // 1. Group credits from series_creators
         (creatorRows || []).forEach((row: any) => {
           if (!row.name) return;
           const key = row.name.trim().toLowerCase();
@@ -89,7 +88,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
           }
         });
 
-        // 2. Add primary creators from series that didn't have entries in series_creators
         (seriesData || []).forEach((s: any) => {
           if (!s.creator_name) return;
           const key = s.creator_name.trim().toLowerCase();
@@ -210,12 +208,9 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
         </div>
       </div>
 
-      {/* Sleek Creator Cards */}
+      {/* Unified Large Hype Flame Loader */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-3">
-          <Loader2 className="w-8 h-8 text-[#fe9a00] animate-spin" />
-          <p className="text-[10px] uppercase font-black tracking-widest text-zinc-500">Loading Talent...</p>
-        </div>
+        <HypeLoader text="Loading Talent..." />
       ) : processedCreators.length === 0 ? (
         <div className="text-center text-zinc-500 py-16 font-bold uppercase tracking-widest text-xs border-2 border-dashed border-zinc-800 rounded-2xl bg-black/40">
           No creators found matching "{searchQuery}".
@@ -260,7 +255,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                       </span>
                     </div>
 
-                    {/* Bio Snippet: Allows 2 to 3 lines without crowding */}
                     <p className={`text-xs text-zinc-400 mt-1.5 leading-relaxed font-medium ${!isBioExpanded ? 'line-clamp-2 sm:line-clamp-3' : ''}`}>
                       {bioText}
                     </p>
@@ -273,7 +267,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                       </button>
                     )}
 
-                    {/* Socials */}
                     <div className="flex items-center gap-3 mt-2">
                       {creator.twitter_url && (
                         <a
@@ -299,7 +292,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                   </div>
                 </div>
 
-                {/* Center / Right Section: Expanded Works Strip (Fits up to 5-6 covers seamlessly) */}
+                {/* Center / Right Section: Expanded Works Strip */}
                 {creator.works.length > 0 && (
                   <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-1 shrink-0 max-w-full md:max-w-[340px] lg:max-w-[460px]">
                     <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 hidden xl:block shrink-0">
@@ -330,7 +323,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                   </div>
                 )}
 
-                {/* Right Action Buttons: Stacked on Desktop without overlap */}
+                {/* Right Action Buttons */}
                 <div className="flex flex-row md:flex-col items-center gap-2 shrink-0 w-full md:w-28 border-t md:border-t-0 border-zinc-800/80 pt-3 md:pt-0">
                   <div className="flex-1 md:flex-initial w-full [&_button]:w-full [&_button]:justify-center [&_button]:py-2 [&_button]:text-[10px]">
                     <HypeButton
@@ -416,9 +409,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
             {donationStep === 'processing' && (
               <div className="py-16 flex flex-col items-center justify-center animate-fade-in text-center">
-                <Loader2 className="w-12 h-12 text-[#fe9a00] animate-spin mb-4" />
-                <h3 className="text-lg font-black uppercase tracking-widest text-white mb-2">Processing Tip</h3>
-                <p className="text-xs text-zinc-400 font-bold">Contacting payment gateway...</p>
+                <HypeLoader text="Contacting payment gateway..." className="w-16 h-16" fullScreen={false} />
               </div>
             )}
 

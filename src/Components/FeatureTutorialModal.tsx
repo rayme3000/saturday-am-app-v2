@@ -18,24 +18,57 @@ interface FeatureTutorialModalProps {
   slides: TutorialSlide[];
   forceOpen?: boolean; 
   onClose?: () => void;
+  version?: string;
 }
 
-export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, onClose }: FeatureTutorialModalProps) => {
+// Bumping this version key clears out all old beta dismissals across every browser
+const DEFAULT_TUTORIAL_VERSION = 'v2_live';
+
+export const FeatureTutorialModal = ({ 
+  tutorialId, 
+  slides, 
+  forceOpen = false, 
+  onClose,
+  version = DEFAULT_TUTORIAL_VERSION 
+}: FeatureTutorialModalProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
 
+  const storageKey = `am_tutorial_${version}_${tutorialId}`;
+
   useEffect(() => {
-    const hasSeenTutorial = localStorage.getItem(`am_tutorial_${tutorialId}`);
+    // 1. Clean up legacy beta keys from localStorage
+    try {
+      localStorage.removeItem(`am_tutorial_${tutorialId}`);
+    } catch (_) {}
+
+    // 2. Check current post-beta tutorial status
+    const hasSeenTutorial = localStorage.getItem(storageKey);
     if (!hasSeenTutorial || forceOpen) {
       setIsOpen(true);
       setCurrentSlide(0);
     }
-  }, [tutorialId, forceOpen]);
+  }, [storageKey, tutorialId, forceOpen]);
 
-  // Stop propagation on close to prevent bubbling to parent wrappers
+  // Global listener to allow replaying tutorials on demand
+  useEffect(() => {
+    const handleReset = (e: any) => {
+      if (!e.detail?.tutorialId || e.detail.tutorialId === tutorialId) {
+        localStorage.removeItem(storageKey);
+        setIsOpen(true);
+        setCurrentSlide(0);
+      }
+    };
+
+    window.addEventListener('replayTutorial', handleReset);
+    return () => window.removeEventListener('replayTutorial', handleReset);
+  }, [storageKey, tutorialId]);
+
   const handleClose = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    localStorage.setItem(`am_tutorial_${tutorialId}`, 'true');
+    try {
+      localStorage.setItem(storageKey, 'true');
+    } catch (_) {}
     setIsOpen(false);
     if (onClose) onClose();
   };
@@ -57,8 +90,6 @@ export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, on
   if (!isOpen || slides.length === 0) return null;
 
   const slide = slides[currentSlide];
-  
-  // Safely check for video only if mediaUrl actually exists
   const isVideo = slide?.mediaUrl ? (slide.mediaUrl.endsWith('.mp4') || slide.mediaUrl.endsWith('.webm')) : false;
 
   return (
@@ -67,22 +98,16 @@ export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, on
       onClick={(e) => e.stopPropagation()} 
       onPointerDown={(e) => e.stopPropagation()}
     >
-      
-      {/* 
-        CHANGED: Removed fixed h-[70vh] for mobile, letting it size naturally.
-      */}
       <div className="relative w-full max-w-5xl md:aspect-[21/9] bg-zinc-950 flex flex-col md:flex-row overflow-hidden border border-zinc-800 shadow-[0_0_50px_rgba(0,0,0,0.8)] rounded-xl md:rounded-2xl shrink-0 my-auto h-auto">
         
         <button 
           onClick={handleClose}
           className="absolute top-3 right-3 md:top-4 md:right-4 z-50 p-2 bg-black/60 backdrop-blur-md border border-zinc-700 rounded-full text-zinc-400 hover:text-white hover:bg-black hover:border-[#fe9a00] transition-colors shadow-lg cursor-pointer"
+          aria-label="Close tutorial"
         >
           <X className="w-5 h-5 md:w-6 md:h-6" />
         </button>
 
-        {/* 
-          CHANGED: Reduced mobile padding (p-4) and adjusted height slightly to give icons more room
-        */}
         <div className="w-full md:w-[45%] bg-gradient-to-r from-zinc-900 to-zinc-900/95 p-4 md:p-12 flex flex-col justify-center z-10 shrink-0">
           <div className="flex items-center gap-2 md:gap-3 mb-2 md:mb-6 pr-10">
             <FileText className="w-5 h-5 md:w-8 md:h-8 text-white shrink-0" />
@@ -94,20 +119,16 @@ export const FeatureTutorialModal = ({ tutorialId, slides, forceOpen = false, on
           </p>
         </div>
 
-        {/* 
-          CHANGED: Reduced padding on mobile and fixed grid layout
-        */}
         <div className="w-full md:w-[55%] relative bg-black shrink-0 flex items-center justify-center p-3 md:p-8">
           {slide.iconsList ? (
             <div className="grid grid-cols-2 gap-2 md:gap-6 w-full max-w-xl content-start md:content-center">
               {slide.iconsList.map((item, index) => (
                 <div key={index} className="flex flex-col sm:flex-row items-start gap-2 md:gap-4 p-3 md:p-4 rounded-xl md:rounded-2xl bg-zinc-950 border border-zinc-800 hover:border-[#fe9a00]/50 transition-colors shadow-lg">
                   <div className="p-2 md:p-3 bg-zinc-900 border border-[#fe9a00]/30 rounded-lg md:rounded-xl shadow-[0_0_15px_rgba(254,154,0,0.15)] text-[#fe9a00] shrink-0">
-                    {/* Make icon slightly smaller on mobile */}
                     <div className="scale-75 md:scale-100 origin-center">{item.icon}</div>
                   </div>
                   <div className="flex flex-col pt-1">
-                    <h4 className="text-white font-black uppercase tracking-widest text-[10px] md:text-sm mb-1 md:mb-1 leading-tight">{item.title}</h4>
+                    <h4 className="text-white font-black uppercase tracking-widest text-[10px] md:text-sm mb-1 leading-tight">{item.title}</h4>
                     <p className="text-zinc-400 text-[9px] md:text-[10px] font-bold leading-tight md:leading-relaxed line-clamp-3">{item.desc}</p>
                   </div>
                 </div>

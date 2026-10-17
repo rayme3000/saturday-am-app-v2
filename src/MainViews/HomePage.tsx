@@ -191,7 +191,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     return () => clearInterval(timer);
   }, [heroSlides.length]);
 
-  // --- NEW: INSTANT LOGOUT PATCH ---
   useEffect(() => {
     const handleInstantLogout = () => {
       memRecentReads = null;
@@ -219,22 +218,30 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     }).slice(0, 10); 
   }, [latestChapters, seriesList]);
 
+  // --- UPDATED LARGE HYPE FLAME LOADER FOR HOMEPAGE ---
   if (isLoading || isLoadingSlides) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
-        <div className="relative flex items-center justify-center">
-          <div 
-            className="w-20 h-20 md:w-24 md:h-24 bg-[#fe9a00] animate-hype-glow"
-            style={{
-              WebkitMaskImage: "url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png')",
-              WebkitMaskSize: 'contain',
-              WebkitMaskRepeat: 'no-repeat',
-              WebkitMaskPosition: 'center',
-              maskImage: "url('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png')",
-              maskSize: 'contain',
-              maskRepeat: 'no-repeat',
-              maskPosition: 'center'
-            }}
+        {/* SVG Color Filter: Remaps black to #fe9a00 while keeping 'AM' pure white */}
+        <svg className="absolute w-0 h-0 pointer-events-none" aria-hidden="true">
+          <filter id="hype-flame-color" colorInterpolationFilters="sRGB">
+            <feColorMatrix
+              type="matrix"
+              values="
+                0.004  0      0      0.996  0
+                0      0.396  0      0.604  0
+                0      0      1      0      0
+                0      0      0      1      0"
+            />
+          </filter>
+        </svg>
+
+        <div className="relative flex items-center justify-center animate-hype-glow">
+          <img 
+            src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Hype%20flame.png" 
+            alt="Saturday AM Loading" 
+            className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
+            style={{ filter: 'url(#hype-flame-color)' }}
           />
         </div>
       </div>

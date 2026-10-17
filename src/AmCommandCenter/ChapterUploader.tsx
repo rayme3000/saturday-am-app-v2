@@ -4,7 +4,7 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { MangaReader } from '../MainViews/MangaReader';
 
-export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onClean }: any) => {
+export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, onDirty, onClean }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [targetSeries, setTargetSeries] = useState('');
   const [targetChapter, setTargetChapter] = useState('new');
@@ -30,7 +30,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
   const [hotspots, setHotspots] = useState<any[]>([]);
   const [activeHotspotPage, setActiveHotspotPage] = useState<number | null>(null);
   const [hotspotMode, setHotspotMode] = useState<'info' | 'share'>('info');
-  const [hotspotDraft, setHotspotDraft] = useState<{x: number, y: number, id?: number} | null>(null);
+  const [hotspotDraft, setHotspotDraft] = useState<{x: number, y: number, id?: any} | null>(null);
   const [hotspotForm, setHotspotForm] = useState({ content: '' });
 
   const [formData, setFormData] = useState({
@@ -100,7 +100,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
 
   useEffect(() => { 
     setTargetChapter('new'); 
-    setSelectedChapters([]); // Reset bulk selections when switching series
+    setSelectedChapters([]);
   }, [targetSeries]);
 
   const openHotspotEditor = (index: number, mode: 'info' | 'share') => {
@@ -126,7 +126,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
 
   const saveHotspot = async () => {
     if (!hotspotDraft || activeHotspotPage === null) return;
-    if (hotspotMode === 'info' && !hotspotForm.content) return alert("Please add content for the fact.");
+    if (hotspotMode === 'info' && !hotspotForm.content) return alert("Please add content for the Author Comments.");
     if (hotspotMode === 'share' && (!hotspotForm.content || !hotspotForm.content.startsWith('http'))) return alert("Please crop a panel for this share zone.");
     
     setIsSaving(true);
@@ -135,7 +135,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
       page_index: activeHotspotPage,
       x_percent: hotspotDraft.x,
       y_percent: hotspotDraft.y,
-      title: hotspotMode === 'share' ? 'Hype Share' : 'Behind the Pages',
+      title: hotspotMode === 'share' ? 'Hype Share' : 'Author Comments',
       content: hotspotForm.content,
       icon_type: hotspotMode
     };
@@ -143,26 +143,43 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
     if (hotspotDraft.id) {
       const { data, error } = await supabase.from('page_hotspots').update(payload).eq('id', hotspotDraft.id).select().single();
       setIsSaving(false);
-      if (error) alert("Error saving hotspot: " + error.message);
-      else {
-        setHotspots(hotspots.map(h => h.id === hotspotDraft.id ? data : h));
+      if (error) {
+        alert("Error saving hotspot: " + error.message);
+      } else {
+        setHotspots(prev => prev.map(h => String(h.id) === String(hotspotDraft.id) ? data : h));
         setHotspotDraft(null);
       }
     } else {
       const { data, error } = await supabase.from('page_hotspots').insert([payload]).select().single();
       setIsSaving(false);
-      if (error) alert("Error saving hotspot: " + error.message);
-      else {
-        setHotspots([...hotspots, data]);
+      if (error) {
+        alert("Error saving hotspot: " + error.message);
+      } else {
+        setHotspots(prev => [...prev, data]);
         setHotspotDraft(null);
       }
     }
   };
 
-  const deleteHotspot = async (id: number) => {
+  const deleteHotspot = async (id: any) => {
     if (!window.confirm("Delete this hotspot?")) return;
-    await supabase.from('page_hotspots').delete().eq('id', id);
-    setHotspots(hotspots.filter(h => h.id !== id));
+    setIsSaving(true);
+
+    const { error } = await supabase.from('page_hotspots').delete().eq('id', id);
+    setIsSaving(false);
+
+    if (error) {
+      console.error("Failed to delete hotspot from Supabase:", error);
+      alert("Failed to delete from database: " + error.message);
+      return;
+    }
+
+    setHotspots(prev => prev.filter(h => String(h.id) !== String(id)));
+    if (hotspotDraft && String(hotspotDraft.id) === String(id)) {
+      setHotspotDraft(null);
+    }
+    if (setIsDirty) setIsDirty(true);
+    if (onDirty) onDirty();
   };
 
   const handlePageClick = (index: number, e: React.MouseEvent) => {
@@ -210,6 +227,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
     setSelectedPages([]);
     setDraggedItem(null);
     setDragOverItem(null);
+    if (setIsDirty) setIsDirty(true);
     if (onDirty) onDirty();
   };
 
@@ -220,6 +238,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
     }
     const newPages = formData.pages.filter((_, i) => i !== index);
     setFormData({ ...formData, pages: newPages });
+    if (setIsDirty) setIsDirty(true);
     if (onDirty) onDirty();
   };
 
@@ -231,6 +250,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
     if (direction === 'left' && index > 0) [newPages[index - 1], newPages[index]] = [newPages[index], newPages[index - 1]];
     else if (direction === 'right' && index < newPages.length - 1) [newPages[index + 1], newPages[index]] = [newPages[index], newPages[index + 1]];
     setFormData({ ...formData, pages: newPages });
+    if (setIsDirty) setIsDirty(true);
     if (onDirty) onDirty();
   };
 
@@ -275,8 +295,13 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
       alert(`SUCCESS! Chapter ${formData.chapterNumber} has been ${publishStatus ? 'PUBLISHED' : 'SAVED AS DRAFT'}.`);
       setTargetChapter(currentChapterId); 
       setRefreshKey(prev => prev + 1);
+      if (setIsDirty) setIsDirty(false);
       if (onClean) onClean();
-    } catch (error: any) { alert("Failed: " + error.message); } finally { setIsSaving(false); }
+    } catch (error: any) { 
+      alert("Failed: " + error.message); 
+    } finally { 
+      setIsSaving(false); 
+    }
   };
 
   const handleDeleteChapter = async (chapterId: any, chapterNum: any) => {
@@ -399,7 +424,16 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                          ) : (
                            <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-full h-full object-contain drop-shadow-md" alt="marker" />
                          )}
-                         <button onClick={(e) => { e.stopPropagation(); deleteHotspot(h.id); }} className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"><X className="w-3 h-3"/></button>
+                         <button 
+                           onClick={(e) => { 
+                             e.preventDefault(); 
+                             e.stopPropagation(); 
+                             deleteHotspot(h.id); 
+                           }} 
+                           className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg cursor-pointer"
+                         >
+                           <X className="w-3 h-3"/>
+                         </button>
                       </div>
                     );
                  })}
@@ -420,24 +454,24 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
               <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-black/50">
                  <h3 className="font-black uppercase tracking-widest text-[#fe9a00] text-[10px] sm:text-xs flex items-center gap-2">
                    {hotspotMode === 'share' ? <Share2 className="w-4 h-4" /> : <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-4 h-4 object-contain" alt="foot" />}
-                   {hotspotMode === 'share' ? 'Hype Share Zone' : 'Behind The Pages'}
+                   {hotspotMode === 'share' ? 'Hype Share Zone' : 'Author Comments'}
                  </h3>
-                 <button onClick={() => {setActiveHotspotPage(null); setHotspotDraft(null);}} className="text-zinc-500 hover:text-white"><X className="w-5 h-5"/></button>
+                 <button onClick={() => {setActiveHotspotPage(null); setHotspotDraft(null);}} className="text-zinc-500 hover:text-white cursor-pointer"><X className="w-5 h-5"/></button>
               </div>
 
               <div className="p-5 flex-1 flex flex-col overflow-y-auto">
                  <p className="text-[10px] text-zinc-400 font-bold mb-6 leading-relaxed bg-black p-3 rounded border border-zinc-800">
                    {hotspotMode === 'share' 
                      ? 'Click anywhere to place the Share button. Then crop out the specific panel you want fans to share.' 
-                     : 'Click anywhere on the manga page to drop an AM Footprint, or click an existing footprint to edit it.'}
+                     : 'Click anywhere on the manga page to drop an Author Comment, or click an existing footprint to edit it.'}
                  </p>
 
                  {hotspotDraft ? (
                     <div className="flex flex-col gap-4 animate-fade-in-up">
                        {hotspotMode === 'info' ? (
                          <div>
-                           <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Fact Description</label>
-                           <textarea rows={8} value={hotspotForm.content} onChange={e=>setHotspotForm({ content: e.target.value})} className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-xs font-medium leading-relaxed focus:outline-none focus:border-[#fe9a00]" placeholder="Enter lore here... URLs will automatically turn into clickable links!" />
+                           <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Author Note / Description</label>
+                           <textarea rows={8} value={hotspotForm.content} onChange={e=>setHotspotForm({ content: e.target.value})} className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-xs font-medium leading-relaxed focus:outline-none focus:border-[#fe9a00]" placeholder="Enter author notes or lore here... URLs will automatically turn into clickable links!" />
                          </div>
                        ) : (
                          <div className="flex flex-col items-center gap-3">
@@ -445,12 +479,12 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                            {hotspotForm.content && hotspotForm.content.startsWith('http') ? (
                              <div className="relative w-full aspect-square rounded-xl overflow-hidden border border-zinc-700 group bg-black">
                                 <img src={hotspotForm.content} alt="Cropped Share" className="w-full h-full object-contain" />
-                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                   <button onClick={() => { setCropTarget('shareZone'); setCropSourceImage(formData.pages[activeHotspotPage!]); }} className="p-3 bg-black border border-zinc-700 text-[#fe9a00] rounded-full hover:bg-zinc-800 transition-colors shadow-lg"><Crop className="w-5 h-5" /></button>
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/opacity-100 flex items-center justify-center transition-opacity">
+                                   <button onClick={() => { setCropTarget('shareZone'); setCropSourceImage(formData.pages[activeHotspotPage!]); }} className="p-3 bg-black border border-zinc-700 text-[#fe9a00] rounded-full hover:bg-zinc-800 transition-colors shadow-lg cursor-pointer"><Crop className="w-5 h-5" /></button>
                                 </div>
                              </div>
                            ) : (
-                             <button onClick={() => { setCropTarget('shareZone'); setCropSourceImage(formData.pages[activeHotspotPage!]); }} className="w-full aspect-square flex flex-col items-center justify-center border-2 border-dashed border-zinc-700 bg-black/50 rounded-xl text-zinc-500 hover:text-[#fe9a00] hover:border-[#fe9a00] transition-colors">
+                             <button onClick={() => { setCropTarget('shareZone'); setCropSourceImage(formData.pages[activeHotspotPage!]); }} className="w-full aspect-square flex flex-col items-center justify-center border-2 border-dashed border-zinc-700 bg-black/50 rounded-xl text-zinc-500 hover:text-[#fe9a00] hover:border-[#fe9a00] transition-colors cursor-pointer">
                                 <Crop className="w-8 h-8 mb-2" />
                                 <span className="text-[10px] font-black uppercase tracking-widest">Crop Panel</span>
                              </button>
@@ -459,9 +493,9 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                        )}
 
                        <div className="flex gap-2 mt-4 pt-4 border-t border-zinc-800">
-                          <button onClick={() => setHotspotDraft(null)} className="flex-1 bg-zinc-800 text-white font-black uppercase tracking-widest py-3 rounded text-[10px] hover:bg-zinc-700 transition-colors">Cancel</button>
-                          <button onClick={saveHotspot} disabled={isSaving} className="flex-1 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded text-[10px] hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)] disabled:opacity-50">
-                            {hotspotDraft.id ? 'Update Zone' : 'Save Zone'}
+                          <button onClick={() => setHotspotDraft(null)} className="flex-1 bg-zinc-800 text-white font-black uppercase tracking-widest py-3 rounded text-[10px] hover:bg-zinc-700 transition-colors cursor-pointer">Cancel</button>
+                          <button onClick={saveHotspot} disabled={isSaving} className="flex-1 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded text-[10px] hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)] disabled:opacity-50 cursor-pointer">
+                            {hotspotDraft.id ? 'Update Comment' : 'Save Comment'}
                           </button>
                        </div>
                     </div>
@@ -486,6 +520,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
             onCropComplete={(newUrl: any) => { 
               if (cropTarget === 'thumbnail') {
                 setFormData({...formData, thumbnailUrl: newUrl}); 
+                if (setIsDirty) setIsDirty(true);
                 if (onDirty) onDirty(); 
               } else if (cropTarget === 'shareZone') {
                 setHotspotForm({ content: newUrl });
@@ -505,7 +540,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                 <ImageIcon className="w-6 h-6 text-[#fe9a00]" />
                 <h3 className="text-lg sm:text-xl font-black uppercase text-white tracking-widest">Select Thumbnail Source</h3>
               </div>
-              <button onClick={() => setShowPageSelector(false)} className="text-zinc-500 hover:text-white p-2"><X className="w-6 h-6" /></button>
+              <button onClick={() => setShowPageSelector(false)} className="text-zinc-500 hover:text-white p-2 cursor-pointer"><X className="w-6 h-6" /></button>
             </div>
             
             {formData.pages.length === 0 ? (
@@ -557,17 +592,17 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                   formData.isPublished ? <span className="bg-green-500/20 text-green-500 text-[9px] px-2 py-0.5 rounded font-black tracking-widest uppercase border border-green-500/30">Live</span> : <span className="bg-zinc-800 text-zinc-400 text-[9px] px-2 py-0.5 rounded font-black tracking-widest uppercase border border-zinc-700">Draft</span>
                 )}
               </div>
-              {targetChapter !== 'new' && (<button onClick={() => setTargetChapter('new')} className="text-[10px] font-bold bg-zinc-800 px-4 py-2 rounded hover:bg-[#fe9a00] hover:text-black transition-colors">+ Create New Chapter</button>)}
+              {targetChapter !== 'new' && (<button onClick={() => setTargetChapter('new')} className="text-[10px] font-bold bg-zinc-800 px-4 py-2 rounded hover:bg-[#fe9a00] hover:text-black transition-colors cursor-pointer">+ Create New Chapter</button>)}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
               <div>
                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Chapter Number</label>
-                <input type="number" step="0.1" value={formData.chapterNumber} onChange={(e) => { setFormData({...formData, chapterNumber: e.target.value}); if (onDirty) onDirty(); }} className="w-full bg-black border border-zinc-700 rounded p-3 text-white font-bold focus:border-[#fe9a00]" />
+                <input type="number" step="0.1" value={formData.chapterNumber} onChange={(e) => { setFormData({...formData, chapterNumber: e.target.value}); if (setIsDirty) setIsDirty(true); if (onDirty) onDirty(); }} className="w-full bg-black border border-zinc-700 rounded p-3 text-white font-bold focus:border-[#fe9a00]" />
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Chapter Title</label>
-                <input type="text" placeholder="e.g., The Beginning..." value={formData.title} onChange={(e) => { setFormData({...formData, title: e.target.value}); if (onDirty) onDirty(); }} className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-sm focus:border-[#fe9a00]" />
+                <input type="text" placeholder="e.g., The Beginning..." value={formData.title} onChange={(e) => { setFormData({...formData, title: e.target.value}); if (setIsDirty) setIsDirty(true); if (onDirty) onDirty(); }} className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-sm focus:border-[#fe9a00]" />
               </div>
             </div>
 
@@ -586,18 +621,18 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                       alt="Thumb" 
                     />
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center pointer-events-none transition-opacity">
-                      <button onClick={() => { setCropTarget('thumbnail'); setCropSourceImage(formData.thumbnailUrl); }} className="p-3 bg-black border border-zinc-700 text-[#fe9a00] rounded-full pointer-events-auto hover:bg-zinc-800 transition-colors" title="Re-crop Thumbnail"><Crop className="w-5 h-5" /></button>
+                      <button onClick={() => { setCropTarget('thumbnail'); setCropSourceImage(formData.thumbnailUrl); }} className="p-3 bg-black border border-zinc-700 text-[#fe9a00] rounded-full pointer-events-auto hover:bg-zinc-800 transition-colors cursor-pointer" title="Re-crop Thumbnail"><Crop className="w-5 h-5" /></button>
                     </div>
                   </div>
                 )}
                 
                 <div className="flex gap-2">
                   <div className="flex-1">
-                    <Dropzone label={formData.thumbnailUrl ? "Replace Thumb" : "+ Upload Thumb"} height="p-4" folderPath="chapter-thumbnails" onUploadComplete={(url: any) => { setFormData({...formData, thumbnailUrl: url}); if (onDirty) onDirty(); }} />
+                    <Dropzone label={formData.thumbnailUrl ? "Replace Thumb" : "+ Upload Thumb"} height="p-4" folderPath="chapter-thumbnails" onUploadComplete={(url: any) => { setFormData({...formData, thumbnailUrl: url}); if (setIsDirty) setIsDirty(true); if (onDirty) onDirty(); }} />
                   </div>
                   <button 
                     onClick={() => setShowPageSelector(true)}
-                    className="flex-shrink-0 flex flex-col items-center justify-center px-3 bg-black border border-zinc-700 text-zinc-400 rounded-lg hover:bg-zinc-800 hover:text-[#fe9a00] transition-colors"
+                    className="flex-shrink-0 flex flex-col items-center justify-center px-3 bg-black border border-zinc-700 text-zinc-400 rounded-lg hover:bg-zinc-800 hover:text-[#fe9a00] transition-colors cursor-pointer"
                     title="Crop from an uploaded page"
                   >
                     <BookOpen className="w-4 h-4 mb-1" />
@@ -610,17 +645,17 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                      <h4 className="text-[9px] font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-800 pb-1">Fine-Tune Thumb</h4>
                      <div className="flex items-center gap-2">
                        <span className="text-[9px] font-bold text-zinc-400 w-10">Zoom</span>
-                       <input type="range" min="50" max="300" value={formData.thumbnailScale} onChange={(e) => { setFormData({...formData, thumbnailScale: Number(e.target.value)}); if (onDirty) onDirty(); }} className="flex-1 accent-[#fe9a00]" />
+                       <input type="range" min="50" max="300" value={formData.thumbnailScale} onChange={(e) => { setFormData({...formData, thumbnailScale: Number(e.target.value)}); if (setIsDirty) setIsDirty(true); }} className="flex-1 accent-[#fe9a00]" />
                        <span className="text-[9px] font-black text-white w-8">{formData.thumbnailScale}%</span>
                      </div>
                      <div className="flex items-center gap-2">
                        <span className="text-[9px] font-bold text-zinc-400 w-10">X-Axis</span>
-                       <input type="range" min="0" max="100" value={xVal} onChange={(e) => { setFormData({...formData, thumbnailPosition: `${e.target.value}% ${yVal}%`}); if (onDirty) onDirty(); }} className="flex-1 accent-[#fe9a00]" />
+                       <input type="range" min="0" max="100" value={xVal} onChange={(e) => { setFormData({...formData, thumbnailPosition: `${e.target.value}% ${yVal}%`}); if (setIsDirty) setIsDirty(true); }} className="flex-1 accent-[#fe9a00]" />
                        <span className="text-[9px] font-black text-white w-8">{xVal}%</span>
                      </div>
                      <div className="flex items-center gap-2">
                        <span className="text-[9px] font-bold text-zinc-400 w-10">Y-Axis</span>
-                       <input type="range" min="0" max="100" value={yVal} onChange={(e) => { setFormData({...formData, thumbnailPosition: `${xVal}% ${e.target.value}%`}); if (onDirty) onDirty(); }} className="flex-1 accent-[#fe9a00]" />
+                       <input type="range" min="0" max="100" value={yVal} onChange={(e) => { setFormData({...formData, thumbnailPosition: `${xVal}% ${e.target.value}%`}); if (setIsDirty) setIsDirty(true); }} className="flex-1 accent-[#fe9a00]" />
                        <span className="text-[9px] font-black text-white w-8">{yVal}%</span>
                      </div>
                   </div>
@@ -630,7 +665,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
               <div className="md:col-span-2">
                 <div className="flex justify-between items-end mb-2">
                   <h3 className="font-bold text-[#fe9a00] uppercase tracking-widest text-xs">Chapter Pages</h3>
-                  {formData.pages.length > 0 && (<button onClick={() => setIsPreviewOpen(true)} className="text-[10px] font-bold uppercase tracking-widest bg-zinc-800 px-3 py-1.5 rounded hover:bg-[#fe9a00] hover:text-black">Preview Reader</button>)}
+                  {formData.pages.length > 0 && (<button onClick={() => setIsPreviewOpen(true)} className="text-[10px] font-bold uppercase tracking-widest bg-zinc-800 px-3 py-1.5 rounded hover:bg-[#fe9a00] hover:text-black cursor-pointer">Preview Reader</button>)}
                 </div>
                 
                 {formData.pages.length > 0 && (
@@ -642,22 +677,21 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                           
                           <div className="absolute top-1 left-1 z-20 bg-black/90 text-white text-[9px] font-black px-1.5 py-0.5 rounded border border-zinc-700">PG {i+1}</div>
                           
-                          {/* SHOW HOTSPOT BADGE INDICATOR */}
                           {hotspots.filter(h => h.page_index === i).length > 0 && (
                             <div className="absolute top-1 right-1 z-20 bg-[#fe9a00] text-black text-[9px] font-black px-1.5 py-0.5 rounded border border-zinc-900 shadow-md">
                               {hotspots.filter(h => h.page_index === i).length} Features
                             </div>
                           )}
 
-                          {/* --- AM BEHIND THE PAGES BUTTON --- */}
+                          {/* --- AUTHOR COMMENTS BUTTON --- */}
                           <button 
                             onClick={(e) => {
                                e.stopPropagation();
-                               if (targetChapter === 'new') return alert("Please click 'Save Draft' or 'Publish' below before adding Behind the Pages hotspots.");
+                               if (targetChapter === 'new') return alert("Please click 'Save Draft' or 'Publish' below before adding Author Comments hotspots.");
                                openHotspotEditor(i, 'info');
                             }} 
-                            className="absolute bottom-1 right-10 z-20 bg-black/80 backdrop-blur-md p-1.5 rounded-full border border-zinc-700 hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] text-[#fe9a00] transition-all shadow-md" 
-                            title="Add Behind the Pages Fact"
+                            className="absolute bottom-1 right-10 z-20 bg-black/80 backdrop-blur-md p-1.5 rounded-full border border-zinc-700 hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] text-[#fe9a00] transition-all shadow-md cursor-pointer" 
+                            title="Add Author Comments"
                           >
                              <MapPin className="w-4 h-4 drop-shadow-md" />
                           </button>
@@ -669,7 +703,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                                if (targetChapter === 'new') return alert("Please click 'Save Draft' or 'Publish' below before adding Share Zones.");
                                openHotspotEditor(i, 'share');
                             }} 
-                            className="absolute bottom-1 right-1 z-20 bg-black/80 backdrop-blur-md p-1.5 rounded-full border border-zinc-700 hover:bg-red-500 hover:text-white hover:border-red-500 text-red-500 transition-all shadow-md" 
+                            className="absolute bottom-1 right-1 z-20 bg-black/80 backdrop-blur-md p-1.5 rounded-full border border-zinc-700 hover:bg-red-500 hover:text-white hover:border-red-500 text-red-500 transition-all shadow-md cursor-pointer" 
                             title="Add Hype Share Zone"
                           >
                              <Share2 className="w-4 h-4 drop-shadow-md" />
@@ -678,12 +712,12 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                           <img src={url} alt={`Pg ${i+1}`} draggable={false} className="w-full h-full object-cover pointer-events-none" />
                           <div className="absolute inset-0 bg-black/80 opacity-0 group-hover/page:opacity-100 flex flex-col justify-between p-1 z-10 pointer-events-none">
                             <div className="flex justify-between w-full pointer-events-auto">
-                              <button onClick={() => { setCropTarget('thumbnail'); setCropSourceImage(url); }} className="p-1 hover:text-white text-zinc-400" title="Crop this page"><Crop className="w-3.5 h-3.5" /></button>
-                              <button onClick={() => removePage(i)} className="p-1 hover:text-red-500 text-zinc-400" title="Delete page"><X className="w-4 h-4" /></button>
+                              <button onClick={() => { setCropTarget('thumbnail'); setCropSourceImage(url); }} className="p-1 hover:text-white text-zinc-400 cursor-pointer" title="Crop this page"><Crop className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => removePage(i)} className="p-1 hover:text-red-500 text-zinc-400 cursor-pointer" title="Delete page"><X className="w-4 h-4" /></button>
                             </div>
                             <div className="flex justify-between w-full pointer-events-auto">
-                              <button onClick={() => movePage(i, 'left')} className="p-1 hover:text-[#fe9a00] text-zinc-400" title="Move Left"><ChevronLeft className="w-4 h-4" /></button>
-                              <button onClick={() => movePage(i, 'right')} className="p-1 hover:text-[#fe9a00] text-zinc-400" title="Move Right"><ChevronRight className="w-4 h-4" /></button>
+                              <button onClick={() => movePage(i, 'left')} className="p-1 hover:text-[#fe9a00] text-zinc-400 cursor-pointer" title="Move Left"><ChevronLeft className="w-4 h-4" /></button>
+                              <button onClick={() => movePage(i, 'right')} className="p-1 hover:text-[#fe9a00] text-zinc-400 cursor-pointer" title="Move Right"><ChevronRight className="w-4 h-4" /></button>
                             </div>
                           </div>
                         </div>
@@ -691,7 +725,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                     </div>
                   </div>
                 )}
-                <Dropzone label="+ Add Pages" multiple={true} height="p-6" folderPath="manga-pages" onUploadComplete={(urls: any) => { setFormData({...formData, pages: [...formData.pages, ...urls]}); if (onDirty) onDirty(); }} />
+                <Dropzone label="+ Add Pages" multiple={true} height="p-6" folderPath="manga-pages" onUploadComplete={(urls: any) => { setFormData({...formData, pages: [...formData.pages, ...urls]}); if (setIsDirty) setIsDirty(true); if (onDirty) onDirty(); }} />
               </div>
             </div>
 
@@ -700,21 +734,21 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                <div className="flex items-center justify-between mb-4">
                  <div><h4 className="font-black text-xs text-white uppercase tracking-widest flex items-center gap-2"><Calendar className="w-4 h-4 text-[#fe9a00]" /> Release Schedule</h4></div>
                  <label className="flex items-center gap-2 cursor-pointer bg-zinc-900 px-3 py-2 rounded-lg border border-zinc-700">
-                   <input type="checkbox" checked={formData.isScheduled} onChange={(e) => setFormData({...formData, isScheduled: e.target.checked})} className="accent-[#fe9a00]" />
+                   <input type="checkbox" checked={formData.isScheduled} onChange={(e) => { setFormData({...formData, isScheduled: e.target.checked}); if (setIsDirty) setIsDirty(true); }} className="accent-[#fe9a00]" />
                    <span className="text-[10px] font-black text-zinc-300 uppercase">Schedule</span>
                  </label>
                </div>
                {formData.isScheduled && (
                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-800">
-                   <div><label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Release Date</label><input type="date" value={formData.publishDate} onChange={(e) => setFormData({...formData, publishDate: e.target.value})} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" /></div>
-                   <div><label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Release Time</label><input type="time" value={formData.publishTime} onChange={(e) => setFormData({...formData, publishTime: e.target.value})} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" /></div>
+                   <div><label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Release Date</label><input type="date" value={formData.publishDate} onChange={(e) => { setFormData({...formData, publishDate: e.target.value}); if (setIsDirty) setIsDirty(true); }} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" /></div>
+                   <div><label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Release Time</label><input type="time" value={formData.publishTime} onChange={(e) => { setFormData({...formData, publishTime: e.target.value}); if (setIsDirty) setIsDirty(true); }} className="w-full bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" /></div>
                  </div>
                )}
             </div>
 
             <div className="flex gap-4 mt-8 pt-6 border-t border-zinc-800">
-              <button onClick={() => handleSaveChapter(false)} disabled={isSaving || !formData.chapterNumber || formData.pages.length === 0} className={`w-1/2 bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded border border-zinc-700 ${isSaving ? 'opacity-50' : 'hover:bg-zinc-700'}`}>{formData.isPublished ? 'Revert to Draft' : 'Save Draft'}</button>
-              <button onClick={() => handleSaveChapter(true)} disabled={isSaving || !formData.chapterNumber || formData.pages.length === 0} className={`w-1/2 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded ${isSaving ? 'opacity-50' : 'hover:bg-white'}`}>{formData.isScheduled ? 'Schedule Release' : (formData.isPublished ? 'Update Live' : 'Publish Now')}</button>
+              <button onClick={() => handleSaveChapter(false)} disabled={isSaving || !formData.chapterNumber || formData.pages.length === 0} className={`w-1/2 bg-zinc-800 text-white font-black uppercase tracking-widest py-4 rounded border border-zinc-700 cursor-pointer ${isSaving ? 'opacity-50' : 'hover:bg-zinc-700'}`}>{formData.isPublished ? 'Revert to Draft' : 'Save Draft'}</button>
+              <button onClick={() => handleSaveChapter(true)} disabled={isSaving || !formData.chapterNumber || formData.pages.length === 0} className={`w-1/2 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded cursor-pointer ${isSaving ? 'opacity-50' : 'hover:bg-white'}`}>{formData.isScheduled ? 'Schedule Release' : (formData.isPublished ? 'Update Live' : 'Publish Now')}</button>
             </div>
             
           </div>
@@ -726,7 +760,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                 <button 
                   onClick={handleBulkUnpublish}
                   disabled={isSaving}
-                  className="text-[9px] font-black uppercase tracking-widest bg-red-900/20 text-red-500 border border-red-900/50 px-2 py-1 rounded hover:bg-red-500 hover:text-white transition-colors"
+                  className="text-[9px] font-black uppercase tracking-widest bg-red-900/20 text-red-500 border border-red-900/50 px-2 py-1 rounded hover:bg-red-500 hover:text-white transition-colors cursor-pointer"
                 >
                   {selectedChapters.length > 0 ? `Unpublish Selected (${selectedChapters.length})` : 'Unpublish All'}
                 </button>
@@ -734,9 +768,8 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
             </div>
             <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
               {existingChapters.map(ch => (
-                <div key={ch.id} onClick={() => { setTargetChapter(ch.id); if (onClean) onClean(); }} className={`rounded p-3 flex gap-3 items-center group cursor-pointer transition-colors border ${targetChapter === ch.id ? 'bg-zinc-800 border-[#fe9a00]' : 'bg-black border-zinc-800 hover:border-zinc-700'}`}>
+                <div key={ch.id} onClick={() => { setTargetChapter(ch.id); if (setIsDirty) setIsDirty(false); if (onClean) onClean(); }} className={`rounded p-3 flex gap-3 items-center group cursor-pointer transition-colors border ${targetChapter === ch.id ? 'bg-zinc-800 border-[#fe9a00]' : 'bg-black border-zinc-800 hover:border-zinc-700'}`}>
                   
-                  {/* --- NEW: BULK SELECT CHECKBOX --- */}
                   <div className="flex items-center pl-1">
                     <input 
                       type="checkbox" 
@@ -766,10 +799,10 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, onDirty, onCl
                     <h4 className="text-xs text-white font-bold truncate">{ch.title || 'Untitled'}</h4>
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={(e) => handleTogglePublish(e, ch.id, ch.is_published, ch.chapter_number)} className="text-zinc-600 hover:text-[#fe9a00] p-2" title={ch.is_published ? "Unpublish to Draft" : "Publish to Live"}>
+                    <button onClick={(e) => handleTogglePublish(e, ch.id, ch.is_published, ch.chapter_number)} className="text-zinc-600 hover:text-[#fe9a00] p-2 cursor-pointer" title={ch.is_published ? "Unpublish to Draft" : "Publish to Live"}>
                       {ch.is_published ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
-                    <button onClick={(e) => { e.stopPropagation(); handleDeleteChapter(ch.id, ch.chapter_number); }} className="text-zinc-600 hover:text-red-500 p-2"><X className="w-4 h-4" /></button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteChapter(ch.id, ch.chapter_number); }} className="text-zinc-600 hover:text-red-500 p-2 cursor-pointer"><X className="w-4 h-4" /></button>
                   </div>
                 </div>
               ))}

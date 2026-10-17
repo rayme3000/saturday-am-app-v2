@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Monitor, Smartphone, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Monitor, Smartphone, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown, Crop } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
@@ -37,12 +37,6 @@ const getPatternStyle = (color: string, pattern: string) => {
   return { backgroundColor: baseColor }; 
 };
 
-const POSITION_PRESETS = [
-  { label: 'Top Left', value: '0% 0%' }, { label: 'Top Center', value: '50% 0%' }, { label: 'Top Right', value: '100% 0%' },
-  { label: 'Center Left', value: '0% 50%' }, { label: 'Center', value: '50% 50%' }, { label: 'Center Right', value: '100% 50%' },
-  { label: 'Bottom Left', value: '0% 100%' }, { label: 'Bottom Center', value: '50% 100%' }, { label: 'Bottom Right', value: '100% 100%' },
-];
-
 const HEIGHT_PRESETS: string[] = [];
 for (let ft = 2; ft <= 10; ft++) {
   for (let in_ = 0; in_ <= 11; in_++) {
@@ -56,9 +50,11 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
   const [isSaving, setIsSaving] = useState(false);
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
   
+  const [bannerCropper, setBannerCropper] = useState<{ isOpen: boolean; device: 'desktop' | 'mobile' } | null>(null);
+  const [charCropperOpen, setCharCropperOpen] = useState(false);
+
   const [existingCreators, setExistingCreators] = useState<any[]>([]);
   const [expandedCharIndex, setExpandedCharIndex] = useState<number | null>(null);
-  
   const [seriesChapters, setSeriesChapters] = useState<any[]>([]);
   
   const [cropFile, setCropFile] = useState<File | null>(null);
@@ -186,7 +182,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
 
   const handleInputChange = (field: any, value: any) => { 
     setFormData(prev => ({ ...prev, [field]: value })); 
-    if(setIsDirty) setIsDirty(true);
+    if (setIsDirty) setIsDirty(true);
   };
 
   const handleCharacterChange = (index: number, field: string, value: any) => {
@@ -233,6 +229,47 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       [newChars[index], newChars[index + 1]] = [newChars[index + 1], newChars[index]];
       handleInputChange('characters', newChars);
     }
+  };
+
+  const handleBannerCropComplete = (croppedArea: any, _croppedAreaPixels: any, zoom: number) => {
+    if (!bannerCropper) return;
+    const isDesktop = bannerCropper.device === 'desktop';
+    
+    const relativeX = croppedArea.width < 100 
+      ? Math.round((croppedArea.x / (100 - croppedArea.width)) * 100) 
+      : 50;
+
+    const relativeY = croppedArea.height < 100 
+      ? Math.round((croppedArea.y / (100 - croppedArea.height)) * 100) 
+      : 50;
+
+    const safeX = Math.min(100, Math.max(0, relativeX));
+    const safeY = Math.min(100, Math.max(0, relativeY));
+    const newPos = `${safeX}% ${safeY}%`;
+    const newScale = Math.round(zoom * 100);
+
+    if (isDesktop) {
+      handleInputChange('bannerPositionDesktop', newPos);
+      handleInputChange('bannerScaleDesktop', newScale);
+    } else {
+      handleInputChange('bannerPositionMobile', newPos);
+      handleInputChange('bannerScaleMobile', newScale);
+    }
+
+    setBannerCropper(null);
+  };
+
+  const handleCharCropComplete = (croppedArea: any, _croppedAreaPixels: any, zoom: number) => {
+    const relativeY = croppedArea.height < 100 
+      ? Math.round((croppedArea.y / (100 - croppedArea.height)) * 100) 
+      : 50;
+    
+    const align = relativeY < 35 ? 'top' : relativeY > 65 ? 'bottom' : 'center';
+    const scale = Math.round(zoom * 140);
+
+    handleInputChange('characterAlign', align);
+    handleInputChange('characterScale', scale);
+    setCharCropperOpen(false);
   };
 
   const handleSaveSeries = async () => {
@@ -291,8 +328,9 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
         if (insertCharError) throw insertCharError;
       }
   
+      window.dispatchEvent(new Event('seriesUpdated'));
       alert(`SUCCESS! Series Saved.`);
-      if(setIsDirty) setIsDirty(false);
+      if (setIsDirty) setIsDirty(false);
     } catch (error: any) { 
       console.error("Database Save Error:", error);
       alert(`FAILED TO SAVE! Supabase returned: ${error.message}`); 
@@ -327,8 +365,9 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
         throw new Error("Supabase RLS Policy blocked the deletion!");
       }
 
+      window.dispatchEvent(new Event('seriesUpdated'));
       alert("Series permanently deleted!"); 
-      if(setIsDirty) setIsDirty(false);
+      if (setIsDirty) setIsDirty(false);
       window.location.reload(); 
     } catch (error: any) { 
       alert('Failed to delete series:\n\n' + error.message + '\n\nNote: If this series has Chapters uploaded, you must delete its Chapters in the Chapter Uploader first!'); 
@@ -339,18 +378,6 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
 
   const activePosition = previewDevice === 'desktop' ? formData.bannerPositionDesktop : formData.bannerPositionMobile;
   const activeScale = previewDevice === 'desktop' ? formData.bannerScaleDesktop : formData.bannerScaleMobile;
-  
-  const posParts = activePosition.split(' ');
-  const xVal = parseInt(posParts[0]) || 50;
-  const yVal = parseInt(posParts[1]) || 50;
-  
-  const updatePosition = (newPos: string) => {
-    handleInputChange(previewDevice === 'desktop' ? 'bannerPositionDesktop' : 'bannerPositionMobile', newPos);
-  };
-
-  const updateScale = (newScale: number) => {
-    handleInputChange(previewDevice === 'desktop' ? 'bannerScaleDesktop' : 'bannerScaleMobile', newScale);
-  };
 
   const handleAutofillCreator = (index: number, selectedName: string) => {
     if (!selectedName) return;
@@ -365,6 +392,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
   return (
     <div className="space-y-6 animate-fade-in-up pb-32 relative">
       
+      {/* 1. Character Headshot Crop Modal */}
       <input 
         type="file" 
         id="headshot-upload" 
@@ -383,6 +411,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       {cropImageUrl && ThumbnailCropperModal && (
         <ThumbnailCropperModal
           imageUrl={cropImageUrl}
+          aspect={1}
+          title="Crop Character Headshot (1:1)"
           uploadFolder="characters/headshots"
           onCropComplete={(newUrl: any) => {
             if (cropTarget) {
@@ -401,6 +431,28 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
             setCropImageUrl(null);
             setCropTarget(null);
           }}
+        />
+      )}
+
+      {/* 2. Visual Drag/Zoom Crop Window for Hero Banner (Desktop / Mobile) */}
+      {bannerCropper && bannerCropper.isOpen && formData.bannerUrl && ThumbnailCropperModal && (
+        <ThumbnailCropperModal
+          imageUrl={formData.bannerUrl}
+          aspect={bannerCropper.device === 'desktop' ? (21 / 9) : (4 / 5)}
+          title={`Crop & Position ${bannerCropper.device === 'desktop' ? 'Desktop Banner (21:9)' : 'Mobile Banner (4:5)'}`}
+          onCropAreaComplete={handleBannerCropComplete}
+          onCancel={() => setBannerCropper(null)}
+        />
+      )}
+
+      {/* 3. Visual Drag/Zoom Crop Window for Character Render (2:3 Cutout) */}
+      {charCropperOpen && formData.characterUrl && ThumbnailCropperModal && (
+        <ThumbnailCropperModal
+          imageUrl={formData.characterUrl}
+          aspect={2 / 3}
+          title="Crop Character Render (2:3 Cutout)"
+          onCropAreaComplete={handleCharCropComplete}
+          onCancel={() => setCharCropperOpen(false)}
         />
       )}
 
@@ -456,11 +508,12 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           </div>
         </div>
         
+        {/* HERO BANNER SECTION: CLEAN DRAG/ZOOM CROP WINDOW (NO SLIDERS) */}
         <div className="border-b border-zinc-800 pb-6">
            <div className="flex items-center justify-between mb-4">
              <h3 className="font-bold text-[#fe9a00] uppercase text-xs">Series Hero Banner</h3>
              {formData.bannerUrl && (
-               <button type="button" onClick={() => { if(window.confirm("Remove this Banner?")) handleInputChange('bannerUrl', '') }} className="text-[10px] font-bold text-red-500 hover:text-red-400 uppercase tracking-widest flex items-center gap-1">
+               <button type="button" onClick={() => { if(window.confirm("Remove this Banner?")) handleInputChange('bannerUrl', '') }} className="text-[10px] font-bold text-red-500 hover:text-red-400 uppercase tracking-widest flex items-center gap-1 cursor-pointer">
                  <Trash2 className="w-3 h-3" /> Remove Banner
                </button>
              )}
@@ -471,67 +524,58 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
            {formData.bannerUrl && (
              <div className="mt-6 bg-black p-4 sm:p-6 rounded-xl border border-zinc-800 space-y-6">
                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
-                 <span className="text-[10px] font-black text-white uppercase tracking-widest">Banner Alignment & Zoom</span>
-                 <div className="flex items-center gap-1 bg-zinc-900 p-1 rounded border border-zinc-700 w-max">
-                   <button onClick={() => setPreviewDevice('desktop')} type="button" className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-widest transition-colors ${previewDevice === 'desktop' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}>
-                     <Monitor className="w-3 h-3" /> Desktop
-                   </button>
-                   <button onClick={() => setPreviewDevice('mobile')} type="button" className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-widest transition-colors ${previewDevice === 'mobile' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}>
-                     <Smartphone className="w-3 h-3" /> Mobile
-                   </button>
+                 <div className="flex items-center gap-2">
+                   <Crop className="w-4 h-4 text-[#fe9a00]" />
+                   <span className="text-[11px] font-black text-white uppercase tracking-wider">Crop & Position Framing</span>
+                 </div>
+
+                 <div className="flex items-center gap-2">
+                   <div className="flex items-center gap-1 bg-zinc-900 p-1 rounded border border-zinc-700">
+                     <button onClick={() => setPreviewDevice('desktop')} type="button" className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer ${previewDevice === 'desktop' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}>
+                       <Monitor className="w-3 h-3" /> Desktop
+                     </button>
+                     <button onClick={() => setPreviewDevice('mobile')} type="button" className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer ${previewDevice === 'mobile' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}>
+                       <Smartphone className="w-3 h-3" /> Mobile
+                     </button>
+                   </div>
                  </div>
                </div>
 
-               <div className="flex justify-center bg-zinc-900 rounded-lg p-4 border border-zinc-800 overflow-hidden">
-                 <div className={`relative overflow-hidden bg-black border border-zinc-700 shadow-xl transition-all duration-300 ${previewDevice === 'desktop' ? 'w-full aspect-[21/9] sm:aspect-[3/1] rounded-xl' : 'w-[200px] sm:w-[240px] aspect-[4/5] rounded-3xl'}`}>
+               <div className="flex flex-col items-center justify-center bg-zinc-900/60 rounded-xl p-4 sm:p-8 border border-zinc-800">
+                 <div 
+                   onClick={() => setBannerCropper({ isOpen: true, device: previewDevice })}
+                   title="Click to open crop window"
+                   className={`relative overflow-hidden bg-black border-2 border-zinc-700 shadow-2xl transition-all duration-300 cursor-pointer group ${previewDevice === 'desktop' ? 'w-full aspect-[21/9] sm:aspect-[3/1] rounded-xl' : 'w-[200px] sm:w-[240px] aspect-[4/5] rounded-3xl'}`}
+                 >
                    <img 
                      src={formData.bannerUrl} 
                      alt="Banner Preview" 
-                     className="w-full h-full object-cover transition-all duration-300"
+                     className="w-full h-full object-cover transition-all duration-300 pointer-events-none"
                      style={{ 
                        objectPosition: activePosition,
-                       transform: `scale(${activeScale / 100})`
+                       transform: `scale(${activeScale / 100})`,
+                       transformOrigin: activePosition
                      }}
                    />
-                   <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent pointer-events-none" />
-                 </div>
-               </div>
-
-               <div className="flex flex-col md:flex-row gap-6">
-                 <div className="w-full md:w-1/2">
-                   <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-3">Quick Focal Point</label>
-                   <div className="grid grid-cols-3 gap-2">
-                     {POSITION_PRESETS.map((preset) => (
-                       <button
-                         key={preset.value} type="button" onClick={() => updatePosition(preset.value)}
-                         className={`p-2 text-[9px] font-black uppercase tracking-wider rounded transition-colors border ${activePosition === preset.value ? 'bg-[#fe9a00] text-black border-[#fe9a00]' : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500'}`}
-                       >
-                         {preset.label}
-                       </button>
-                     ))}
+                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+                   
+                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-2 transition-opacity backdrop-blur-[2px]">
+                     <div className="w-12 h-12 rounded-full bg-[#fe9a00] text-black flex items-center justify-center shadow-xl">
+                       <Crop className="w-6 h-6" />
+                     </div>
+                     <span className="bg-black/90 border border-zinc-700 text-white px-4 py-1.5 rounded-full font-black text-[10px] uppercase tracking-widest">
+                       Click to Adjust {previewDevice === 'desktop' ? 'Desktop (21:9)' : 'Mobile (4:5)'} Framing
+                     </span>
                    </div>
                  </div>
 
-                 <div className="w-full md:w-1/2 flex flex-col justify-center gap-4 border-t md:border-t-0 md:border-l border-zinc-800 pt-4 md:pt-0 md:pl-6">
-                   <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest">Fine-Tune Controls</label>
-                   
-                   <div className="flex items-center gap-3">
-                     <span className="text-[10px] font-bold text-zinc-400 w-12 text-right">Zoom</span>
-                     <input type="range" min="100" max="300" value={activeScale} onChange={(e) => updateScale(Number(e.target.value))} className="flex-1 accent-[#fe9a00]" />
-                     <span className="text-[10px] font-black text-white w-8">{activeScale}%</span>
-                   </div>
-                   
-                   <div className="flex items-center gap-3">
-                     <span className="text-[10px] font-bold text-zinc-400 w-12 text-right">X-Axis</span>
-                     <input type="range" min="0" max="100" value={xVal} onChange={(e) => updatePosition(`${e.target.value}% ${yVal}%`)} className="flex-1 accent-[#fe9a00]" />
-                     <span className="text-[10px] font-black text-white w-8">{xVal}%</span>
-                   </div>
-                   <div className="flex items-center gap-3">
-                     <span className="text-[10px] font-bold text-zinc-400 w-12 text-right">Y-Axis</span>
-                     <input type="range" min="0" max="100" value={yVal} onChange={(e) => updatePosition(`${xVal}% ${e.target.value}%`)} className="flex-1 accent-[#fe9a00]" />
-                     <span className="text-[10px] font-black text-white w-8">{yVal}%</span>
-                   </div>
-                 </div>
+                 <button
+                   type="button"
+                   onClick={() => setBannerCropper({ isOpen: true, device: previewDevice })}
+                   className="mt-6 flex items-center gap-2 bg-[#fe9a00] hover:bg-white text-black px-6 py-3 rounded-full font-black text-xs uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
+                 >
+                   <Crop className="w-4 h-4" /> Open {previewDevice === 'desktop' ? 'Desktop' : 'Mobile'} Crop Window
+                 </button>
                </div>
              </div>
            )}
@@ -555,7 +599,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                   key={color} 
                   type="button"
                   onClick={() => handleInputChange('cardColor', color)}
-                  className="w-5 h-5 rounded-full border border-white/20 hover:scale-110 transition-transform shadow-sm"
+                  className="w-5 h-5 rounded-full border border-white/20 hover:scale-110 transition-transform shadow-sm cursor-pointer"
                   style={{ backgroundColor: color }}
                   title={color}
                 />
@@ -579,12 +623,13 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           </div>
         </div>
         
+        {/* LOGO & CHARACTER RENDER SECTION: VISUAL CROP WINDOW */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-zinc-800 pb-6">
            <div className="flex flex-col gap-4">
              <div className="flex items-center justify-between mb-2">
                <h3 className="font-bold text-[#fe9a00] uppercase text-xs">Logo</h3>
                {formData.logoUrl && (
-                 <button type="button" onClick={() => { if(window.confirm("Remove this Logo?")) handleInputChange('logoUrl', '') }} className="text-[10px] font-bold text-red-500 hover:text-red-400 uppercase tracking-widest flex items-center gap-1">
+                 <button type="button" onClick={() => { if(window.confirm("Remove this Logo?")) handleInputChange('logoUrl', '') }} className="text-[10px] font-bold text-red-500 hover:text-red-400 uppercase tracking-widest flex items-center gap-1 cursor-pointer">
                    <Trash2 className="w-3 h-3" /> Remove Logo
                  </button>
                )}
@@ -609,57 +654,67 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
            <div>
              <div className="flex justify-between items-center mb-4">
                <h3 className="font-bold text-[#fe9a00] uppercase text-xs">Character Render</h3>
-               {formData.characterUrl && (
-                 <button type="button" onClick={() => { if(window.confirm("Remove this Render?")) handleInputChange('characterUrl', '') }} className="text-[10px] font-bold text-red-500 hover:text-red-400 uppercase tracking-widest flex items-center gap-1">
-                   <Trash2 className="w-3 h-3" /> Remove Render
-                 </button>
-               )}
+               <div className="flex items-center gap-2">
+                 {formData.characterUrl && (
+                   <button 
+                     type="button" 
+                     onClick={() => setCharCropperOpen(true)}
+                     className="text-[9px] font-black uppercase tracking-widest bg-[#fe9a00] text-black px-2.5 py-1 rounded flex items-center gap-1 hover:bg-white transition-colors cursor-pointer"
+                   >
+                     <Crop className="w-3 h-3" /> Crop Window
+                   </button>
+                 )}
+                 {formData.characterUrl && (
+                   <button type="button" onClick={() => { if(window.confirm("Remove this Render?")) handleInputChange('characterUrl', '') }} className="text-[10px] font-bold text-red-500 hover:text-red-400 uppercase tracking-widest flex items-center gap-1 cursor-pointer">
+                     <Trash2 className="w-3 h-3" /> Remove
+                   </button>
+                 )}
+               </div>
              </div>
 
-             <div className="flex gap-4">
-               <div className="flex-1 flex flex-col gap-4">
+             <div className="flex gap-4 items-start">
+               <div className="flex-1 flex flex-col gap-3">
                  <Dropzone label={formData.characterUrl ? "Replace Character" : "+ Add Character"} folderPath="series-characters" onUploadComplete={(url: any) => handleInputChange('characterUrl', url)} />
-                 <div>
-                   <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-2">Alignment</label>
-                   <select value={formData.characterAlign} onChange={(e) => handleInputChange('characterAlign', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-xs focus:border-[#fe9a00]">
-                     <option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option>
-                   </select>
-                 </div>
-                 <div>
-                   <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-2">Zoom ({formData.characterScale || 140}%)</label>
-                   <input type="range" min="50" max="250" value={formData.characterScale || 140} onChange={(e) => handleInputChange('characterScale', parseInt(e.target.value))} className="w-full accent-[#fe9a00] cursor-pointer" />
-                 </div>
+                 {formData.characterUrl && (
+                   <button 
+                     type="button" 
+                     onClick={() => setCharCropperOpen(true)}
+                     className="w-full py-3.5 bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white font-black uppercase tracking-widest text-[10px] rounded-lg transition-all flex items-center justify-center gap-2 border border-zinc-700 hover:border-[#fe9a00] cursor-pointer"
+                   >
+                     <Crop className="w-4 h-4" /> Open Character Crop Window (2:3)
+                   </button>
+                 )}
                </div>
 
                {formData.characterUrl && (
-                 <div className="w-24 sm:w-32 flex-shrink-0 flex flex-col items-center">
-                   <div className="flex justify-between items-center w-full mb-2 px-1">
-                     <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Live Preview</span>
-                     <button type="button" onClick={() => { if(window.confirm("Remove this Render?")) handleInputChange('characterUrl', '') }} className="text-[8px] font-black text-red-500 hover:text-red-400 uppercase tracking-widest">Clear</button>
-                   </div>
+                 <div className="w-28 sm:w-36 flex-shrink-0 flex flex-col items-center">
+                   <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5 self-start">Live Card Preview</span>
                    <div 
-                     className="w-full relative overflow-hidden rounded-md aspect-[2/3] border border-zinc-800 shadow-lg group/charpreview"
+                     onClick={() => setCharCropperOpen(true)}
+                     className="w-full relative overflow-hidden rounded-lg aspect-[2/3] border border-zinc-800 shadow-xl group/charpreview cursor-pointer"
                      style={getPatternStyle(formData.cardColor, formData.cardPattern)}
+                     title="Click to adjust character crop"
                    >
                      <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
                      
                      <img 
                        src={formData.characterUrl} alt="Preview" 
-                       className={`absolute left-1/2 -translate-x-1/2 max-w-none object-contain z-10 transition-all duration-300 ${formData.characterAlign === 'top' ? 'top-0' : formData.characterAlign === 'center' ? 'top-1/2 -translate-y-1/2' : 'bottom-0'}`}
+                       className={`absolute left-1/2 -translate-x-1/2 max-w-none object-contain z-10 transition-all duration-300 pointer-events-none ${formData.characterAlign === 'top' ? 'top-0' : formData.characterAlign === 'center' ? 'top-1/2 -translate-y-1/2' : 'bottom-0'}`}
                        style={{ width: `${formData.characterScale || 140}%`, height: '120%' }}
                      />
-                     <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black via-black/80 to-transparent z-20" />
+                     <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black via-black/80 to-transparent z-20 pointer-events-none" />
                      
                      {formData.logoUrl && (
-                       <div className="absolute left-0 right-0 flex justify-center z-30 px-2 transition-all duration-300" style={{ bottom: `${formData.logoOffset ?? 16}px` }}>
+                       <div className="absolute left-0 right-0 flex justify-center z-30 px-2 transition-all duration-300 pointer-events-none" style={{ bottom: `${formData.logoOffset ?? 16}px` }}>
                          <img src={formData.logoUrl} alt="Logo" className="max-h-24 object-contain drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]" style={{ width: `${formData.logoScale ?? 100}%` }} />
                        </div>
                      )}
 
-                     <div className="absolute inset-0 bg-black/80 z-40 opacity-0 group-hover/charpreview:opacity-100 flex items-center justify-center transition-opacity backdrop-blur-sm cursor-pointer" onClick={() => { if(window.confirm("Remove this Render?")) handleInputChange('characterUrl', '') }}>
-                       <div className="p-3 bg-red-500/20 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors">
-                         <Trash2 className="w-6 h-6" />
-                       </div>
+                     <div className="absolute inset-0 bg-black/70 z-40 opacity-0 group-hover/charpreview:opacity-100 flex flex-col items-center justify-center gap-1.5 transition-opacity backdrop-blur-sm">
+                       <Crop className="w-5 h-5 text-[#fe9a00]" />
+                       <span className="text-[9px] font-black text-white uppercase tracking-widest text-center px-1">
+                         Adjust Crop
+                       </span>
                      </div>
                    </div>
                  </div>
@@ -692,7 +747,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                    nc[0] = nc[1]; 
                    nc[1] = temp; 
                    handleInputChange('creators', nc); 
-                 }} className="text-[10px] font-bold tracking-widest uppercase bg-zinc-800 px-3 py-2 rounded hover:bg-[#fe9a00] hover:text-black transition-colors">
+                 }} className="text-[10px] font-bold tracking-widest uppercase bg-zinc-800 px-3 py-2 rounded hover:bg-[#fe9a00] hover:text-black transition-colors cursor-pointer">
                    Swap Order
                  </button>
                )}
@@ -700,7 +755,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                  if (formData.creators.length > 1 && !window.confirm("Are you sure you want to remove this co-creator?")) return;
                  const nc = formData.creators.length > 1 ? [formData.creators[0]] : [...formData.creators, { role: 'Co-creator', name: '', bio: '', flagCode1: '', flagCode2: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }]; 
                  handleInputChange('creators', nc); 
-               }} className="text-[10px] font-bold tracking-widest uppercase bg-zinc-800 px-3 py-2 rounded hover:bg-[#fe9a00] hover:text-black transition-colors">
+               }} className="text-[10px] font-bold tracking-widest uppercase bg-zinc-800 px-3 py-2 rounded hover:bg-[#fe9a00] hover:text-black transition-colors cursor-pointer">
                  {formData.creators.length > 1 ? '- Remove Co-creator' : '+ Add Co-creator'}
                </button>
              </div>
@@ -716,8 +771,6 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
 
                 return (
                   <div key={i} className="bg-black p-4 rounded border border-zinc-800 space-y-4 relative">
-                    
-                    {/* Updated App-Wide Creator Visibility Toggle */}
                     <div className="flex items-center justify-between bg-zinc-900 p-2.5 rounded border border-zinc-700 mb-2">
                       <div>
                         <span className="text-[10px] font-black text-white uppercase tracking-wider block">Creator Visibility</span>
@@ -730,7 +783,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                           nc[i].is_visible = nc[i].is_visible === false ? true : false; 
                           handleInputChange('creators', nc); 
                         }} 
-                        className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded transition-colors flex items-center gap-1.5 ${
+                        className={`px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
                           c.is_visible !== false 
                             ? 'bg-green-900/30 text-green-400 border border-green-800/60 hover:bg-green-900/50' 
                             : 'bg-red-900/30 text-red-400 border border-red-800/60 hover:bg-red-900/50'
@@ -741,7 +794,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                     </div>
 
                     <select 
-                      className="w-full bg-black border border-[#fe9a00]/30 text-[#fe9a00] rounded p-2 text-[10px] font-bold uppercase tracking-widest"
+                      className="w-full bg-black border border-[#fe9a00]/30 text-[#fe9a00] rounded p-2 text-[10px] font-bold uppercase tracking-widest cursor-pointer"
                       onChange={(e) => handleAutofillCreator(i, e.target.value)}
                       value=""
                     >
@@ -763,7 +816,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                             nc[i].flagCode1 = e.target.value === 'OTHER' ? (isCustomFlag1 ? c.flagCode1 : '') : e.target.value; 
                             handleInputChange('creators', nc); 
                           }} 
-                          className="flex-1 bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]"
+                          className="flex-1 bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00] cursor-pointer"
                         >
                           <option value="">-- Flag 1 --</option>
                           {COUNTRY_CODES.map(country => (
@@ -796,7 +849,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                             nc[i].flagCode2 = e.target.value === 'OTHER' ? (isCustomFlag2 ? c.flagCode2 : '') : e.target.value; 
                             handleInputChange('creators', nc); 
                           }} 
-                          className="flex-1 bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]"
+                          className="flex-1 bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00] cursor-pointer"
                         >
                           <option value="">-- Flag 2 (Opt) --</option>
                           {COUNTRY_CODES.map(country => (
@@ -852,7 +905,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
               <h3 className="font-black text-xl italic text-[#fe9a00] uppercase tracking-tighter">Character Roster</h3>
               <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">Build the Wiki Database</p>
             </div>
-            <button onClick={handleAddCharacter} className="bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-2">
+            <button onClick={handleAddCharacter} className="bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-2 cursor-pointer">
               <Plus className="w-4 h-4" /> Add Character
             </button>
           </div>
@@ -869,10 +922,10 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                 >
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2 mr-2">
-                      <button onClick={(e) => moveCharacter(i, 'up', e)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors" disabled={i === 0}>
+                      <button onClick={(e) => moveCharacter(i, 'up', e)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors cursor-pointer" disabled={i === 0}>
                         <ArrowUp className="w-4 h-4" />
                       </button>
-                      <button onClick={(e) => moveCharacter(i, 'down', e)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors" disabled={i === formData.characters.length - 1}>
+                      <button onClick={(e) => moveCharacter(i, 'down', e)} className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-white transition-colors cursor-pointer" disabled={i === formData.characters.length - 1}>
                         <ArrowDown className="w-4 h-4" />
                       </button>
                     </div>
@@ -898,7 +951,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                     <button 
                       type="button"
                       onClick={(e) => { e.stopPropagation(); handleCharacterChange(i, 'is_hidden', !char.is_hidden); }}
-                      className={`px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest border transition-colors ${
+                      className={`px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest border transition-colors cursor-pointer ${
                         char.is_hidden 
                           ? 'bg-red-950 border-red-900 text-red-500 hover:bg-red-900' 
                           : 'bg-green-950 border-green-900 text-green-500 hover:bg-green-900'
@@ -916,11 +969,11 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <input type="text" placeholder="Character Name" value={char.name} onChange={(e) => handleCharacterChange(i, 'name', e.target.value)} className="bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs" />
                       <div className="flex gap-4">
-                        <select value={char.role_type} onChange={(e) => handleCharacterChange(i, 'role_type', e.target.value)} className="w-1/2 bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs">
+                        <select value={char.role_type} onChange={(e) => handleCharacterChange(i, 'role_type', e.target.value)} className="w-1/2 bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs cursor-pointer">
                           <option value="Hero">Hero</option><option value="Villain">Villain</option><option value="Neutral">Neutral</option>
                         </select>
                         <div className="flex-1 flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded p-3">
-                          <input type="checkbox" checked={char.is_mc} onChange={(e) => handleCharacterChange(i, 'is_mc', e.target.checked)} className="w-4 h-4 accent-[#fe9a00]" />
+                          <input type="checkbox" checked={char.is_mc} onChange={(e) => handleCharacterChange(i, 'is_mc', e.target.checked)} className="w-4 h-4 accent-[#fe9a00] cursor-pointer" />
                           <label className="text-[10px] font-black uppercase text-white tracking-widest">Is Main Character?</label>
                         </div>
                       </div>
@@ -937,7 +990,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                               if (e.target.value === 'Custom') handleCharacterChange(i, 'element', 'Custom Entry');
                               else handleCharacterChange(i, 'element', e.target.value);
                             }}
-                            className={`${['AM', 'PM', 'Pilot Manga'].includes(char.element) || !char.element ? 'w-full' : 'w-1/2'} bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs`}
+                            className={`${['AM', 'PM', 'Pilot Manga'].includes(char.element) || !char.element ? 'w-full' : 'w-1/2'} bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs cursor-pointer`}
                           >
                             <option value="AM">AM</option>
                             <option value="PM">PM</option>
@@ -972,7 +1025,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                             if (e.target.value === 'Custom') handleCharacterChange(i, 'height', 'Custom Entry');
                             else handleCharacterChange(i, 'height', e.target.value);
                           }}
-                          className={`${isCustomHeight ? 'w-[45%] px-1' : 'w-full'} bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00]`}
+                          className={`${isCustomHeight ? 'w-[45%] px-1' : 'w-full'} bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs focus:border-[#fe9a00] cursor-pointer`}
                         >
                           <option value="">Height</option>
                           {HEIGHT_PRESETS.map(h => (
@@ -1001,7 +1054,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                             if (e.target.value === 'Custom') handleCharacterChange(i, 'first_appearance', 'Custom Entry');
                             else handleCharacterChange(i, 'first_appearance', e.target.value);
                           }}
-                          className={`${(char.first_appearance && !seriesChapters.some(ch => `Chapter ${ch.chapter_number}` === char.first_appearance)) ? 'w-1/2' : 'w-full'} bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs`}
+                          className={`${(char.first_appearance && !seriesChapters.some(ch => `Chapter ${ch.chapter_number}` === char.first_appearance)) ? 'w-1/2' : 'w-full'} bg-zinc-900 border border-zinc-700 rounded p-3 text-white text-xs cursor-pointer`}
                         >
                           <option value="">-- 1st Appearance --</option>
                           {seriesChapters.map(ch => (
@@ -1037,7 +1090,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                              setCropTarget({ charIndex: i, field: 'headshot_url' });
                              document.getElementById('headshot-upload')?.click();
                           }}
-                          className="w-full max-w-[200px] mx-auto mb-3 py-4 border-2 border-dashed border-zinc-700 rounded-xl text-zinc-500 font-black uppercase tracking-widest text-[10px] hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors bg-black flex flex-col items-center justify-center gap-2"
+                          className="w-full max-w-[200px] mx-auto mb-3 py-4 border-2 border-dashed border-zinc-700 rounded-xl text-zinc-500 font-black uppercase tracking-widest text-[10px] hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors bg-black flex flex-col items-center justify-center gap-2 cursor-pointer"
                         >
                           {char.headshot_url ? 'Replace Headshot' : '+ Add Headshot'}
                         </button>
@@ -1064,7 +1117,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                              setCropTarget({ charIndex: i, field: 'alt_headshot_url' });
                              document.getElementById('headshot-upload')?.click();
                           }}
-                          className="w-full max-w-[200px] mx-auto mb-3 py-4 border-2 border-dashed border-zinc-700 rounded-xl text-zinc-500 font-black uppercase tracking-widest text-[10px] hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors bg-black flex flex-col items-center justify-center gap-2"
+                          className="w-full max-w-[200px] mx-auto mb-3 py-4 border-2 border-dashed border-zinc-700 rounded-xl text-zinc-500 font-black uppercase tracking-widest text-[10px] hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors bg-black flex flex-col items-center justify-center gap-2 cursor-pointer"
                         >
                           {char.alt_headshot_url ? 'Replace Alt Form 1' : '+ Add Alt Form 1'}
                         </button>
@@ -1078,7 +1131,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                     <div className="w-full border-t border-zinc-800 pt-6 mt-6">
                       <div className="flex justify-between items-center mb-4">
                          <label className="block text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Additional Alternate Forms</label>
-                         <button type="button" onClick={() => handleAddAltForm(i)} className="text-[10px] font-black text-[#fe9a00] hover:text-white uppercase tracking-widest bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-700">
+                         <button type="button" onClick={() => handleAddAltForm(i)} className="text-[10px] font-black text-[#fe9a00] hover:text-white uppercase tracking-widest bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-700 cursor-pointer">
                            + Add Form
                          </button>
                       </div>
@@ -1086,7 +1139,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         {(char.alt_forms || []).map((alt: any, altIdx: number) => (
                            <div key={altIdx} className="flex flex-col items-center bg-black p-4 rounded-xl border border-zinc-800 relative">
-                             <button type="button" onClick={() => handleRemoveAltForm(i, altIdx)} className="absolute top-2 right-2 text-zinc-500 hover:text-red-500"><X className="w-4 h-4" /></button>
+                             <button type="button" onClick={() => handleRemoveAltForm(i, altIdx)} className="absolute top-2 right-2 text-zinc-500 hover:text-red-500 cursor-pointer"><X className="w-4 h-4" /></button>
                              <input type="text" placeholder="Form Name" value={alt.name} onChange={(e) => handleAltFormChange(i, altIdx, 'name', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-[10px] mb-3 text-center" />
                              
                              <button 
@@ -1095,7 +1148,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                                  setCropTarget({ charIndex: i, field: 'alt_forms', altIndex: altIdx }); 
                                  document.getElementById('headshot-upload')?.click(); 
                                }} 
-                               className="w-full mx-auto mb-3 py-3 border-2 border-dashed border-zinc-700 rounded-xl text-zinc-500 font-black uppercase tracking-widest text-[10px] hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors bg-black flex justify-center"
+                               className="w-full mx-auto mb-3 py-3 border-2 border-dashed border-zinc-700 rounded-xl text-zinc-500 font-black uppercase tracking-widest text-[10px] hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors bg-black flex justify-center cursor-pointer"
                              >
                                 {alt.url ? 'Replace Image' : '+ Image (1:1)'}
                              </button>
@@ -1108,7 +1161,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                       </div>
                     </div>
 
-                    <button onClick={() => { if(window.confirm("Remove character?")) { const nc = [...formData.characters]; nc.splice(i,1); handleInputChange('characters', nc); } }} className="w-full mt-4 py-3 bg-red-900/20 text-red-500 border border-red-900 rounded font-black uppercase text-[10px] tracking-widest hover:bg-red-500 hover:text-white transition-colors">
+                    <button onClick={() => { if(window.confirm("Remove character?")) { const nc = [...formData.characters]; nc.splice(i,1); handleInputChange('characters', nc); } }} className="w-full mt-4 py-3 bg-red-900/20 text-red-500 border border-red-900 rounded font-black uppercase text-[10px] tracking-widest hover:bg-red-500 hover:text-white transition-colors cursor-pointer">
                       Remove Character
                     </button>
                   </div>
@@ -1119,7 +1172,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           </div>
         </div>
 
-        <button onClick={handleSaveSeries} disabled={isSaving} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded mt-4 hover:bg-white transition-colors">
+        <button onClick={handleSaveSeries} disabled={isSaving} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded mt-4 hover:bg-white transition-colors cursor-pointer">
           {isSaving ? 'SAVING...' : 'Save Series & Roster'}
         </button>
       </div>

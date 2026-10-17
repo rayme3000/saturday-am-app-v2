@@ -124,10 +124,18 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [unlockedChapters, setUnlockedChapters] = useState<string[]>([]);
   
   const [forceTutorial, setForceTutorial] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const actionsRef = useRef<HTMLDivElement>(null);
   const commentsRef = useRef<HTMLDivElement>(null);
   const creatorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 640);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const scrollToSection = (e: React.MouseEvent | any, ref: React.RefObject<HTMLDivElement>, center: boolean = false) => {
     if (e && e.stopPropagation) e.stopPropagation(); 
@@ -211,29 +219,30 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchUnlocks();
   }, [userTier, currentUserId]);
 
-  useEffect(() => {
-    if (!series) return;
-    const fetchDetails = async () => {
-      try {
-        const targetSlug = typeof series === 'string' ? series : series?.slug;
-        if (!targetSlug) return;
-        const { data: freshSeries } = await supabase.from('series').select('*').eq('slug', targetSlug).single();
-        if (freshSeries) setLocalSeries(freshSeries);
-        
-        const { data: chapterData } = await supabase.from('chapters').select('*').eq('series_slug', targetSlug).eq('is_published', true).order('chapter_number', { ascending: true });
-        if (chapterData) setChapters(chapterData as any);
-        
-        const { data: creatorData } = await supabase.from('series_creators').select('*').eq('series_slug', targetSlug).order('id', { ascending: true });
-        if (creatorData && creatorData.length > 0) { setCreators(creatorData as any); } 
-        else if (freshSeries) { setCreators([{ role: 'Creator', name: freshSeries.creator_name || 'Saturday AM', flag_code: freshSeries.flag_code || '', avatar_url: freshSeries.creator_avatar || '', bio: freshSeries.creator_bio || '', twitter_url: freshSeries.creator_twitter || '', instagram_url: freshSeries.creator_instagram || '', support_url: freshSeries.creator_support_link || '' }] as any); }
+  const fetchDetails = useCallback(async () => {
+    try {
+      const targetSlug = typeof series === 'string' ? series : (localSeries?.slug || series?.slug);
+      if (!targetSlug) return;
+      const { data: freshSeries } = await supabase.from('series').select('*').eq('slug', targetSlug).single();
+      if (freshSeries) setLocalSeries(freshSeries);
       
-        const { data: charData } = await supabase.from('series_characters').select('*').eq('series_slug', targetSlug).order('id', { ascending: true });
-        if (charData) setSeriesCharacters(charData as any);
+      const { data: chapterData } = await supabase.from('chapters').select('*').eq('series_slug', targetSlug).eq('is_published', true).order('chapter_number', { ascending: true });
+      if (chapterData) setChapters(chapterData as any);
+      
+      const { data: creatorData } = await supabase.from('series_creators').select('*').eq('series_slug', targetSlug).order('id', { ascending: true });
+      if (creatorData && creatorData.length > 0) { setCreators(creatorData as any); } 
+      else if (freshSeries) { setCreators([{ role: 'Creator', name: freshSeries.creator_name || 'Saturday AM', flag_code: freshSeries.flag_code || '', avatar_url: freshSeries.creator_avatar || '', bio: freshSeries.creator_bio || '', twitter_url: freshSeries.creator_twitter || '', instagram_url: freshSeries.creator_instagram || '', support_url: freshSeries.creator_support_link || '' }] as any); }
+    
+      const { data: charData } = await supabase.from('series_characters').select('*').eq('series_slug', targetSlug).order('id', { ascending: true });
+      if (charData) setSeriesCharacters(charData as any);
+    } catch (err) { console.error("Failed to load series details:", err); }
+  }, [series, localSeries?.slug]);
 
-      } catch (err) { console.error("Failed to load series details:", err); }
-    };
+  useEffect(() => {
     fetchDetails();
-  }, [series]);
+    window.addEventListener('seriesUpdated', fetchDetails);
+    return () => window.removeEventListener('seriesUpdated', fetchDetails);
+  }, [fetchDetails]);
 
   useEffect(() => {
     if (!currentUserId || chapters.length === 0) return;
@@ -316,7 +325,13 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
     if (isInitiallyLocked && !hasTempUnlock) {
       setIsAutoLoading(false);
-      if (userTier === 'visitor') { setUpsellConfig({ type: 'visitor', message: "Create a Free Account to unlock Chapters 1-3 and read the newest release." }); return; }
+      if (userTier === 'visitor') { 
+        setUpsellConfig({ 
+          type: 'visitor', 
+          message: "Create a Free Account to unlock Chapters 1-3 and read the newest release." 
+        }); 
+        return; 
+      }
       setTargetChapter(chapter);
       setShowAdModal(true);
       return;
@@ -416,6 +431,17 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   const safeSynopsis = localSeries.synopsis || '';
 
+  const activeBannerPos = isMobile 
+    ? (localSeries.banner_position_mobile || localSeries.banner_position_desktop || '50% 50%')
+    : (localSeries.banner_position_desktop || '50% 50%');
+
+  const activeBannerScale = isMobile
+    ? (localSeries.banner_scale_mobile || localSeries.banner_scale_desktop || 100)
+    : (localSeries.banner_scale_desktop || 100);
+
+  const logoScale = localSeries.logo_scale ?? 100;
+  const logoOffset = localSeries.logo_offset ?? 16;
+
   return (
     <div className="relative min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-transparent text-white">
       
@@ -450,14 +476,30 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       {upsellConfig && (
         <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
-            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
             <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
             <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.type === 'visitor' ? 'Account Required' : 'Premium Feature'}</h2>
             <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
             {upsellConfig.type === 'visitor' ? (
-              <button onClick={() => { setUpsellConfig(null); if(onLoginClick) onLoginClick(); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors">Log In / Sign Up</button>
+              <button 
+                onClick={() => { 
+                  setUpsellConfig(null); 
+                  if (onLoginClick) onLoginClick(); 
+                }} 
+                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors cursor-pointer shadow-[0_0_20px_rgba(254,154,0,0.3)]"
+              >
+                Create Free Account
+              </button>
             ) : (
-              <button onClick={() => { setUpsellConfig(null); if (onNavigate) onNavigate({ action: 'sub' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors">Explore Premium</button>
+              <button 
+                onClick={() => { 
+                  setUpsellConfig(null); 
+                  if (onNavigate) onNavigate({ action: 'sub' }); 
+                }} 
+                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors cursor-pointer shadow-[0_0_20px_rgba(254,154,0,0.3)]"
+              >
+                Upgrade to Pro ($1.99)
+              </button>
             )}
           </div>
         </div>
@@ -469,10 +511,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             
             {donationStep === 'input' && (
               <>
-                <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20"><X className="w-6 h-6" /></button>
+                <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer"><X className="w-6 h-6" /></button>
                 <div className="p-6 sm:p-8 animate-fade-in">
                   
-                  {/* BETA WARNING BANNER */}
                   <div className="bg-yellow-500/10 border border-yellow-500/50 p-4 rounded-xl flex items-start gap-3 mb-6">
                     <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
                     <div className="text-left">
@@ -494,7 +535,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                       <button 
                         key={amount}
                         onClick={() => setDonationAmount(amount)}
-                        className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all ${donationAmount === amount ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]' : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
+                        className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all cursor-pointer ${donationAmount === amount ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]' : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
                       >
                         ${amount}
                       </button>
@@ -514,7 +555,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
                   <button 
                     onClick={handleProcessDonation}
-                    className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)]"
+                    className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
                   >
                     Donate ${donationAmount}
                   </button>
@@ -544,7 +585,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 </p>
                 <button 
                   onClick={() => { setDonationCreator(null); setDonationStep('input'); }}
-                  className="w-full py-4 bg-zinc-800 text-white font-black uppercase tracking-widest rounded-xl hover:bg-zinc-700 transition-colors"
+                  className="w-full py-4 bg-zinc-800 text-white font-black uppercase tracking-widest rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer"
                 >
                   Return to Series
                 </button>
@@ -591,9 +632,19 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         );
       })()}
 
+      {/* DYNAMIC HERO BANNER WITH CROPPED OBJECT POSITION & SCALE */}
       <div className="sticky top-0 left-0 w-full h-[50vh] sm:h-[60vh] z-0 overflow-hidden bg-black">
-        <img src={localSeries.cover_url} className="w-full h-full object-cover opacity-60" alt="Hero Banner" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+        <img 
+          src={localSeries.cover_url} 
+          className="w-full h-full object-cover opacity-60 transition-all duration-300 pointer-events-none" 
+          alt="Hero Banner"
+          style={{
+            objectPosition: activeBannerPos,
+            transform: `scale(${activeBannerScale / 100})`,
+            transformOrigin: activeBannerPos
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent pointer-events-none" />
         
         <div className="absolute top-4 sm:top-6 left-4 sm:left-6 z-20 flex items-center gap-2">
           <button 
@@ -604,22 +655,43 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 onBack();
               }
             }} 
-            className="p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg"
+            className="p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg cursor-pointer"
           >
             <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
           <TutorialHelpButton onClick={() => setForceTutorial(true)} />
         </div>
         
-        <button onClick={() => setShowShareModal(true)} className="absolute top-4 sm:top-6 right-[4.5rem] sm:right-24 z-20 p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-all shadow-lg group">
+        <button onClick={() => setShowShareModal(true)} className="absolute top-4 sm:top-6 right-[4.5rem] sm:right-24 z-20 p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-all shadow-lg group cursor-pointer">
           <Share2 className="w-5 h-5 sm:w-6 sm:h-6 group-hover:scale-110 transition-transform" />
         </button>
       </div>
 
       <div className="relative z-10 bg-black min-h-screen w-full overflow-x-hidden -mt-12 pt-12 [mask-image:linear-gradient(to_bottom,transparent,black_48px)]">
         <div className="px-6 pt-8 flex flex-col items-center w-full max-w-4xl mx-auto">
-          <div className="flex items-center justify-center gap-4 mb-6">
-            {localSeries.logo_url && <img src={localSeries.logo_url} alt="Logo" className="w-full max-w-[280px] sm:max-w-[350px] h-auto object-contain drop-shadow-2xl" />}
+          
+          {/* DYNAMIC LOGO SCALING & OFFSET */}
+          <div 
+            className="flex items-center justify-center gap-4 transition-all duration-300 w-full"
+            style={{
+              marginBottom: `${Math.max(16, logoOffset)}px`
+            }}
+          >
+            {localSeries.logo_url && (
+              <div 
+                className="flex items-center justify-center transition-all duration-300"
+                style={{
+                  transform: `scale(${logoScale / 100})`,
+                  transformOrigin: 'center center'
+                }}
+              >
+                <img 
+                  src={localSeries.logo_url} 
+                  alt="Logo" 
+                  className="w-full max-w-[280px] sm:max-w-[350px] h-auto object-contain drop-shadow-2xl" 
+                />
+              </div>
+            )}
             {localSeries.has_awards && localSeries.awards && (
               <div className="relative flex items-center cursor-pointer" onMouseEnter={() => setShowAwards(true)} onMouseLeave={() => setShowAwards(false)} onClick={triggerAwards}>
                 <img src={`${CLOUDFLARE_BASE_URL}/series-page-graphics/award-icon.png`} alt="Award" className={`w-10 h-10 object-contain transition-all duration-200 drop-shadow-lg ${showAwards ? 'opacity-80 scale-110' : 'opacity-100'}`} />
@@ -687,7 +759,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
           <div className="mt-6 px-2 text-center max-w-2xl">
             <p className={`text-sm text-zinc-300 leading-relaxed ${!isExpanded ? 'line-clamp-3' : ''}`}>{safeSynopsis}</p>
-            {safeSynopsis.length > 150 && (<button onClick={() => setIsExpanded(!isExpanded)} className="text-[#fe9a00] font-black tracking-widest text-[10px] mt-2 uppercase hover:text-white transition-colors">{isExpanded ? '- READ LESS' : '+ READ MORE'}</button>)}
+            {safeSynopsis.length > 150 && (<button onClick={() => setIsExpanded(!isExpanded)} className="text-[#fe9a00] font-black tracking-widest text-[10px] mt-2 uppercase hover:text-white transition-colors cursor-pointer">{isExpanded ? '- READ LESS' : '+ READ MORE'}</button>)}
           </div>
 
           <div ref={actionsRef} className="flex flex-col items-center gap-4 mt-8 w-full max-w-sm mx-auto scroll-mt-32">
@@ -705,7 +777,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               />
               <button 
                 onClick={(e) => scrollToSection(e, creatorRef)} 
-                className="flex items-center justify-center gap-3 w-full px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all bg-zinc-900 text-white border border-zinc-700 hover:bg-[#fe9a00] hover:border-[#fe9a00] hover:text-black shadow-lg"
+                className="flex items-center justify-center gap-3 w-full px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all bg-zinc-900 text-white border border-zinc-700 hover:bg-[#fe9a00] hover:border-[#fe9a00] hover:text-black shadow-lg cursor-pointer"
               >
                 <PenTool className="w-5 h-5" />
                 <span>HYPE CREATOR(S)</span>
@@ -763,11 +835,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
         <div className="mt-12 w-full border-b border-zinc-800 flex justify-center">
           <div className="w-full max-w-3xl flex justify-center gap-12 px-6">
-            <button onClick={() => setActiveTab('chapters')} className={`pb-4 font-black uppercase tracking-widest text-xs transition-colors relative ${activeTab === 'chapters' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
+            <button onClick={() => setActiveTab('chapters')} className={`pb-4 font-black uppercase tracking-widest text-xs transition-colors relative cursor-pointer ${activeTab === 'chapters' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
               CHAPTERS{activeTab === 'chapters' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#fe9a00] rounded-t-sm" />}
             </button>
             {seriesCharacters.length > 0 && (
-              <button onClick={() => setActiveTab('characters')} className={`pb-4 font-black uppercase tracking-widest text-xs transition-colors relative ${activeTab === 'characters' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
+              <button onClick={() => setActiveTab('characters')} className={`pb-4 font-black uppercase tracking-widest text-xs transition-colors relative cursor-pointer ${activeTab === 'characters' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
                 CHARACTERS{activeTab === 'characters' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#fe9a00] rounded-t-sm" />}
               </button>
             )}
@@ -789,7 +861,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                       setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                       setVisibleCount(10);
                     }}
-                    className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors text-[10px] sm:text-xs font-black uppercase tracking-widest bg-zinc-900 px-4 py-2 rounded-full border border-zinc-800"
+                    className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors text-[10px] sm:text-xs font-black uppercase tracking-widest bg-zinc-900 px-4 py-2 rounded-full border border-zinc-800 cursor-pointer"
                   >
                     {sortOrder === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
                     Sort: {sortOrder === 'asc' ? 'Oldest' : 'Newest'}
@@ -883,14 +955,14 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
                         <button 
                           onClick={(e) => scrollToSection(e, commentsRef)} 
-                          className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0"
+                          className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer"
                           title="Jump to Comments"
                         >
                           <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
                         </button>
                         <button 
                           onClick={(e) => scrollToSection(e, creatorRef)} 
-                          className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0"
+                          className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer"
                           title="Jump to Creator"
                         >
                           <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -915,13 +987,13 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
                   <button 
                     onClick={() => setVisibleCount(prev => prev + 25)}
-                    className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-900 border border-zinc-700 text-white text-[10px] font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors"
+                    className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-900 border border-zinc-700 text-white text-[10px] font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors cursor-pointer"
                   >
                     Load Next 25 Chapters
                   </button>
                   <button 
                     onClick={() => setVisibleCount(chapters.length)}
-                    className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-950 border border-zinc-800 text-zinc-500 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors"
+                    className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-950 border border-zinc-800 text-zinc-500 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors cursor-pointer"
                   >
                     Load All Chapters
                   </button>
@@ -953,13 +1025,13 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 ))}
               </div>
               {seriesCharacters.length > 8 && (
-                <button onClick={() => setShowAllChars(!showAllChars)} className="w-full py-2 mb-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors">
+                <button onClick={() => setShowAllChars(!showAllChars)} className="w-full py-2 mb-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors cursor-pointer">
                   {showAllChars ? '- Show Less' : '+ See More Characters'}
                 </button>
               )}
               <button 
                 onClick={() => onNavigate({ action: 'characters' })}
-                className="w-full bg-zinc-900 border border-zinc-700 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors mt-4"
+                className="w-full bg-zinc-900 border border-zinc-700 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors mt-4 cursor-pointer"
               >
                 Hype these Characters
               </button>
@@ -1009,20 +1081,20 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                       setDonationAmount(5);
                       setFanmailText('');
                     }} 
-                    className="flex items-center justify-center gap-2 w-full max-w-xs mx-auto mb-3 bg-[#fe9a00] text-black px-8 py-3.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-widest hover:bg-white transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] hover:shadow-[0_0_30px_rgba(255,255,255,0.5)] hover:-translate-y-1"
+                    className="flex items-center justify-center gap-2 w-full max-w-xs mx-auto mb-3 bg-[#fe9a00] text-black px-8 py-3.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-widest hover:bg-white transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] hover:shadow-[0_0_30px_rgba(255,255,255,0.5)] hover:-translate-y-1 cursor-pointer"
                   >
                     <Heart className="w-4 h-4 fill-black" /> Support {safeName.split(' ')[0]}
                   </button>
 
                   <div className="w-full max-w-xs mx-auto mb-8 [&_button]:w-full [&_button]:justify-center">
-  <HypeButton 
-    targetType="creator" 
-    targetId={creatorId} 
-    userId={currentUserId} 
-    variant="default" 
-    onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" })} 
-  />
-</div>
+                    <HypeButton 
+                      targetType="creator" 
+                      targetId={creatorId} 
+                      userId={currentUserId} 
+                      variant="default" 
+                      onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" })} 
+                    />
+                  </div>
 
                   <div className="flex flex-wrap justify-center gap-3 w-full">
                     {c.twitter_url && <a href={c.twitter_url} target="_blank" rel="noreferrer" className="flex-1 max-w-[140px] text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-4 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]">Twitter</a>}

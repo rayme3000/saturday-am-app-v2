@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, ShoppingBag, ExternalLink, PackageX } from 'lucide-react';
 import { supabase } from '../supabase';
 
+const HYPE_FLAME_URL = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Hype%20flame.png";
+
 export const Shop = ({ onBack }: any) => {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +39,20 @@ export const Shop = ({ onBack }: any) => {
   return (
     <div className="min-h-screen bg-black text-white relative pb-24 font-sans">
       
+      {/* SVG Color Filter: Remaps black to #fe9a00 while keeping 'AM' pure white */}
+      <svg className="absolute w-0 h-0 pointer-events-none" aria-hidden="true">
+        <filter id="hype-flame-color" colorInterpolationFilters="sRGB">
+          <feColorMatrix
+            type="matrix"
+            values="
+              0.004  0      0      0.996  0
+              0      0.396  0      0.604  0
+              0      0      1      0      0
+              0      0      0      1      0"
+          />
+        </filter>
+      </svg>
+
       {/* GLOBAL BACKDROP */}
       <div className="fixed inset-0 z-[0] pointer-events-none">
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay" />
@@ -70,9 +86,19 @@ export const Shop = ({ onBack }: any) => {
       {/* PRODUCT GRID OR PLACEHOLDER */}
       <div className="relative z-10 max-w-7xl mx-auto px-4 py-8">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-32 gap-4 bg-zinc-900/40 backdrop-blur-sm rounded-3xl border border-zinc-800">
-            <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin" />
-            <span className="text-zinc-500 font-bold tracking-widest text-xs uppercase animate-pulse">Loading Inventory...</span>
+          <div className="flex flex-col items-center justify-center py-28 sm:py-36 gap-5 bg-zinc-900/40 backdrop-blur-sm rounded-3xl border border-zinc-800">
+            {/* MATCHING LARGE HYPE FLAME LOADER */}
+            <div className="relative flex items-center justify-center animate-hype-glow">
+              <img 
+                src={HYPE_FLAME_URL} 
+                alt="Saturday AM Loading" 
+                className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
+                style={{ filter: 'url(#hype-flame-color)' }}
+              />
+            </div>
+            <span className="text-zinc-500 font-black tracking-widest text-xs uppercase animate-pulse">
+              Loading Inventory...
+            </span>
           </div>
         ) : !shopDomain ? (
           <div className="flex flex-col items-center justify-center py-32 gap-6 bg-zinc-900/20 backdrop-blur-sm rounded-3xl border border-zinc-800 text-center px-4">

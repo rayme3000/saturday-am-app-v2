@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Lock } from 'lucide-react';
 import { useHypeEconomy } from '../HypeEconomyContext';
 
 export const HypeButton = ({ targetType, targetId, seriesSlug, userId, isPremium, initialCount = 0, bonusCount = 0, variant = 'default', onRequireAuth, onRequirePremium, onToggle }: any) => {
@@ -40,10 +40,14 @@ export const HypeButton = ({ targetType, targetId, seriesSlug, userId, isPremium
   const initiateHype = (e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     if (!userId) { if (onRequireAuth) onRequireAuth(); return; }
-    if (variant === 'series-main' && !isPremium) { if (onRequirePremium) onRequirePremium(); return; }
     if (isChecking || isLoading) return;
     
+    // Only show out of hypes if balance is 0
     if (hypesRemaining <= 0) {
+      if (!isPremium && onRequirePremium) {
+        onRequirePremium();
+        return;
+      }
       setShowOutOfHypes(true);
       return;
     }
@@ -68,7 +72,6 @@ export const HypeButton = ({ targetType, targetId, seriesSlug, userId, isPremium
   const isOutOfHypes = hypesRemaining <= 0;
   const displayCount = initialCount + bonusCount + (hasHyped ? 1 : 0);
 
-  // --- THE MASK TRICK ---
   const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
   const iconMaskStyle = {
     WebkitMaskImage: `url('${fullIconUrl}')`,
@@ -88,10 +91,17 @@ export const HypeButton = ({ targetType, targetId, seriesSlug, userId, isPremium
           <AlertTriangle className="w-8 h-8 text-red-500" />
         </div>
         <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Out of Hypes</h2>
-        <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-8">
-          You've used all your Hypes for the week! Your balance will automatically replenish on <span className="text-[#fe9a00]">Saturday EST</span>.
+        <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-6">
+          {!isPremium 
+            ? "You've used your free Hype for the week! Upgrade to Saturday AM+ for 3 Super Hypes every week."
+            : "You've used all your Hypes for the week! Your balance will automatically replenish on Saturday."}
         </p>
-        <button onClick={(e) => { e.stopPropagation(); setShowOutOfHypes(false); }} className="w-full bg-zinc-900 text-white font-black uppercase tracking-widest py-3.5 rounded-xl hover:bg-zinc-800 transition-colors shadow-lg">
+        {!isPremium && onRequirePremium && (
+          <button onClick={(e) => { e.stopPropagation(); setShowOutOfHypes(false); onRequirePremium(); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3.5 rounded-xl hover:bg-white transition-colors shadow-lg mb-3 cursor-pointer">
+            Upgrade to Pro ($1.99)
+          </button>
+        )}
+        <button onClick={(e) => { e.stopPropagation(); setShowOutOfHypes(false); }} className="w-full bg-zinc-900 text-white font-black uppercase tracking-widest py-3.5 rounded-xl hover:bg-zinc-800 transition-colors shadow-lg cursor-pointer">
           Got it
         </button>
       </div>
@@ -106,15 +116,15 @@ export const HypeButton = ({ targetType, targetId, seriesSlug, userId, isPremium
         </div>
         <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Drop a Hype?</h2>
         <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-6">
-          Are you sure you want to spend a Hype here? You can hype the same item multiple times!
+          Are you sure you want to spend a Hype here?
         </p>
         <div className="bg-zinc-900 w-full py-3 rounded-lg border border-zinc-800 mb-6">
           <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-1">Current Balance</p>
           <p className="text-lg font-black text-white">{hypesRemaining} <span className="text-[#fe9a00]">Remaining</span></p>
         </div>
         <div className="flex gap-3 w-full">
-          <button onClick={(e) => { e.stopPropagation(); setShowConfirm(false); }} className="flex-1 bg-zinc-900 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:bg-zinc-800 transition-colors">Cancel</button>
-          <button onClick={(e) => { e.stopPropagation(); executeHype(); }} className="flex-1 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]">Confirm</button>
+          <button onClick={(e) => { e.stopPropagation(); setShowConfirm(false); }} className="flex-1 bg-zinc-900 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:bg-zinc-800 transition-colors cursor-pointer">Cancel</button>
+          <button onClick={(e) => { e.stopPropagation(); executeHype(); }} className="flex-1 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)] cursor-pointer">Confirm</button>
         </div>
       </div>
     </div>
@@ -123,16 +133,28 @@ export const HypeButton = ({ targetType, targetId, seriesSlug, userId, isPremium
   if (variant === 'series-main') {
     return (
       <>
-        <button onClick={initiateHype} disabled={isLoading || (isPremium && isOutOfHypes)} className={`flex items-center justify-center gap-4 px-8 py-3.5 w-full rounded-full font-black uppercase tracking-widest transition-all ${(isOutOfHypes && isPremium) ? 'bg-zinc-800 text-zinc-500 border border-zinc-700 cursor-not-allowed' : hasHyped ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.2)] hover:bg-zinc-900' : 'bg-gradient-to-r from-yellow-500 to-[#fe9a00] text-black hover:scale-105 shadow-[0_0_20px_rgba(254,154,0,0.4)]'}`}>
-          
+        <button 
+          onClick={initiateHype} 
+          disabled={isLoading} 
+          className={`flex items-center justify-center gap-4 px-8 py-3.5 w-full rounded-full font-black uppercase tracking-widest transition-all cursor-pointer ${
+            isOutOfHypes 
+              ? 'bg-zinc-800 text-zinc-500 border border-zinc-700 hover:border-zinc-500' 
+              : hasHyped 
+                ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.2)] hover:bg-zinc-900' 
+                : 'bg-gradient-to-r from-yellow-500 to-[#fe9a00] text-black hover:scale-105 shadow-[0_0_20px_rgba(254,154,0,0.4)]'
+          }`}
+        >
           <div 
-            className={`w-7 h-7 flex-shrink-0 ${(isOutOfHypes && isPremium) ? 'bg-zinc-500' : hasHyped ? 'bg-[#fe9a00]' : 'bg-black'}`} 
+            className={`w-7 h-7 flex-shrink-0 ${isOutOfHypes ? 'bg-zinc-500' : hasHyped ? 'bg-[#fe9a00]' : 'bg-black'}`} 
             style={iconMaskStyle} 
           />
-          
           <div className="flex flex-col text-left">
-            <span className="leading-tight text-sm sm:text-base">{!isPremium ? 'SUBSCRIBE TO HYPE' : (isOutOfHypes ? 'OUT OF HYPES' : hasHyped ? 'HYPE AGAIN' : 'HYPE THIS SERIES')}</span>
-            <span className={`text-[10px] font-bold opacity-80 leading-tight ${hasHyped && !isOutOfHypes ? 'text-zinc-400' : ''}`}>{!isPremium ? 'Pro Exclusive Feature' : (!isLoading ? `${hypesRemaining} Left • Resets in ${getDaysUntilReset()}d` : 'Loading...')}</span>
+            <span className="leading-tight text-sm sm:text-base">
+              {isOutOfHypes ? (!isPremium ? 'UPGRADE FOR MORE HYPES' : 'OUT OF HYPES') : (hasHyped ? 'HYPE AGAIN' : 'HYPE THIS SERIES')}
+            </span>
+            <span className={`text-[10px] font-bold opacity-80 leading-tight ${hasHyped && !isOutOfHypes ? 'text-zinc-400' : ''}`}>
+              {!isLoading ? `${hypesRemaining} Left • Resets in ${getDaysUntilReset()}d` : 'Loading...'}
+            </span>
           </div>
         </button>
         <ConfirmationModal />
@@ -144,7 +166,7 @@ export const HypeButton = ({ targetType, targetId, seriesSlug, userId, isPremium
   if (variant === 'creator') {
     return (
       <>
-        <button onClick={initiateHype} disabled={isLoading} className={`flex items-center justify-center gap-2 w-full transition-all px-8 py-3.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-widest border ${hasHyped ? 'bg-zinc-800 text-[#fe9a00] border-[#fe9a00]' : 'bg-black text-white border-zinc-700 hover:border-white hover:text-white'}`}>
+        <button onClick={initiateHype} disabled={isLoading} className={`flex items-center justify-center gap-2 w-full transition-all px-8 py-3.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-widest border cursor-pointer ${hasHyped ? 'bg-zinc-800 text-[#fe9a00] border-[#fe9a00]' : 'bg-black text-white border-zinc-700 hover:border-white hover:text-white'}`}>
           <div className={`w-5 h-5 flex-shrink-0 ${hasHyped ? 'bg-[#fe9a00]' : 'bg-white'}`} style={iconMaskStyle} />
           {hasHyped ? 'HYPE AGAIN' : 'HYPE CREATOR'}
         </button>
@@ -169,9 +191,17 @@ export const HypeButton = ({ targetType, targetId, seriesSlug, userId, isPremium
 
   return (
     <>
-      <button onClick={initiateHype} disabled={isLoading} className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-xl font-black uppercase tracking-widest transition-all text-xs ${hasHyped ? 'bg-zinc-800 text-[#fe9a00] border border-[#fe9a00]' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_15px_rgba(254,154,0,0.3)] group'}`}>
+      <button 
+        onClick={initiateHype} 
+        disabled={isLoading} 
+        className={`w-full flex items-center justify-center gap-2 py-4 rounded-full font-black uppercase tracking-widest transition-all text-xs sm:text-sm cursor-pointer transform-gpu backface-hidden ${
+          hasHyped 
+            ? 'bg-zinc-800 text-[#fe9a00] border-2 border-[#fe9a00] hover:bg-zinc-900' 
+            : 'bg-[#fe9a00] border-2 border-[#fe9a00] text-black hover:bg-white hover:border-white shadow-[0_0_15px_rgba(254,154,0,0.3)] group'
+        }`}
+      >
         <div className={`w-5 h-5 flex-shrink-0 ${hasHyped ? 'bg-[#fe9a00]' : 'bg-black group-hover:bg-black'}`} style={iconMaskStyle} />
-        {hasHyped ? 'HYPE AGAIN' : 'HYPE'}
+        {hasHyped ? 'HYPE AGAIN' : 'HYPE CHAPTER'}
       </button>
       <ConfirmationModal />
       <OutOfHypesModal />

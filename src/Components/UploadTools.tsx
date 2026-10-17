@@ -63,7 +63,6 @@ export const Dropzone = ({ label, subtext, height = "p-6", multiple = false, fol
         e.preventDefault(); 
         setIsDragging(false); 
         if (e.dataTransfer.files.length) {
-          // Take a static snapshot of dropped files
           const filesArray = Array.from(e.dataTransfer.files);
           processFiles(filesArray); 
         } 
@@ -77,7 +76,6 @@ export const Dropzone = ({ label, subtext, height = "p-6", multiple = false, fol
         multiple={multiple} 
         onChange={(e: any) => { 
           if (e.target.files.length) {
-            // Take a static snapshot of clicked files before clearing the input
             const filesArray = Array.from(e.target.files);
             processFiles(filesArray);
             e.target.value = null; 
@@ -127,56 +125,84 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any) => {
   });
 };
 
-// --- FIXED: Added uploadFolder prop with a fallback ---
-export const ThumbnailCropperModal = ({ imageUrl, uploadFolder = 'misc', onCropComplete, onCancel }: any) => {
+export const ThumbnailCropperModal = ({ 
+  imageUrl, 
+  uploadFolder = 'misc', 
+  aspect = 1,
+  title = "Crop Thumbnail",
+  onCropComplete, 
+  onCropAreaComplete,
+  onCancel 
+}: any) => {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [croppedArea, setCroppedArea] = useState<any>(null);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleSave = async () => {
+    // If the caller wants the mathematical crop area without re-uploading
+    if (onCropAreaComplete && croppedArea) {
+      onCropAreaComplete(croppedArea, croppedAreaPixels, zoom);
+      return;
+    }
+
+    if (!onCropComplete) return;
+
     setIsProcessing(true);
     try {
       const croppedFile: any = await getCroppedImg(imageUrl, croppedAreaPixels);
-      // FIXED: Uses the dynamic uploadFolder prop instead of hardcoding
       const publicUrl = await uploadToSupabase(croppedFile, uploadFolder);
       if (publicUrl) onCropComplete(publicUrl);
-    } catch(e) {
+    } catch (e) {
       alert("Cropping failed. Please try again.");
     }
     setIsProcessing(false);
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-lg mb-4 flex justify-between items-center">
-         <h3 className="text-white font-black text-lg tracking-widest uppercase">Crop Thumbnail</h3>
-         <button onClick={onCancel} className="text-zinc-500 hover:text-white"><X className="w-6 h-6" /></button>
+    <div className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-6 animate-fade-in">
+      <div className="w-full max-w-2xl mb-4 flex justify-between items-center">
+         <h3 className="text-white font-black text-base sm:text-lg tracking-widest uppercase">{title}</h3>
+         <button onClick={onCancel} className="text-zinc-500 hover:text-white p-2 cursor-pointer"><X className="w-6 h-6" /></button>
       </div>
       
-      <div className="relative w-full max-w-lg aspect-square bg-black border border-zinc-800 rounded-lg overflow-hidden">
+      <div className="relative w-full max-w-2xl h-[50vh] sm:h-[60vh] bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
          <Cropper
            image={imageUrl}
            crop={crop}
            zoom={zoom}
-           aspect={1}
+           aspect={aspect}
            onCropChange={setCrop}
-           onCropComplete={(area, areaPixels) => setCroppedAreaPixels(areaPixels)}
+           onCropComplete={(area, areaPixels) => {
+             setCroppedArea(area);
+             setCroppedAreaPixels(areaPixels);
+           }}
            onZoomChange={setZoom}
          />
       </div>
 
-      <div className="w-full max-w-lg mt-6 space-y-6">
-         <input 
-           type="range" 
-           min={1} max={3} step={0.1} 
-           value={zoom} 
-           onChange={(e) => setZoom(Number(e.target.value))} 
-           className="w-full accent-[#fe9a00]" 
-         />
-         <button onClick={handleSave} disabled={isProcessing} className="w-full py-4 bg-[#fe9a00] text-black font-black tracking-widest rounded hover:bg-white transition-colors">
-           {isProcessing ? 'PROCESSING & UPLOADING...' : 'SAVE CROPPED THUMBNAIL'}
-         </button>
+      <div className="w-full max-w-2xl mt-6 space-y-4">
+         <div className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-xl">
+           <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest w-12">Zoom</span>
+           <input 
+             type="range" 
+             min={1} max={3} step={0.05} 
+             value={zoom} 
+             onChange={(e) => setZoom(Number(e.target.value))} 
+             className="w-full accent-[#fe9a00] cursor-pointer" 
+           />
+           <span className="text-[10px] font-black text-[#fe9a00] w-12 text-right">{Math.round(zoom * 100)}%</span>
+         </div>
+
+         <div className="flex gap-3">
+           <button onClick={onCancel} className="w-1/3 py-4 bg-zinc-800 text-white font-black tracking-widest uppercase text-xs rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer">
+             Cancel
+           </button>
+           <button onClick={handleSave} disabled={isProcessing} className="flex-1 py-4 bg-[#fe9a00] text-black font-black tracking-widest uppercase text-xs rounded-xl hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] disabled:opacity-50 cursor-pointer">
+             {isProcessing ? 'PROCESSING & UPLOADING...' : (onCropAreaComplete ? 'SAVE POSITION & FRAMING' : 'SAVE CROPPED IMAGE')}
+           </button>
+         </div>
       </div>
     </div>
   );

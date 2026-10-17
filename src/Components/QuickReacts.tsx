@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { MessageSquare, X, Flag, User, Shield, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { MessageSquare, X, Flag, User, Shield, AlertCircle, CheckCircle2, Lock } from 'lucide-react';
 import { supabase } from '../supabase';
 import { cleanText } from '../profanityFilter';
 import { APP_ICONS } from '../appIcons';
@@ -8,7 +8,7 @@ import { APP_ICONS } from '../appIcons';
 const SMART_COMMENTS = ["🔥🔥🔥", "😱😱😱", "🤯🤯🤯", "🐐🐐🐐", "👀👀👀", "👏👏👏", "😭😭😭", "💯💯💯"];
 
 // --- 1. THE LOGIC HOOK ---
-export const useQuickReacts = (chapterId: string, currentPage: number, currentUser: any) => {
+export const useQuickReacts = (chapterId: string, currentPage: number, currentUser: any, onRequireAuth?: () => void) => {
   const [localComments, setLocalComments] = useState<any[]>([]);
   const [reportedReacts, setReportedReacts] = useState<number[]>([]);
   const [showAllReacts, setShowAllReacts] = useState(false);
@@ -45,8 +45,13 @@ export const useQuickReacts = (chapterId: string, currentPage: number, currentUs
   }, [toastConfig]);
 
   const submitReact = async (overrideText?: string) => {
+    if (!currentUser || !currentUser.id) {
+      if (onRequireAuth) onRequireAuth();
+      return;
+    }
+
     const textToSubmit = overrideText || reactText.trim();
-    if (!textToSubmit || !currentUser || !chapterId) return;
+    if (!textToSubmit || !chapterId) return;
     
     const safeText = cleanText(textToSubmit);
     const newReactPayload = { chapter_id: chapterId, page_index: currentPage, user_id: currentUser.id, user_name: currentUser.name, avatar_url: currentUser.avatar, text: safeText };
@@ -89,6 +94,7 @@ export const useQuickReacts = (chapterId: string, currentPage: number, currentUs
   return { localComments, reportedReacts, showAllReacts, setShowAllReacts, isReactInputOpen, setIsReactInputOpen, reactText, setReactText, submitReact, reportReact, activeCommentIndex, visibleComments, toastConfig };
 };
 
+// --- 2. TOAST NOTIFICATION ---
 export const QuickReactToast = ({ toastConfig }: any) => {
   if (!toastConfig) return null;
   return (
@@ -99,12 +105,12 @@ export const QuickReactToast = ({ toastConfig }: any) => {
   );
 };
 
+// --- 3. TIMELINE BUBBLE & AVATARS ---
 export const QuickReactTimeline = ({ mode, localComments, maxPage, currentPage, activeCommentIndex, onOpenDrawer }: any) => {
   const timelineComments = useMemo(() => localComments.slice(-25), [localComments]);
   const visibleComments = useMemo(() => localComments.filter((c: any) => c.pageIndex === currentPage), [localComments, currentPage]);
   const activeComment = visibleComments[activeCommentIndex];
 
-  // Calculate dynamic shift to keep the comment bubble on-screen near the edges
   const percent = maxPage > 0 ? (currentPage / maxPage) * 100 : 0;
   const shift = 50 - percent;
 
@@ -160,6 +166,7 @@ export const QuickReactTimeline = ({ mode, localComments, maxPage, currentPage, 
   );
 };
 
+// --- 4. ALL REACTS DRAWER ---
 export const QuickReactDrawer = ({ showAllReacts, setShowAllReacts, localComments, setCurrentPage, handleReportReact, reportedReacts }: any) => {
   if (!showAllReacts) return null;
   return (
@@ -169,7 +176,7 @@ export const QuickReactDrawer = ({ showAllReacts, setShowAllReacts, localComment
           <h3 className="text-white font-black uppercase tracking-widest text-sm flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-[#fe9a00]" /> All Quick Reacts
           </h3>
-          <button onClick={() => setShowAllReacts(false)} className="text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+          <button onClick={() => setShowAllReacts(false)} className="text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar pb-12">
@@ -187,7 +194,7 @@ export const QuickReactDrawer = ({ showAllReacts, setShowAllReacts, localComment
                        <span className="text-[#fe9a00] text-[10px] font-black uppercase tracking-widest truncate pr-2">{react.user}</span>
                        <button 
                          onClick={() => { setCurrentPage(react.pageIndex); setShowAllReacts(false); }}
-                         className="text-zinc-400 hover:text-white text-[9px] font-black tracking-widest uppercase whitespace-nowrap bg-zinc-800 px-2 py-1 rounded transition-colors"
+                         className="text-zinc-400 hover:text-white text-[9px] font-black tracking-widest uppercase whitespace-nowrap bg-zinc-800 px-2 py-1 rounded transition-colors cursor-pointer"
                        >
                          Pg {react.pageIndex + 1}
                        </button>
@@ -197,7 +204,7 @@ export const QuickReactDrawer = ({ showAllReacts, setShowAllReacts, localComment
                        <button 
                          onClick={() => handleReportReact(react.id)} 
                          disabled={reportedReacts.includes(Number(react.id))} 
-                         className={`text-[9px] font-black uppercase tracking-widest flex items-center gap-1 transition-colors ${reportedReacts.includes(Number(react.id)) ? 'text-red-500/50' : 'text-zinc-500 hover:text-red-500'}`}
+                         className={`text-[9px] font-black uppercase tracking-widest flex items-center gap-1 transition-colors cursor-pointer ${reportedReacts.includes(Number(react.id)) ? 'text-red-500/50' : 'text-zinc-500 hover:text-red-500'}`}
                        >
                          <Flag className="w-3 h-3" /> {reportedReacts.includes(Number(react.id)) ? 'Reported' : 'Report'}
                        </button>
@@ -212,74 +219,130 @@ export const QuickReactDrawer = ({ showAllReacts, setShowAllReacts, localComment
   );
 };
 
+// --- 5. ACTION BUTTONS ---
 export const QuickReactToggleButton = ({ isReactInputOpen, setIsReactInputOpen }: any) => (
-  <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2.5 sm:p-3 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
+  <button onClick={() => setIsReactInputOpen(!isReactInputOpen)} className={`p-2.5 sm:p-3 flex items-center justify-center rounded-full transition-colors shadow-xl border border-white/5 cursor-pointer ${isReactInputOpen ? 'bg-zinc-800' : 'bg-black/40 backdrop-blur-md hover:bg-black/60'}`} title="Add React">
     <img src={APP_ICONS.QUICK_REACT} alt="Quick React" className="w-5 h-5 sm:w-6 sm:h-6 object-contain drop-shadow-md" />
   </button>
 );
 
 export const QuickReactViewAllButton = ({ setShowAllReacts }: any) => (
-  <button onClick={() => setShowAllReacts(true)} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60" title="View All Reacts">
+  <button onClick={() => setShowAllReacts(true)} className="p-2 sm:p-2.5 bg-black/40 backdrop-blur-md border border-white/5 shadow-lg rounded-full transition-colors text-white/70 hover:text-white hover:bg-black/60 cursor-pointer" title="View All Reacts">
     <MessageSquare className="w-3 h-3 sm:w-4 sm:h-4" />
   </button>
 );
 
-// --- 7. UPDATED INPUT OVERLAY (ALL EMOJIS FOR FREE TIER) ---
-export const QuickReactInputOverlay = ({ isReactInputOpen, setIsReactInputOpen, reactText, setReactText, submitReact, isPremium, onNavigate }: any) => {
+// --- 6. INPUT OVERLAY (TIER GATED: VISITOR SIGNUP / FREE EMOJIS / PRO CUSTOM TEXT) ---
+export const QuickReactInputOverlay = ({ 
+  isReactInputOpen, 
+  setIsReactInputOpen, 
+  reactText, 
+  setReactText, 
+  submitReact, 
+  isPremium, 
+  currentUser,
+  onRequireAuth,
+  onRequirePremium
+}: any) => {
   if (!isReactInputOpen) return null;
+
+  const isLoggedIn = Boolean(currentUser && currentUser.id);
+
+  const handleEmojiClick = (emoji: string) => {
+    if (!isLoggedIn) {
+      setIsReactInputOpen(false);
+      if (onRequireAuth) onRequireAuth();
+      return;
+    }
+    submitReact(emoji);
+  };
+
+  const handleCustomTextSend = () => {
+    if (!isLoggedIn) {
+      setIsReactInputOpen(false);
+      if (onRequireAuth) onRequireAuth();
+      return;
+    }
+    if (!isPremium) {
+      setIsReactInputOpen(false);
+      if (onRequirePremium) onRequirePremium();
+      return;
+    }
+    submitReact();
+  };
+
   return (
-    <div className="w-full bg-black/60 backdrop-blur-xl border border-white/10 p-2 rounded-2xl shadow-2xl animate-fade-in pointer-events-auto">
+    <div className="w-full bg-black/80 backdrop-blur-xl border border-white/10 p-3 rounded-2xl shadow-2xl animate-fade-in pointer-events-auto flex flex-col gap-2.5">
+      {/* Drawer Header */}
+      <div className="flex justify-between items-center px-1 border-b border-white/10 pb-2">
+        <div className="flex items-center gap-1.5">
+          <Shield className="w-3.5 h-3.5 text-[#fe9a00]" />
+          <span className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Smart Comments</span>
+        </div>
+        <button 
+          onClick={() => setIsReactInputOpen(false)} 
+          className="text-white/50 hover:text-white transition-colors cursor-pointer"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* 1. Emoji Grid (Available to everyone) */}
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
+        {SMART_COMMENTS.map((c) => (
+          <button 
+            key={c} 
+            onClick={() => handleEmojiClick(c)} 
+            className="bg-zinc-800/80 hover:bg-[#fe9a00] py-2 sm:py-2.5 rounded-xl text-base sm:text-xl transition-all border border-zinc-700/60 hover:border-[#fe9a00] flex items-center justify-center leading-none cursor-pointer hover:scale-105 active:scale-95"
+            title={isLoggedIn ? `React ${c}` : "Sign up to react"}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+
+      {/* 2. Custom Text Field / Tier Gate Action */}
       {isPremium ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex justify-between items-center px-2 pt-1 pb-1 sm:pb-2 border-b border-white/10">
-            <span className="text-[9px] sm:text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Quick React</span>
-            <button onClick={() => setIsReactInputOpen(false)} className="text-white/50 hover:text-white"><X className="w-3 h-3 sm:w-4 sm:h-4" /></button>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              autoFocus
-              type="text"
-              maxLength={30}
-              value={reactText}
-              onChange={(e) => setReactText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') submitReact(); }}
-              placeholder="Drop a react..."
-              className="bg-black/50 border border-white/10 text-white text-[10px] sm:text-xs px-3 py-2 sm:py-2.5 rounded-xl flex-1 focus:outline-none focus:border-[#fe9a00]"
-            />
-            <button onClick={() => submitReact()} disabled={!reactText.trim()} className="bg-[#fe9a00] text-black px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest hover:bg-white disabled:opacity-50">
-              Send
-            </button>
-          </div>
+        <div className="flex items-center gap-2 pt-1 border-t border-white/10">
+          <input
+            autoFocus
+            type="text"
+            maxLength={30}
+            value={reactText}
+            onChange={(e) => setReactText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleCustomTextSend(); }}
+            placeholder="Type custom reaction..."
+            className="bg-black/60 border border-zinc-700 text-white text-[11px] sm:text-xs px-3 py-2 rounded-xl flex-1 focus:outline-none focus:border-[#fe9a00] font-medium"
+          />
+          <button 
+            onClick={handleCustomTextSend} 
+            disabled={!reactText.trim()} 
+            className="bg-[#fe9a00] text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white disabled:opacity-40 transition-colors cursor-pointer"
+          >
+            Send
+          </button>
         </div>
+      ) : !isLoggedIn ? (
+        <button 
+          onClick={() => {
+            setIsReactInputOpen(false);
+            if (onRequireAuth) onRequireAuth();
+          }} 
+          className="w-full bg-[#fe9a00] text-black py-2.5 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors mt-0.5 shadow-[0_0_15px_rgba(254,154,0,0.3)] cursor-pointer"
+        >
+          Sign Up Free to Drop Comments
+        </button>
       ) : (
-        <div className="flex flex-col gap-2 px-2 py-2">
-           <div className="flex justify-between items-center px-1 pb-2 border-b border-white/10 mb-1">
-             <div className="flex items-center gap-1.5">
-               <Shield className="w-3 h-3 text-[#fe9a00]" />
-               <span className="text-[9px] font-black text-[#fe9a00] uppercase tracking-widest">Smart Comments</span>
-             </div>
-             <button onClick={() => setIsReactInputOpen(false)} className="text-white/50 hover:text-white"><X className="w-4 h-4" /></button>
-           </div>
-           
-           <div className="grid grid-cols-4 gap-1 sm:gap-2 mb-1">
-             {SMART_COMMENTS.map(c => (
-               <button 
-                 key={c} 
-                 onClick={() => submitReact(c)} 
-                 className="bg-zinc-800/80 hover:bg-[#fe9a00] py-2 sm:py-3 rounded-lg text-sm sm:text-lg lg:text-xl transition-colors border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center leading-none"
-               >
-                 {c}
-               </button>
-             ))}
-           </div>
-           
-           <button 
-             onClick={() => { setIsReactInputOpen(false); if (onNavigate) onNavigate({ action: 'sub' }); }} 
-             className="w-full bg-[#fe9a00]/10 border border-[#fe9a00]/30 text-[#fe9a00] py-2.5 rounded-lg font-black uppercase text-[9px] tracking-widest hover:bg-[#fe9a00] hover:text-black transition-colors mt-1"
-           >
-              Upgrade to Pro for Custom Text
-           </button>
-        </div>
+        <button 
+          onClick={() => {
+            setIsReactInputOpen(false);
+            if (onRequirePremium) onRequirePremium();
+          }} 
+          className="w-full bg-zinc-900 border border-zinc-700 hover:border-[#fe9a00] text-zinc-300 hover:text-white py-2.5 rounded-xl font-black uppercase text-[9px] sm:text-[10px] tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer group"
+        >
+          <Lock className="w-3.5 h-3.5 text-[#fe9a00] group-hover:scale-110 transition-transform" />
+          <span>Type Custom Comment • <strong className="text-[#fe9a00]">Pro Only ($1.99)</strong></span>
+        </button>
       )}
     </div>
   );
