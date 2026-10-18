@@ -30,7 +30,7 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
     return () => {
       window.removeEventListener('readerToggled', handleReaderToggle);
       window.removeEventListener('appOverlayActive', handleOverlayToggle);
-    }
+    };
   }, []);
 
   const syncEconomy = useCallback(async () => {
@@ -38,12 +38,12 @@ export const GlobalHypeTracker = ({ currentUser }: { currentUser?: any }) => {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('super_hypes_left, is_premium')
+      .select('super_hypes_left, hypes_remaining, is_premium')
       .eq('id', resolvedUser.id)
       .maybeSingle();
 
     if (!profile) return;
-    setLocalHypes(profile.super_hypes_left ?? (profile.is_premium ? 3 : 1));
+    setLocalHypes(profile.super_hypes_left ?? profile.hypes_remaining ?? (profile.is_premium ? 3 : 1));
   }, [resolvedUser?.id]);
 
   useEffect(() => {

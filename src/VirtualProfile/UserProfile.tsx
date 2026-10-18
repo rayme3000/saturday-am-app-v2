@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, RefreshCw, Key } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
 import { GlobalFlexCard } from '../Components/GlobalFlexCard';
 
-const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
 const iconMaskStyle = {
   WebkitMaskImage: `url('${fullIconUrl}')`,
@@ -163,84 +162,95 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
     return () => window.removeEventListener('instantLogout', handleInstantLogout);
   }, []);
 
-  useEffect(() => {
+  const fetchUserStats = useCallback(async () => {
     const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
     setUnlockedHunts(savedHunts.length);
     const savedTotal = localStorage.getItem('am_bingo_total');
     if (savedTotal) setTotalHunts(parseInt(savedTotal));
 
-    const fetchUserStats = async () => {
-      if (memProfileStats && memUserProfile) {
-        setIsLoggedIn(true);
-      }
+    const { data: { user } } = await supabase.auth.getUser();
 
-      const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      setIsLoggedIn(true);
+      const fallbackName = user.user_metadata?.username || 'Reader';
 
-      if (user) {
-        setIsLoggedIn(true);
-        const fallbackName = user.user_metadata?.username || 'Reader';
+      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+      
+      let myRank: string | number = "---";
+      let myScore = 0;
 
-        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-        
-        let myRank: string | number = "---";
-        let myScore = 0;
-
+      try {
         const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: user.id });
         if (myRankData && myRankData.length > 0) {
           myRank = Number(myRankData[0].rank);
           myScore = Number(myRankData[0].score);
         }
-
-        if (data) {
-          const isUserPremium = data.is_premium || false;
-          const userHypesLeft = data.super_hypes_left ?? (isUserPremium ? 3 : 1);
-
-          const newStats = { 
-            total_hypes: data.total_hypes || 0, 
-            super_hypes: userHypesLeft, 
-            quick_reacts: data.quick_reacts || 0, 
-            chapters_read: data.chapters_read || 0, 
-            rank: myRank as string, 
-            score: data.fandom_score || myScore || 0, 
-            hypes_remaining: userHypesLeft 
-          };
-          setProfileStats(newStats);
-          memProfileStats = newStats; 
-          
-          setIsSubscriber(isUserPremium);
-          
-          // Normalize topFive to exactly 5 elements without string "null"
-          let rawTopFive = (data.top_five || []).map((item: any) => (item === 'null' || !item ? null : item));
-          while (rawTopFive.length < 5) {
-            rawTopFive.push(null);
-          }
-          rawTopFive = rawTopFive.slice(0, 5);
-
-          const loadedProfile = { 
-            ...userProfile, 
-            username: data.username || fallbackName, 
-            topFive: rawTopFive, 
-            cardSkin: data.card_skin || '', 
-            avatarUrl: data.avatar_url || '', 
-            frameId: data.avatar_frame_id || '' 
-          };
-          setUserProfile(loadedProfile);
-          setTempProfile(loadedProfile);
-          memUserProfile = loadedProfile; 
-        } else {
-          setUserProfile({ ...userProfile, username: fallbackName });
-          setTempProfile({ ...userProfile, username: fallbackName });
-        }
-      } else {
-        setIsLoggedIn(false);
-        setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] });
+      } catch {
+        // Fallback rank calculation
       }
-    };
+
+      if (data) {
+        if (myRank === "---" || isNaN(Number(myRank))) {
+          const { count } = await supabase
+            .from('profiles')
+            .select('*', { count: 'exact', head: true })
+            .gt('fandom_score', data.fandom_score || 0);
+          myRank = (count || 0) + 1;
+        }
+
+        const isUserPremium = Boolean(data.is_premium);
+        const userHypesLeft = data.super_hypes_left ?? data.hypes_remaining ?? (isUserPremium ? 3 : 1);
+
+        const newStats = { 
+          total_hypes: data.total_hypes || 0, 
+          super_hypes: userHypesLeft, 
+          quick_reacts: data.quick_reacts || 0, 
+          chapters_read: data.chapters_read || 0, 
+          rank: myRank as string, 
+          score: data.fandom_score ?? myScore ?? 0, 
+          hypes_remaining: userHypesLeft 
+        };
+        setProfileStats(newStats);
+        memProfileStats = newStats; 
+        
+        setIsSubscriber(isUserPremium);
+        
+        let rawTopFive = (data.top_five || []).map((item: any) => (item === 'null' || !item ? null : item));
+        while (rawTopFive.length < 5) {
+          rawTopFive.push(null);
+        }
+        rawTopFive = rawTopFive.slice(0, 5);
+
+        const loadedProfile = { 
+          username: data.username || fallbackName, 
+          topFive: rawTopFive, 
+          cardSkin: data.card_skin || '', 
+          avatarUrl: data.avatar_url || '', 
+          frameId: data.avatar_frame_id || '' 
+        };
+        setUserProfile(loadedProfile);
+        setTempProfile(loadedProfile);
+        memUserProfile = loadedProfile; 
+      }
+    } else {
+      setIsLoggedIn(false);
+      setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] });
+    }
+  }, []);
+
+  useEffect(() => {
     fetchUserStats();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(() => fetchUserStats());
-    return () => authListener.subscription.unsubscribe();
-  }, []);
+    const { data: authListener } = supabase.auth.onAuthStateChange(() => {
+      setTimeout(() => fetchUserStats(), 0);
+    });
+
+    window.addEventListener('profileUpdated', fetchUserStats);
+    return () => {
+      authListener.subscription.unsubscribe();
+      window.removeEventListener('profileUpdated', fetchUserStats);
+    };
+  }, [fetchUserStats]);
 
   const openEditor = (targetTab = 'faves', slotIndex: number | null = null) => {
     if (!isLoggedIn) {

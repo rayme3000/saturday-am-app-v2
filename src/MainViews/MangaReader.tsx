@@ -153,6 +153,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const currentPageRef = useRef(currentPage);
   const activeUserRef = useRef(userId || currentUser?.id);
   const isComponentMounted = useRef(true);
+  const hasRecordedChapterCompletion = useRef(false);
   
   const lastNavTime = useRef(0);
   
@@ -182,6 +183,56 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
   const fallbackChapter = chapter || { 
     chapter_number: title?.match(/\d+/)?.[0] || '1' 
   };
+
+  // Reset completion guard when switching chapters
+  useEffect(() => {
+    hasRecordedChapterCompletion.current = false;
+  }, [chapterId]);
+
+  const recordCompletedChapterRead = useCallback(async () => {
+    const activeUserId = activeUserRef.current;
+    if (!activeUserId || !chapterId || hasRecordedChapterCompletion.current) return;
+    hasRecordedChapterCompletion.current = true;
+
+    try {
+      const { data: existingRead } = await supabase
+        .from('completed_reads')
+        .select('id')
+        .eq('user_id', activeUserId)
+        .eq('chapter_id', chapterId)
+        .maybeSingle();
+
+      if (!existingRead) {
+        await supabase.from('completed_reads').insert([{ user_id: activeUserId, chapter_id: chapterId }]);
+
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('fandom_score, chapters_read')
+          .eq('id', activeUserId)
+          .maybeSingle();
+
+        if (profileData) {
+          await supabase
+            .from('profiles')
+            .update({
+              fandom_score: (profileData.fandom_score || 0) + 10,
+              chapters_read: (profileData.chapters_read || 0) + 1
+            })
+            .eq('id', activeUserId);
+          window.dispatchEvent(new Event('profileUpdated'));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to record completed chapter read:", err);
+    }
+  }, [chapterId]);
+
+  // Automatically record completion when user reaches the last page of the chapter
+  useEffect(() => {
+    if (!isLoadingProgress && pages.length > 0 && currentPage >= pages.length - 1) {
+      recordCompletedChapterRead();
+    }
+  }, [currentPage, pages.length, isLoadingProgress, recordCompletedChapterRead]);
 
   useEffect(() => {
     const fetchAds = async () => {
@@ -336,19 +387,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       return;
     }
 
+    // qr.submitReact handles inserting into page_reacts and incrementing quick_reacts (+1) & fandom_score (+2)
     await qr.submitReact(...args);
-    if (activeUserId) {
-      supabase.from('profiles').select('fandom_score, quick_reacts').eq('id', activeUserId).maybeSingle().then(({ data }) => {
-        if (data) {
-          supabase.from('profiles').update({ 
-            fandom_score: (data.fandom_score || 0) + 2,
-            quick_reacts: (data.quick_reacts || 0) + 1
-          }).eq('id', activeUserId).then(() => {
-             window.dispatchEvent(new Event('profileUpdated'));
-          });
-        }
-      });
-    }
   };
 
   const handleClose = useCallback(async (e?: any) => {
@@ -541,40 +581,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
 
   // --- STABILIZED END OF CHAPTER PROMPT ---
   const EndOfChapterPrompt = () => {
-    const hasRecorded = useRef(false);
-
     useEffect(() => {
-      const activeUserId = activeUserRef.current;
-      if (!activeUserId || !chapterId || hasRecorded.current) return;
-      hasRecorded.current = true;
-
-      supabase.from('completed_reads')
-        .select('id')
-        .eq('user_id', activeUserId)
-        .eq('chapter_id', chapterId)
-        .maybeSingle()
-        .then(({ data }) => {
-          if (!data) {
-            supabase.from('completed_reads')
-              .insert([{ user_id: activeUserId, chapter_id: chapterId }])
-              .then();
-
-            supabase.from('profiles')
-              .select('fandom_score, chapters_read')
-              .eq('id', activeUserId)
-              .maybeSingle()
-              .then(({ data: profileData }) => {
-                if (profileData) {
-                  supabase.from('profiles').update({
-                    fandom_score: (profileData.fandom_score || 0) + 10,
-                    chapters_read: (profileData.chapters_read || 0) + 1
-                  }).eq('id', activeUserId).then(() => {
-                    window.dispatchEvent(new Event('profileUpdated'));
-                  });
-                }
-              });
-          }
-        });
+      recordCompletedChapterRead();
     }, []);
 
     return (
@@ -893,6 +901,14 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
              currentUser={currentUser}
              onRequireAuth={() => {
                triggerAuthUpsell("Create a free account to drop Smart Comments, reactions, and hype your favorite moments!");
+             }}
+             onRequirePremium={() => {
+               setUpsellModal({
+                 title: "Pro Custom Reactions",
+                 message: "Typing custom text reactions on manga pages is an exclusive perk for Saturday AM+ members ($1.99/mo)!",
+                 target: 'sub',
+                 buttonText: "Upgrade to Pro ($1.99)"
+               });
              }}
            />
         )}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { HypeButton } from '../Components/HypeButton';
 import { Search, Heart, PenTool, X, CheckCircle2, ArrowUpDown } from 'lucide-react';
@@ -120,7 +120,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
   const processedCreators = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    let result = creators.filter(c =>
+    const result = creators.filter(c =>
       !q ||
       c.name.toLowerCase().includes(q) ||
       c.role.toLowerCase().includes(q) ||
@@ -146,14 +146,25 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
     setDonationStep('processing');
     setTimeout(async () => {
       try {
-        const points = donationAmount * 100;
-        const { data: profile } = await supabase.from('profiles').select('total_hypes').eq('id', currentUser.id).single();
+        const bonusFandomPoints = donationAmount * 5;
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('fandom_score, creator_supports')
+          .eq('id', currentUser.id)
+          .maybeSingle();
+
         if (profile) {
-          await supabase.from('profiles').update({ total_hypes: (profile.total_hypes || 0) + points }).eq('id', currentUser.id);
+          await supabase
+            .from('profiles')
+            .update({
+              fandom_score: (profile.fandom_score || 0) + bonusFandomPoints,
+              creator_supports: (profile.creator_supports || 0) + 1
+            })
+            .eq('id', currentUser.id);
           window.dispatchEvent(new Event('profileUpdated'));
         }
       } catch (e) {
-        console.error("Donation simulation error:", e);
+        console.error("Donation update error:", e);
       }
       setDonationStep('success');
     }, 1800);
@@ -292,7 +303,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                   </div>
                 </div>
 
-                {/* Center / Right Section: Expanded Works Strip (Pinned to Top to prevent head clipping) */}
+                {/* Center / Right Section: Expanded Works Strip */}
                 {creator.works.length > 0 && (
                   <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-1 shrink-0 max-w-full md:max-w-[340px] lg:max-w-[460px]">
                     <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 hidden xl:block shrink-0">

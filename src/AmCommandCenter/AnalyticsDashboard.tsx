@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Activity, Users, Crown, BookOpen, RefreshCw, TrendingUp, Calendar, Clock, UserCheck, ArrowUp, ArrowDown, ShoppingCart, MousePointerClick, Globe, AlertTriangle, Flame, MessageSquare, Eye, Filter, Award } from 'lucide-react';
 import { supabase } from '../supabase';
+import { useSeriesData } from '../userSeriesData';
 
 const calculateTrend = (current: number, past: number) => {
   if (past === 0) {
@@ -32,7 +33,7 @@ const SqlTrendBadge = ({ pct }: { pct: number }) => {
   const isPositive = Number(pct) > 0;
   
   return (
-    <span className={`text-[10px] font-black flex items-center gap-0.5 ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+    <span className={`text-[10px] font-black flex items-center gap-0.5 justify-center ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
       {isPositive ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
       {Math.abs(Number(pct)).toFixed(1)}%
     </span>
@@ -44,7 +45,7 @@ export const AdminLeaderboardHistory = () => {
   const [isLoading, setIsLoading] = useState(true);
   
   const [periodType, setPeriodType] = useState<'weekly' | 'monthly'>('weekly');
-  const [category, setCategory] = useState<'chapter' | 'character'>('chapter');
+  const [category, setCategory] = useState<'chapter' | 'character' | 'series' | 'creators' | 'fans'>('chapter');
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,6 +65,9 @@ export const AdminLeaderboardHistory = () => {
       setHistoryDocs(data);
       if (data.length > 0) setSelectedSnapshotId(data[0].id);
       else setSelectedSnapshotId(null);
+    } else {
+      setHistoryDocs([]);
+      setSelectedSnapshotId(null);
     }
     setIsLoading(false);
   };
@@ -88,13 +92,13 @@ export const AdminLeaderboardHistory = () => {
         <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-1 shrink-0">
           <button 
             onClick={() => handlePeriodChange('weekly')}
-            className={`px-6 py-2 text-xs font-black uppercase tracking-widest rounded-md transition-colors ${periodType === 'weekly' ? 'bg-[#fe9a00] text-black' : 'text-zinc-500 hover:text-white'}`}
+            className={`px-6 py-2 text-xs font-black uppercase tracking-widest rounded-md transition-colors cursor-pointer ${periodType === 'weekly' ? 'bg-[#fe9a00] text-black' : 'text-zinc-500 hover:text-white'}`}
           >
             Weekly
           </button>
           <button 
             onClick={() => handlePeriodChange('monthly')}
-            className={`px-6 py-2 text-xs font-black uppercase tracking-widest rounded-md transition-colors ${periodType === 'monthly' ? 'bg-[#fe9a00] text-black' : 'text-zinc-500 hover:text-white'}`}
+            className={`px-6 py-2 text-xs font-black uppercase tracking-widest rounded-md transition-colors cursor-pointer ${periodType === 'monthly' ? 'bg-[#fe9a00] text-black' : 'text-zinc-500 hover:text-white'}`}
           >
             Monthly
           </button>
@@ -110,14 +114,16 @@ export const AdminLeaderboardHistory = () => {
             <div className="flex flex-col gap-2">
               {periodType === 'weekly' ? (
                 <>
-                  <button onClick={() => setCategory('chapter')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border ${category === 'chapter' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Most Hype Chapters</button>
-                  <button onClick={() => setCategory('character')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border ${category === 'character' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Top Characters</button>
+                  <button onClick={() => setCategory('chapter')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border cursor-pointer ${category === 'chapter' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Most Hype Chapters</button>
+                  <button onClick={() => setCategory('series')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border cursor-pointer ${category === 'series' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Most Hype Series</button>
+                  <button onClick={() => setCategory('character')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border cursor-pointer ${category === 'character' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Top Characters</button>
+                  <button onClick={() => setCategory('creators')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border cursor-pointer ${category === 'creators' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Top Creators</button>
                 </>
               ) : (
                 <>
-                  <button onClick={() => setCategory('series')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border ${category === 'series' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Big 3 Series</button>
-                  <button onClick={() => setCategory('creators')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border ${category === 'creators' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Big 3 Creators</button>
-                  <button onClick={() => setCategory('fans')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border ${category === 'fans' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Top Fans</button>
+                  <button onClick={() => setCategory('series')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border cursor-pointer ${category === 'series' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Big 3 Series</button>
+                  <button onClick={() => setCategory('creators')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border cursor-pointer ${category === 'creators' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Big 3 Creators</button>
+                  <button onClick={() => setCategory('fans')} className={`py-3 px-4 rounded-lg text-xs font-black uppercase tracking-widest transition-colors text-left border cursor-pointer ${category === 'fans' ? 'bg-zinc-800 border-[#fe9a00] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>Top Fans</button>
                 </>
               )}
             </div>
@@ -140,7 +146,7 @@ export const AdminLeaderboardHistory = () => {
                     <button 
                       key={doc.id}
                       onClick={() => setSelectedSnapshotId(doc.id)}
-                      className={`p-3 rounded-lg text-xs font-bold transition-colors text-left border ${isActive ? 'bg-zinc-800 border-zinc-600 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'}`}
+                      className={`p-3 rounded-lg text-xs font-bold transition-colors text-left border cursor-pointer ${isActive ? 'bg-zinc-800 border-zinc-600 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'}`}
                     >
                       Ending: {endDate}
                     </button>
@@ -156,7 +162,7 @@ export const AdminLeaderboardHistory = () => {
             <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
               <h3 className="text-lg font-black uppercase tracking-widest flex items-center gap-2">
                 <Award className="w-5 h-5 text-[#fe9a00]" /> 
-                {category === 'chapter' ? 'Top Chapters' : category === 'character' ? 'Top Characters' : category === 'series' ? 'Big 3 Series' : category === 'creators' ? 'Big 3 Creators' : 'Top Fans'}
+                {category === 'chapter' ? 'Top Chapters' : category === 'character' ? 'Top Characters' : category === 'series' ? 'Top Series' : category === 'creators' ? 'Top Creators' : 'Top Fans'}
               </h3>
               {activeSnapshot && (
                 <span className="text-[10px] text-zinc-500 font-bold tracking-widest uppercase">
@@ -230,6 +236,7 @@ export const AdminLeaderboardHistory = () => {
 };
 
 export const AnalyticsDashboard = () => {
+  const { seriesList = [] } = useSeriesData();
   const [activeTab, setActiveTab] = useState<'global' | 'series' | 'leaderboards'>('global');
   const [isLoading, setIsLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null); 
@@ -238,48 +245,248 @@ export const AnalyticsDashboard = () => {
   const [seriesStats, setSeriesStats] = useState<any[]>([]);
   const [telemetryStats, setTelemetryStats] = useState<any>(null);
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setIsLoading(true);
     setDbError(null);
     try {
-      const { data: globalData, error: globalErr } = await supabase.rpc('get_advanced_app_health');
-      if (globalErr) setDbError(prev => (prev ? prev + ' | ' : '') + 'Global Error: ' + globalErr.message);
-      else if (globalData) setGlobalStats(globalData);
+      // Fetch RPCs + Live Ground-Truth Tables using safe select('*') so missing optional columns never fail
+      const [
+        globalRpcRes,
+        seriesRpcRes,
+        telemetryRpcRes,
+        profilesRes,
+        seriesTableRes,
+        chaptersTableRes,
+        readingHistoryRes,
+        completedReadsRes,
+        hypesRes,
+        superHypesRes,
+        pageReactsRes,
+        seriesCommentsRes,
+        seriesLikesRes
+      ] = await Promise.all([
+        supabase.rpc('get_advanced_app_health'),
+        supabase.rpc('get_series_health_analytics'),
+        supabase.rpc('get_telemetry_stats'),
+        supabase.from('profiles').select('*'),
+        supabase.from('series').select('*'),
+        supabase.from('chapters').select('id, series_slug'),
+        supabase.from('reading_history').select('*'),
+        supabase.from('completed_reads').select('*'),
+        supabase.from('hypes').select('*'),
+        supabase.from('super_hypes').select('*'),
+        supabase.from('page_reacts').select('*'),
+        supabase.from('series_comments').select('*'),
+        supabase.from('series_likes').select('*')
+      ]);
 
-      const { data: seriesData, error: seriesErr } = await supabase.rpc('get_series_health_analytics');
-      if (seriesErr) setDbError(prev => (prev ? prev + ' | ' : '') + 'Series Error: ' + seriesErr.message);
-      // Ensure we ALWAYS set an array to prevent .map crashes
-      else if (seriesData) setSeriesStats(Array.isArray(seriesData) ? seriesData : []);
+      // --- 1. COMPUTE VERIFIED GLOBAL HEALTH ---
+      const profiles = profilesRes.data || [];
+      const totalUsersLive = profiles.length;
+      const premiumUsersLive = profiles.filter((p: any) => p.is_premium).length;
+      const freeUsersLive = Math.max(0, totalUsersLive - premiumUsersLive);
 
-      const { data: tData } = await supabase.rpc('get_telemetry_stats');
-      if (tData) setTelemetryStats(tData);
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfYesterday = new Date(startOfToday);
+      startOfYesterday.setDate(startOfToday.getDate() - 1);
+
+      const startOfWeek = new Date(startOfToday);
+      startOfWeek.setDate(startOfToday.getDate() - 7);
+      const startOfLastWeek = new Date(startOfWeek);
+      startOfLastWeek.setDate(startOfWeek.getDate() - 7);
+
+      const startOfMonth = new Date(startOfToday);
+      startOfMonth.setDate(startOfToday.getDate() - 30);
+      const startOfLastMonth = new Date(startOfMonth);
+      startOfLastMonth.setDate(startOfMonth.getDate() - 30);
+
+      const startOfQuarter = new Date(startOfToday);
+      startOfQuarter.setDate(startOfToday.getDate() - 90);
+      const startOfLastQuarter = new Date(startOfQuarter);
+      startOfLastQuarter.setDate(startOfQuarter.getDate() - 90);
+
+      const startOfYear = new Date(startOfToday);
+      startOfYear.setDate(startOfToday.getDate() - 365);
+      const startOfLastYear = new Date(startOfYear);
+      startOfLastYear.setDate(startOfYear.getDate() - 365);
+
+      const historyRows = readingHistoryRes.data || [];
+      const completedRows = completedReadsRes.data || [];
+      const readEvents = historyRows.length >= completedRows.length
+        ? historyRows.map((r: any) => new Date(r.updated_at || r.created_at || now))
+        : completedRows.map((r: any) => new Date(r.created_at || now));
+
+      const active30dSet = new Set<string>();
+      historyRows.forEach((r: any) => {
+        if (r.user_id && r.updated_at && new Date(r.updated_at) >= startOfMonth) {
+          active30dSet.add(r.user_id);
+        }
+      });
+
+      const countBetween = (start: Date, end?: Date) =>
+        readEvents.filter(d => d >= start && (!end || d < end)).length;
+
+      const sumProfileReads = profiles.reduce((acc: number, p: any) => acc + (Number(p.chapters_read) || 0), 0);
+      const liveReadsLifetime = Math.max(readEvents.length, completedRows.length, sumProfileReads);
+
+      const rpcGlobal = globalRpcRes.data || {};
+      setGlobalStats({
+        total_users: Math.max(Number(rpcGlobal.total_users || 0), totalUsersLive),
+        premium_users: premiumUsersLive,
+        free_users: Math.max(Number(rpcGlobal.total_users || 0) - premiumUsersLive, freeUsersLive),
+        active_30d: Math.max(Number(rpcGlobal.active_30d || 0), active30dSet.size),
+        reads_today: Math.max(Number(rpcGlobal.reads_today || 0), countBetween(startOfToday)),
+        reads_yesterday: Math.max(Number(rpcGlobal.reads_yesterday || 0), countBetween(startOfYesterday, startOfToday)),
+        reads_week: Math.max(Number(rpcGlobal.reads_week || 0), countBetween(startOfWeek)),
+        reads_last_week: Math.max(Number(rpcGlobal.reads_last_week || 0), countBetween(startOfLastWeek, startOfWeek)),
+        reads_month: Math.max(Number(rpcGlobal.reads_month || 0), countBetween(startOfMonth)),
+        reads_last_month: Math.max(Number(rpcGlobal.reads_last_month || 0), countBetween(startOfLastMonth, startOfMonth)),
+        reads_quarter: Math.max(Number(rpcGlobal.reads_quarter || 0), countBetween(startOfQuarter)),
+        reads_last_quarter: Math.max(Number(rpcGlobal.reads_last_quarter || 0), countBetween(startOfLastQuarter, startOfQuarter)),
+        reads_year: Math.max(Number(rpcGlobal.reads_year || 0), countBetween(startOfYear)),
+        reads_last_year: Math.max(Number(rpcGlobal.reads_last_year || 0), countBetween(startOfLastYear, startOfYear)),
+        reads_lifetime: Math.max(Number(rpcGlobal.reads_lifetime || 0), liveReadsLifetime)
+      });
+
+      // --- 2. COMPUTE VERIFIED SERIES HEALTH ---
+      const chaptersList = chaptersTableRes.data || [];
+      const chapToSeries = new Map<string, string>();
+      chaptersList.forEach((c: any) => chapToSeries.set(String(c.id), c.series_slug));
+
+      const readsPerSeries: Record<string, number> = {};
+      const currentMonthReadsPerSeries: Record<string, number> = {};
+      const lastMonthReadsPerSeries: Record<string, number> = {};
+
+      historyRows.forEach((r: any) => {
+        const slug = chapToSeries.get(String(r.chapter_id));
+        if (slug) {
+          readsPerSeries[slug] = (readsPerSeries[slug] || 0) + 1;
+          const dt = new Date(r.updated_at || r.created_at || now);
+          if (dt >= startOfMonth) currentMonthReadsPerSeries[slug] = (currentMonthReadsPerSeries[slug] || 0) + 1;
+          else if (dt >= startOfLastMonth && dt < startOfMonth) lastMonthReadsPerSeries[slug] = (lastMonthReadsPerSeries[slug] || 0) + 1;
+        }
+      });
+
+      completedRows.forEach((r: any) => {
+        const slug = chapToSeries.get(String(r.chapter_id));
+        if (slug && !readsPerSeries[slug]) {
+          readsPerSeries[slug] = (readsPerSeries[slug] || 0) + 1;
+        }
+      });
+
+      const hypesPerSeries: Record<string, number> = {};
+      (superHypesRes.data || []).forEach((sh: any) => {
+        if (sh.series_slug) hypesPerSeries[sh.series_slug] = (hypesPerSeries[sh.series_slug] || 0) + 1;
+      });
+      (hypesRes.data || []).forEach((h: any) => {
+        if (h.target_type === 'series' && h.target_id) {
+          hypesPerSeries[h.target_id] = (hypesPerSeries[h.target_id] || 0) + 1;
+        } else if (h.target_type === 'chapter' && h.target_id) {
+          const slug = chapToSeries.get(String(h.target_id));
+          if (slug) hypesPerSeries[slug] = (hypesPerSeries[slug] || 0) + 1;
+        }
+      });
+      (seriesLikesRes.data || []).forEach((sl: any) => {
+        if (sl.series_slug) hypesPerSeries[sl.series_slug] = (hypesPerSeries[sl.series_slug] || 0) + 1;
+      });
+
+      const reactsPerSeries: Record<string, number> = {};
+      (pageReactsRes.data || []).forEach((pr: any) => {
+        const slug = chapToSeries.get(String(pr.chapter_id));
+        if (slug) reactsPerSeries[slug] = (reactsPerSeries[slug] || 0) + 1;
+      });
+
+      const commentsPerSeries: Record<string, number> = {};
+      (seriesCommentsRes.data || []).forEach((sc: any) => {
+        if (sc.series_slug) commentsPerSeries[sc.series_slug] = (commentsPerSeries[sc.series_slug] || 0) + 1;
+      });
+
+      const rpcSeriesArray = Array.isArray(seriesRpcRes.data) ? seriesRpcRes.data : [];
+      const rpcSeriesMap = new Map<string, any>();
+      rpcSeriesArray.forEach((s: any) => {
+        if (s.series_slug || s.slug) rpcSeriesMap.set(s.series_slug || s.slug, s);
+      });
+
+      // Use seriesTableRes.data OR fallback to useSeriesData().seriesList OR rpcSeriesArray so it is never empty!
+      const rawSeriesSource =
+        (seriesTableRes.data && seriesTableRes.data.length > 0)
+          ? seriesTableRes.data
+          : (seriesList && seriesList.length > 0)
+            ? seriesList
+            : rpcSeriesArray;
+
+      const visibleSeries = rawSeriesSource.filter((s: any) => s.is_hidden !== true);
+
+      const mergedSeriesStats = visibleSeries.map((s: any) => {
+        const slug = s.slug || s.series_slug;
+        const rpcItem = rpcSeriesMap.get(slug) || {};
+
+        const totalReads = Math.max(Number(rpcItem.total_reads || 0), readsPerSeries[slug] || 0);
+        const pageVisits = Math.max(Number(rpcItem.page_visits || 0), totalReads);
+        const totalHypes = Math.max(
+          Number(rpcItem.total_hypes || 0),
+          hypesPerSeries[slug] || 0,
+          Number(s.total_hype || s.hype_count || 0)
+        );
+        const totalReacts = Math.max(Number(rpcItem.total_reacts || 0), reactsPerSeries[slug] || 0);
+        const totalComments = Math.max(Number(rpcItem.total_comments || 0), commentsPerSeries[slug] || 0);
+        const ctr = pageVisits > 0 ? Math.min(100, (totalReads / pageVisits) * 100) : Number(rpcItem.ctr_percentage || 0);
+
+        const curM = currentMonthReadsPerSeries[slug] || 0;
+        const lastM = lastMonthReadsPerSeries[slug] || 0;
+        const liveTrend = lastM > 0 ? ((curM - lastM) / lastM) * 100 : (curM > 0 ? 100 : 0);
+        const trendPct = rpcItem.trend_percentage !== undefined && Number(rpcItem.trend_percentage) !== 0
+          ? Number(rpcItem.trend_percentage)
+          : liveTrend;
+
+        return {
+          series_slug: slug,
+          title: s.title || rpcItem.title || 'Unknown Series',
+          cover_url: s.cover_url || rpcItem.cover_url,
+          trend_percentage: trendPct,
+          page_visits: pageVisits,
+          total_reads: totalReads,
+          ctr_percentage: ctr,
+          total_hypes: totalHypes,
+          total_reacts: totalReacts,
+          total_comments: totalComments
+        };
+      }).sort((a: any, b: any) => (b.total_reads + b.total_hypes * 5 + b.total_reacts * 2 + b.total_comments * 3) - (a.total_reads + a.total_hypes * 5 + a.total_reacts * 2 + a.total_comments * 3));
+
+      setSeriesStats(mergedSeriesStats);
+
+      if (telemetryRpcRes.data) {
+        setTelemetryStats(telemetryRpcRes.data);
+      }
     } catch (error: any) {
       console.error("Analytics Error:", error);
       setDbError(error.message || "Unknown error occurred.");
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [seriesList]);
 
   useEffect(() => {
     fetchAnalytics();
 
     const subscription = supabase.channel('realtime_analytics')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reading_history' }, () => {
-        setGlobalStats((prev: any) => prev ? { 
-            ...prev, 
-            reads_today: prev.reads_today + 1,
-            reads_week: prev.reads_week + 1,
-            reads_month: prev.reads_month + 1,
-            reads_quarter: prev.reads_quarter + 1,
-            reads_year: prev.reads_year + 1,
-            reads_lifetime: prev.reads_lifetime + 1 
-        } : prev);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reading_history' }, () => {
+        fetchAnalytics();
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'completed_reads' }, () => {
+        fetchAnalytics();
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'hypes' }, () => {
+        fetchAnalytics();
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'super_hypes' }, () => {
+        fetchAnalytics();
       })
       .subscribe();
 
     return () => { supabase.removeChannel(subscription); };
-  }, []);
+  }, [fetchAnalytics]);
 
   if (isLoading) {
     return (
@@ -313,15 +520,15 @@ export const AnalyticsDashboard = () => {
           <Activity className="w-6 h-6 text-[#fe9a00]" />
           <h2 className="text-2xl font-black uppercase italic tracking-widest text-[#fe9a00]">Analytics Engine</h2>
         </div>
-        <button onClick={fetchAnalytics} className="flex items-center gap-2 text-zinc-500 hover:text-white text-[10px] font-black uppercase tracking-widest transition-colors">
+        <button onClick={fetchAnalytics} className="flex items-center gap-2 text-zinc-500 hover:text-white text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer">
           <RefreshCw className="w-3 h-3" /> Refresh
         </button>
       </div>
 
       <div className="flex flex-wrap bg-black p-1 rounded-lg mb-8 border border-zinc-800 max-w-lg gap-1">
-        <button onClick={() => setActiveTab('global')} className={`flex-1 min-w-[100px] py-2.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'global' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>Global Health</button>
-        <button onClick={() => setActiveTab('series')} className={`flex-1 min-w-[100px] py-2.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'series' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>Series Health</button>
-        <button onClick={() => setActiveTab('leaderboards')} className={`flex-1 min-w-[120px] py-2.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-colors ${activeTab === 'leaderboards' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>Leaderboard Archive</button>
+        <button onClick={() => setActiveTab('global')} className={`flex-1 min-w-[100px] py-2.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer ${activeTab === 'global' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>Global Health</button>
+        <button onClick={() => setActiveTab('series')} className={`flex-1 min-w-[100px] py-2.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer ${activeTab === 'series' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>Series Health</button>
+        <button onClick={() => setActiveTab('leaderboards')} className={`flex-1 min-w-[120px] py-2.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer ${activeTab === 'leaderboards' ? 'bg-[#fe9a00] text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>Leaderboard Archive</button>
       </div>
 
       {activeTab === 'global' && globalStats && (

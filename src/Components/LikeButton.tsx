@@ -83,16 +83,24 @@ export const LikeButton = ({ targetType, targetId, userId, initialCount = 0, bon
 
     try {
       if (newLikedState) {
-        await supabase.from(tableName).insert([{ user_id: userId, [targetColumn]: targetString }]);
-      } else {
-        await supabase.from(tableName).delete().match({ user_id: userId, [targetColumn]: targetString });
-      }
-      
-      supabase.from('profiles').select('fandom_score').eq('id', userId).maybeSingle().then(({ data }) => {
-        if (data && newLikedState) {
-          supabase.from('profiles').update({ fandom_score: (data.fandom_score || 0) + 1 }).eq('id', userId).then();
+        const { error: insertErr } = await supabase.from(tableName).insert([{ user_id: userId, [targetColumn]: targetString }]);
+        if (!insertErr) {
+          const { data } = await supabase.from('profiles').select('fandom_score').eq('id', userId).maybeSingle();
+          if (data) {
+            await supabase.from('profiles').update({ fandom_score: (data.fandom_score || 0) + 1 }).eq('id', userId);
+            window.dispatchEvent(new Event('profileUpdated'));
+          }
         }
-      });
+      } else {
+        const { error: deleteErr } = await supabase.from(tableName).delete().match({ user_id: userId, [targetColumn]: targetString });
+        if (!deleteErr) {
+          const { data } = await supabase.from('profiles').select('fandom_score').eq('id', userId).maybeSingle();
+          if (data) {
+            await supabase.from('profiles').update({ fandom_score: Math.max(0, (data.fandom_score || 0) - 1) }).eq('id', userId);
+            window.dispatchEvent(new Event('profileUpdated'));
+          }
+        }
+      }
     } catch (error) {
       console.error("Error saving like to database:", error);
     }

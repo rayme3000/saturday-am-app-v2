@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { X, Share2, Copy, CheckCircle2, Image as ImageIcon } from 'lucide-react';
 import { supabase } from '../supabase';
 
+const MAX_DAILY_REWARDED_SHARES = 3;
+
 export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targetImage }: any) => {
   const [copied, setCopied] = useState(false);
+  const [rewardMessage, setRewardMessage] = useState<string | null>(null);
+  const isAwardingRef = useRef(false);
 
   if (!isOpen) return null;
 
@@ -12,11 +16,11 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
   const targetSlug = series?.slug || 'app';
   const trackingParams = currentUser?.id ? `?ref=${currentUser.id}&slug=${targetSlug}` : '';
   const baseTargetUrl = isAppShare 
-    ? `https://saturday-am-app-v2.pages.dev/${trackingParams}`
-    : `https://saturday-am-app-v2.pages.dev/series/${series.slug}${trackingParams}`;
+    ? `https://www.mangahype.com/${trackingParams}`
+    : `https://www.mangahype.com/series/${series.slug}${trackingParams}`;
   
   const finalShareUrl = targetImage 
-    ? `https://saturday-am-app-v2.pages.dev/share?panel=${encodeURIComponent(targetImage)}&target=${encodeURIComponent(baseTargetUrl)}`
+    ? `https://www.mangahype.com/share?panel=${encodeURIComponent(targetImage)}&target=${encodeURIComponent(baseTargetUrl)}`
     : baseTargetUrl;
 
   const chapterText = chapter ? `Chapter ${chapter.chapter_number} of ` : '';
@@ -29,25 +33,55 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
   const threadsLink = `https://www.threads.net/intent/post?text=${encodedText}`;
   const fbLink = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(finalShareUrl)}`;
 
-  // Award +5 Fandom Points when user triggers a share
+  // Anti-Exploit Share Point Awarder:
+  // Max 1 reward per unique target per day, capped at MAX_DAILY_REWARDED_SHARES (3) per day
   const awardSharePoints = async () => {
-    if (!currentUser?.id) return;
+    if (!currentUser?.id || isAwardingRef.current) return;
+
+    const todayKey = new Date().toISOString().split('T')[0];
+    const targetIdentifier = `${targetSlug}_${chapter?.id || chapter?.chapter_number || 'main'}_${targetImage ? 'panel' : 'link'}`;
+    const storageKey = `am_share_rewards_${currentUser.id}_${todayKey}`;
+
+    let rewardedTargets: string[] = [];
+    try {
+      rewardedTargets = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    } catch {
+      rewardedTargets = [];
+    }
+
+    // Block point farming if user already shared this exact item today or hit the daily cap
+    if (rewardedTargets.includes(targetIdentifier) || rewardedTargets.length >= MAX_DAILY_REWARDED_SHARES) {
+      return;
+    }
+
+    isAwardingRef.current = true;
     try {
       const { data: profile } = await supabase
         .from('profiles')
-        .select('fandom_score')
+        .select('fandom_score, shares')
         .eq('id', currentUser.id)
         .maybeSingle();
 
       if (profile) {
+        const updatedTargets = [...rewardedTargets, targetIdentifier];
+        localStorage.setItem(storageKey, JSON.stringify(updatedTargets));
+
         await supabase
           .from('profiles')
-          .update({ fandom_score: (profile.fandom_score || 0) + 5 })
+          .update({
+            fandom_score: (profile.fandom_score || 0) + 5,
+            shares: (profile.shares || 0) + 1
+          })
           .eq('id', currentUser.id);
+
+        setRewardMessage('+5 Fandom Points Earned!');
+        setTimeout(() => setRewardMessage(null), 3000);
         window.dispatchEvent(new Event('profileUpdated'));
       }
     } catch (e) {
       console.error("Error awarding share points:", e);
+    } finally {
+      isAwardingRef.current = false;
     }
   };
 
@@ -72,11 +106,17 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
         <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
           {targetImage ? "Share Manga Panel" : "Spread the Hype"}
         </h2>
-        <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed mb-6">
+        <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed mb-4">
           {targetImage 
             ? "This panel is too epic to keep to yourself! Share it with your followers." 
             : `Share this ${isAppShare ? 'app' : 'series'} with your friends and fellow manga fans!`}
         </p>
+
+        {rewardMessage && (
+          <div className="mb-4 px-3 py-1.5 bg-[#fe9a00]/15 border border-[#fe9a00]/50 rounded-full text-[#fe9a00] text-[10px] font-black uppercase tracking-widest animate-fade-in">
+            {rewardMessage}
+          </div>
+        )}
 
         <div className="flex flex-col gap-3 w-full">
           

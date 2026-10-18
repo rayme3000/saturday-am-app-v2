@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Trophy, Crown, Star, Zap, Activity, TrendingUp, Calendar, Users, MessageSquare, PenTool, BookOpen, Library, User } from 'lucide-react';
+import { ArrowLeft, Trophy, Crown, Star, Zap, Activity, TrendingUp, Calendar, Users, PenTool, BookOpen, Library, User } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
@@ -39,6 +39,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         const lastSaturday = new Date(now);
         lastSaturday.setDate(now.getDate() - ((now.getDay() + 1) % 7));
         lastSaturday.setHours(0, 0, 0, 0);
+        const lastSaturdayIso = lastSaturday.toISOString();
 
         // 1. TOP SUPPORTERS: RPC WITH AUTOMATIC LIFETIME BACKFILL (NEVER EMPTY)
         let finalFans: any[] = [];
@@ -132,63 +133,82 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setUserRank({ rank: myRank, score: myScore, class: myClass });
         }
 
-        // 3. BIG 3 MONTHLY SERIES
-        const { data: superHypes } = await supabase.from('super_hypes').select('series_slug');
+        // 3. BIG 3 MONTHLY SERIES (Super Hypes + Total Hype Fallback)
+        const { data: superHypes } = await supabase.from('super_hypes').select('series_slug, created_at');
         if (seriesList.length > 0) {
           const hypeCounts: Record<string, number> = {};
           (superHypes || []).forEach((h: any) => { 
-            hypeCounts[h.series_slug] = (hypeCounts[h.series_slug] || 0) + 1; 
+            if (h.series_slug) {
+              hypeCounts[h.series_slug] = (hypeCounts[h.series_slug] || 0) + 10;
+            }
           });
 
           const rankedBig3 = seriesList
             .filter((s: any) => !s.is_hidden)
-            .map((s: any) => ({ ...s, hypeScore: hypeCounts[s.slug] || s.hype_count || 0 }))
+            .map((s: any) => ({
+              ...s,
+              hypeScore: (hypeCounts[s.slug] || 0) + (s.total_hype || s.hype_count || 0)
+            }))
             .sort((a: any, b: any) => b.hypeScore - a.hypeScore);
 
           setBig3(rankedBig3.slice(0, 3));
         }
 
-        // 4. WEEKLY SERIES HYPES
-        const { data: weeklySeriesHypes } = await supabase
-          .from('hypes')
-          .select('target_id, series_slug, created_at')
-          .eq('target_type', 'series')
-          .gte('created_at', lastSaturday.toISOString());
+        // 4. WEEKLY SERIES HYPES (Combines Weekly Super Hypes + Weekly Series Hypes + Weekly Series Likes)
+        const [weeklySeriesHypesRes, weeklySeriesLikesRes] = await Promise.all([
+          supabase.from('hypes').select('target_id, created_at').eq('target_type', 'series').gte('created_at', lastSaturdayIso),
+          supabase.from('series_likes').select('series_slug, created_at').gte('created_at', lastSaturdayIso)
+        ]);
 
         if (seriesList.length > 0) {
           const seriesWeeklyMap: Record<string, number> = {};
-          (weeklySeriesHypes || []).forEach((h: any) => {
-            const key = h.series_slug || h.target_id;
-            if (key) seriesWeeklyMap[key] = (seriesWeeklyMap[key] || 0) + 1;
+
+          // Count weekly super_hypes
+          (superHypes || []).forEach((sh: any) => {
+            if (sh.series_slug && (!sh.created_at || sh.created_at >= lastSaturdayIso)) {
+              seriesWeeklyMap[sh.series_slug] = (seriesWeeklyMap[sh.series_slug] || 0) + 10;
+            }
+          });
+
+          // Count weekly standard series hypes
+          (weeklySeriesHypesRes.data || []).forEach((h: any) => {
+            const key = h.target_id;
+            if (key) seriesWeeklyMap[key] = (seriesWeeklyMap[key] || 0) + 5;
+          });
+
+          // Count weekly series likes
+          (weeklySeriesLikesRes.data || []).forEach((l: any) => {
+            if (l.series_slug) {
+              seriesWeeklyMap[l.series_slug] = (seriesWeeklyMap[l.series_slug] || 0) + 1;
+            }
           });
 
           const weeklyRankedSeries = [...seriesList]
             .filter((s: any) => !s.is_hidden)
             .map((s: any) => ({ 
               ...s, 
-              hypeScore: seriesWeeklyMap[s.slug] || s.weekly_hype || 0 
+              hypeScore: Math.max(seriesWeeklyMap[s.slug] || 0, s.weekly_hype || 0)
             }))
             .sort((a, b) => b.hypeScore - a.hypeScore);
 
           setTopSeries(weeklyRankedSeries.slice(0, 5));
         }
 
-        // 5. WEEKLY CREATOR HYPES
-        const { data: allCreatorHypes } = await supabase
-          .from('hypes')
-          .select('target_id, created_at')
-          .eq('target_type', 'creator')
-          .gte('created_at', lastSaturday.toISOString());
+        // 5. WEEKLY CREATOR HYPES (+ Likes)
+        const [allCreatorHypesRes, allCreatorLikesRes, allCreatorsDataRes] = await Promise.all([
+          supabase.from('hypes').select('target_id, created_at').eq('target_type', 'creator').gte('created_at', lastSaturdayIso),
+          supabase.from('creator_likes').select('creator_id, created_at').gte('created_at', lastSaturdayIso),
+          supabase.from('series_creators').select('name, avatar_url, role, series_slug').eq('is_visible', true)
+        ]);
 
-        const { data: allCreatorsData } = await supabase
-          .from('series_creators')
-          .select('name, avatar_url, role, series_slug')
-          .eq('is_visible', true);
-        
+        const allCreatorsData = allCreatorsDataRes.data;
         if (allCreatorsData) {
           const creatorHypeCounts: Record<string, number> = {};
-          (allCreatorHypes || []).forEach((h: any) => { 
-            creatorHypeCounts[h.target_id] = (creatorHypeCounts[h.target_id] || 0) + 1; 
+          (allCreatorHypesRes.data || []).forEach((h: any) => { 
+            creatorHypeCounts[h.target_id] = (creatorHypeCounts[h.target_id] || 0) + 5; 
+          });
+          (allCreatorLikesRes.data || []).forEach((l: any) => {
+            creatorHypeCounts[l.creator_id] = (creatorHypeCounts[l.creator_id] || 0) + 1;
           });
           
           const uniqueCreatorsMap = new Map();
@@ -204,22 +224,21 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setTopCreators(rankedCreators);
         }
 
-        // 6. WEEKLY CHARACTER HYPES
-        const { data: allCharHypes } = await supabase
-          .from('hypes')
-          .select('target_id, created_at')
-          .eq('target_type', 'character')
-          .gte('created_at', lastSaturday.toISOString());
+        // 6. WEEKLY CHARACTER HYPES (+ Likes)
+        const [allCharHypesRes, allCharLikesRes, allCharsDataRes] = await Promise.all([
+          supabase.from('hypes').select('target_id, created_at').eq('target_type', 'character').gte('created_at', lastSaturdayIso),
+          supabase.from('character_likes').select('character_id, created_at').gte('created_at', lastSaturdayIso),
+          supabase.from('series_characters').select('id, name, headshot_url, series_slug').eq('is_hidden', false)
+        ]);
 
-        const { data: allCharsData } = await supabase
-          .from('series_characters')
-          .select('id, name, headshot_url, series_slug')
-          .eq('is_hidden', false);
-        
+        const allCharsData = allCharsDataRes.data;
         if (allCharsData) {
           const charHypeCounts: Record<string, number> = {};
-          (allCharHypes || []).forEach((h: any) => { 
-            charHypeCounts[h.target_id] = (charHypeCounts[h.target_id] || 0) + 1; 
+          (allCharHypesRes.data || []).forEach((h: any) => { 
+            charHypeCounts[String(h.target_id)] = (charHypeCounts[String(h.target_id)] || 0) + 5; 
+          });
+          (allCharLikesRes.data || []).forEach((l: any) => {
+            charHypeCounts[String(l.character_id)] = (charHypeCounts[String(l.character_id)] || 0) + 1;
           });
           
           const rankedChars = allCharsData
@@ -233,18 +252,26 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setTopCharacters(rankedChars);
         }
 
-        // 7. WEEKLY TOP CHAPTERS
-        const [chapterHypesRes, chapterLikesRes] = await Promise.all([
-          supabase.from('hypes').select('target_id').eq('target_type', 'chapter').gte('created_at', lastSaturday.toISOString()),
-          supabase.from('chapter_likes').select('chapter_id').gte('created_at', lastSaturday.toISOString())
+        // 7. WEEKLY TOP CHAPTERS (Combines Chapter Hypes + Chapter Likes + Smart Comments / Quick Reacts + Completed Reads)
+        const [chapterHypesRes, chapterLikesRes, chapterReactsRes, chapterReadsRes] = await Promise.all([
+          supabase.from('hypes').select('target_id').eq('target_type', 'chapter').gte('created_at', lastSaturdayIso),
+          supabase.from('chapter_likes').select('chapter_id').gte('created_at', lastSaturdayIso),
+          supabase.from('page_reacts').select('chapter_id').gte('created_at', lastSaturdayIso),
+          supabase.from('reading_history').select('chapter_id').gte('updated_at', lastSaturdayIso)
         ]);
 
         const chapterInteractionCounts: Record<string, number> = {};
         (chapterHypesRes.data || []).forEach((h: any) => { 
-          chapterInteractionCounts[h.target_id] = (chapterInteractionCounts[h.target_id] || 0) + 1; 
+          if (h.target_id) chapterInteractionCounts[h.target_id] = (chapterInteractionCounts[h.target_id] || 0) + 5; 
         });
         (chapterLikesRes.data || []).forEach((l: any) => { 
-          chapterInteractionCounts[l.chapter_id] = (chapterInteractionCounts[l.chapter_id] || 0) + 1; 
+          if (l.chapter_id) chapterInteractionCounts[l.chapter_id] = (chapterInteractionCounts[l.chapter_id] || 0) + 2; 
+        });
+        (chapterReactsRes.data || []).forEach((r: any) => {
+          if (r.chapter_id) chapterInteractionCounts[r.chapter_id] = (chapterInteractionCounts[r.chapter_id] || 0) + 2;
+        });
+        (chapterReadsRes.data || []).forEach((rd: any) => {
+          if (rd.chapter_id) chapterInteractionCounts[rd.chapter_id] = (chapterInteractionCounts[rd.chapter_id] || 0) + 1;
         });
 
         const trendingChapIds = Object.keys(chapterInteractionCounts);
@@ -282,7 +309,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             .eq('target_type', 'creator');
 
           (monthlyCreatorHypes || []).forEach((h: any) => {
-            combinedCreatorScores[h.target_id] = (combinedCreatorScores[h.target_id] || 0) + 1;
+            combinedCreatorScores[h.target_id] = (combinedCreatorScores[h.target_id] || 0) + 5;
           });
 
           const seriesToCreatorMap: Record<string, string> = {};
@@ -292,7 +319,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           (superHypes || []).forEach((h: any) => {
             const creatorName = seriesToCreatorMap[h.series_slug];
             if (creatorName) {
-              combinedCreatorScores[creatorName] = (combinedCreatorScores[creatorName] || 0) + 1;
+              combinedCreatorScores[creatorName] = (combinedCreatorScores[creatorName] || 0) + 10;
             }
           });
 

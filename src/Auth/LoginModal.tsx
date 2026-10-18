@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
 import { X, Eye, EyeOff, CheckCircle, Key } from 'lucide-react';
 import { containsProfanity } from '../profanityFilter';
@@ -23,13 +23,18 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Track where mouse down started so dragging text inside an input to the backdrop never closes the modal
+  const mouseDownOnBackdrop = useRef(false);
+
   const handleClose = () => {
     if (onClose) onClose();
     else if (onBack) onBack();
   };
 
   const handleAuthSuccess = () => {
-    window.dispatchEvent(new Event('profileUpdated'));
+    setTimeout(() => {
+      window.dispatchEvent(new Event('profileUpdated'));
+    }, 50);
     if (onSuccess) onSuccess();
     if (onLogin) onLogin();
     if (onClose) onClose();
@@ -42,18 +47,6 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
       setAccessCode(savedCode);
       setIsSignUp(true);
     }
-  }, []);
-
-  useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        window.dispatchEvent(new Event('profileUpdated'));
-      }
-    });
-
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
   }, []);
 
   const handleEmailSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -337,7 +330,15 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
     <>
       <div
         className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in"
-        onClick={handleClose}
+        onMouseDown={(e) => {
+          mouseDownOnBackdrop.current = e.target === e.currentTarget;
+        }}
+        onClick={(e) => {
+          if (mouseDownOnBackdrop.current && e.target === e.currentTarget) {
+            handleClose();
+          }
+          mouseDownOnBackdrop.current = false;
+        }}
       >
         <div
           className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm relative shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar"

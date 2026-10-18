@@ -54,7 +54,14 @@ export const useQuickReacts = (chapterId: string, currentPage: number, currentUs
     if (!textToSubmit || !chapterId) return;
     
     const safeText = cleanText(textToSubmit);
-    const newReactPayload = { chapter_id: chapterId, page_index: currentPage, user_id: currentUser.id, user_name: currentUser.name, avatar_url: currentUser.avatar, text: safeText };
+    const newReactPayload = {
+      chapter_id: chapterId,
+      page_index: currentPage,
+      user_id: currentUser.id,
+      user_name: currentUser.name,
+      avatar_url: currentUser.avatar,
+      text: safeText
+    };
     const tempId = Date.now();
     
     setLocalComments(prev => [...prev, { id: tempId, pageIndex: currentPage, user: currentUser.name, avatar: currentUser.avatar, text: safeText }]);
@@ -62,15 +69,30 @@ export const useQuickReacts = (chapterId: string, currentPage: number, currentUs
     setIsReactInputOpen(false);
 
     try {
-      const { data } = await supabase.from('page_reacts').insert([newReactPayload]).select().single();
+      const { data, error: insertErr } = await supabase.from('page_reacts').insert([newReactPayload]).select().single();
+      if (insertErr) throw insertErr;
       if (data) setLocalComments(prev => prev.map(c => c.id === tempId ? { ...c, id: data.id } : c));
       
-      const { data: profile } = await supabase.from('profiles').select('quick_reacts').eq('id', currentUser.id).single();
+      // Single authoritative update: +1 quick_reacts and +2 fandom_score
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('quick_reacts, fandom_score')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+
       if (profile) {
-        await supabase.from('profiles').update({ quick_reacts: (profile.quick_reacts || 0) + 1 }).eq('id', currentUser.id);
+        await supabase
+          .from('profiles')
+          .update({
+            quick_reacts: (profile.quick_reacts || 0) + 1,
+            fandom_score: (profile.fandom_score || 0) + 2
+          })
+          .eq('id', currentUser.id);
         window.dispatchEvent(new Event('profileUpdated'));
       }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error("Failed to save Smart Comment:", err);
+    }
   };
 
   const reportReact = async (reactId: any) => {

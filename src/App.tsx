@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
-import { ArrowUp, X, Lock, Share, Menu, Laptop, Smartphone, Download, Info } from 'lucide-react'; 
+import { ArrowUp, X, Lock, Share, Menu, Download, Info } from 'lucide-react'; 
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 
@@ -118,6 +118,7 @@ export default function App() {
   const [desktopShowHelp, setDesktopShowHelp] = useState(false);
 
   const isPopState = useRef(false);
+  const isFetchingProfile = useRef(false);
 
   useEffect(() => {
     window.history.replaceState({ view: currentView, series: selectedSeries }, '');
@@ -156,7 +157,7 @@ export default function App() {
 
   // --- AUTOMATIC PAGE VISIT UPSELL TRACKER ---
   useEffect(() => {
-    if (['sub', 'admin', 'settings', 'legal'].includes(currentView)) return;
+    if (['sub', 'admin', 'settings', 'legal'].includes(currentView) || showLogin) return;
 
     const rawVisits = sessionStorage.getItem('am_nav_counter') || '0';
     const nextVisits = parseInt(rawVisits, 10) + 1;
@@ -180,7 +181,7 @@ export default function App() {
         buttonText: 'Upgrade to Pro'
       });
     }
-  }, [currentView, userTier]);
+  }, [currentView, userTier, showLogin]);
 
   const handleIntroComplete = () => {
     localStorage.setItem('am_has_seen_intro', 'true');
@@ -189,18 +190,58 @@ export default function App() {
 
   useEffect(() => {
     const fetchUserProfile = async (sessionUser: any) => {
-      const fallbackName = sessionUser.user_metadata?.username || 'Reader';
-      const { data } = await supabase.from('profiles').select('*').eq('id', sessionUser.id).maybeSingle();
-      
-      if (data) {
-        setCurrentUser(data);
-        setUserTier(data.is_premium ? 'premium' : 'free');
-      } else {
-        setUserTier('free');
-        await supabase.from('profiles').insert([
-          { id: sessionUser.id, username: fallbackName, is_premium: false, super_hypes_left: 1 }
-        ]);
-        setCurrentUser({ username: fallbackName, avatar_url: '', frame_id: 'none', total_hypes: 0, super_hypes_left: 1 }); 
+      if (!sessionUser?.id || isFetchingProfile.current) return;
+      isFetchingProfile.current = true;
+
+      try {
+        const fallbackName = sessionUser.user_metadata?.username || 'Reader';
+        const fallbackPremium = Boolean(sessionUser.user_metadata?.is_premium);
+
+        // Immediately set optimistic user state so the UI never hangs waiting on DB
+        setCurrentUser((prev: any) => prev || {
+          id: sessionUser.id,
+          username: fallbackName,
+          avatar_url: '',
+          frame_id: 'none',
+          total_hypes: 0,
+          super_hypes_left: fallbackPremium ? 3 : 1,
+          is_premium: fallbackPremium
+        });
+        setUserTier((prev) => (prev === 'visitor' ? (fallbackPremium ? 'premium' : 'free') : prev));
+
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', sessionUser.id)
+          .maybeSingle();
+        
+        if (data) {
+          setCurrentUser(data);
+          setUserTier(data.is_premium ? 'premium' : 'free');
+        } else {
+          setUserTier(fallbackPremium ? 'premium' : 'free');
+          await supabase.from('profiles').upsert([
+            {
+              id: sessionUser.id,
+              username: fallbackName,
+              is_premium: fallbackPremium,
+              super_hypes_left: fallbackPremium ? 3 : 1
+            }
+          ], { onConflict: 'id' });
+          setCurrentUser({
+            id: sessionUser.id,
+            username: fallbackName,
+            avatar_url: '',
+            frame_id: 'none',
+            total_hypes: 0,
+            super_hypes_left: fallbackPremium ? 3 : 1,
+            is_premium: fallbackPremium
+          }); 
+        }
+      } catch (err) {
+        console.error("Error fetching user profile:", err);
+      } finally {
+        isFetchingProfile.current = false;
       }
     };
 
@@ -226,7 +267,9 @@ export default function App() {
           avatar_url: e.detail.avatar_url
         }));
       } else {
-        checkSessionAndFetch();
+        setTimeout(() => {
+          checkSessionAndFetch();
+        }, 50);
       }
     };
     
@@ -238,6 +281,7 @@ export default function App() {
     window.addEventListener('profileUpdated', handleProfileUpdate);
     window.addEventListener('instantLogout', handleInstantLogout);
 
+    // Defer async DB calls with setTimeout(..., 0) so Supabase's internal auth lock never deadlocks on first login
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setShowPasswordReset(true);
@@ -246,8 +290,12 @@ export default function App() {
         setCurrentUser(null);
         setUserTier('visitor');
       } else if (session?.user) {
-        fetchUserProfile(session.user);
-      } else {
+        const user = session.user;
+        setShowLogin(false);
+        setTimeout(() => {
+          fetchUserProfile(user);
+        }, 0);
+      } else if (event === 'INITIAL_SESSION' && !session) {
         setCurrentUser(null);
         setUserTier('visitor');
       }
@@ -457,7 +505,7 @@ export default function App() {
         </div>
       )}
 
-      {upsellConfig && (
+      {upsellConfig && !showLogin && (
         <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
           <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
             <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
@@ -544,8 +592,8 @@ export default function App() {
         </button>
       )}
 
-      {/* COMPACT FLOATING INSTALL TOAST */}
-      {showInstallPrompt && !showIosPrompt && (
+      {/* COMPACT FLOATING INSTALL TOAST (HIDDEN IN ADMIN VIEW) */}
+      {showInstallPrompt && !showIosPrompt && currentView !== 'admin' && (
         <div className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[6000] bg-zinc-950/95 border border-[#fe9a00]/70 p-2.5 sm:p-3 rounded-xl shadow-[0_10px_35px_rgba(0,0,0,0.9)] flex flex-col gap-2 animate-fade-in backdrop-blur-xl">
           <div className="flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -586,8 +634,8 @@ export default function App() {
         </div>
       )}
 
-      {/* COMPACT IOS SAFARI PWA INSTALL BOTTOM SHEET */}
-      {showIosPrompt && (
+      {/* COMPACT IOS SAFARI PWA INSTALL BOTTOM SHEET (HIDDEN IN ADMIN VIEW) */}
+      {showIosPrompt && currentView !== 'admin' && (
         <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-4 sm:p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-3 animate-fade-in-up pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2.5">
