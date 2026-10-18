@@ -5,17 +5,6 @@ import { supabase } from '../supabase';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
-const HYPE_FLAME_URL = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Hype%20flame.png";
-
-const HypeFlameIcon = ({ className = "w-3.5 h-3.5" }: { className?: string }) => (
-  <img 
-    src={HYPE_FLAME_URL} 
-    alt="Hype" 
-    className={`${className} object-contain inline-block shrink-0 drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]`} 
-    style={{ filter: 'url(#hype-flame-color)' }}
-  />
-);
-
 const leaderboardTutorialSlides = [
   {
     id: 'leaderboard-1',
@@ -51,34 +40,99 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         lastSaturday.setDate(now.getDate() - ((now.getDay() + 1) % 7));
         lastSaturday.setHours(0, 0, 0, 0);
 
-        // 1. TOP SUPPORTERS
-        const { data: topFans, error: fansError } = await supabase.rpc('fetch_top_ten_fans');
-        if (topFans && !fansError) {
-          const formattedTop10 = topFans.map((fan: any, index: number) => {
-            let rankClass = 'C-Class Rank';
-            if (index < 3) rankClass = 'S-Class Rank';
-            else if (index < 6) rankClass = 'A-Class Rank';
-            else if (index < 9) rankClass = 'B-Class Rank';
-            return { ...fan, class: rankClass, score: Number(fan.score) };
-          });
-          setSuperFans(formattedTop10);
+        // 1. TOP SUPPORTERS: RPC WITH AUTOMATIC LIFETIME BACKFILL (NEVER EMPTY)
+        let finalFans: any[] = [];
+
+        try {
+          const { data: topFans, error: fansError } = await supabase.rpc('fetch_top_ten_fans');
+          if (topFans && !fansError && topFans.length > 0) {
+            finalFans = topFans.map((f: any, i: number) => ({
+              ...f,
+              rank: f.rank || i + 1,
+              score: Number(f.score || 0)
+            }));
+          }
+        } catch (rpcErr) {
+          console.warn("fetch_top_ten_fans RPC unavailable, falling back to profiles", rpcErr);
         }
 
-        // 2. PERSONAL USER RANK
-        if (currentUser?.id) {
-          const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: currentUser.id });
-          if (myRankData && myRankData.length > 0) {
-            const score = Number(myRankData[0].score);
-            const rank = Number(myRankData[0].rank);
-            let myClass = 'C-Class Rank';
-            if (rank <= 3) myClass = 'S-Class Rank';
-            else if (rank <= 10) myClass = 'A-Class Rank';
-            else if (rank <= 50) myClass = 'B-Class Rank';
-            setUserRank({ rank, score, class: myClass });
+        // Backfill remaining slots from profiles if fewer than 10
+        if (finalFans.length < 10) {
+          const existingIds = new Set(finalFans.map(f => f.id || f.user_id));
+          const slotsNeeded = 10 - finalFans.length;
+
+          const { data: fallbackProfiles } = await supabase
+            .from('profiles')
+            .select('id, username, avatar_url, avatar_frame_id, is_premium, fandom_score, quick_reacts, chapters_read')
+            .order('fandom_score', { ascending: false })
+            .limit(slotsNeeded + existingIds.size);
+
+          if (fallbackProfiles) {
+            const filtered = fallbackProfiles
+              .filter((p: any) => !existingIds.has(p.id))
+              .slice(0, slotsNeeded)
+              .map((p: any, idx: number) => ({
+                id: p.id,
+                username: p.username || 'Saturday Fan',
+                avatar_url: p.avatar_url || '',
+                frame_id: p.avatar_frame_id || 'none',
+                is_premium: p.is_premium || false,
+                score: p.fandom_score || 0,
+                rank: finalFans.length + idx + 1
+              }));
+
+            finalFans = [...finalFans, ...filtered];
           }
         }
 
-        // 3. BIG 3 MONTHLY SERIES (Super Hypes)
+        const formattedTop10 = finalFans.map((fan: any, index: number) => {
+          let rankClass = 'C-Class Rank';
+          if (index < 3) rankClass = 'S-Class Rank';
+          else if (index < 6) rankClass = 'A-Class Rank';
+          else if (index < 9) rankClass = 'B-Class Rank';
+          return { 
+            ...fan, 
+            rank: index + 1,
+            class: rankClass, 
+            score: Number(fan.score || fan.fandom_score || 0) 
+          };
+        });
+
+        setSuperFans(formattedTop10);
+
+        // 2. PERSONAL USER RANK
+        if (currentUser?.id) {
+          let myRank: number | null = null;
+          let myScore: number = 0;
+
+          try {
+            const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: currentUser.id });
+            if (myRankData && myRankData.length > 0) {
+              myScore = Number(myRankData[0].score);
+              myRank = Number(myRankData[0].rank);
+            }
+          } catch (e) { /* ignore */ }
+
+          if (myRank === null || isNaN(myRank)) {
+            const { data: myProfile } = await supabase.from('profiles').select('fandom_score').eq('id', currentUser.id).maybeSingle();
+            myScore = myProfile?.fandom_score || currentUser.fandom_score || 0;
+            
+            const { count } = await supabase
+              .from('profiles')
+              .select('*', { count: 'exact', head: true })
+              .gt('fandom_score', myScore);
+              
+            myRank = (count || 0) + 1;
+          }
+
+          let myClass = 'C-Class Rank';
+          if (myRank <= 3) myClass = 'S-Class Rank';
+          else if (myRank <= 10) myClass = 'A-Class Rank';
+          else if (myRank <= 50) myClass = 'B-Class Rank';
+          setUserRank({ rank: myRank, score: myScore, class: myClass });
+        }
+
+        // 3. BIG 3 MONTHLY SERIES
         const { data: superHypes } = await supabase.from('super_hypes').select('series_slug');
         if (seriesList.length > 0) {
           const hypeCounts: Record<string, number> = {};
@@ -288,9 +342,9 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
             <div 
               key={index} 
               onClick={(e) => type === 'series' && handleRouteToSeries(e, item)}
-              className={`flex items-center gap-4 bg-black/40 p-3 rounded-xl border transition-colors ${type === 'series' ? 'cursor-pointer hover:border-zinc-600 border-zinc-800/50' : 'border-transparent'}`}
+              className={`flex items-center gap-4 bg-black/40 p-3 rounded-xl border transition-colors ${type === 'series' ? 'cursor-pointer hover:border-zinc-600 border-zinc-800/50' : 'border-zinc-800/30'}`}
             >
-               <span className={`text-xl sm:text-2xl font-black italic w-6 sm:w-8 text-center ${index === 0 ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]' : index === 1 ? 'text-zinc-400' : index === 2 ? 'text-amber-700' : 'text-zinc-600'}`}>
+               <span className={`text-xl sm:text-2xl font-black italic w-6 sm:w-8 text-center shrink-0 ${index === 0 ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]' : index === 1 ? 'text-zinc-400' : index === 2 ? 'text-amber-700' : 'text-zinc-600'}`}>
                   {index + 1}
                </span>
                <div className={`w-12 h-12 sm:w-14 sm:h-14 overflow-hidden bg-zinc-800 shrink-0 border border-zinc-700 shadow-md ${type === 'character' ? 'rounded-full' : 'rounded-lg'}`}>
@@ -305,20 +359,15 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                     {type === 'creator' || type === 'character' ? item.name : 
                      type === 'chapter' ? `Ch. ${item.chapter_number} - ${item.title}` : item.title}
                   </span>
-                  {type === 'creator' && item.role && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{item.role}</span>}
-                  {type === 'character' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{item.series_title}</span>}
-                  {type === 'series' && item.creator_name && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{item.creator_name}</span>}
-                  {type === 'chapter' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">{item.series_title}</span>}
-               </div>
-               <div className="flex flex-col items-end shrink-0 pl-2">
-                  <span className="text-[11px] font-black text-[#fe9a00] flex items-center gap-1.5">
-                    <HypeFlameIcon className="w-3.5 h-3.5" /> {item.hypeScore || 0}
-                  </span>
+                  {type === 'creator' && item.role && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.role}</span>}
+                  {type === 'character' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.series_title}</span>}
+                  {type === 'series' && item.creator_name && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.creator_name}</span>}
+                  {type === 'chapter' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.series_title}</span>}
                </div>
             </div>
           )) : (
             <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest text-center py-8">
-              {activeTab === 'weekly' ? 'No hypes yet this week. Be the first!' : 'Not enough rankings data yet.'}
+              No rankings data yet for this category.
             </p>
           )}
        </div>
@@ -327,20 +376,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-32">
-      {/* SVG Color Filter: Remaps black to #fe9a00 while keeping white AM intact */}
-      <svg className="absolute w-0 h-0 pointer-events-none" aria-hidden="true">
-        <filter id="hype-flame-color" colorInterpolationFilters="sRGB">
-          <feColorMatrix
-            type="matrix"
-            values="
-              0.004  0      0      0.996  0
-              0      0.396  0      0.604  0
-              0      0      1      0      0
-              0      0      0      1      0"
-          />
-        </filter>
-      </svg>
-
       <FeatureTutorialModal 
         tutorialId="leaderboards_guide" 
         slides={leaderboardTutorialSlides} 
@@ -440,9 +475,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                             <img src={big3[1].sticker_url || big3[1].character_url || big3[1].cover_url} className="w-full h-full object-cover object-top" alt="Rank 2" />
                           </div>
                           <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3[1].title}</span>
-                          <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
-                            <HypeFlameIcon className="w-3 h-3" /> {big3[1].hypeScore}
-                          </span>
                         </div>
                       </button>
 
@@ -457,9 +489,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                             <img src={big3[0].sticker_url || big3[0].character_url || big3[0].cover_url} className="w-full h-full object-cover object-top" alt="Rank 1" />
                           </div>
                           <span className="mt-5 text-[10px] sm:text-xs font-black text-[#fe9a00] uppercase tracking-wider text-center line-clamp-2 drop-shadow-md">{big3[0].title}</span>
-                          <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
-                            <HypeFlameIcon className="w-3.5 h-3.5" /> {big3[0].hypeScore}
-                          </span>
                         </div>
                       </button>
 
@@ -474,9 +503,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                             <img src={big3[2].sticker_url || big3[2].character_url || big3[2].cover_url} className="w-full h-full object-cover object-top" alt="Rank 3" />
                           </div>
                           <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3[2].title}</span>
-                          <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
-                            <HypeFlameIcon className="w-3 h-3" /> {big3[2].hypeScore}
-                          </span>
                         </div>
                       </button>
                     </div>
@@ -503,9 +529,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                           <img src={big3Creators[1].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 2" />
                         </div>
                         <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3Creators[1].name}</span>
-                        <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
-                          <HypeFlameIcon className="w-3 h-3" /> {big3Creators[1].hypeScore}
-                        </span>
                       </div>
 
                       <div className="flex flex-col items-center w-[35%] z-30 transition-all group pb-8 relative">
@@ -514,9 +537,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                           <img src={big3Creators[0].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 1" />
                         </div>
                         <span className="mt-5 text-[10px] sm:text-xs font-black text-[#fe9a00] uppercase tracking-wider text-center line-clamp-2 drop-shadow-md">{big3Creators[0].name}</span>
-                        <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
-                          <HypeFlameIcon className="w-3.5 h-3.5" /> {big3Creators[0].hypeScore}
-                        </span>
                       </div>
 
                       <div className="flex flex-col items-center w-[30%] opacity-90 transition-all group">
@@ -525,9 +545,6 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                           <img src={big3Creators[2].avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} className="w-full h-full object-cover object-top" alt="Rank 3" />
                         </div>
                         <span className="mt-4 text-[9px] sm:text-[11px] font-black text-white uppercase tracking-wider text-center line-clamp-2">{big3Creators[2].name}</span>
-                        <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1 flex items-center justify-center gap-1">
-                          <HypeFlameIcon className="w-3 h-3" /> {big3Creators[2].hypeScore}
-                        </span>
                       </div>
                     </div>
                   ) : (
@@ -545,7 +562,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   <h2 className="text-xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2 pointer-events-none">
                     <Zap className="w-5 h-5 text-[#fe9a00]" /> Top 10 Supporters
                   </h2>
-                  <span className="text-[9px] text-zinc-500 font-bold tracking-widest uppercase pointer-events-none">Resets every 7 Days</span>
+                  <span className="text-[9px] text-zinc-500 font-bold tracking-widest uppercase pointer-events-none">Live Leaderboard • Updates Weekly</span>
                 </div>
 
                 <div className="flex flex-col gap-3">

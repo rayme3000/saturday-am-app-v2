@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
-import { ArrowUp, X, Lock, Share, Menu } from 'lucide-react'; 
+import { ArrowUp, X, Lock, Share, Menu, Laptop, Smartphone, Download, Info } from 'lucide-react'; 
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 
@@ -46,7 +46,7 @@ class AppErrorBoundary extends React.Component<any, any> {
         <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
           <h2 className="text-[#fe9a00] font-black text-3xl italic uppercase tracking-tighter mb-4">System Glitch</h2>
           <p className="text-zinc-400 font-bold mb-8 max-w-md">{this.state.error?.message || "An unexpected error occurred."}</p>
-          <button onClick={() => window.location.reload()} className="bg-[#fe9a00] text-black px-8 py-3 rounded-full font-black uppercase tracking-widest hover:bg-white transition-colors">Reboot Interface</button>
+          <button onClick={() => window.location.reload()} className="bg-[#fe9a00] text-black px-8 py-3 rounded-full font-black uppercase tracking-widest hover:bg-white transition-colors cursor-pointer">Reboot Interface</button>
         </div>
       );
     }
@@ -74,7 +74,7 @@ const ScrollToTopButton = () => {
   return (
     <button 
       onClick={scrollToTop} 
-      className="fixed right-6 z-50 p-3 bg-[#fe9a00] text-black rounded-full shadow-[0_0_15px_rgba(254,154,0,0.4)] hover:bg-white hover:scale-110 transition-all duration-300 group pb-[max(0.75rem,env(safe-area-inset-bottom))] bottom-[calc(6rem+env(safe-area-inset-bottom))]" 
+      className="fixed right-6 z-50 p-3 bg-[#fe9a00] text-black rounded-full shadow-[0_0_15px_rgba(254,154,0,0.4)] hover:bg-white hover:scale-110 transition-all duration-300 group pb-[max(0.75rem,env(safe-area-inset-bottom))] bottom-[calc(6rem+env(safe-area-inset-bottom))] cursor-pointer" 
       aria-label="Back to top"
     >
       <ArrowUp className="w-6 h-6 group-hover:-translate-y-1 transition-transform" />
@@ -115,6 +115,7 @@ export default function App() {
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [showIosPrompt, setShowIosPrompt] = useState(false); 
   const [isIOSDevice, setIsIOSDevice] = useState(false);
+  const [desktopShowHelp, setDesktopShowHelp] = useState(false);
 
   const isPopState = useRef(false);
 
@@ -161,7 +162,6 @@ export default function App() {
     const nextVisits = parseInt(rawVisits, 10) + 1;
     sessionStorage.setItem('am_nav_counter', nextVisits.toString());
 
-    // 1. Visitors: Every 3rd page visit -> Sign up for Free account
     if (userTier === 'visitor' && nextVisits % 3 === 0) {
       setUpsellConfig({
         title: 'Start Reading Free',
@@ -172,7 +172,6 @@ export default function App() {
       return;
     }
 
-    // 2. Free account holders: Every 5th page visit -> Upgrade to Pro
     if (userTier === 'free' && nextVisits % 5 === 0) {
       setUpsellConfig({
         title: 'Enjoying Saturday AM?',
@@ -261,35 +260,74 @@ export default function App() {
     };
   }, []);
 
+  // --- GUARANTEED PWA INSTALL PROMPT CONTROLLER ---
   useEffect(() => {
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || ('standalone' in navigator && (navigator as any).standalone);
+    const isStandalone = 
+      window.matchMedia('(display-mode: standalone)').matches || 
+      ('standalone' in navigator && (navigator as any).standalone) ||
+      document.referrer.includes('android-app://');
+
     if (isStandalone) return; 
+
+    const checkCooldown = (key: string) => {
+      const val = localStorage.getItem(key);
+      if (!val) return false;
+      if (val === 'true') {
+        localStorage.removeItem(key);
+        return false;
+      }
+      const time = Number(val);
+      if (isNaN(time)) return false;
+      return Date.now() - time < 24 * 60 * 60 * 1000;
+    };
 
     const userAgent = window.navigator.userAgent.toLowerCase();
     const isIOS = /iphone|ipad|ipod/.test(userAgent);
     setIsIOSDevice(isIOS);
 
     if (isIOS) {
-      const hasDismissed = localStorage.getItem('am_ios_prompt_dismissed');
-      if (!hasDismissed) {
-        const timer = setTimeout(() => setShowIosPrompt(true), 3000);
+      if (!checkCooldown('am_ios_prompt_dismissed')) {
+        const timer = setTimeout(() => setShowIosPrompt(true), 2000);
         return () => clearTimeout(timer);
       }
     } else {
-      const handleBeforeInstallPrompt = (e: any) => {
-        e.preventDefault();
+      if ((window as any).deferredPrompt) {
+        setDeferredPrompt((window as any).deferredPrompt);
+      }
+
+      const handleBeforeInstall = (e: any) => {
+        e.preventDefault?.();
+        (window as any).deferredPrompt = e;
         setDeferredPrompt(e);
-        const hasDismissed = localStorage.getItem('am_install_prompt_dismissed');
-        if (!hasDismissed) {
+        if (!checkCooldown('am_install_prompt_dismissed')) {
           setShowInstallPrompt(true);
         }
       };
 
-      window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      if ((window as any).deferredPrompt) {
-        handleBeforeInstallPrompt((window as any).deferredPrompt);
+      const handlePwaReady = () => {
+        if ((window as any).deferredPrompt) {
+          setDeferredPrompt((window as any).deferredPrompt);
+        }
+        if (!checkCooldown('am_install_prompt_dismissed')) {
+          setShowInstallPrompt(true);
+        }
+      };
+
+      window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.addEventListener('pwa-install-ready', handlePwaReady);
+
+      let timer: any = null;
+      if (!checkCooldown('am_install_prompt_dismissed')) {
+        timer = setTimeout(() => {
+          setShowInstallPrompt(true);
+        }, 2000);
       }
-      return () => { window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt); };
+
+      return () => { 
+        if (timer) clearTimeout(timer);
+        window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+        window.removeEventListener('pwa-install-ready', handlePwaReady);
+      };
     }
   }, []);
 
@@ -298,6 +336,7 @@ export default function App() {
       setShowInstallPrompt(false);
       setShowIosPrompt(false);
       setDeferredPrompt(null);
+      (window as any).deferredPrompt = null;
     };
     window.addEventListener('appinstalled', handleAppInstalled);
     return () => window.removeEventListener('appinstalled', handleAppInstalled);
@@ -306,24 +345,36 @@ export default function App() {
   const handleInstallClick = async () => {
     if (isIOSDevice) {
       setShowIosPrompt(true); 
-    } else if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setShowInstallPrompt(false);
+      setShowInstallPrompt(false);
+      return;
+    } 
+    
+    if (deferredPrompt) {
+      try {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          setShowInstallPrompt(false);
+        }
+      } catch (err) {
+        console.error("Install prompt error:", err);
       }
       setDeferredPrompt(null);
+      (window as any).deferredPrompt = null;
+    } else {
+      setDesktopShowHelp(prev => !prev);
     }
   };
 
   const dismissInstallPrompt = () => {
     setShowInstallPrompt(false);
-    localStorage.setItem('am_install_prompt_dismissed', 'true');
+    setDesktopShowHelp(false);
+    localStorage.setItem('am_install_prompt_dismissed', Date.now().toString());
   };
 
   const dismissIosPrompt = () => {
     setShowIosPrompt(false);
-    localStorage.setItem('am_ios_prompt_dismissed', 'true');
+    localStorage.setItem('am_ios_prompt_dismissed', Date.now().toString());
   };
 
   const handleNavigate = useCallback((data: any) => {
@@ -370,7 +421,7 @@ export default function App() {
         `}
       </style>
 
-      {/* SVG Color Filter: Remaps black to #fe9a00 while preserving pure white 'AM' */}
+      {/* SVG Color Filter */}
       <svg className="absolute w-0 h-0 pointer-events-none" aria-hidden="true">
         <filter id="hype-flame-color" colorInterpolationFilters="sRGB">
           <feColorMatrix
@@ -397,11 +448,11 @@ export default function App() {
       {showPasswordReset && (
         <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col shadow-2xl relative">
-            <button onClick={() => setShowPasswordReset(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
+            <button onClick={() => setShowPasswordReset(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
             <h2 className="text-2xl font-black italic uppercase text-[#fe9a00] mb-2">New Password</h2>
             <p className="text-xs text-zinc-400 font-bold mb-6">Enter your new password below.</p>
             <input type="password" placeholder="New Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full bg-black border border-zinc-700 text-white px-4 py-3 rounded-lg mb-4 focus:border-[#fe9a00] outline-none font-bold" />
-            <button onClick={async () => { const { error } = await supabase.auth.updateUser({ password: newPassword }); if (!error) { alert("Password updated successfully!"); setShowPasswordReset(false); setNewPassword(''); } else { alert(error.message); } }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">Save Password</button>
+            <button onClick={async () => { const { error } = await supabase.auth.updateUser({ password: newPassword }); if (!error) { alert("Password updated successfully!"); setShowPasswordReset(false); setNewPassword(''); } else { alert(error.message); } }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-lg hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer">Save Password</button>
           </div>
         </div>
       )}
@@ -431,9 +482,9 @@ export default function App() {
         </div>
       )}
 
-      <HamburgerMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} onNavigate={handleNavigate} onOpenFlexCard={() => setIsFlexCardOpen(true)} userTier={userTier} onUpsell={setUpsellConfig} currentUser={currentUser} canInstall={!!deferredPrompt || isIOSDevice} onInstall={handleInstallClick} onLoginClick={() => setShowLogin(true)} onShareClick={() => setShowGlobalShareModal(true)} />
+      <HamburgerMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} onNavigate={handleNavigate} onOpenFlexCard={() => setIsFlexCardOpen(true)} userTier={userTier} onUpsell={setUpsellConfig} currentUser={currentUser} canInstall={true} onInstall={handleInstallClick} onLoginClick={() => setShowLogin(true)} onShareClick={() => setShowGlobalShareModal(true)} />
 
-      {isFlexCardOpen && <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} />}
+      {isFlexCardOpen && <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} onNavigate={handleNavigate} />}
 
       <AppErrorBoundary>
         <Suspense fallback={
@@ -493,42 +544,67 @@ export default function App() {
         </button>
       )}
 
+      {/* COMPACT FLOATING INSTALL TOAST */}
       {showInstallPrompt && !showIosPrompt && (
-        <div className="fixed top-4 sm:top-6 left-1/2 -translate-x-1/2 w-[92%] max-w-md z-[6000] bg-zinc-900 border border-[#fe9a00] p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex items-center justify-between animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-black rounded-lg border border-zinc-700 p-1 flex items-center justify-center">
-              <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-full h-full object-contain" alt="Logo" />
+        <div className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[6000] bg-zinc-950/95 border border-[#fe9a00]/70 p-2.5 sm:p-3 rounded-xl shadow-[0_10px_35px_rgba(0,0,0,0.9)] flex flex-col gap-2 animate-fade-in backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 bg-black rounded-lg border border-zinc-700 p-0.5 flex items-center justify-center shrink-0">
+                <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-full h-full object-contain" alt="Logo" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-white font-black italic uppercase text-[11px] sm:text-xs tracking-wider leading-tight truncate">Saturday AM</span>
+                <span className="text-[#fe9a00] text-[9px] font-bold tracking-tight mt-0.5 truncate">For the best experience, install the app</span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <span className="text-white font-black italic uppercase text-sm tracking-widest leading-tight">Saturday AM</span>
-              <span className="text-[#fe9a00] text-[9px] font-bold uppercase tracking-widest mt-0.5">For the best experience, install the app</span>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button 
+                onClick={handleInstallClick} 
+                className="bg-[#fe9a00] hover:bg-white text-black px-3 py-1.5 rounded-lg font-black uppercase text-[9px] tracking-wider transition-all shadow-[0_0_10px_rgba(254,154,0,0.3)] cursor-pointer flex items-center gap-1"
+              >
+                <Download className="w-3 h-3" /> Install
+              </button>
+              <button 
+                onClick={dismissInstallPrompt} 
+                className="p-1 text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={dismissInstallPrompt} className="p-2 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-4 h-4" /></button>
-            <button onClick={handleInstallClick} className="bg-[#fe9a00] text-black px-4 py-2 rounded-full font-black uppercase text-[10px] tracking-widest hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)] cursor-pointer">Install</button>
-          </div>
+
+          {desktopShowHelp && (
+            <div className="bg-black/70 border border-zinc-800 p-2 rounded-lg text-[9px] text-zinc-400 font-bold leading-relaxed animate-fade-in flex items-start gap-1.5">
+              <Info className="w-3.5 h-3.5 text-[#fe9a00] shrink-0 mt-0.5" />
+              <span>
+                Look for the <strong className="text-white">Install icon</strong> in your browser's address bar or click Chrome menu (<strong className="text-white">⋮</strong>) &gt; <strong className="text-white">Install Saturday AM</strong>.
+              </span>
+            </div>
+          )}
         </div>
       )}
 
+      {/* COMPACT IOS SAFARI PWA INSTALL BOTTOM SHEET */}
       {showIosPrompt && (
-        <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-6 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-4 animate-fade-in-up pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-4 sm:p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-3 animate-fade-in-up pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-black rounded-xl border border-zinc-700 p-1.5 flex items-center justify-center shadow-inner">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-black rounded-lg border border-zinc-700 p-1 flex items-center justify-center shadow-inner shrink-0">
                 <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" className="w-full h-full object-contain" alt="Logo" />
               </div>
               <div className="flex flex-col">
-                <span className="text-white font-black italic uppercase text-sm tracking-widest leading-tight">Install App</span>
-                <span className="text-[#fe9a00] text-[10px] font-bold mt-0.5 leading-snug">For the best reading experience, install the app.</span>
+                <span className="text-white font-black italic uppercase text-xs tracking-wider leading-tight">Install App</span>
+                <span className="text-[#fe9a00] text-[9px] font-bold mt-0.5 leading-snug">For the best experience, install the app</span>
               </div>
             </div>
-            <button onClick={dismissIosPrompt} className="p-2 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors cursor-pointer"><X className="w-4 h-4" /></button>
+            <button onClick={dismissIosPrompt} className="p-1.5 text-zinc-500 hover:text-white bg-zinc-900 rounded-full transition-colors cursor-pointer shrink-0"><X className="w-3.5 h-3.5" /></button>
           </div>
           
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col gap-3">
-            <p className="text-xs text-zinc-300 font-bold flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">1</span>Tap the <Share className="w-4 h-4 text-[#fe9a00] mx-1" /> icon in your Safari menu bar</p>
-            <p className="text-xs text-zinc-300 font-bold flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[10px] font-black">2</span>Scroll down and select <strong className="text-white">"Add to Home Screen"</strong></p>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 flex flex-col gap-2">
+            <p className="text-[11px] text-zinc-300 font-bold flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[9px] font-black shrink-0">1</span>Tap the <Share className="w-3.5 h-3.5 text-[#fe9a00] mx-0.5 shrink-0" /> icon in your Safari menu bar</p>
+            <p className="text-[11px] text-zinc-300 font-bold flex items-center gap-2"><span className="w-4 h-4 rounded-full bg-[#fe9a00] text-black flex items-center justify-center text-[9px] font-black shrink-0">2</span>Scroll down and select <strong className="text-white">"Add to Home Screen"</strong></p>
           </div>
         </div>
       )}
