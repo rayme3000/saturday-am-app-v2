@@ -71,7 +71,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
       if (error) throw error;
       if (data?.url) {
-        window.location.href = data.url; // Redirects browser directly to Stripe Checkout
+        window.location.href = data.url;
       } else {
         throw new Error("No checkout URL returned from Stripe.");
       }
@@ -104,6 +104,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
   };
 
+  // --- UNIFIED CODE VALIDATOR & REDEEMER ---
   const handleRedeemCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!redeemCode.trim()) return;
@@ -111,39 +112,146 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     setRedeeming(true);
     const cleanCode = redeemCode.trim().toUpperCase();
 
-    // Securely check the code status first
-    const { data: codeStatus, error: statusError } = await supabase.rpc('check_premium_code_status', { 
-      code_to_test: cleanCode 
-    });
+    try {
+      let isValidCode = false;
+      let isAlreadyUsed = false;
+      let matchedSource: 'rpc_status' | 'ledger' | 'validate_rpc' | 'promo_table' | null = null;
+      let promoRowData: any = null;
 
-    if (statusError || codeStatus === 'INVALID') {
-      setAlertConfig({ type: 'error', title: 'Invalid Code', message: 'This access code is invalid. Please check and try again.' });
-      setRedeeming(false);
-      return;
-    }
+      // 1. Check via check_premium_code_status RPC
+      const { data: codeStatus, error: statusError } = await supabase.rpc('check_premium_code_status', {
+        code_to_test: cleanCode
+      });
 
-    if (codeStatus === 'USED') {
-      setAlertConfig({ type: 'error', title: 'Code Used', message: 'This premium code has already been redeemed.' });
-      setRedeeming(false);
-      return;
-    }
+      if (!statusError && (codeStatus === 'VALID' || codeStatus === 'UNUSED' || codeStatus === true)) {
+        isValidCode = true;
+        matchedSource = 'rpc_status';
+      } else if (!statusError && codeStatus === 'USED') {
+        isAlreadyUsed = true;
+      }
 
-    // Execute the redemption RPC to update their profile
-    const { error: redeemError } = await supabase.rpc('redeem_premium_code', {
-      promo_code: cleanCode
-    });
+      // 2. Fallback: Check against fetch_premium_ledger (same RPC used in AdminDashboard)
+      if (!isValidCode && !isAlreadyUsed) {
+        const { data: ledgerData } = await supabase.rpc('fetch_premium_ledger');
+        if (Array.isArray(ledgerData)) {
+          const foundInLedger = ledgerData.find(
+            (item: any) => String(item.code || '').trim().toUpperCase() === cleanCode
+          );
+          if (foundInLedger) {
+            if (foundInLedger.is_used) {
+              isAlreadyUsed = true;
+            } else {
+              isValidCode = true;
+              matchedSource = 'ledger';
+            }
+          }
+        }
+      }
 
-    if (redeemError) {
-      setAlertConfig({ type: 'error', title: 'Error', message: redeemError.message });
-    } else {
-      setAlertConfig({ type: 'success', title: 'Premium Unlocked!', message: 'Success! 1-Year Premium Access has been applied. Reloading your profile...' });
+      // 3. Fallback: Check validate_access_code RPC
+      if (!isValidCode && !isAlreadyUsed) {
+        const { data: valRes, error: valErr } = await supabase.rpc('validate_access_code', {
+          p_code: cleanCode
+        });
+        if (!valErr && valRes?.valid) {
+          isValidCode = true;
+          matchedSource = 'validate_rpc';
+        }
+      }
+
+      // 4. Fallback: Check standard promo_codes table
+      if (!isValidCode && !isAlreadyUsed) {
+        const { data: promoRow } = await supabase
+          .from('promo_codes')
+          .select('*')
+          .ilike('code', cleanCode)
+          .maybeSingle();
+
+        if (promoRow) {
+          const isExpired = promoRow.expires_at && new Date() > new Date(promoRow.expires_at);
+          const isDepleted = promoRow.max_uses && promoRow.times_used >= promoRow.max_uses;
+          if (isExpired || isDepleted) {
+            isAlreadyUsed = true;
+          } else {
+            isValidCode = true;
+            matchedSource = 'promo_table';
+            promoRowData = promoRow;
+          }
+        }
+      }
+
+      if (isAlreadyUsed) {
+        setAlertConfig({
+          type: 'error',
+          title: 'Code Used',
+          message: 'This premium code has already been redeemed or has expired.'
+        });
+        setRedeeming(false);
+        return;
+      }
+
+      if (!isValidCode) {
+        setAlertConfig({
+          type: 'error',
+          title: 'Invalid Code',
+          message: 'This access code is invalid. Please check and try again.'
+        });
+        setRedeeming(false);
+        return;
+      }
+
+      // Check if user is logged in
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        // Visitor entered a valid code -> store it and open Signup Modal with the code pre-filled!
+        localStorage.setItem('auto_fill_premium_code', cleanCode);
+        setRedeeming(false);
+        if (onLoginClick) onLoginClick();
+        return;
+      }
+
+      // Execute redemption for logged-in user
+      if (matchedSource === 'rpc_status' || matchedSource === 'ledger') {
+        await supabase.rpc('redeem_premium_code', { promo_code: cleanCode });
+      } else if (matchedSource === 'validate_rpc') {
+        await supabase.rpc('redeem_access_code', { p_code: cleanCode, p_user_id: user.id });
+      } else if (matchedSource === 'promo_table' && promoRowData) {
+        await supabase
+          .from('promo_codes')
+          .update({ times_used: (promoRowData.times_used || 0) + 1 })
+          .eq('id', promoRowData.id);
+      }
+
+      // Always ensure the user's profile is upgraded to Premium in the database
+      const { error: profileUpdateErr } = await supabase
+        .from('profiles')
+        .update({ is_premium: true, super_hypes_left: 3 })
+        .eq('id', user.id);
+
+      if (profileUpdateErr) {
+        throw profileUpdateErr;
+      }
+
+      window.dispatchEvent(new Event('profileUpdated'));
+      setAlertConfig({
+        type: 'success',
+        title: 'Premium Unlocked!',
+        message: 'Success! 1-Year Premium Access has been applied to your account.'
+      });
       setRedeemCode('');
       setTimeout(() => {
         window.location.reload();
-      }, 2500);
+      }, 2000);
+    } catch (err: any) {
+      setAlertConfig({
+        type: 'error',
+        title: 'Redemption Error',
+        message: err.message || 'An error occurred while redeeming your code.'
+      });
+    } finally {
+      setRedeeming(false);
     }
-    
-    setRedeeming(false);
   };
 
   return (

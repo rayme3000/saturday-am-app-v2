@@ -10,7 +10,7 @@ import { FrameMaker } from './FrameMaker';
 import { ModerationDashboard } from './ModerationDashboard';
 import { UserManager } from './UserManager';
 import { supabase } from '../supabase';
-import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users, ShieldAlert, Download, Loader2, Eye, EyeOff, Search } from 'lucide-react';
+import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users, ShieldAlert, Download, Loader2, Eye, EyeOff, Search, Tag } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
@@ -680,40 +680,46 @@ const IntegrationsManager = ({ setIsDirty }: any) => {
   );
 };
 
-// --- BATCH GENERATOR COMPONENT ---
-const PremiumCodeGenerator = ({ onGenerateSuccess }: { onGenerateSuccess: () => void }) => {
+// --- CONSOLIDATED 1-YEAR ANNUAL PRO CODE MANAGER (BATCH + CUSTOM BRANDED) ---
+const PromoCodeManager = () => {
+  const [batchCodes, setBatchCodes] = useState<any[]>([]);
+  const [brandedCodes, setBrandedCodes] = useState<any[]>([]);
+
+  // 1. Batch Generator State
   const [batchSize, setBatchSize] = useState<number | ''>('');
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchMessage, setBatchMessage] = useState('');
 
-  const handleGenerate = async () => {
-    if (!batchSize || batchSize <= 0) return;
-    setLoading(true);
-    setMessage('');
+  // 2. Custom-Branded Annual Code State
+  const [customCode, setCustomCode] = useState('');
+  const [maxUses, setMaxUses] = useState(1);
+  const [expireDays, setExpireDays] = useState(365);
+  const [isCreatingCustom, setIsCreatingCustom] = useState(false);
 
-    const { data, error } = await supabase.rpc('generate_premium_codes', {
-      batch_size: Number(batchSize)
-    });
+  // 3. Unified Ledger Filter & Distribution State
+  const [ledgerFilter, setLedgerFilter] = useState<'all' | 'batch' | 'branded'>('all');
+  const [ledgerSearch, setLedgerSearch] = useState('');
+  const [pendingSold, setPendingSold] = useState<Record<string, boolean>>({});
+  const [isSavingLedger, setIsSavingLedger] = useState(false);
 
-    if (error) {
-      console.error(error);
-      setMessage(`Error: ${error.message}`);
-      setLoading(false);
-      return;
-    }
+  const fetchAllAnnualCodes = async () => {
+    // Keep all existing 1-Year Batch Codes intact
+    const { data: pData } = await supabase.rpc('fetch_premium_ledger');
+    if (pData) setBatchCodes(pData);
 
-    if (data && data.length > 0) {
-      downloadCSV(data);
-      setMessage(`Successfully generated ${data.length} codes! CSV downloaded.`);
-      setBatchSize('');
-      
-      if (onGenerateSuccess) {
-        onGenerateSuccess();
-      }
-    }
-    setLoading(false);
+    // Fetch custom-branded codes
+    const { data: cData } = await supabase
+      .from('promo_codes')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (cData) setBrandedCodes(cData);
   };
 
+  useEffect(() => {
+    fetchAllAnnualCodes();
+  }, []);
+
+  // --- BATCH CSV GENERATION ---
   const downloadCSV = (codes: { generated_code: string }[]) => {
     const csvContent = "data:text/csv;charset=utf-8,"
       + "Premium Code\n"
@@ -728,88 +734,72 @@ const PremiumCodeGenerator = ({ onGenerateSuccess }: { onGenerateSuccess: () => 
     document.body.removeChild(link);
   };
 
-  return (
-    <div className="bg-black border border-[#fe9a00]/30 shadow-[0_0_30px_rgba(254,154,0,0.1)] p-6 rounded-xl mb-8">
-      <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-4">
-        <Download className="w-4 h-4" /> Batch Generate 1-Year Premium Codes
-      </h3>
-      <p className="text-zinc-400 text-xs font-bold mb-6">
-        Generate a batch of 1-year premium codes for the Shopify store. A CSV file will download automatically.
-      </p>
+  const handleBatchGenerate = async () => {
+    if (!batchSize || batchSize <= 0) return;
+    setBatchLoading(true);
+    setBatchMessage('');
 
-      <div className="flex gap-4">
-        <input
-          type="number"
-          min="1"
-          max="1000"
-          placeholder="Qty (e.g. 50)"
-          value={batchSize}
-          onChange={(e) => setBatchSize(e.target.value ? Number(e.target.value) : '')}
-          className="flex-1 bg-zinc-900 border border-zinc-700 p-4 rounded-xl text-white text-sm font-bold focus:outline-none focus:border-[#fe9a00] transition-colors"
-        />
-        <button
-          onClick={handleGenerate}
-          disabled={loading || !batchSize}
-          className="bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black px-8 rounded-xl font-black uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] disabled:opacity-50 flex items-center justify-center min-w-[150px]"
-        >
-          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Export CSV'}
-        </button>
-      </div>
+    const { data, error } = await supabase.rpc('generate_premium_codes', {
+      batch_size: Number(batchSize)
+    });
 
-      {message && (
-        <p className={`mt-4 text-xs font-bold ${message.includes('Error') ? 'text-red-500' : 'text-emerald-400'}`}>
-          {message}
-        </p>
-      )}
-    </div>
-  );
-};
+    if (error) {
+      console.error(error);
+      setBatchMessage(`Error: ${error.message}`);
+      setBatchLoading(false);
+      return;
+    }
 
-const PromoCodeManager = () => {
-  const [codes, setCodes] = useState<any[]>([]);
-  const [premiumCodes, setPremiumCodes] = useState<any[]>([]);
-  const [newCode, setNewCode] = useState('');
-  const [tier, setTier] = useState('free');
-  const [maxUses, setMaxUses] = useState(100);
-  const [expireDays, setExpireDays] = useState(7);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [pendingSold, setPendingSold] = useState<Record<string, boolean>>({});
-  const [isSavingLedger, setIsSavingLedger] = useState(false);
-
-  const fetchCodes = async () => {
-    const { data } = await supabase.from('promo_codes').select('*').order('created_at', { ascending: false });
-    if (data) setCodes(data);
-
-    const { data: pData } = await supabase.rpc('fetch_premium_ledger');
-    if (pData) setPremiumCodes(pData);
+    if (data && data.length > 0) {
+      downloadCSV(data);
+      setBatchMessage(`Successfully generated ${data.length} codes! CSV downloaded.`);
+      setBatchSize('');
+      fetchAllAnnualCodes();
+    }
+    setBatchLoading(false);
   };
 
-  useEffect(() => { fetchCodes(); }, []);
-
-  const generateRandom = () => {
-    setNewCode('BETA-' + Math.random().toString(36).substring(2, 8).toUpperCase());
+  // --- CUSTOM-BRANDED 1-YEAR CODE CREATION ---
+  const generateBrandedSuggestion = () => {
+    const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+    setCustomCode(`SATAM-PRO-${suffix}`);
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleCreateCustomAnnual = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCode) return alert("Please enter or generate a code.");
-    setIsSubmitting(true);
-    
+    const clean = customCode.trim().toUpperCase().replace(/\s+/g, '-');
+    if (!clean) return alert("Please enter a custom-branded code.");
+
+    setIsCreatingCustom(true);
+
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + Number(expireDays));
-    
-    const { error } = await supabase.from('promo_codes').insert([{ code: newCode.toUpperCase().trim(), tier, max_uses: maxUses, expires_at: expiresAt.toISOString() }]);
-    setIsSubmitting(false);
-    
-    if (error) alert("Error creating code: " + error.message);
-    else { alert('Access Key Generated!'); setNewCode(''); fetchCodes(); }
+    expiresAt.setDate(expiresAt.getDate() + Number(expireDays || 365));
+
+    // Always force tier: 'premium' so custom-branded codes unlock 1-Year Annual Pro
+    const { error } = await supabase.from('promo_codes').insert([{
+      code: clean,
+      tier: 'premium',
+      max_uses: Number(maxUses) || 1,
+      expires_at: expiresAt.toISOString()
+    }]);
+
+    setIsCreatingCustom(false);
+
+    if (error) {
+      alert("Error creating custom annual code: " + error.message);
+    } else {
+      alert(`Custom 1-Year Pro Code "${clean}" created!`);
+      setCustomCode('');
+      setMaxUses(1);
+      setExpireDays(365);
+      fetchAllAnnualCodes();
+    }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this access key?")) return;
+  const handleDeleteBranded = async (id: string, codeName: string) => {
+    if (!window.confirm(`Permanently delete custom code "${codeName}"?`)) return;
     const { error } = await supabase.from('promo_codes').delete().eq('id', id);
-    if (!error) fetchCodes();
+    if (!error) fetchAllAnnualCodes();
   };
 
   const handleSaveLedger = async () => {
@@ -821,162 +811,331 @@ const PromoCodeManager = () => {
       await supabase.rpc('update_premium_code_sold', { p_code: code, p_is_sold: is_sold });
     }
     setPendingSold({});
-    await fetchCodes();
+    await fetchAllAnnualCodes();
     setIsSavingLedger(false);
   };
 
   const hasPendingChanges = Object.keys(pendingSold).length > 0;
 
+  const filteredBatchCodes = useMemo(() => {
+    const q = ledgerSearch.trim().toUpperCase();
+    if (!q) return batchCodes;
+    return batchCodes.filter(c => String(c.code || '').toUpperCase().includes(q));
+  }, [batchCodes, ledgerSearch]);
+
+  const filteredBrandedCodes = useMemo(() => {
+    const q = ledgerSearch.trim().toUpperCase();
+    if (!q) return brandedCodes;
+    return brandedCodes.filter(c => String(c.code || '').toUpperCase().includes(q));
+  }, [brandedCodes, ledgerSearch]);
+
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl">
-      <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
-        <Key className="w-6 h-6 text-[#fe9a00]" />
-        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Access Key Generator</h2>
-      </div>
-
-      <PremiumCodeGenerator onGenerateSuccess={fetchCodes} />
-
-      <form onSubmit={handleCreate} className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-4">
-        <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-800 pb-2 mb-4">Generate Standard / Promo Codes</h3>
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Custom Code (or Random)</label>
-            <div className="flex gap-2">
-              <input type="text" value={newCode} onChange={e => setNewCode(e.target.value.toUpperCase())} required placeholder="e.g. VIP-ACCESS-99" className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg text-[#fe9a00] px-4 py-3 font-black tracking-widest text-sm focus:outline-none focus:border-[#fe9a00]" />
-              <button type="button" onClick={generateRandom} className="bg-zinc-800 text-white px-4 rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-zinc-700">Auto</button>
-            </div>
-          </div>
-          
-          <div className="w-full md:w-1/4">
-            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Access Tier</label>
-            <select value={tier} onChange={e => setTier(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]">
-              <option value="free">Standard (Free)</option>
-              <option value="premium">Premium (Pro)</option>
-            </select>
-          </div>
-
-          <div className="w-full md:w-1/4">
-            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Max Uses</label>
-            <input type="number" min="1" value={maxUses} onChange={e => setMaxUses(Number(e.target.value))} required className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]" />
-          </div>
-
-          <div className="w-full md:w-1/4">
-            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Valid For (Days)</label>
-            <input type="number" min="1" value={expireDays} onChange={e => setExpireDays(Number(e.target.value))} required className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]" />
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl animate-fade-in">
+      <div className="flex items-center justify-between gap-3 mb-6 border-b border-zinc-800 pb-4">
+        <div className="flex items-center gap-3">
+          <Key className="w-6 h-6 text-[#fe9a00]" />
+          <div>
+            <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
+              1-Year Annual Pro Codes
+            </h2>
+            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+              Generate store batch codes or custom-branded annual subscription keys
+            </p>
           </div>
         </div>
+      </div>
 
-        <button type="submit" disabled={isSubmitting} className="mt-4 w-full flex items-center justify-center gap-3 bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white font-black uppercase tracking-widest text-xs py-4 rounded-xl transition-all disabled:opacity-50">
-          <Key className="w-4 h-4" />{isSubmitting ? 'Generating...' : 'Generate Standard Key'}
-        </button>
-      </form>
-
-      {/* TRACKING LEDGERS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      {/* TOP GENERATORS GRID: CUSTOM BRANDED + BATCH CSV */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         
-        {/* LEDGER: PREMIUM BATCH CODES */}
-        <div className="bg-black p-4 rounded-xl border border-zinc-800 flex flex-col h-[500px] relative">
-          <div className="flex justify-between items-end mb-4 border-b border-zinc-800 pb-3 sticky top-0 bg-black z-10 pt-2">
+        {/* 1. CREATE CUSTOM-BRANDED 1-YEAR CODE */}
+        <form onSubmit={handleCreateCustomAnnual} className="bg-black border border-[#fe9a00]/40 shadow-[0_0_30px_rgba(254,154,0,0.08)] p-6 rounded-xl flex flex-col justify-between">
+          <div>
+            <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-4">
+              <Tag className="w-4 h-4" /> Custom-Branded Annual Code
+            </h3>
+            <p className="text-zinc-400 text-xs font-bold mb-5 leading-relaxed">
+              Create a memorable, custom-branded 1-Year Pro code for partners, conventions, or VIPs (e.g., <span className="text-white">APPLEBLACK-VIP</span> or <span className="text-white">NYCC-2026</span>).
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+                  Branded Code Name
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customCode}
+                    onChange={e => setCustomCode(e.target.value.toUpperCase())}
+                    required
+                    placeholder="e.g. SATAM-VIP-2026"
+                    className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl text-[#fe9a00] px-4 py-3 font-black tracking-widest text-sm focus:outline-none focus:border-[#fe9a00]"
+                  />
+                  <button
+                    type="button"
+                    onClick={generateBrandedSuggestion}
+                    className="bg-zinc-800 text-zinc-300 hover:text-white px-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-zinc-700 transition-colors cursor-pointer"
+                  >
+                    Suggest
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+                    Max Redemptions
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10000"
+                    value={maxUses}
+                    onChange={e => setMaxUses(Number(e.target.value))}
+                    required
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+                    Valid For (Days)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="3650"
+                    value={expireDays}
+                    onChange={e => setExpireDays(Number(e.target.value))}
+                    required
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={isCreatingCustom || !customCode.trim()}
+            className="mt-6 w-full flex items-center justify-center gap-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.25)] disabled:opacity-50 cursor-pointer"
+          >
+            {isCreatingCustom ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+            {isCreatingCustom ? 'Creating...' : 'Create Branded 1-Year Code'}
+          </button>
+        </form>
+
+        {/* 2. BATCH GENERATE RANDOM STORE CODES */}
+        <div className="bg-black border border-zinc-800 p-6 rounded-xl flex flex-col justify-between">
+          <div>
+            <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-4">
+              <Download className="w-4 h-4 text-[#fe9a00]" /> Batch Generate Store Codes (CSV)
+            </h3>
+            <p className="text-zinc-400 text-xs font-bold mb-5 leading-relaxed">
+              Generate single-use 12-character 1-Year Pro codes (<span className="text-zinc-300 font-mono">XXXX-XXXX-XXXX</span>) in bulk for Shopify fulfillment. Downloads a ready-to-import CSV automatically.
+            </p>
+
             <div>
-              <h3 className="text-xs font-black uppercase tracking-widest text-[#fe9a00] mb-2">Premium Codes Ledger</h3>
-              {hasPendingChanges ? (
+              <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+                Number of Single-Use Codes to Generate
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="1000"
+                placeholder="Quantity (e.g. 50)"
+                value={batchSize}
+                onChange={(e) => setBatchSize(e.target.value ? Number(e.target.value) : '')}
+                className="w-full bg-zinc-900 border border-zinc-700 p-3.5 rounded-xl text-white text-sm font-bold focus:outline-none focus:border-[#fe9a00] transition-colors"
+              />
+            </div>
+
+            {batchMessage && (
+              <p className={`mt-4 text-xs font-bold ${batchMessage.includes('Error') ? 'text-red-500' : 'text-emerald-400'}`}>
+                {batchMessage}
+              </p>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleBatchGenerate}
+            disabled={batchLoading || !batchSize}
+            className="mt-6 w-full bg-zinc-800 hover:bg-[#fe9a00] text-white hover:text-black py-4 rounded-xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+          >
+            {batchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {batchLoading ? 'Generating Batch...' : 'Generate & Export CSV'}
+          </button>
+        </div>
+
+      </div>
+
+      {/* UNIFIED MASTER LEDGER */}
+      <div className="bg-black p-6 rounded-xl border border-zinc-800">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-4 mb-5">
+          <div>
+            <div className="flex items-center gap-3">
+              <h3 className="text-sm font-black uppercase tracking-widest text-[#fe9a00]">
+                Master Annual Codes Ledger
+              </h3>
+              {hasPendingChanges && (
                 <button
                   onClick={handleSaveLedger}
                   disabled={isSavingLedger}
-                  className="bg-[#fe9a00] text-black text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded flex items-center gap-1 transition-all shadow-[0_0_10px_rgba(254,154,0,0.4)]"
+                  className="bg-[#fe9a00] text-black text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded flex items-center gap-1 transition-all shadow-[0_0_10px_rgba(254,154,0,0.4)] cursor-pointer"
                 >
-                  {isSavingLedger ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save Changes'}
+                  {isSavingLedger ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save Distributed Marks'}
                 </button>
-              ) : (
-                <span className="text-zinc-600 text-[9px] font-black uppercase tracking-widest px-1">Up to date</span>
               )}
             </div>
-            <div className="text-right">
-              <span className="block text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Total: {premiumCodes.length}</span>
-              <span className="block text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Redeemed: {premiumCodes.filter(c => c.is_used).length}</span>
-              <span className="block text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest">Distributed: {premiumCodes.filter(c => c.is_sold).length}</span>
+            <div className="flex flex-wrap items-center gap-4 mt-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+              <span>Batch Codes: <strong className="text-white">{batchCodes.length}</strong></span>
+              <span>Branded Codes: <strong className="text-white">{brandedCodes.length}</strong></span>
+              <span>Redeemed Batch: <strong className="text-emerald-400">{batchCodes.filter(c => c.is_used).length}</strong></span>
+              <span>Distributed: <strong className="text-[#fe9a00]">{batchCodes.filter(c => c.is_sold).length}</strong></span>
             </div>
           </div>
-          
-          <div className="space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-1 pb-4">
-            {premiumCodes.length === 0 ? (
-              <p className="text-zinc-500 text-sm font-bold italic text-center mt-10">No batch codes generated yet.</p>
-            ) : (
-              premiumCodes.map((c) => {
-                const statusColor = c.is_used ? 'text-zinc-500 border-zinc-800 bg-zinc-900/50' : 'text-emerald-500 border-emerald-900 bg-emerald-900/10';
-                const isSold = pendingSold[c.code] !== undefined ? pendingSold[c.code] : (c.is_sold || false);
 
-                return (
-                  <div key={c.id} className={`flex flex-col border p-4 rounded-xl gap-2 transition-colors ${isSold && !c.is_used ? 'bg-zinc-900/80 border-[#fe9a00]/30' : 'bg-zinc-950 border-zinc-800'}`}>
-                    <div className="flex justify-between items-center gap-3">
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={isSold}
-                          onChange={() => setPendingSold(prev => ({ ...prev, [c.code]: !isSold }))}
-                          className="w-4 h-4 accent-[#fe9a00] rounded cursor-pointer shrink-0"
-                          disabled={c.is_used}
-                          title={c.is_used ? "Already redeemed by a user" : "Mark as sold/distributed"}
-                        />
-                        <h4 className={`font-black tracking-widest text-sm sm:text-base ${c.is_used ? 'text-zinc-600 line-through' : (isSold ? 'text-[#fe9a00]' : 'text-white')}`}>
-                          {c.code}
-                        </h4>
-                      </div>
-                      <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border shrink-0 ${statusColor}`}>
-                        {c.is_used ? 'REDEEMED' : 'UNUSED'}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            {/* Filter Pills */}
+            <div className="flex bg-zinc-900 p-1 rounded-lg border border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setLedgerFilter('all')}
+                className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer ${ledgerFilter === 'all' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}
+              >
+                All ({batchCodes.length + brandedCodes.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setLedgerFilter('branded')}
+                className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer ${ledgerFilter === 'branded' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}
+              >
+                Branded ({brandedCodes.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setLedgerFilter('batch')}
+                className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer ${ledgerFilter === 'batch' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}
+              >
+                Batch ({batchCodes.length})
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search code..."
+                value={ledgerSearch}
+                onChange={(e) => setLedgerSearch(e.target.value)}
+                className="w-full sm:w-48 bg-zinc-900 border border-zinc-700 text-white pl-8 pr-3 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00]"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3 max-h-[520px] overflow-y-auto pr-2 custom-scrollbar">
+          {/* CUSTOM-BRANDED ANNUAL CODES */}
+          {(ledgerFilter === 'all' || ledgerFilter === 'branded') && filteredBrandedCodes.map((c) => {
+            const isExpired = c.expires_at && new Date() > new Date(c.expires_at);
+            const isDepleted = c.max_uses && c.times_used >= c.max_uses;
+            const isInactive = isExpired || isDepleted;
+
+            return (
+              <div
+                key={`branded-${c.id}`}
+                className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-zinc-950 border border-[#fe9a00]/40 p-4 rounded-xl gap-4"
+              >
+                <div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/40 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded">
+                      Custom Branded • 1-Year Pro
+                    </span>
+                    <h4 className={`font-black tracking-widest text-sm sm:text-base ${isInactive ? 'text-zinc-600 line-through' : 'text-white'}`}>
+                      {c.code}
+                    </h4>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 mt-2">
+                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${isInactive ? 'text-red-500 border-red-900 bg-red-900/10' : 'text-emerald-400 border-emerald-900 bg-emerald-900/10'}`}>
+                      {isDepleted ? 'ALL CLAIMED' : isExpired ? 'EXPIRED' : 'ACTIVE'}
+                    </span>
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
+                      Redeemed: <strong className="text-white">{c.times_used || 0} / {c.max_uses || 1}</strong>
+                    </span>
+                    {c.expires_at && (
+                      <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
+                        Expires: {new Date(c.expires_at).toLocaleDateString()}
                       </span>
-                    </div>
-                    {c.is_used && c.redeemed_at && (
-                      <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest ml-7">
-                        Redeemed: {new Date(c.redeemed_at).toLocaleDateString()}
-                      </p>
-                    )}
-                    {!c.is_used && isSold && (
-                      <p className="text-[9px] text-[#fe9a00]/80 font-bold uppercase tracking-widest ml-7">
-                        Marked as Distributed
-                      </p>
                     )}
                   </div>
-                )
-              })
-            )}
-          </div>
-        </div>
+                </div>
 
-        {/* LEDGER: STANDARD PROMO CODES */}
-        <div className="bg-black p-4 rounded-xl border border-zinc-800 flex flex-col h-[500px]">
-          <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-4 border-b border-zinc-800 pb-3 sticky top-0 bg-black z-10 pt-2">Active Standard Promos</h3>
-          <div className="space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-1 pb-4">
-            {codes.length === 0 ? (
-              <p className="text-zinc-500 text-sm font-bold italic text-center mt-10">No standard keys found.</p>
-            ) : (
-              codes.map((c) => {
-                const isExpired = new Date() > new Date(c.expires_at);
-                const isDepleted = c.times_used >= c.max_uses;
-                const statusColor = (isExpired || isDepleted) ? 'text-red-500 border-red-900 bg-red-900/10' : 'text-emerald-500 border-emerald-900 bg-emerald-900/10';
+                <button
+                  type="button"
+                  onClick={() => handleDeleteBranded(c.id, c.code)}
+                  className="p-2 text-zinc-500 hover:text-red-500 hover:bg-red-900/20 rounded-lg transition-colors self-end sm:self-auto cursor-pointer"
+                  title="Delete Branded Code"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            );
+          })}
 
-                return (
-                  <div key={c.id} className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-zinc-950 border border-zinc-800 p-4 rounded-xl gap-4">
-                    <div>
-                      <h4 className="font-black tracking-widest text-zinc-300 text-sm sm:text-base">{c.code}</h4>
-                      <div className="flex flex-wrap items-center gap-2 mt-2">
-                        <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${statusColor}`}>
-                          {(isExpired || isDepleted) ? 'INACTIVE' : 'ACTIVE'}
-                        </span>
-                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Tier: <span className="text-zinc-300">{c.tier}</span></span>
-                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Used: <span className="text-zinc-300">{c.times_used} / {c.max_uses}</span></span>
-                      </div>
-                    </div>
-                    <button onClick={() => handleDelete(c.id)} className="p-2 text-zinc-600 hover:text-red-500 hover:bg-red-900/20 rounded transition-colors self-end xl:self-auto">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+          {/* EXISTING & NEW 1-YEAR BATCH CODES */}
+          {(ledgerFilter === 'all' || ledgerFilter === 'batch') && filteredBatchCodes.map((c) => {
+            const statusColor = c.is_used
+              ? 'text-zinc-500 border-zinc-800 bg-zinc-900/50'
+              : 'text-emerald-500 border-emerald-900 bg-emerald-900/10';
+            const isSold = pendingSold[c.code] !== undefined ? pendingSold[c.code] : (c.is_sold || false);
+
+            return (
+              <div
+                key={`batch-${c.id}`}
+                className={`flex flex-col border p-4 rounded-xl gap-2 transition-colors ${
+                  isSold && !c.is_used ? 'bg-zinc-900/80 border-[#fe9a00]/30' : 'bg-zinc-950 border-zinc-800'
+                }`}
+              >
+                <div className="flex justify-between items-center gap-3">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={isSold}
+                      onChange={() => setPendingSold(prev => ({ ...prev, [c.code]: !isSold }))}
+                      className="w-4 h-4 accent-[#fe9a00] rounded cursor-pointer shrink-0"
+                      disabled={c.is_used}
+                      title={c.is_used ? "Already redeemed by a user" : "Mark as sold/distributed"}
+                    />
+                    <h4 className={`font-black tracking-widest text-sm sm:text-base ${c.is_used ? 'text-zinc-600 line-through' : (isSold ? 'text-[#fe9a00]' : 'text-white')}`}>
+                      {c.code}
+                    </h4>
                   </div>
-                )
-              })
-            )}
-          </div>
-        </div>
+                  <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border shrink-0 ${statusColor}`}>
+                    {c.is_used ? 'REDEEMED' : 'UNUSED'}
+                  </span>
+                </div>
+                {c.is_used && c.redeemed_at && (
+                  <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest ml-7">
+                    Redeemed: {new Date(c.redeemed_at).toLocaleDateString()}
+                  </p>
+                )}
+                {!c.is_used && isSold && (
+                  <p className="text-[9px] text-[#fe9a00]/80 font-bold uppercase tracking-widest ml-7">
+                    Marked as Distributed
+                  </p>
+                )}
+              </div>
+            );
+          })}
 
+          {filteredBatchCodes.length === 0 && filteredBrandedCodes.length === 0 && (
+            <p className="text-zinc-500 text-sm font-bold italic text-center py-12">
+              No annual codes match your filter.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

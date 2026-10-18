@@ -37,6 +37,14 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
   };
 
   useEffect(() => {
+    const savedCode = localStorage.getItem('auto_fill_premium_code');
+    if (savedCode) {
+      setAccessCode(savedCode);
+      setIsSignUp(true);
+    }
+  }, []);
+
+  useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
         window.dispatchEvent(new Event('profileUpdated'));
@@ -118,58 +126,80 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
         let standardPromoRow: any = null;
 
         if (cleanCode) {
-          // 1. Check 1-Year Batch Premium Store Codes first (same RPC used in Settings.tsx)
+          let isAlreadyUsed = false;
+
+          // 1. Check check_premium_code_status RPC
           const { data: batchStatus, error: batchCheckErr } = await supabase.rpc('check_premium_code_status', {
             code_to_test: cleanCode
           });
 
-          if (!batchCheckErr && batchStatus === 'VALID') {
+          if (!batchCheckErr && (batchStatus === 'VALID' || batchStatus === 'UNUSED' || batchStatus === true)) {
             codeType = 'annual_premium';
             grantsPremium = true;
           } else if (!batchCheckErr && batchStatus === 'USED') {
-            setError('This 1-Year Premium code has already been redeemed.');
-            setLoading(false);
-            return;
-          } else {
-            // 2. Fallback: Check standard promo_codes via RPC or direct table lookup
+            isAlreadyUsed = true;
+          }
+
+          // 2. Fallback: Check fetch_premium_ledger (same RPC used in AdminDashboard)
+          if (codeType === 'none' && !isAlreadyUsed) {
+            const { data: ledgerData } = await supabase.rpc('fetch_premium_ledger');
+            if (Array.isArray(ledgerData)) {
+              const foundInLedger = ledgerData.find(
+                (item: any) => String(item.code || '').trim().toUpperCase() === cleanCode
+              );
+              if (foundInLedger) {
+                if (foundInLedger.is_used) {
+                  isAlreadyUsed = true;
+                } else {
+                  codeType = 'annual_premium';
+                  grantsPremium = true;
+                }
+              }
+            }
+          }
+
+          // 3. Fallback: Check validate_access_code RPC
+          if (codeType === 'none' && !isAlreadyUsed) {
             const { data: valRes, error: valErr } = await supabase.rpc('validate_access_code', {
               p_code: cleanCode
             });
-
             if (!valErr && valRes?.valid) {
               codeType = 'standard_rpc';
               if (valRes.tier === 'premium') grantsPremium = true;
-            } else {
-              const { data: promoRow } = await supabase
-                .from('promo_codes')
-                .select('*')
-                .eq('code', cleanCode)
-                .maybeSingle();
+            }
+          }
 
-              if (promoRow) {
-                const isExpired = promoRow.expires_at && new Date() > new Date(promoRow.expires_at);
-                const isDepleted = promoRow.max_uses && promoRow.times_used >= promoRow.max_uses;
+          // 4. Fallback: Check standard promo_codes table
+          if (codeType === 'none' && !isAlreadyUsed) {
+            const { data: promoRow } = await supabase
+              .from('promo_codes')
+              .select('*')
+              .ilike('code', cleanCode)
+              .maybeSingle();
 
-                if (isExpired) {
-                  setError('This promo code has expired.');
-                  setLoading(false);
-                  return;
-                }
-                if (isDepleted) {
-                  setError('This promo code has reached its maximum usage limit.');
-                  setLoading(false);
-                  return;
-                }
-
+            if (promoRow) {
+              const isExpired = promoRow.expires_at && new Date() > new Date(promoRow.expires_at);
+              const isDepleted = promoRow.max_uses && promoRow.times_used >= promoRow.max_uses;
+              if (isExpired || isDepleted) {
+                isAlreadyUsed = true;
+              } else {
                 codeType = 'standard_table';
                 standardPromoRow = promoRow;
                 if (promoRow.tier === 'premium') grantsPremium = true;
-              } else {
-                setError('Invalid Promo or Access Code. Please check the code and try again.');
-                setLoading(false);
-                return;
               }
             }
+          }
+
+          if (isAlreadyUsed) {
+            setError('This promo code has already been redeemed or has expired.');
+            setLoading(false);
+            return;
+          }
+
+          if (codeType === 'none') {
+            setError('Invalid Promo or Access Code. Please check the code and try again.');
+            setLoading(false);
+            return;
           }
         }
 
@@ -215,13 +245,7 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
           if (cleanCode) {
             try {
               if (codeType === 'annual_premium') {
-                // Call the 1-Year Premium redemption RPC
-                const { error: redeemErr } = await supabase.rpc('redeem_premium_code', {
-                  promo_code: cleanCode
-                });
-                if (redeemErr) {
-                  console.warn('RPC redeem_premium_code warning, applying fallback profile upgrade:', redeemErr.message);
-                }
+                await supabase.rpc('redeem_premium_code', { promo_code: cleanCode });
               } else if (codeType === 'standard_rpc') {
                 await supabase.rpc('redeem_access_code', {
                   p_code: cleanCode,

@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react';
-import { ArrowLeft, Lock, CreditCard, Bell, Smartphone, Shield, ChevronRight, LogOut, AlertTriangle, ExternalLink, UserPlus, X, CheckCircle, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowLeft, Lock, CreditCard, Bell, Smartphone, Shield, ChevronRight, LogOut, AlertTriangle, UserPlus, X, CheckCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../supabase';
 
-// --- ADDED onLoginClick PROP ---
 const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any) => {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [emailEnabled, setEmailEnabled] = useState(false);
@@ -19,7 +18,6 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
   const isPremium = userTier === 'premium';
   const isVisitor = userTier === 'visitor';
 
-  // 1. Fetch user data and notification settings on load
   useEffect(() => {
     if (isVisitor) return;
 
@@ -39,7 +37,6 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
     fetchSettings();
   }, [isVisitor]);
 
-  // 2. Handle Password Reset 
   const handlePasswordReset = async () => {
     if (!userEmail) return;
     const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
@@ -52,7 +49,6 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
     }
   };
 
-  // 3. Handle Notification Toggles
   const togglePush = async () => {
     const newState = !pushEnabled;
     setPushEnabled(newState);
@@ -65,7 +61,7 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
     if (userId) await supabase.from('profiles').update({ email_enabled: newState }).eq('id', userId);
   };
 
-  // 4. Handle Code Redemption
+  // --- UNIFIED CODE VALIDATOR & REDEEMER ---
   const handleRedeemCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!redeemCode.trim()) return;
@@ -73,39 +69,123 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
     setRedeeming(true);
     const cleanCode = redeemCode.trim().toUpperCase();
 
-    // Securely check the code status first
-    const { data: codeStatus, error: statusError } = await supabase.rpc('check_premium_code_status', { 
-      code_to_test: cleanCode 
-    });
+    try {
+      let isValidCode = false;
+      let isAlreadyUsed = false;
+      let matchedSource: 'rpc_status' | 'ledger' | 'validate_rpc' | 'promo_table' | null = null;
+      let promoRowData: any = null;
 
-    if (statusError || codeStatus === 'INVALID') {
-      setAlertConfig({ type: 'error', title: 'Invalid Code', message: 'This access code is invalid. Please check and try again.' });
-      setRedeeming(false);
-      return;
-    }
+      // 1. Check via check_premium_code_status RPC
+      const { data: codeStatus, error: statusError } = await supabase.rpc('check_premium_code_status', { 
+        code_to_test: cleanCode 
+      });
 
-    if (codeStatus === 'USED') {
-      setAlertConfig({ type: 'error', title: 'Code Used', message: 'This premium code has already been redeemed.' });
-      setRedeeming(false);
-      return;
-    }
+      if (!statusError && (codeStatus === 'VALID' || codeStatus === 'UNUSED' || codeStatus === true)) {
+        isValidCode = true;
+        matchedSource = 'rpc_status';
+      } else if (!statusError && codeStatus === 'USED') {
+        isAlreadyUsed = true;
+      }
 
-    // Execute the redemption RPC to update their profile
-    const { error: redeemError } = await supabase.rpc('redeem_premium_code', {
-      promo_code: cleanCode
-    });
+      // 2. Fallback: Check against fetch_premium_ledger (same RPC used in AdminDashboard)
+      if (!isValidCode && !isAlreadyUsed) {
+        const { data: ledgerData } = await supabase.rpc('fetch_premium_ledger');
+        if (Array.isArray(ledgerData)) {
+          const foundInLedger = ledgerData.find(
+            (item: any) => String(item.code || '').trim().toUpperCase() === cleanCode
+          );
+          if (foundInLedger) {
+            if (foundInLedger.is_used) {
+              isAlreadyUsed = true;
+            } else {
+              isValidCode = true;
+              matchedSource = 'ledger';
+            }
+          }
+        }
+      }
 
-    if (redeemError) {
-      setAlertConfig({ type: 'error', title: 'Error', message: redeemError.message });
-    } else {
+      // 3. Fallback: Check validate_access_code RPC
+      if (!isValidCode && !isAlreadyUsed) {
+        const { data: valRes, error: valErr } = await supabase.rpc('validate_access_code', {
+          p_code: cleanCode
+        });
+        if (!valErr && valRes?.valid) {
+          isValidCode = true;
+          matchedSource = 'validate_rpc';
+        }
+      }
+
+      // 4. Fallback: Check standard promo_codes table
+      if (!isValidCode && !isAlreadyUsed) {
+        const { data: promoRow } = await supabase
+          .from('promo_codes')
+          .select('*')
+          .ilike('code', cleanCode)
+          .maybeSingle();
+
+        if (promoRow) {
+          const isExpired = promoRow.expires_at && new Date() > new Date(promoRow.expires_at);
+          const isDepleted = promoRow.max_uses && promoRow.times_used >= promoRow.max_uses;
+          if (isExpired || isDepleted) {
+            isAlreadyUsed = true;
+          } else {
+            isValidCode = true;
+            matchedSource = 'promo_table';
+            promoRowData = promoRow;
+          }
+        }
+      }
+
+      if (isAlreadyUsed) {
+        setAlertConfig({ type: 'error', title: 'Code Used', message: 'This premium code has already been redeemed or has expired.' });
+        setRedeeming(false);
+        return;
+      }
+
+      if (!isValidCode) {
+        setAlertConfig({ type: 'error', title: 'Invalid Code', message: 'This access code is invalid. Please check and try again.' });
+        setRedeeming(false);
+        return;
+      }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        localStorage.setItem('auto_fill_premium_code', cleanCode);
+        setRedeeming(false);
+        if (onLoginClick) onLoginClick();
+        return;
+      }
+
+      if (matchedSource === 'rpc_status' || matchedSource === 'ledger') {
+        await supabase.rpc('redeem_premium_code', { promo_code: cleanCode });
+      } else if (matchedSource === 'validate_rpc') {
+        await supabase.rpc('redeem_access_code', { p_code: cleanCode, p_user_id: user.id });
+      } else if (matchedSource === 'promo_table' && promoRowData) {
+        await supabase
+          .from('promo_codes')
+          .update({ times_used: (promoRowData.times_used || 0) + 1 })
+          .eq('id', promoRowData.id);
+      }
+
+      const { error: profileUpdateErr } = await supabase
+        .from('profiles')
+        .update({ is_premium: true, super_hypes_left: 3 })
+        .eq('id', user.id);
+
+      if (profileUpdateErr) throw profileUpdateErr;
+
+      window.dispatchEvent(new Event('profileUpdated'));
       setAlertConfig({ type: 'success', title: 'Premium Unlocked!', message: 'Success! 1-Year Premium Access has been applied. Reloading your profile...' });
       setRedeemCode('');
       setTimeout(() => {
         window.location.reload();
-      }, 2500);
+      }, 2000);
+    } catch (err: any) {
+      setAlertConfig({ type: 'error', title: 'Error', message: err.message || 'Redemption failed.' });
+    } finally {
+      setRedeeming(false);
     }
-    
-    setRedeeming(false);
   };
 
   const handleSignOut = async () => {
@@ -161,7 +241,6 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
           <div className={`bg-zinc-900/50 border ${isVisitor ? 'border-[#fe9a00]/50 shadow-[0_0_30px_rgba(254,154,0,0.1)]' : 'border-zinc-800'} rounded-2xl overflow-hidden p-5`}>
             
             {isVisitor ? (
-              // --- VISITOR SIGN UP STATE ---
               <div className="flex flex-col items-center justify-center py-4 text-center">
                 <div className="w-16 h-16 bg-black rounded-full flex items-center justify-center mb-4 border border-zinc-800 shadow-inner">
                   <UserPlus className="w-8 h-8 text-[#fe9a00]" />
@@ -178,7 +257,6 @@ const Settings = ({ userTier, onBack, onSignOut, onNavigate, onLoginClick }: any
                 </button>
               </div>
             ) : (
-              // --- LOGGED IN USER STATE (Free & Pro) ---
               <>
                 <div className={`flex justify-between items-start mb-6 pb-6 ${isPremium ? 'border-b border-zinc-800/50' : ''}`}>
                   <div>
