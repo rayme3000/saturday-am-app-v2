@@ -261,7 +261,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                     {bioText.length > 160 && (
                       <button
                         onClick={() => setExpandedBios(prev => ({ ...prev, [creator.name]: !isBioExpanded }))}
-                        className="text-[#fe9a00] text-[9px] font-black uppercase tracking-widest hover:text-white transition-colors mt-0.5"
+                        className="text-[#fe9a00] text-[9px] font-black uppercase tracking-widest hover:text-white transition-colors mt-0.5 cursor-pointer"
                       >
                         {isBioExpanded ? '- Less' : '+ Bio'}
                       </button>
@@ -292,7 +292,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                   </div>
                 </div>
 
-                {/* Center / Right Section: Expanded Works Strip */}
+                {/* Center / Right Section: Expanded Works Strip (Pinned to Top to prevent head clipping) */}
                 {creator.works.length > 0 && (
                   <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-1 shrink-0 max-w-full md:max-w-[340px] lg:max-w-[460px]">
                     <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 hidden xl:block shrink-0">
@@ -302,20 +302,20 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                       <div
                         key={work.slug || work.id}
                         onClick={() => onNavigate(work)}
-                        className="w-12 h-16 sm:w-14 sm:h-20 relative rounded-md overflow-hidden border border-zinc-800 hover:border-[#fe9a00] transition-all cursor-pointer group/work shadow-md flex-shrink-0"
+                        className="w-12 h-16 sm:w-14 sm:h-20 relative rounded-md overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-[#fe9a00] transition-all cursor-pointer group/work shadow-md flex-shrink-0"
                         title={work.title}
                       >
                         <img
                           src={work.character_url || work.cover_url}
                           alt={work.title}
-                          className="w-full h-full object-cover group-hover/work:scale-105 transition-transform"
+                          className="w-full h-full object-cover object-top origin-top group-hover/work:scale-105 transition-transform"
                         />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-80" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
                         {work.logo_url && (
                           <img
                             src={work.logo_url}
                             alt={work.title}
-                            className="absolute bottom-1 inset-x-0.5 max-h-5 object-contain mx-auto"
+                            className="absolute bottom-1 inset-x-0.5 max-h-5 object-contain mx-auto pointer-events-none"
                           />
                         )}
                       </div>
@@ -331,6 +331,8 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                       targetId={creator.name}
                       userId={currentUser?.id}
                       variant="default"
+                      label="Hype Creator"
+                      buttonText="Hype Creator"
                       onRequireAuth={() => onLoginClick && onLoginClick()}
                     />
                   </div>
@@ -342,7 +344,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                       setDonationAmount(5);
                       setFanmailText('');
                     }}
-                    className="flex-1 md:flex-initial w-full py-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase text-[10px] tracking-widest rounded-full transition-all flex items-center justify-center gap-1.5 shadow-[0_0_12px_rgba(254,154,0,0.25)] hover:scale-105"
+                    className="flex-1 md:flex-initial w-full py-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase text-[10px] tracking-widest rounded-full transition-all flex items-center justify-center gap-1.5 shadow-[0_0_12px_rgba(254,154,0,0.25)] hover:scale-105 cursor-pointer"
                   >
                     <Heart className="w-3.5 h-3.5 fill-black" />
                     <span>Support</span>
@@ -360,7 +362,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
           <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative" onClick={e => e.stopPropagation()}>
             {donationStep === 'input' && (
               <>
-                <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20">
+                <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer">
                   <X className="w-6 h-6" />
                 </button>
                 <div className="p-6 sm:p-8 animate-fade-in">
@@ -379,7 +381,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                       <button 
                         key={amount}
                         onClick={() => setDonationAmount(amount)}
-                        className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all ${donationAmount === amount ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]' : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
+                        className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all cursor-pointer ${donationAmount === amount ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]' : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
                       >
                         ${amount}
                       </button>
@@ -399,7 +401,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
                   <button 
                     onClick={handleProcessDonation}
-                    className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)]"
+                    className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
                   >
                     Donate ${donationAmount}
                   </button>
@@ -424,7 +426,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                 </p>
                 <button 
                   onClick={() => { setDonationCreator(null); setDonationStep('input'); }}
-                  className="w-full py-4 bg-zinc-800 text-white font-black uppercase tracking-widest rounded-xl hover:bg-zinc-700 transition-colors"
+                  className="w-full py-4 bg-zinc-800 text-white font-black uppercase tracking-widest rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer"
                 >
                   Back to Creators
                 </button>
