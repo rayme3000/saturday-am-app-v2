@@ -25,12 +25,16 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
 
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
+      if (event === 'SIGNED_IN' && session?.user) {
         // Check if a new user had a pending annual code waiting from their sign-up
         const pendingCode = localStorage.getItem('pending_premium_code');
         if (pendingCode) {
-          await supabase.rpc('redeem_premium_code', { promo_code: pendingCode });
+          await supabase.rpc('redeem_access_code', { 
+            p_code: pendingCode,
+            p_user_id: session.user.id 
+          });
           localStorage.removeItem('pending_premium_code');
+          window.dispatchEvent(new Event('profileUpdated'));
         }
         
         onSuccess();
@@ -84,50 +88,21 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
       }
 
       let appliedTier = 'free';
-      let codeIdToUpdate = null;
-      let currentTimesUsed = 0;
-      let isAnnualPremiumCode = false;
+      const cleanCode = accessCode.trim().toUpperCase();
 
-      // Check the access code before letting them sign up
-      if (accessCode.trim()) {
-        const codeToTest = accessCode.trim().toUpperCase();
-        
-        // 1. Check promo_codes table
-        const { data: promoData } = await supabase
-          .from('promo_codes')
-          .select('*')
-          .eq('code', codeToTest)
-          .maybeSingle();
+      // Check the access code via elevated validator RPC before letting them sign up
+      if (cleanCode) {
+        const { data: valRes, error: valErr } = await supabase.rpc('validate_access_code', {
+          p_code: cleanCode
+        });
 
-        if (promoData) {
-          if (new Date() > new Date(promoData.expires_at)) {
-            setError("This Access Code has expired.");
-            setLoading(false); return;
-          }
-          if (promoData.times_used >= promoData.max_uses) {
-            setError("This Access Code has reached its usage limit.");
-            setLoading(false); return;
-          }
-          appliedTier = promoData.tier;
-          codeIdToUpdate = promoData.id;
-          currentTimesUsed = promoData.times_used;
-        } else {
-          // 2. Check the premium_codes table via RPC
-          const { data: codeStatus } = await supabase.rpc('check_premium_code_status', { 
-            code_to_test: codeToTest 
-          });
-
-          if (codeStatus === 'VALID') {
-            isAnnualPremiumCode = true;
-            appliedTier = 'premium';
-          } else if (codeStatus === 'USED') {
-            setError("This Premium Code has already been used.");
-            setLoading(false); return;
-          } else {
-            setError("Invalid Access Code. Please check and try again.");
-            setLoading(false); return;
-          }
+        if (valErr || !valRes?.valid) {
+          setError(valRes?.error || "Invalid Access Code. Please check and try again.");
+          setLoading(false);
+          return;
         }
+
+        appliedTier = valRes.tier || 'free';
       }
 
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -166,14 +141,14 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
             tos_accepted_at: new Date().toISOString()
           }, { onConflict: 'id' });
 
-          if (codeIdToUpdate) {
-            await supabase.from('promo_codes')
-              .update({ times_used: currentTimesUsed + 1 })
-              .eq('id', codeIdToUpdate);
-          }
-
-          if (isAnnualPremiumCode) {
-            localStorage.setItem('pending_premium_code', accessCode.trim().toUpperCase());
+          if (cleanCode) {
+            // Redeem code immediately in the database
+            await supabase.rpc('redeem_access_code', {
+              p_code: cleanCode,
+              p_user_id: authData.user.id
+            });
+            // Also store in localStorage in case email confirmation is required before sign in
+            localStorage.setItem('pending_premium_code', cleanCode);
           }
         }
 
@@ -185,7 +160,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
 
     } else {
       // Existing User Login Flow
-      const { error: loginError } = await supabase.auth.signInWithPassword({
+      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password,
       });
@@ -194,14 +169,17 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
         setError(loginError.message);
         setLoading(false);
       } else {
-        if (accessCode.trim()) {
-          const { error: redeemError } = await supabase.rpc('redeem_premium_code', {
-            promo_code: accessCode.trim().toUpperCase()
+        const cleanCode = accessCode.trim().toUpperCase();
+        if (cleanCode && loginData?.user?.id) {
+          const { error: redeemError } = await supabase.rpc('redeem_access_code', {
+            p_code: cleanCode,
+            p_user_id: loginData.user.id
           });
           if (redeemError) {
             console.error("Code redemption failed:", redeemError.message);
           }
         }
+        window.dispatchEvent(new Event('profileUpdated'));
         onSuccess();
       }
     }
@@ -240,7 +218,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
     <>
       <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6">
         <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm relative shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar">
-          <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+          <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer">
             <X className="w-5 h-5" />
           </button>
           
@@ -268,7 +246,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
               {error && <p className="text-red-500 text-[10px] font-bold">{error}</p>}
               <button 
                 type="submit" disabled={loading}
-                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded mt-2 hover:bg-white transition-colors"
+                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded mt-2 hover:bg-white transition-colors cursor-pointer"
               >
                 {loading ? 'Processing...' : 'Send Reset Link'}
               </button>
@@ -308,7 +286,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                   
                   <select 
                     value={country} onChange={(e) => setCountry(e.target.value)}
-                    className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
+                    className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors cursor-pointer"
                     required
                   >
                     <option value="" disabled>Select your Country</option>
@@ -335,7 +313,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
 
                   <select 
                     value={referral} onChange={(e) => setReferral(e.target.value)}
-                    className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
+                    className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors cursor-pointer"
                     required
                   >
                     <option value="" disabled>How did you find us?</option>
@@ -353,12 +331,18 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                 type="text" 
                 placeholder="Promo / Gift Code (Optional)" 
                 value={accessCode} 
-                onChange={(e) => setAccessCode(e.target.value)}
+                onChange={(e) => {
+                  setAccessCode(e.target.value.toUpperCase());
+                  if (error) setError('');
+                }}
                 className="w-full bg-black border border-zinc-700 p-3 rounded text-[#fe9a00] font-black tracking-widest text-sm focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-500" 
               />
 
               <input 
-                type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)}
+                type="email" placeholder="Email Address" value={email} onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (error) setError('');
+                }}
                 className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
                 required
               />
@@ -369,14 +353,17 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                     type={showPassword ? "text" : "password"} 
                     placeholder="Password" 
                     value={password} 
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (error) setError('');
+                    }}
                     className="w-full bg-black border border-zinc-700 p-3 pr-10 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors cursor-pointer"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -386,7 +373,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                   <button 
                     type="button" 
                     onClick={() => { setIsForgotPassword(true); setError(''); setSuccessMsg(''); }} 
-                    className="text-[10px] text-zinc-500 hover:text-white uppercase tracking-widest text-right mt-2 transition-colors"
+                    className="text-[10px] text-zinc-500 hover:text-white uppercase tracking-widest text-right mt-2 transition-colors cursor-pointer"
                   >
                     Forgot Password?
                   </button>
@@ -409,7 +396,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                       required
                     />
                     <label htmlFor="tos" className="text-xs text-zinc-400 font-bold leading-relaxed cursor-pointer select-none">
-                      I have read and agree to the <button type="button" onClick={(e) => { e.preventDefault(); setShowTosModal(true); }} className="text-[#fe9a00] hover:text-white underline transition-colors font-black uppercase tracking-wider text-[10px] ml-1">Terms of Service</button>.
+                      I have read and agree to the <button type="button" onClick={(e) => { e.preventDefault(); setShowTosModal(true); }} className="text-[#fe9a00] hover:text-white underline transition-colors font-black uppercase tracking-wider text-[10px] ml-1 cursor-pointer">Terms of Service</button>.
                     </label>
                   </div>
                 </>
@@ -419,7 +406,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
               
               <button 
                 type="submit" disabled={loading}
-                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded mt-2 hover:bg-white transition-colors"
+                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded mt-2 hover:bg-white transition-colors cursor-pointer disabled:opacity-50"
               >
                 {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
               </button>
@@ -430,7 +417,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
             {isForgotPassword ? (
               <button 
                 onClick={() => { setIsForgotPassword(false); setError(''); setSuccessMsg(''); }} 
-                className="text-white hover:text-[#fe9a00] text-xs font-black uppercase tracking-widest mt-2 transition-colors"
+                className="text-white hover:text-[#fe9a00] text-xs font-black uppercase tracking-widest mt-2 transition-colors cursor-pointer"
               >
                 Back to Login
               </button>
@@ -441,7 +428,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                 </p>
                 <button 
                   onClick={() => { setIsSignUp(!isSignUp); setError(''); setSuccessMsg(''); }} 
-                  className="text-white hover:text-[#fe9a00] text-xs font-black uppercase tracking-widest mt-2 transition-colors"
+                  className="text-white hover:text-[#fe9a00] text-xs font-black uppercase tracking-widest mt-2 transition-colors cursor-pointer"
                 >
                   {isSignUp ? 'Log In Here' : 'Sign Up Here'}
                 </button>
@@ -455,7 +442,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
       {showTosModal && (
         <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in">
           <div className="bg-zinc-900 border border-zinc-700 p-6 sm:p-8 rounded-2xl w-full max-w-2xl relative shadow-2xl flex flex-col max-h-[85vh]">
-            <button onClick={() => setShowTosModal(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-10 bg-black/50 p-2 rounded-full">
+            <button onClick={() => setShowTosModal(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-10 bg-black/50 p-2 rounded-full cursor-pointer">
               <X className="w-5 h-5" />
             </button>
             
@@ -488,7 +475,7 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
             <div className="mt-6 pt-4 border-t border-zinc-800 flex gap-4">
               <button 
                 onClick={() => { setTosAccepted(true); setShowTosModal(false); }} 
-                className="flex-1 py-4 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)]"
+                className="flex-1 py-4 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
               >
                 I Agree to the Terms
               </button>
