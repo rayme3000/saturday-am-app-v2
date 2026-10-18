@@ -1,261 +1,123 @@
 import React, { useState } from 'react';
-import { X, Eye, EyeOff, Loader2 } from 'lucide-react';
-import { supabase } from '../supabase';
+import { X, ShieldAlert, Lock, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 
-interface LoginModalProps {
-  onClose: () => void;
+interface AdminLoginProps {
+  onLogin?: () => void;
+  onBack?: () => void;
+  onClose?: () => void;
   onSuccess?: () => void;
-  initialMode?: 'login' | 'signup';
 }
 
-export default function LoginModal({ onClose, onSuccess, initialMode = 'signup' }: LoginModalProps) {
-  const [isSignUp, setIsSignUp] = useState(initialMode === 'signup');
-  const [isForgotPassword, setIsForgotPassword] = useState(false);
-
-  // Form Fields matching registration UI
-  const [email, setEmail] = useState('');
+export default function AdminLogin({ onLogin, onBack, onClose, onSuccess }: AdminLoginProps) {
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [accessCode, setAccessCode] = useState('');
-  const [country, setCountry] = useState('United States');
-  const [referralSource, setReferralSource] = useState('YouTube');
-  const [agreedToTerms, setAgreedToTerms] = useState(true);
-
-  // UI state
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleExit = () => {
+    if (onBack) onBack();
+    else if (onClose) onClose();
+  };
+
+  const handleSuccess = () => {
+    if (onLogin) onLogin();
+    if (onSuccess) onSuccess();
+    if (onClose) onClose();
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
-    setInfoMessage(null);
 
-    // --- 1. FORGOT PASSWORD FLOW ---
-    if (isForgotPassword) {
-      if (!email.trim()) {
-        setErrorMessage('Please enter your email address.');
-        return;
-      }
-      setIsLoading(true);
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: window.location.origin
-      });
-      setIsLoading(false);
-      if (error) {
-        setErrorMessage(error.message);
-      } else {
-        setInfoMessage('Password reset link sent! Please check your inbox.');
-      }
+    const cleanUsername = username.trim();
+
+    if (!cleanUsername || !password) {
+      setErrorMessage('Please enter both username and password.');
       return;
     }
 
-    // --- 2. LOGIN FLOW ---
-    if (!isSignUp) {
-      if (!email.trim() || !password) {
-        setErrorMessage('Please provide both email and password.');
-        return;
-      }
-      setIsLoading(true);
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password
-      });
-      setIsLoading(false);
-
-      if (error) {
-        setErrorMessage(error.message);
-      } else if (data.session) {
-        window.dispatchEvent(new Event('profileUpdated'));
-        if (onSuccess) onSuccess();
-        onClose();
-      }
-      return;
+    if (cleanUsername === 'satamadmin' && password === 'S@turday2013!') {
+      handleSuccess();
+    } else {
+      setErrorMessage('Invalid Administrator Username or Password.');
     }
-
-    // --- 3. SIGNUP FLOW ---
-    if (!email.trim() || !password) {
-      setErrorMessage('Email and password are required.');
-      return;
-    }
-
-    if (password.length < 10) {
-      setErrorMessage('Password must be at least 10 characters.');
-      return;
-    }
-
-    if (!agreedToTerms) {
-      setErrorMessage('You must agree to the Terms of Service to create an account.');
-      return;
-    }
-
-    setIsLoading(true);
-
-    const cleanCode = accessCode.trim().toUpperCase();
-    let isPremiumUser = false;
-
-    // Validate access code if provided
-    if (cleanCode) {
-      const { data: valRes, error: valErr } = await supabase.rpc('validate_access_code', {
-        p_code: cleanCode
-      });
-
-      if (valErr || !valRes?.valid) {
-        setIsLoading(false);
-        setErrorMessage(valRes?.error || 'Invalid Access Code. Please check and try again.');
-        return;
-      }
-
-      if (valRes.tier === 'premium') {
-        isPremiumUser = true;
-      }
-    }
-
-    // Derive username from email prefix
-    const derivedUsername = email.split('@')[0] || 'Reader';
-
-    const { data: authData, error: authErr } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        data: {
-          username: derivedUsername,
-          country,
-          referral_source: referralSource,
-          is_premium: isPremiumUser
-        }
-      }
-    });
-
-    if (authErr) {
-      setIsLoading(false);
-      setErrorMessage(authErr.message);
-      return;
-    }
-
-    // Redeem code and update profile stats
-    if (authData?.user?.id) {
-      if (cleanCode) {
-        await supabase.rpc('redeem_access_code', {
-          p_code: cleanCode,
-          p_user_id: authData.user.id
-        });
-      } else {
-        await supabase.from('profiles').upsert({
-          id: authData.user.id,
-          username: derivedUsername,
-          is_premium: false,
-          super_hypes_left: 1
-        });
-      }
-    }
-
-    setIsLoading(false);
-    window.dispatchEvent(new Event('profileUpdated'));
-    if (onSuccess) onSuccess();
-    onClose();
   };
 
   return (
     <div 
-      className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
-      onClick={onClose}
+      className="fixed inset-0 z-[7000] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-4 animate-fade-in font-sans"
+      onClick={handleExit}
     >
       <div 
-        className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-3xl p-6 sm:p-8 flex flex-col shadow-2xl relative"
+        className="w-full max-w-sm bg-zinc-950 border-2 border-red-900/60 rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(220,38,38,0.15)] relative"
         onClick={(e) => e.stopPropagation()}
       >
-        <button 
-          onClick={onClose} 
-          className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"
-          aria-label="Close Modal"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {/* Top Restricted Warning Strip */}
+        <div className="bg-red-950/60 border-b border-red-900/50 px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-3.5 h-3.5 text-red-500 animate-pulse" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-red-400">
+              Restricted Area // Staff Only
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleExit}
+            className="text-zinc-500 hover:text-white transition-colors cursor-pointer p-0.5"
+            aria-label="Exit Admin Login"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3 mt-2">
-          {isSignUp && !isForgotPassword && (
-            <>
-              {/* Country Selection */}
-              <div>
-                <select
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value)}
-                  className="w-full bg-black border border-zinc-800 text-white text-xs font-bold px-4 py-3 rounded-xl focus:border-[#fe9a00] outline-none cursor-pointer"
-                >
-                  <option value="United States">United States</option>
-                  <option value="United Kingdom">United Kingdom</option>
-                  <option value="Canada">Canada</option>
-                  <option value="Australia">Australia</option>
-                  <option value="France">France</option>
-                  <option value="Germany">Germany</option>
-                  <option value="Japan">Japan</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              {/* Referral Source */}
-              <div>
-                <select
-                  value={referralSource}
-                  onChange={(e) => setReferralSource(e.target.value)}
-                  className="w-full bg-black border border-zinc-800 text-white text-xs font-bold px-4 py-3 rounded-xl focus:border-[#fe9a00] outline-none cursor-pointer"
-                >
-                  <option value="YouTube">YouTube</option>
-                  <option value="Instagram">Instagram</option>
-                  <option value="TikTok">TikTok</option>
-                  <option value="Twitter / X">Twitter / X</option>
-                  <option value="Comic Con / Event">Comic Con / Event</option>
-                  <option value="Word of Mouth">Word of Mouth</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              {/* Access / Promo Code Input */}
-              <div>
-                <input
-                  type="text"
-                  placeholder="ACCESS CODE (OPTIONAL)"
-                  value={accessCode}
-                  onChange={(e) => {
-                    setAccessCode(e.target.value.toUpperCase());
-                    if (errorMessage) setErrorMessage(null);
-                  }}
-                  className="w-full bg-black border border-zinc-800 text-[#fe9a00] font-black uppercase tracking-widest text-xs px-4 py-3 rounded-xl focus:border-[#fe9a00] outline-none placeholder:text-zinc-600"
-                />
-              </div>
-            </>
-          )}
-
-          {/* Email Input */}
-          <div>
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                if (errorMessage) setErrorMessage(null);
-              }}
-              required
-              className="w-full bg-black border border-zinc-800 text-white text-xs font-bold px-4 py-3 rounded-xl focus:border-[#fe9a00] outline-none placeholder:text-zinc-600"
-            />
+        <div className="p-6 sm:p-8">
+          <div className="flex flex-col items-center text-center mb-6">
+            <div className="w-12 h-12 rounded-xl bg-[#fe9a00]/10 border border-[#fe9a00]/40 flex items-center justify-center mb-3 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <Lock className="w-6 h-6 text-[#fe9a00]" />
+            </div>
+            <h1 className="text-xl font-black italic uppercase tracking-tighter text-white">
+              AM Command Center
+            </h1>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mt-1">
+              Internal System Console
+            </p>
           </div>
 
-          {/* Password Input */}
-          {!isForgotPassword && (
+          <form onSubmit={handleSubmit} className="space-y-3">
             <div>
+              <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">
+                Admin Username
+              </label>
+              <input
+                type="text"
+                placeholder="Enter username"
+                value={username}
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                }}
+                autoComplete="username"
+                required
+                className="w-full bg-black border border-zinc-800 text-white text-xs font-mono px-3.5 py-3 rounded-lg focus:border-[#fe9a00] outline-none placeholder:text-zinc-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-1">
+                Password
+              </label>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  placeholder="Password"
+                  placeholder="••••••••••••"
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
                     if (errorMessage) setErrorMessage(null);
                   }}
+                  autoComplete="current-password"
                   required
-                  className="w-full bg-black border border-zinc-800 text-white text-xs font-bold px-4 py-3 pr-10 rounded-xl focus:border-[#fe9a00] outline-none placeholder:text-zinc-600"
+                  className="w-full bg-black border border-zinc-800 text-white text-xs font-mono px-3.5 py-3 pr-10 rounded-lg focus:border-[#fe9a00] outline-none placeholder:text-zinc-700"
                 />
                 <button
                   type="button"
@@ -265,103 +127,29 @@ export default function LoginModal({ onClose, onSuccess, initialMode = 'signup' 
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              {isSignUp && (
-                <span className="text-[9px] text-zinc-500 font-bold block mt-1 px-1">
-                  * Password must be at least 10 characters.
-                </span>
-              )}
             </div>
-          )}
 
-          {/* Terms Agreement Checkbox */}
-          {isSignUp && !isForgotPassword && (
-            <label className="flex items-center gap-2 mt-1 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={agreedToTerms}
-                onChange={(e) => setAgreedToTerms(e.target.checked)}
-                className="w-4 h-4 accent-[#fe9a00] rounded cursor-pointer shrink-0"
-              />
-              <span className="text-[10px] text-zinc-400 font-bold">
-                I have read and agree to the{' '}
-                <span className="text-[#fe9a00] italic font-black uppercase">Terms of Service</span>.
-              </span>
-            </label>
-          )}
-
-          {/* Error Message Display */}
-          {errorMessage && (
-            <p className="text-red-500 text-[11px] font-bold mt-1 text-left leading-snug">
-              {errorMessage}
-            </p>
-          )}
-
-          {/* Info Message Display */}
-          {infoMessage && (
-            <p className="text-emerald-400 text-[11px] font-bold mt-1 text-left leading-snug">
-              {infoMessage}
-            </p>
-          )}
-
-          {/* Submit Action Button */}
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-3.5 rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] mt-2 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : isForgotPassword ? (
-              'Reset Password'
-            ) : isSignUp ? (
-              'Create Account'
-            ) : (
-              'Log In'
+            {errorMessage && (
+              <div className="p-2.5 bg-red-950/50 border border-red-800/80 rounded-lg text-red-400 text-[11px] font-bold text-center">
+                {errorMessage}
+              </div>
             )}
-          </button>
-        </form>
 
-        {/* View Switchers */}
-        <div className="flex flex-col items-center gap-2 mt-6 pt-4 border-t border-zinc-900 text-center">
-          {!isForgotPassword ? (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsSignUp(!isSignUp);
-                  setErrorMessage(null);
-                  setInfoMessage(null);
-                }}
-                className="text-[10px] text-zinc-400 hover:text-white font-black uppercase tracking-widest transition-colors cursor-pointer"
-              >
-                {isSignUp ? 'Already have an account? Log in here' : "Don't have an account? Sign up"}
-              </button>
-              {!isSignUp && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsForgotPassword(true);
-                    setErrorMessage(null);
-                  }}
-                  className="text-[9px] text-zinc-500 hover:text-[#fe9a00] font-bold uppercase tracking-wider transition-colors cursor-pointer"
-                >
-                  Forgot password?
-                </button>
-              )}
-            </>
-          ) : (
             <button
-              type="button"
-              onClick={() => {
-                setIsForgotPassword(false);
-                setErrorMessage(null);
-                setInfoMessage(null);
-              }}
-              className="text-[10px] text-zinc-400 hover:text-white font-black uppercase tracking-widest transition-colors cursor-pointer"
+              type="submit"
+              className="w-full bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-3.5 rounded-lg transition-all shadow-[0_0_20px_rgba(254,154,0,0.25)] mt-2 flex items-center justify-center gap-2 cursor-pointer"
             >
-              Back to Log In
+              Authorize Access
             </button>
-          )}
+          </form>
+
+          <button
+            type="button"
+            onClick={handleExit}
+            className="w-full mt-6 pt-4 border-t border-zinc-900 text-[10px] text-zinc-500 hover:text-white font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> Exit to Public App
+          </button>
         </div>
       </div>
     </div>

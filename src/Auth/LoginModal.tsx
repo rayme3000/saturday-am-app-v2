@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
-import { X, Eye, EyeOff, CheckCircle } from 'lucide-react';
-import { containsProfanity } from '../profanityFilter'; 
+import { X, Eye, EyeOff, CheckCircle, Key } from 'lucide-react';
+import { containsProfanity } from '../profanityFilter';
 
-const LoginModal = ({ onClose, onSuccess }: any) => {
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [isForgotPassword, setIsForgotPassword] = useState(false); 
+const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup' }: any) => {
+  const [isSignUp, setIsSignUp] = useState(initialMode === 'signup');
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [showTosModal, setShowTosModal] = useState(false);
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -15,197 +15,292 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
   const [username, setUsername] = useState('');
   const [country, setCountry] = useState('');
   const [referral, setReferral] = useState('');
-  const [accessCode, setAccessCode] = useState(() => localStorage.getItem('auto_fill_premium_code') || ''); 
+  const [accessCode, setAccessCode] = useState(() => localStorage.getItem('auto_fill_premium_code') || '');
   const [tosAccepted, setTosAccepted] = useState(false);
-  
+
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  const handleClose = () => {
+    if (onClose) onClose();
+    else if (onBack) onBack();
+  };
+
+  const handleAuthSuccess = () => {
+    window.dispatchEvent(new Event('profileUpdated'));
+    if (onSuccess) onSuccess();
+    if (onLogin) onLogin();
+    if (onClose) onClose();
+    else if (onBack) onBack();
+  };
+
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
-        // Check if a new user had a pending annual code waiting from their sign-up
-        const pendingCode = localStorage.getItem('pending_premium_code');
-        if (pendingCode) {
-          await supabase.rpc('redeem_access_code', { 
-            p_code: pendingCode,
-            p_user_id: session.user.id 
-          });
-          localStorage.removeItem('pending_premium_code');
-          window.dispatchEvent(new Event('profileUpdated'));
-        }
-        
-        onSuccess();
+        window.dispatchEvent(new Event('profileUpdated'));
       }
     });
 
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [onSuccess]);
+  }, []);
 
-  const handleEmailSubmit = async (e: any) => {
+  const handleEmailSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setLoading(true);
-    localStorage.removeItem('auto_fill_premium_code');
     setError('');
     setSuccessMsg('');
 
-    const cleanEmail = email.replace(/\s+/g, '').toLowerCase();
+    const form = e.currentTarget;
+    const formData = new FormData(form);
 
-    if (isSignUp) {
-      if (!tosAccepted) {
-        setError("You must agree to the Terms of Service to create an account.");
-        setLoading(false);
-        return;
-      }
+    const submittedEmail = ((formData.get('email') as string) || email).replace(/\s+/g, '').toLowerCase();
+    const submittedPassword = (formData.get('password') as string) || password;
 
-      if (password.length < 10) {
-        setError("Password must be at least 10 characters long.");
-        setLoading(false);
-        return;
-      }
+    if (!submittedEmail || !submittedPassword) {
+      setError('Please provide both email and password.');
+      return;
+    }
 
-      const isVulgar = containsProfanity(username);
-      if (isVulgar) {
-        setError("That username is not allowed. Please choose another one.");
-        setLoading(false);
-        return;
-      }
+    setLoading(true);
 
-      const { data: existingUser } = await supabase
-        .from('profiles')
-        .select('username')
-        .ilike('username', username.trim())
-        .maybeSingle();
+    try {
+      if (isSignUp) {
+        const submittedFirstName = ((formData.get('firstName') as string) || firstName).trim();
+        const submittedLastName = ((formData.get('lastName') as string) || lastName).trim();
+        const submittedUsername = ((formData.get('username') as string) || username).trim();
+        const submittedCountry = (formData.get('country') as string) || country;
+        const submittedReferral = (formData.get('referral') as string) || referral;
+        const cleanCode = (((formData.get('accessCode') as string) ?? accessCode) || '').trim().toUpperCase();
 
-      if (existingUser) {
-        setError("That username is already taken! Please choose another one.");
-        setLoading(false);
-        return;
-      }
-
-      let appliedTier = 'free';
-      const cleanCode = accessCode.trim().toUpperCase();
-
-      // Check the access code via elevated validator RPC before letting them sign up
-      if (cleanCode) {
-        const { data: valRes, error: valErr } = await supabase.rpc('validate_access_code', {
-          p_code: cleanCode
-        });
-
-        if (valErr || !valRes?.valid) {
-          setError(valRes?.error || "Invalid Access Code. Please check and try again.");
+        if (!tosAccepted) {
+          setError('You must agree to the Terms of Service to create an account.');
           setLoading(false);
           return;
         }
 
-        appliedTier = valRes.tier || 'free';
-      }
-
-      const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password,
-        options: {
-          data: {
-            first_name: firstName.trim(),
-            last_name: lastName.trim(),
-            username: username.trim(),
-            county: country, 
-            referral_source: referral
-          },
-          emailRedirectTo: 'https://www.mangahype.com/?action=login'
+        if (submittedPassword.length < 10) {
+          setError('Password must be at least 10 characters long.');
+          setLoading(false);
+          return;
         }
-      });
 
-      if (signUpError) {
-        if (signUpError.message.includes('duplicate key') || signUpError.message.includes('unique')) {
-          setError("That username is already taken! Please choose another one.");
-        } else {
+        if (!submittedUsername) {
+          setError('Please choose a username.');
+          setLoading(false);
+          return;
+        }
+
+        const isVulgar = containsProfanity(submittedUsername);
+        if (isVulgar) {
+          setError('That username is not allowed. Please choose another one.');
+          setLoading(false);
+          return;
+        }
+
+        const { data: existingUser } = await supabase
+          .from('profiles')
+          .select('username')
+          .ilike('username', submittedUsername)
+          .maybeSingle();
+
+        if (existingUser) {
+          setError('That username is already taken! Please choose another one.');
+          setLoading(false);
+          return;
+        }
+
+        // --- VALIDATE PROMO / 1-YEAR PREMIUM CODE BEFORE SIGNUP ---
+        let codeType: 'none' | 'annual_premium' | 'standard_rpc' | 'standard_table' = 'none';
+        let grantsPremium = false;
+        let standardPromoRow: any = null;
+
+        if (cleanCode) {
+          // 1. Check 1-Year Batch Premium Store Codes first (same RPC used in Settings.tsx)
+          const { data: batchStatus, error: batchCheckErr } = await supabase.rpc('check_premium_code_status', {
+            code_to_test: cleanCode
+          });
+
+          if (!batchCheckErr && batchStatus === 'VALID') {
+            codeType = 'annual_premium';
+            grantsPremium = true;
+          } else if (!batchCheckErr && batchStatus === 'USED') {
+            setError('This 1-Year Premium code has already been redeemed.');
+            setLoading(false);
+            return;
+          } else {
+            // 2. Fallback: Check standard promo_codes via RPC or direct table lookup
+            const { data: valRes, error: valErr } = await supabase.rpc('validate_access_code', {
+              p_code: cleanCode
+            });
+
+            if (!valErr && valRes?.valid) {
+              codeType = 'standard_rpc';
+              if (valRes.tier === 'premium') grantsPremium = true;
+            } else {
+              const { data: promoRow } = await supabase
+                .from('promo_codes')
+                .select('*')
+                .eq('code', cleanCode)
+                .maybeSingle();
+
+              if (promoRow) {
+                const isExpired = promoRow.expires_at && new Date() > new Date(promoRow.expires_at);
+                const isDepleted = promoRow.max_uses && promoRow.times_used >= promoRow.max_uses;
+
+                if (isExpired) {
+                  setError('This promo code has expired.');
+                  setLoading(false);
+                  return;
+                }
+                if (isDepleted) {
+                  setError('This promo code has reached its maximum usage limit.');
+                  setLoading(false);
+                  return;
+                }
+
+                codeType = 'standard_table';
+                standardPromoRow = promoRow;
+                if (promoRow.tier === 'premium') grantsPremium = true;
+              } else {
+                setError('Invalid Promo or Access Code. Please check the code and try again.');
+                setLoading(false);
+                return;
+              }
+            }
+          }
+        }
+
+        // --- CREATE SUPABASE AUTH ACCOUNT ---
+        const { data: authData, error: signUpError } = await supabase.auth.signUp({
+          email: submittedEmail,
+          password: submittedPassword,
+          options: {
+            data: {
+              first_name: submittedFirstName,
+              last_name: submittedLastName,
+              username: submittedUsername,
+              county: submittedCountry,
+              referral_source: submittedReferral,
+              is_premium: grantsPremium
+            },
+            emailRedirectTo: `${window.location.origin}/?action=login`
+          }
+        });
+
+        if (signUpError) {
           setError(signUpError.message);
+          setLoading(false);
+          return;
         }
-      } else {
+
+        // --- CREATE PROFILE & REDEEM CODE ---
         if (authData?.user) {
           await supabase.from('profiles').upsert({
             id: authData.user.id,
-            first_name: firstName.trim(),
-            last_name: lastName.trim(),
-            username: username.trim(),
-            email: cleanEmail,
-            county: country,
-            referral_source: referral,
-            is_premium: appliedTier === 'premium', 
+            first_name: submittedFirstName,
+            last_name: submittedLastName,
+            username: submittedUsername,
+            email: submittedEmail,
+            county: submittedCountry,
+            referral_source: submittedReferral,
+            is_premium: grantsPremium,
+            super_hypes_left: grantsPremium ? 3 : 1,
             tos_accepted: true,
             tos_accepted_at: new Date().toISOString()
           }, { onConflict: 'id' });
 
           if (cleanCode) {
-            // Redeem code immediately in the database
-            await supabase.rpc('redeem_access_code', {
-              p_code: cleanCode,
-              p_user_id: authData.user.id
-            });
-            // Also store in localStorage in case email confirmation is required before sign in
-            localStorage.setItem('pending_premium_code', cleanCode);
+            try {
+              if (codeType === 'annual_premium') {
+                // Call the 1-Year Premium redemption RPC
+                const { error: redeemErr } = await supabase.rpc('redeem_premium_code', {
+                  promo_code: cleanCode
+                });
+                if (redeemErr) {
+                  console.warn('RPC redeem_premium_code warning, applying fallback profile upgrade:', redeemErr.message);
+                }
+              } else if (codeType === 'standard_rpc') {
+                await supabase.rpc('redeem_access_code', {
+                  p_code: cleanCode,
+                  p_user_id: authData.user.id
+                });
+              } else if (codeType === 'standard_table' && standardPromoRow) {
+                await supabase
+                  .from('promo_codes')
+                  .update({ times_used: (standardPromoRow.times_used || 0) + 1 })
+                  .eq('id', standardPromoRow.id);
+              }
+              localStorage.removeItem('auto_fill_premium_code');
+            } catch (codeErr) {
+              console.error('Error finalizing promo code redemption:', codeErr);
+            }
           }
         }
 
-        setSuccessMsg("Account created! Please check your email inbox to confirm your registration.");
-        setIsSignUp(false); 
-        setPassword('');
-      }
-      setLoading(false);
-
-    } else {
-      // Existing User Login Flow
-      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password,
-      });
-
-      if (loginError) {
-        setError(loginError.message);
-        setLoading(false);
+        if (authData?.session) {
+          setLoading(false);
+          handleAuthSuccess();
+        } else {
+          setSuccessMsg(
+            grantsPremium
+              ? 'Pro Account created with your Promo Code! Please check your email inbox to confirm your registration.'
+              : 'Account created! Please check your email inbox to confirm your registration.'
+          );
+          setIsSignUp(false);
+          setPassword('');
+          setLoading(false);
+        }
       } else {
-        const cleanCode = accessCode.trim().toUpperCase();
-        if (cleanCode && loginData?.user?.id) {
-          const { error: redeemError } = await supabase.rpc('redeem_access_code', {
-            p_code: cleanCode,
-            p_user_id: loginData.user.id
-          });
-          if (redeemError) {
-            console.error("Code redemption failed:", redeemError.message);
-          }
+        // --- LOGIN FLOW ---
+        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+          email: submittedEmail,
+          password: submittedPassword,
+        });
+
+        if (loginError) {
+          console.error('Login Error from Supabase:', loginError);
+          setError(loginError.message);
+          setLoading(false);
+        } else if (loginData?.session || loginData?.user) {
+          setLoading(false);
+          handleAuthSuccess();
+        } else {
+          setError('Unable to sign in. Please verify your email and password.');
+          setLoading(false);
         }
-        window.dispatchEvent(new Event('profileUpdated'));
-        onSuccess();
       }
+    } catch (err: any) {
+      console.error('Auth Exception:', err);
+      setError(err.message || 'An unexpected error occurred.');
+      setLoading(false);
     }
   };
 
-  const handleForgotPasswordSubmit = async (e: any) => {
+  const handleForgotPasswordSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!email) {
-      setError("Please enter your email address.");
+    const formData = new FormData(e.currentTarget);
+    const submittedEmail = ((formData.get('email') as string) || email).trim().toLowerCase();
+
+    if (!submittedEmail) {
+      setError('Please enter your email address.');
       return;
     }
-    
+
     setLoading(true);
     setError('');
     setSuccessMsg('');
 
-    const cleanEmail = email.replace(/\s+/g, '').toLowerCase();
-
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(submittedEmail, {
       redirectTo: window.location.origin,
     });
 
     if (resetError) {
       setError(resetError.message);
     } else {
-      setSuccessMsg("If an account exists, a password reset link has been sent to that email.");
+      setSuccessMsg('If an account exists, a password reset link has been sent to that email.');
       setTimeout(() => {
         setIsForgotPassword(false);
         setSuccessMsg('');
@@ -216,12 +311,23 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
 
   return (
     <>
-      <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6">
-        <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm relative shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar">
-          <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer">
+      <div
+        className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in"
+        onClick={handleClose}
+      >
+        <div
+          className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm relative shadow-2xl max-h-[90vh] overflow-y-auto no-scrollbar"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={handleClose}
+            className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer z-20 p-1"
+            aria-label="Close"
+          >
             <X className="w-5 h-5" />
           </button>
-          
+
           <h2 className="text-xl font-black italic uppercase tracking-tighter text-white mb-6">
             {isForgotPassword ? 'Reset Password' : (isSignUp ? 'Join the Squad' : 'Login')}
           </h2>
@@ -232,60 +338,70 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
               <p className="text-emerald-400 text-xs font-bold leading-relaxed">{successMsg}</p>
             </div>
           )}
-          
+
           {isForgotPassword ? (
             <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
               <p className="text-xs text-zinc-400 font-bold mb-4">
                 Enter the email address associated with your account and we will send you a link to reset your password.
               </p>
-              <input 
-                type="email" placeholder="Email Address" value={email} onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+              <input
+                name="email"
+                type="email"
+                placeholder="Email Address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
                 required
               />
-              {error && <p className="text-red-500 text-[10px] font-bold">{error}</p>}
-              <button 
-                type="submit" disabled={loading}
-                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded mt-2 hover:bg-white transition-colors cursor-pointer"
+              {error && <p className="text-red-500 text-xs font-bold p-2 bg-red-950/40 border border-red-800 rounded">{error}</p>}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded mt-2 hover:bg-white transition-colors cursor-pointer disabled:opacity-50"
               >
                 {loading ? 'Processing...' : 'Send Reset Link'}
               </button>
             </form>
           ) : (
-            <form onSubmit={handleEmailSubmit} className="space-y-4">
+            <form onSubmit={handleEmailSubmit} className="space-y-3.5">
               {isSignUp && (
                 <>
                   <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      placeholder="First Name" 
-                      value={firstName} 
+                    <input
+                      name="firstName"
+                      type="text"
+                      placeholder="First Name"
+                      value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
-                      className="w-1/2 bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+                      className="w-1/2 bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
                       required
                     />
-                    <input 
-                      type="text" 
-                      placeholder="Last Name" 
-                      value={lastName} 
+                    <input
+                      name="lastName"
+                      type="text"
+                      placeholder="Last Name"
+                      value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
-                      className="w-1/2 bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+                      className="w-1/2 bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
                       required
                     />
                   </div>
 
-                  <input 
-                    type="text" 
-                    placeholder="Choose a Username" 
-                    value={username} 
+                  <input
+                    name="username"
+                    type="text"
+                    placeholder="Choose a Username"
+                    value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     maxLength={15}
-                    className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+                    className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
                     required
                   />
-                  
-                  <select 
-                    value={country} onChange={(e) => setCountry(e.target.value)}
+
+                  <select
+                    name="country"
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
                     className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors cursor-pointer"
                     required
                   >
@@ -311,8 +427,10 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                     <option value="Other">Other</option>
                   </select>
 
-                  <select 
-                    value={referral} onChange={(e) => setReferral(e.target.value)}
+                  <select
+                    name="referral"
+                    value={referral}
+                    onChange={(e) => setReferral(e.target.value)}
                     className="w-full bg-black border border-zinc-700 p-3 rounded text-zinc-400 text-sm focus:outline-none focus:border-[#fe9a00] transition-colors cursor-pointer"
                     required
                   >
@@ -324,40 +442,44 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                     <option value="Friend">Recommended by a Friend</option>
                     <option value="Other">Other</option>
                   </select>
+
+                  {/* PROMO / ANNUAL PREMIUM CODE FIELD */}
+                  <div className="relative">
+                    <Key className="w-4 h-4 text-[#fe9a00] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      name="accessCode"
+                      type="text"
+                      placeholder="PROMO OR 1-YEAR PRO CODE (OPTIONAL)"
+                      value={accessCode}
+                      onChange={(e) => {
+                        setAccessCode(e.target.value.toUpperCase());
+                        if (error) setError('');
+                      }}
+                      className="w-full bg-black border border-zinc-700 pl-9 pr-3 py-3 rounded text-[#fe9a00] font-black uppercase tracking-widest text-xs focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:text-zinc-600 placeholder:font-bold"
+                    />
+                  </div>
                 </>
               )}
 
-              <input 
-                type="text" 
-                placeholder="Promo / Gift Code (Optional)" 
-                value={accessCode} 
-                onChange={(e) => {
-                  setAccessCode(e.target.value.toUpperCase());
-                  if (error) setError('');
-                }}
-                className="w-full bg-black border border-zinc-700 p-3 rounded text-[#fe9a00] font-black tracking-widest text-sm focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-500" 
-              />
-
-              <input 
-                type="email" placeholder="Email Address" value={email} onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (error) setError('');
-                }}
-                className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+              <input
+                name="email"
+                type="email"
+                placeholder="Email Address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-black border border-zinc-700 p-3 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
                 required
               />
-              
+
               <div className="relative flex flex-col">
                 <div className="relative">
-                  <input 
-                    type={showPassword ? "text" : "password"} 
-                    placeholder="Password" 
-                    value={password} 
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (error) setError('');
-                    }}
-                    className="w-full bg-black border border-zinc-700 p-3 pr-10 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors" 
+                  <input
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-black border border-zinc-700 p-3 pr-10 rounded text-white text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
                     required
                   />
                   <button
@@ -368,11 +490,11 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                
+
                 {!isSignUp && (
-                  <button 
-                    type="button" 
-                    onClick={() => { setIsForgotPassword(true); setError(''); setSuccessMsg(''); }} 
+                  <button
+                    type="button"
+                    onClick={() => { setIsForgotPassword(true); setError(''); setSuccessMsg(''); }}
                     className="text-[10px] text-zinc-500 hover:text-white uppercase tracking-widest text-right mt-2 transition-colors cursor-pointer"
                   >
                     Forgot Password?
@@ -385,54 +507,67 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
                   <p className="text-zinc-500 text-[10px] font-bold tracking-wider px-1">
                     * Password must be at least 10 characters.
                   </p>
-                  
+
                   <div className="flex items-start gap-3 mt-4 bg-zinc-950 p-3 rounded-lg border border-zinc-800">
-                    <input 
-                      type="checkbox" 
-                      id="tos" 
-                      checked={tosAccepted} 
-                      onChange={(e) => setTosAccepted(e.target.checked)} 
+                    <input
+                      type="checkbox"
+                      id="tos"
+                      checked={tosAccepted}
+                      onChange={(e) => setTosAccepted(e.target.checked)}
                       className="mt-0.5 w-4 h-4 accent-[#fe9a00] bg-black border-zinc-700 rounded cursor-pointer"
                       required
                     />
                     <label htmlFor="tos" className="text-xs text-zinc-400 font-bold leading-relaxed cursor-pointer select-none">
-                      I have read and agree to the <button type="button" onClick={(e) => { e.preventDefault(); setShowTosModal(true); }} className="text-[#fe9a00] hover:text-white underline transition-colors font-black uppercase tracking-wider text-[10px] ml-1 cursor-pointer">Terms of Service</button>.
+                      I have read and agree to the{' '}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); setShowTosModal(true); }}
+                        className="text-[#fe9a00] hover:text-white underline transition-colors font-black uppercase tracking-wider text-[10px] ml-1 cursor-pointer"
+                      >
+                        Terms of Service
+                      </button>.
                     </label>
                   </div>
                 </>
               )}
 
-              {error && <p className="text-red-500 text-[10px] font-bold">{error}</p>}
-              
-              <button 
-                type="submit" disabled={loading}
+              {error && (
+                <div className="p-3 bg-red-950/60 border border-red-700 rounded-lg text-red-300 text-xs font-bold leading-relaxed">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
                 className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded mt-2 hover:bg-white transition-colors cursor-pointer disabled:opacity-50"
               >
-                {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
+                {loading ? (isSignUp ? 'Creating Account...' : 'Logging in...') : (isSignUp ? 'Create Account' : 'Log In')}
               </button>
             </form>
           )}
 
           <div className="mt-6 text-center border-t border-zinc-800 pt-4">
             {isForgotPassword ? (
-              <button 
-                onClick={() => { setIsForgotPassword(false); setError(''); setSuccessMsg(''); }} 
+              <button
+                type="button"
+                onClick={() => { setIsForgotPassword(false); setError(''); setSuccessMsg(''); }}
                 className="text-white hover:text-[#fe9a00] text-xs font-black uppercase tracking-widest mt-2 transition-colors cursor-pointer"
               >
                 Back to Login
               </button>
             ) : (
-              <>
-                <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest">
-                  {isSignUp ? 'Already have an account?' : 'Need an account?'}
-                </p>
-                <button 
-                  onClick={() => { setIsSignUp(!isSignUp); setError(''); setSuccessMsg(''); }} 
-                  className="text-white hover:text-[#fe9a00] text-xs font-black uppercase tracking-widest mt-2 transition-colors cursor-pointer"
-                >
-                  {isSignUp ? 'Log In Here' : 'Sign Up Here'}
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => { setIsSignUp(!isSignUp); setError(''); setSuccessMsg(''); }}
+                className="text-zinc-400 hover:text-white text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer"
+              >
+                {isSignUp ? (
+                  <>Already have an account? <span className="text-[#fe9a00] underline ml-1">Log in here</span></>
+                ) : (
+                  <>Don't have an account? <span className="text-[#fe9a00] underline ml-1">Sign up here</span></>
+                )}
+              </button>
             )}
           </div>
         </div>
@@ -440,41 +575,36 @@ const LoginModal = ({ onClose, onSuccess }: any) => {
 
       {/* --- TERMS OF SERVICE MODAL --- */}
       {showTosModal && (
-        <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in">
+        <div className="fixed inset-0 z-[8000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in">
           <div className="bg-zinc-900 border border-zinc-700 p-6 sm:p-8 rounded-2xl w-full max-w-2xl relative shadow-2xl flex flex-col max-h-[85vh]">
-            <button onClick={() => setShowTosModal(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-10 bg-black/50 p-2 rounded-full cursor-pointer">
+            <button
+              type="button"
+              onClick={() => setShowTosModal(false)}
+              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-10 bg-black/50 p-2 rounded-full cursor-pointer"
+            >
               <X className="w-5 h-5" />
             </button>
-            
-            <h3 className="text-2xl font-black italic uppercase text-[#fe9a00] mb-6 border-b border-zinc-800 pb-4 tracking-tighter">Terms of Service</h3>
-            
+
+            <h3 className="text-2xl font-black italic uppercase text-[#fe9a00] mb-6 border-b border-zinc-800 pb-4 tracking-tighter">
+              Terms of Service
+            </h3>
+
             <div className="overflow-y-auto pr-4 space-y-6 text-sm text-zinc-300 font-medium custom-scrollbar flex-1 pb-4 leading-relaxed">
               <p>Welcome to Saturday AM. By accessing our app, creating an account, or using our services, you agree to abide by these terms.</p>
-              
               <div>
-                <h4 className="font-black uppercase tracking-widest text-white mb-2 text-[10px]">1. User Conduct & Community Rules</h4>
-                <p className="text-xs">You agree to not post any abusive, threatening, discriminatory, or vulgar content. We maintain a zero-tolerance policy for harassment. We reserve the right to suspend or permanently ban any account that violates our community guidelines, without prior notice.</p>
-              </div>
-
-              <div>
-                <h4 className="font-black uppercase tracking-widest text-white mb-2 text-[10px]">2. Subscriptions & Payments</h4>
-                <p className="text-xs">Premium subscriptions (Saturday AM+) are billed as described during checkout. You may cancel your subscription at any time through your account settings or the payment provider. Past payments are non-refundable unless explicitly required by law.</p>
-              </div>
-
-              <div>
-                <h4 className="font-black uppercase tracking-widest text-white mb-2 text-[10px]">3. Intellectual Property</h4>
-                <p className="text-xs">All manga, artwork, characters, logos, and UI designs within this app are the exclusive property of Saturday AM and its affiliated creators. You may not distribute, reproduce, or monetize any content from this app without explicit written permission.</p>
-              </div>
-
-              <div>
-                <h4 className="font-black uppercase tracking-widest text-white mb-2 text-[10px]">4. Privacy & Data Handling</h4>
-                <p className="text-xs">We securely store your email, basic profile data, and reading history to provide you a customized experience. We do not sell your personal data to malicious third parties. By registering, you consent to our data collection practices necessary to run the app.</p>
+                <h4 className="font-black uppercase tracking-widest text-white mb-2 text-[10px]">
+                  1. User Conduct & Community Rules
+                </h4>
+                <p className="text-xs">
+                  You agree to not post any abusive, threatening, discriminatory, or vulgar content. We maintain a zero-tolerance policy for harassment.
+                </p>
               </div>
             </div>
-            
+
             <div className="mt-6 pt-4 border-t border-zinc-800 flex gap-4">
-              <button 
-                onClick={() => { setTosAccepted(true); setShowTosModal(false); }} 
+              <button
+                type="button"
+                onClick={() => { setTosAccepted(true); setShowTosModal(false); }}
                 className="flex-1 py-4 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
               >
                 I Agree to the Terms
