@@ -14,7 +14,7 @@ import { useIntegrations } from "./Components/useIntegrations";
 
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
-import { AdminLogin } from './Auth/AdminLogin';
+import AdminLogin from './Auth/AdminLogin';
 import { GlobalFlexCard } from './Components/GlobalFlexCard';
 
 // 2. Lazy Load the views that use Named Exports
