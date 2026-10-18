@@ -65,11 +65,14 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         body: {
           userId: user.id,
           userEmail: user.email,
-          returnUrl: window.location.origin
+          returnUrl: window.location.origin,
+          plan: selectedPlan
         }
       });
 
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
       if (data?.url) {
         window.location.href = data.url;
       } else {
@@ -226,7 +229,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       // Always ensure the user's profile is upgraded to Premium in the database
       const { error: profileUpdateErr } = await supabase
         .from('profiles')
-        .update({ is_premium: true, super_hypes_left: 3 })
+        .update({ is_premium: true, super_hypes_left: 3, hypes_remaining: 3 })
         .eq('id', user.id);
 
       if (profileUpdateErr) {
@@ -336,7 +339,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               </h3>
               <div className="flex items-baseline gap-1">
                 <span className="text-4xl font-black text-white">$1.99</span>
-                <span className="text-zinc-400 font-bold text-sm">/ month</span>
+                <span className="text-zinc-400 font-bold text-sm">/ month (or $20/yr)</span>
               </div>
               <p className="text-purple-300 text-xs font-bold mt-3">The ultimate Super Fan experience.</p>
             </div>
@@ -488,12 +491,12 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                         <div className="flex items-center gap-2">
                           <span className="font-black uppercase tracking-widest text-sm text-white">Yearly</span>
                           <span className="bg-purple-500 text-white text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest">
-                            {promoStatus === 'applied' ? 'PROMO APPLIED' : 'Save 20%'}
+                            {promoStatus === 'applied' ? 'PROMO APPLIED' : 'Save 16%'}
                           </span>
                         </div>
                         <span className="font-black text-purple-400 flex items-center gap-2">
-                          {promoStatus === 'applied' && <span className="text-zinc-500 line-through text-xs">$39.99</span>}
-                          {promoStatus === 'applied' ? '$29.99' : '$39.99'}
+                          {promoStatus === 'applied' && <span className="text-zinc-500 line-through text-xs">$20.00</span>}
+                          {promoStatus === 'applied' ? '$15.00' : '$20.00'}
                         </span>
                       </div>
                       <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Billed once per year</p>
@@ -537,7 +540,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                       </>
                     ) : (
                       <>
-                        Pay with Stripe ($1.99/mo) <ArrowLeft className="w-4 h-4 rotate-180" />
+                        {selectedPlan === 'yearly' ? 'Pay with Stripe ($20.00/yr)' : 'Pay with Stripe ($1.99/mo)'} <ArrowLeft className="w-4 h-4 rotate-180" />
                       </>
                     )}
                   </button>
