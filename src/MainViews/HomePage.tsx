@@ -3,13 +3,23 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { SeriesSection } from "./SeriesSection";
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
-import { Menu, X, Bell, CheckCircle, Play } from 'lucide-react';
+import { Menu, X, Bell, CheckCircle, Play, RefreshCw } from 'lucide-react';
 import { useTelemetry } from '../Components/useTelemetry'; 
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
-const isNewItem = (createdAt: string | undefined) => {
-  if (!createdAt) return false;
-  return Date.now() - new Date(createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
+// Checks if a chapter or series is within 7 days of its official release timestamp (publish_at || created_at)
+const isNewRelease = (publishAt?: string | null, createdAt?: string | null) => {
+  const effectiveDate = publishAt || createdAt;
+  if (!effectiveDate) return false;
+  const releaseTime = new Date(effectiveDate).getTime();
+  const now = Date.now();
+  return releaseTime <= now && (now - releaseTime) < 7 * 24 * 60 * 60 * 1000;
+};
+
+// Checks if a scheduled item is live yet
+const isReleasedYet = (publishAt?: string | null) => {
+  if (!publishAt) return true;
+  return new Date(publishAt).getTime() <= Date.now();
 };
 
 let memHeroSlides: any = null;
@@ -48,14 +58,67 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [dismissedNotifs, setDismissedNotifs] = useState<string[]>([]);
   
   const [forceTutorial, setForceTutorial] = useState(false);
+  const [isRefreshingApp, setIsRefreshingApp] = useState(false);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  // Re-evaluate scheduled drops every 30 seconds while user is on the page
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // --- 1-TAP UNIVERSAL HARD REFRESH (CLEARS IOS/PWA CACHE & SERVICE WORKERS) ---
+  const handleHardRefresh = async () => {
+    if (isRefreshingApp) return;
+    setIsRefreshingApp(true);
+
+    try {
+      // 1. Clear in-memory caches
+      memHeroSlides = null;
+      memHomeSections = null;
+      memRecentReads = null;
+      memNotifications = null;
+
+      // 2. Unregister any active Service Workers so iOS/Android fetches the newest build
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((reg) => reg.unregister()));
+      }
+
+      // 3. Purge all Cache Storage buckets (fixes iOS Safari / Home Screen web app caching)
+      if ('caches' in window) {
+        const cacheNames = await window.caches.keys();
+        await Promise.all(cacheNames.map((name) => window.caches.delete(name)));
+      }
+    } catch (err) {
+      console.error('Cache clear error:', err);
+    }
+
+    // 4. Force network reload with cache-busting timestamp parameter
+    const url = new URL(window.location.href);
+    url.searchParams.set('v', Date.now().toString());
+    window.location.replace(url.toString());
+  };
 
   const visibleNotifications = useMemo(() => {
-    return notifications.filter(n => !dismissedNotifs.includes(n.id));
-  }, [notifications, dismissedNotifs]);
+    return notifications
+      .filter(n => !dismissedNotifs.includes(n.id) && isReleasedYet(n.publish_at))
+      .sort((a, b) => {
+        const timeA = new Date(a.publish_at || a.created_at || 0).getTime();
+        const timeB = new Date(b.publish_at || b.created_at || 0).getTime();
+        return timeB - timeA;
+      })
+      .slice(0, 15);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifications, dismissedNotifs, nowTick]);
 
   const fetchGlobalNotifications = async () => {
     try {
-      const { data: notifData } = await supabase.from('app_notifications').select('*').order('created_at', { ascending: false }).limit(15);
+      const { data: notifData } = await supabase
+        .from('app_notifications')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(40);
       if (notifData) {
         const validData = notifData.filter(n => n && n.id && n.title);
         setNotifications(validData);
@@ -71,11 +134,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     setDismissedNotifs(savedDismissed);
 
     const fetchHomeData = async () => {
-      if (memHeroSlides && memHomeSections && latestChapters.length > 0) {
-        setIsLoadingSlides(false);
-        return;
-      }
-
       try {
         const { data: slideData } = await supabase.from('hero_slides').select('*').order('id', { ascending: true });
         if (slideData) {
@@ -92,8 +150,9 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         const { data: chapData } = await supabase
           .from('chapters')
           .select('*')
+          .eq('is_published', true)
           .order('created_at', { ascending: false }) 
-          .limit(20);
+          .limit(50);
           
         if (chapData) setLatestChapters(chapData);
 
@@ -107,24 +166,26 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     
     fetchHomeData();
 
-    const notifChannel = supabase.channel('public:app_notifications')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'app_notifications' }, (payload) => {
-          if (payload.new && payload.new.id && payload.new.title) {
-            setNotifications((current) => {
-              const updated = current.some(n => n.id === payload.new.id) ? current : [payload.new, ...current].slice(0, 15);
-              memNotifications = updated;
-              return updated;
-            });
-          } else {
-            fetchGlobalNotifications();
-          }
-      }).subscribe();
+    const notifChannel = supabase.channel('public:home_live_sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_notifications' }, () => {
+        fetchGlobalNotifications();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chapters' }, async () => {
+        const { data: chapData } = await supabase
+          .from('chapters')
+          .select('*')
+          .eq('is_published', true)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (chapData) setLatestChapters(chapData);
+      })
+      .subscribe();
 
     return () => { supabase.removeChannel(notifChannel); };
-  }, [latestChapters.length]);
+  }, []);
 
   useEffect(() => {
-    if (showNotifications && !memNotifications) fetchGlobalNotifications();
+    if (showNotifications) fetchGlobalNotifications();
   }, [showNotifications]);
 
   const handleDismissNotif = (e: React.MouseEvent, id: string) => {
@@ -136,7 +197,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
   const handleClearAllNotifs = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const allLoadedIds = notifications.map(n => n.id);
+    const allLoadedIds = visibleNotifications.map(n => n.id);
     const updated = Array.from(new Set([...dismissedNotifs, ...allLoadedIds]));
     setDismissedNotifs(updated);
     localStorage.setItem('am_dismissed_notifs', JSON.stringify(updated));
@@ -168,9 +229,9 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         const combined = history.map((h: any) => {
           const chap = chapters.find((c: any) => String(c.id) === String(h.chapter_id));
 
-          if (chap) {
+          if (chap && chap.is_published && isReleasedYet(chap.publish_at)) {
             const series = seriesList.find((s: any) => s.slug === chap.series_slug);
-            if (!series || series.is_hidden) return null;
+            if (!series || series.is_hidden || !isReleasedYet(series.publish_at)) return null;
             return { ...h, type: 'series', target: { ...series, action: 'series' }, title: series.title, subtitle: `Chapter ${chap.chapter_number}`, image: chap.thumbnail_url || series.cover_url };
           }
           return null;
@@ -207,16 +268,27 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     if (slide.link_type === 'external') window.open(slide.link_target, '_blank', 'noopener,noreferrer'); 
     else if (slide.link_type === 'series') {
       const matchedSeries = seriesList.find((s: any) => s.slug === slide.link_target);
-      if (matchedSeries && !matchedSeries.is_hidden) onNavigate(matchedSeries); 
+      if (matchedSeries && !matchedSeries.is_hidden && isReleasedYet(matchedSeries.publish_at)) onNavigate(matchedSeries); 
     }
   };
 
+  // Filter Latest Chapters: must be published, release timestamp must have arrived, and parent series must be live
   const visibleLatestChapters = useMemo(() => {
-    return latestChapters.filter(chapter => {
-      const seriesData = seriesList.find(s => s.slug === chapter.series_slug);
-      return seriesData && !seriesData.is_hidden;
-    }).slice(0, 10); 
-  }, [latestChapters, seriesList]);
+    return latestChapters
+      .filter(chapter => {
+        if (!chapter.is_published) return false;
+        if (!isReleasedYet(chapter.publish_at)) return false;
+        const seriesData = seriesList.find(s => s.slug === chapter.series_slug);
+        return seriesData && !seriesData.is_hidden && isReleasedYet(seriesData.publish_at);
+      })
+      .sort((a, b) => {
+        const releaseA = new Date(a.publish_at || a.created_at || 0).getTime();
+        const releaseB = new Date(b.publish_at || b.created_at || 0).getTime();
+        return releaseB - releaseA;
+      })
+      .slice(0, 10);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestChapters, seriesList, nowTick]);
 
   // --- UPDATED LARGE HYPE FLAME LOADER FOR HOMEPAGE ---
   if (isLoading || isLoadingSlides) {
@@ -269,23 +341,35 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png" alt="Saturday AM" className="h-10 md:h-12 object-contain drop-shadow-md hover:scale-105 transition-transform" />
         </div>
         
-        <div className="flex items-center justify-end gap-2 sm:gap-4">
+        <div className="flex items-center justify-end gap-2 sm:gap-3">
           {!currentUser ? (
             <button 
               onClick={onLoginClick}
-              className="whitespace-nowrap flex-shrink-0 flex items-center justify-center bg-[#fe9a00] text-black px-4 py-1.5 sm:px-5 sm:py-2 rounded-full font-black uppercase tracking-widest text-[9px] sm:text-[10px] hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)]"
+              className="whitespace-nowrap flex-shrink-0 flex items-center justify-center bg-[#fe9a00] text-black px-4 py-1.5 sm:px-5 sm:py-2 rounded-full font-black uppercase tracking-widest text-[9px] sm:text-[10px] hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)] cursor-pointer"
             >
               Log In
             </button>
           ) : (
-            <div className="hidden sm:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => onNavigate({ action: 'profile' })}>
+            <div className="hidden sm:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity mr-1" onClick={() => onNavigate({ action: 'profile' })}>
                <DecoratedAvatar avatarUrl={currentUser.avatar_url} frameId={currentUser.frame_id} size="w-8 h-8" iconSize="w-4 h-4" />
                {userTier === 'premium' && <span className="bg-purple-900/40 border border-purple-500 text-purple-400 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black tracking-widest uppercase ml-1 animate-fade-in">PRO</span>}
             </div>
           )}
+
+          {/* 1-TAP UNIVERSAL HARD REFRESH BUTTON */}
+          <button
+            type="button"
+            onClick={handleHardRefresh}
+            disabled={isRefreshingApp}
+            className="p-2 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all cursor-pointer"
+            title="Refresh App & Clear Cache"
+            aria-label="Refresh App"
+          >
+            <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors ${isRefreshingApp ? 'animate-spin text-[#fe9a00]' : ''}`} />
+          </button>
           
           <div className="relative">
-            <button onClick={() => setShowNotifications(!showNotifications)} className="p-2 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all relative">
+            <button onClick={() => setShowNotifications(!showNotifications)} className="p-2 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all relative cursor-pointer">
               <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors" />
               {visibleNotifications.length > 0 && <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-zinc-900 animate-pulse" />}
             </button>
@@ -296,8 +380,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                   <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-black/50">
                     <h3 className="font-black italic uppercase text-white tracking-widest text-sm">Updates</h3>
                     <div className="flex items-center gap-3">
-                      {visibleNotifications.length > 0 && <button onClick={handleClearAllNotifs} className="text-[9px] text-zinc-500 hover:text-white uppercase tracking-widest font-black transition-colors">Clear All</button>}
-                      <button onClick={() => setShowNotifications(false)} className="text-zinc-500 hover:text-white transition-colors" title="Close"><X className="w-4 h-4 sm:w-5 sm:h-5" /></button>
+                      {visibleNotifications.length > 0 && <button onClick={handleClearAllNotifs} className="text-[9px] text-zinc-500 hover:text-white uppercase tracking-widest font-black transition-colors cursor-pointer">Clear All</button>}
+                      <button onClick={() => setShowNotifications(false)} className="text-zinc-500 hover:text-white transition-colors cursor-pointer" title="Close"><X className="w-4 h-4 sm:w-5 sm:h-5" /></button>
                     </div>
                   </div>
                   <div className="max-h-96 min-h-[120px] overflow-y-auto no-scrollbar relative bg-black/20">
@@ -306,9 +390,17 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                     ) : (
                       visibleNotifications.map(n => (
                         <div key={n.id} onClick={() => { setShowNotifications(false); if (n.link_target) { if (n.link_target.startsWith('http')) window.open(n.link_target, '_blank'); else { const matchedSeries = seriesList.find((s: any) => s.slug === n.link_target); if (matchedSeries && !matchedSeries.is_hidden) onNavigate(matchedSeries); else onNavigate({ action: n.link_target }); } } }} className="relative group p-4 border-b border-zinc-800/50 hover:bg-zinc-800 cursor-pointer flex gap-4 transition-colors pr-10">
-                          <button onClick={(e) => handleDismissNotif(e, n.id)} className="absolute top-2 right-2 p-1.5 text-zinc-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-black/50 z-10" title="Dismiss"><X className="w-4 h-4" /></button>
+                          <button onClick={(e) => handleDismissNotif(e, n.id)} className="absolute top-2 right-2 p-1.5 text-zinc-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity rounded-full hover:bg-black/50 z-10 cursor-pointer" title="Dismiss"><X className="w-4 h-4" /></button>
                           {n.thumbnail_url && <img src={n.thumbnail_url} className="w-12 h-12 rounded object-cover flex-shrink-0 border border-zinc-700 bg-black" alt="Notification" />}
-                          <div className="flex flex-col justify-center w-full min-w-0"><span className="text-white font-black text-xs uppercase tracking-wider leading-tight group-hover:text-[#fe9a00] transition-colors truncate">{n.title}</span><span className="text-zinc-400 text-[10px] font-bold mt-1 line-clamp-2 leading-relaxed">{n.message}</span></div>
+                          <div className="flex flex-col justify-center w-full min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-white font-black text-xs uppercase tracking-wider leading-tight group-hover:text-[#fe9a00] transition-colors truncate">{n.title}</span>
+                              {isNewRelease(n.publish_at, n.created_at) && (
+                                <span className="bg-red-600 text-white text-[7px] font-black uppercase px-1 py-0.5 rounded shrink-0">NEW</span>
+                              )}
+                            </div>
+                            <span className="text-zinc-400 text-[10px] font-bold mt-1 line-clamp-2 leading-relaxed">{n.message}</span>
+                          </div>
                         </div>
                       ))
                     )}
@@ -318,7 +410,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             )}
           </div>
 
-          <button onClick={onMenuToggle} className="p-2 bg-zinc-900 border border-zinc-700 hover:bg-[#fe9a00] hover:border-[#fe9a00] group rounded-full transition-colors ml-1">
+          <button onClick={onMenuToggle} className="p-2 bg-zinc-900 border border-zinc-700 hover:bg-[#fe9a00] hover:border-[#fe9a00] group rounded-full transition-colors cursor-pointer">
             <Menu className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors" />
           </button>
         </div>
@@ -362,13 +454,18 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             <div className="flex overflow-x-auto gap-4 pb-4 snap-x no-scrollbar items-start">
               {visibleLatestChapters.map((chapter) => {
                 const seriesData = seriesList.find(s => s.slug === chapter.series_slug) || {};
+                const showNewBadge = isNewRelease(chapter.publish_at, chapter.created_at);
 
                 return (
-                <div key={chapter.id} onClick={() => onNavigate(seriesData)} className="w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start flex flex-col">
+                <div key={chapter.id} onClick={() => onNavigate({ ...seriesData, autoOpenChapterId: chapter.id })} className="w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start flex flex-col">
                   <div className="relative overflow-hidden rounded-lg aspect-square border-[1px] border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.4)] group-hover/card:-translate-y-1 group-hover/card:border-[#fe9a00] group-hover/card:shadow-[0_0_30px_rgba(254,154,0,0.8)] transition-all duration-300">
                     <img 
                       src={chapter.thumbnail_url || seriesData.cover_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} 
                       className="w-full h-full object-cover" 
+                      style={{
+                        objectPosition: chapter.thumbnail_position || '50% 50%',
+                        transform: `scale(${(chapter.thumbnail_scale || 100) / 100})`
+                      }}
                       alt="Chapter Thumbnail" 
                     />
                     <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
@@ -376,7 +473,11 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                         CH. {chapter.chapter_number}
                       </p>
                     </div>
-                    {isNewItem(chapter.created_at) && <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
+                    {showNewBadge && (
+                      <div className="absolute top-1.5 right-1.5 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+                        NEW!
+                      </div>
+                    )}
                   </div>
                   
                   <div className="mt-3 px-1 flex flex-col flex-1">
@@ -418,7 +519,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
         {homeSections.map((section) => {
           const seriesInSection = seriesList
-            .filter((s: any) => s.home_section === section.title && !s.is_hidden)
+            .filter((s: any) => s.home_section === section.title && !s.is_hidden && isReleasedYet(s.publish_at))
             .sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99));
             
           if (seriesInSection.length === 0) return null; 

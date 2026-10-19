@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
-import { ArrowUp, X, Lock, Share, Menu, Download, Info } from 'lucide-react'; 
+import { ArrowUp, X, Lock, Share, Menu, Download, Info, CheckCircle2, AlertTriangle } from 'lucide-react'; 
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 
@@ -105,11 +105,19 @@ export default function App() {
   const [upsellConfig, setUpsellConfig] = useState<{ title: string; message: string; target?: 'signup' | 'sub'; buttonText?: string } | null>(null);
   const [showGlobalShareModal, setShowGlobalShareModal] = useState(false);
 
+  // Creator Stripe Connect OAuth Confirmation Banner State
+  const [stripeConnectNotice, setStripeConnectNotice] = useState<{
+    status: 'success' | 'error';
+    accountId?: string;
+    message?: string;
+  } | null>(null);
+
   const [showPasswordReset, setShowPasswordReset] = useState(false);
   const [newPassword, setNewPassword] = useState('');
 
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userTier, setUserTier] = useState<'visitor' | 'free' | 'premium'>('visitor');
+  const [authResolved, setAuthResolved] = useState(false);
 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
@@ -119,6 +127,65 @@ export default function App() {
 
   const isPopState = useRef(false);
   const isFetchingProfile = useRef(false);
+
+  // Safe wrapper so child components can never trigger an upsell modal for a Premium user
+  const handleTriggerUpsell = useCallback((config: any) => {
+    if (userTier === 'premium' || currentUser?.is_premium) {
+      setUpsellConfig(null);
+      return;
+    }
+    setUpsellConfig(config);
+  }, [userTier, currentUser?.is_premium]);
+
+  // Immediately close any open upsell modal if the user is or becomes Premium
+  useEffect(() => {
+    if (userTier === 'premium' || currentUser?.is_premium) {
+      setUpsellConfig(null);
+    }
+  }, [userTier, currentUser?.is_premium]);
+
+  // --- AUTO-CAPTURE SHOPIFY MAGIC LINK PROMO CODE, STRIPE CONNECT OAUTH & HARD-REFRESH (?v=) ---
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const magicPromo = params.get('promo') || params.get('code');
+    const stripeConnected = params.get('stripe_connected');
+    const stripeConnectError = params.get('stripe_connect_error');
+
+    if (stripeConnected === 'success') {
+      const acctId = params.get('acct') || '';
+      setStripeConnectNotice({
+        status: 'success',
+        accountId: acctId
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
+
+    if (stripeConnectError) {
+      setStripeConnectNotice({
+        status: 'error',
+        message: stripeConnectError
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
+
+    if (magicPromo) {
+      const cleanCode = magicPromo.trim().toUpperCase();
+      localStorage.setItem('auto_fill_premium_code', cleanCode);
+      window.history.replaceState({}, '', window.location.pathname);
+
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          setCurrentView('sub');
+        } else {
+          setShowLogin(true);
+        }
+      });
+    } else if (params.has('v')) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     window.history.replaceState({ view: currentView, series: selectedSeries }, '');
@@ -155,8 +222,15 @@ export default function App() {
     }
   }, [currentView, selectedSeries]);
 
-  // --- AUTOMATIC PAGE VISIT UPSELL TRACKER ---
+  // --- AUTOMATIC PAGE VISIT UPSELL TRACKER (FOR VISITORS & FREE USERS ONLY) ---
   useEffect(() => {
+    if (!authResolved) return;
+
+    if (userTier === 'premium' || currentUser?.is_premium) {
+      setUpsellConfig(null);
+      return;
+    }
+
     if (['sub', 'admin', 'settings', 'legal'].includes(currentView) || showLogin) return;
 
     const rawVisits = sessionStorage.getItem('am_nav_counter') || '0';
@@ -181,7 +255,8 @@ export default function App() {
         buttonText: 'Upgrade to Pro'
       });
     }
-  }, [currentView, userTier, showLogin]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, authResolved]);
 
   const handleIntroComplete = () => {
     localStorage.setItem('am_has_seen_intro', 'true');
@@ -197,7 +272,6 @@ export default function App() {
         const fallbackName = sessionUser.user_metadata?.username || 'Reader';
         const fallbackPremium = Boolean(sessionUser.user_metadata?.is_premium);
 
-        // Immediately set optimistic user state so the UI never hangs waiting on DB
         setCurrentUser((prev: any) => prev || {
           id: sessionUser.id,
           username: fallbackName,
@@ -207,7 +281,6 @@ export default function App() {
           super_hypes_left: fallbackPremium ? 3 : 1,
           is_premium: fallbackPremium
         });
-        setUserTier((prev) => (prev === 'visitor' ? (fallbackPremium ? 'premium' : 'free') : prev));
 
         const { data } = await supabase
           .from('profiles')
@@ -217,9 +290,12 @@ export default function App() {
         
         if (data) {
           setCurrentUser(data);
-          setUserTier(data.is_premium ? 'premium' : 'free');
+          const isPro = Boolean(data.is_premium);
+          setUserTier(isPro ? 'premium' : 'free');
+          if (isPro) setUpsellConfig(null);
         } else {
           setUserTier(fallbackPremium ? 'premium' : 'free');
+          if (fallbackPremium) setUpsellConfig(null);
           await supabase.from('profiles').upsert([
             {
               id: sessionUser.id,
@@ -242,6 +318,7 @@ export default function App() {
         console.error("Error fetching user profile:", err);
       } finally {
         isFetchingProfile.current = false;
+        setAuthResolved(true);
       }
     };
 
@@ -252,6 +329,7 @@ export default function App() {
         } else {
           setCurrentUser(null);
           setUserTier('visitor');
+          setAuthResolved(true);
         }
       });
     };
@@ -276,12 +354,12 @@ export default function App() {
     const handleInstantLogout = () => {
       setCurrentUser(null);
       setUserTier('visitor');
+      setAuthResolved(true);
     };
 
     window.addEventListener('profileUpdated', handleProfileUpdate);
     window.addEventListener('instantLogout', handleInstantLogout);
 
-    // Defer async DB calls with setTimeout(..., 0) so Supabase's internal auth lock never deadlocks on first login
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setShowPasswordReset(true);
@@ -289,6 +367,7 @@ export default function App() {
       if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
         setUserTier('visitor');
+        setAuthResolved(true);
       } else if (session?.user) {
         const user = session.user;
         setShowLogin(false);
@@ -298,6 +377,7 @@ export default function App() {
       } else if (event === 'INITIAL_SESSION' && !session) {
         setCurrentUser(null);
         setUserTier('visitor');
+        setAuthResolved(true);
       }
     });
 
@@ -493,6 +573,51 @@ export default function App() {
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => setShowLogin(false)} />}
       <ShareModal isOpen={showGlobalShareModal} onClose={() => setShowGlobalShareModal(false)} currentUser={currentUser} series={null} />
 
+      {/* CREATOR STRIPE CONNECT CONFIRMATION MODAL */}
+      {stripeConnectNotice && (
+        <div className="fixed inset-0 z-[7500] bg-black/90 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in" onClick={() => setStripeConnectNotice(null)}>
+          <div className="bg-zinc-950 border-2 border-[#fe9a00] p-8 rounded-3xl w-full max-w-md flex flex-col items-center text-center shadow-[0_0_50px_rgba(254,154,0,0.25)] relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setStripeConnectNotice(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
+            {stripeConnectNotice.status === 'success' ? (
+              <>
+                <div className="w-20 h-20 bg-emerald-500/20 border-2 border-emerald-500 rounded-full flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+                </div>
+                <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+                  Stripe Connected!
+                </h2>
+                <p className="text-zinc-300 text-xs sm:text-sm font-bold leading-relaxed mb-4">
+                  Your creator payout account is now linked to Saturday AM Manga Hype! You are ready to receive <span className="text-[#fe9a00]">100% Creator Tips & Fan Mail</span> directly from fans.
+                </p>
+                {stripeConnectNotice.accountId && (
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 mb-6 text-[11px] font-mono text-[#fe9a00]">
+                    Connected ID: {stripeConnectNotice.accountId}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="w-20 h-20 bg-red-500/20 border-2 border-red-500 rounded-full flex items-center justify-center mb-6">
+                  <AlertTriangle className="w-10 h-10 text-red-500" />
+                </div>
+                <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+                  Connection Incomplete
+                </h2>
+                <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-6">
+                  {stripeConnectNotice.message || 'We could not finish linking your Stripe account. Please try the onboarding link again or contact Saturday AM support.'}
+                </p>
+              </>
+            )}
+            <button
+              onClick={() => setStripeConnectNotice(null)}
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3.5 rounded-xl hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
+            >
+              Continue to Saturday AM
+            </button>
+          </div>
+        </div>
+      )}
+
       {showPasswordReset && (
         <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in">
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col shadow-2xl relative">
@@ -505,7 +630,7 @@ export default function App() {
         </div>
       )}
 
-      {upsellConfig && !showLogin && (
+      {upsellConfig && !showLogin && userTier !== 'premium' && !currentUser?.is_premium && (
         <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
           <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
             <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
@@ -530,7 +655,7 @@ export default function App() {
         </div>
       )}
 
-      <HamburgerMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} onNavigate={handleNavigate} onOpenFlexCard={() => setIsFlexCardOpen(true)} userTier={userTier} onUpsell={setUpsellConfig} currentUser={currentUser} canInstall={true} onInstall={handleInstallClick} onLoginClick={() => setShowLogin(true)} onShareClick={() => setShowGlobalShareModal(true)} />
+      <HamburgerMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} onNavigate={handleNavigate} onOpenFlexCard={() => setIsFlexCardOpen(true)} userTier={userTier} onUpsell={handleTriggerUpsell} currentUser={currentUser} canInstall={true} onInstall={handleInstallClick} onLoginClick={() => setShowLogin(true)} onShareClick={() => setShowGlobalShareModal(true)} />
 
       {isFlexCardOpen && <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} onNavigate={handleNavigate} />}
 
@@ -549,9 +674,9 @@ export default function App() {
         }>
           <div id="main-app-container" className="relative z-10 min-h-screen w-full bg-transparent">
             {currentView === 'home' && (<HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />)}
-            {currentView === 'series' && (<SeriesDetailPage userTier={userTier} series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} onUpsell={setUpsellConfig} />)}
+            {currentView === 'series' && (<SeriesDetailPage userTier={userTier} series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} onUpsell={handleTriggerUpsell} />)}
             {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
-            {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onUpsell={setUpsellConfig} />)}
+            {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onUpsell={handleTriggerUpsell} />)}
             {currentView === 'sub' && (<SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />)}
             {currentView === 'leaderboard' && (<Leaderboard userTier={userTier} currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
             {currentView === 'settings' && (<SettingsPage userTier={userTier} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onBack={() => setCurrentView('home')} onSignOut={() => { setCurrentView('home'); }} />)}
@@ -574,7 +699,7 @@ export default function App() {
           currentUser={currentUser} 
           userTier={userTier}
           onOpenFlexCard={() => setIsFlexCardOpen(true)}
-          onUpsell={setUpsellConfig}
+          onUpsell={handleTriggerUpsell}
         />
       )}
 

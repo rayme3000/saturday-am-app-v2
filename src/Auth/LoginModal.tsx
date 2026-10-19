@@ -3,6 +3,11 @@ import { supabase } from '../supabase';
 import { X, Eye, EyeOff, CheckCircle, Key } from 'lucide-react';
 import { containsProfanity } from '../profanityFilter';
 
+const isPoBoxAddress = (address: string): boolean => {
+  const poBoxRegex = /\b(?:p\.?\s*o\.?\s*box|post\s*office\s*box|postal\s*box|pobox)\b/i;
+  return poBoxRegex.test(address);
+};
+
 const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup' }: any) => {
   const [isSignUp, setIsSignUp] = useState(initialMode === 'signup');
   const [isForgotPassword, setIsForgotPassword] = useState(false);
@@ -14,6 +19,9 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
   const [lastName, setLastName] = useState('');
   const [username, setUsername] = useState('');
   const [country, setCountry] = useState('');
+  const [streetAddress, setStreetAddress] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [referral, setReferral] = useState('');
   const [accessCode, setAccessCode] = useState(() => localStorage.getItem('auto_fill_premium_code') || '');
   const [tosAccepted, setTosAccepted] = useState(false);
@@ -73,8 +81,17 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
         const submittedLastName = ((formData.get('lastName') as string) || lastName).trim();
         const submittedUsername = ((formData.get('username') as string) || username).trim();
         const submittedCountry = (formData.get('country') as string) || country;
+        const submittedStreetAddress = ((formData.get('streetAddress') as string) || streetAddress).trim();
+        const submittedDob = ((formData.get('dateOfBirth') as string) || dateOfBirth).trim();
+        const submittedPhone = ((formData.get('phoneNumber') as string) || phoneNumber).trim();
         const submittedReferral = (formData.get('referral') as string) || referral;
         const cleanCode = (((formData.get('accessCode') as string) ?? accessCode) || '').trim().toUpperCase();
+
+        if (submittedStreetAddress && isPoBoxAddress(submittedStreetAddress)) {
+          setError('P.O. Boxes are not permitted. Please enter a physical residential or street address.');
+          setLoading(false);
+          return;
+        }
 
         if (!tosAccepted) {
           setError('You must agree to the Terms of Service to create an account.');
@@ -206,6 +223,10 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
               last_name: submittedLastName,
               username: submittedUsername,
               county: submittedCountry,
+              country: submittedCountry,
+              street_address: submittedStreetAddress,
+              date_of_birth: submittedDob,
+              phone_number: submittedPhone,
               referral_source: submittedReferral,
               is_premium: grantsPremium
             },
@@ -228,6 +249,10 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
             username: submittedUsername,
             email: submittedEmail,
             county: submittedCountry,
+            country: submittedCountry,
+            street_address: submittedStreetAddress || null,
+            date_of_birth: submittedDob || null,
+            phone_number: submittedPhone || null,
             referral_source: submittedReferral,
             is_premium: grantsPremium,
             super_hypes_left: grantsPremium ? 3 : 1,
@@ -483,6 +508,52 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
                       className="w-full bg-black border border-zinc-700 pl-9 pr-3 py-3 rounded text-[#fe9a00] font-black uppercase tracking-widest text-xs focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:text-zinc-600 placeholder:font-bold"
                     />
                   </div>
+
+                  {/* IF SIGNING UP WITH A PRO CODE, COLLECT SHIPPING / DOB / PHONE */}
+                  {accessCode.trim().length > 0 && (
+                    <div className="p-3 bg-zinc-950 border border-[#fe9a00]/40 rounded-xl space-y-2.5 animate-fade-in">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
+                        Pro Subscriber Prize Shipping Info (No P.O. Boxes)
+                      </p>
+                      <input
+                        name="streetAddress"
+                        type="text"
+                        placeholder="Physical Street Address (City, State, ZIP)"
+                        value={streetAddress}
+                        onChange={(e) => {
+                          setStreetAddress(e.target.value);
+                          if (error) setError('');
+                        }}
+                        className="w-full bg-black border border-zinc-700 p-2.5 rounded text-white text-xs focus:outline-none focus:border-[#fe9a00]"
+                        required
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[8px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">Date of Birth</label>
+                          <input
+                            name="dateOfBirth"
+                            type="date"
+                            value={dateOfBirth}
+                            onChange={(e) => setDateOfBirth(e.target.value)}
+                            className="w-full bg-black border border-zinc-700 p-2 rounded text-white text-xs focus:outline-none focus:border-[#fe9a00]"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[8px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">Phone Number</label>
+                          <input
+                            name="phoneNumber"
+                            type="tel"
+                            placeholder="Phone Number"
+                            value={phoneNumber}
+                            onChange={(e) => setPhoneNumber(e.target.value)}
+                            className="w-full bg-black border border-zinc-700 p-2 rounded text-white text-xs focus:outline-none focus:border-[#fe9a00]"
+                            required
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
 

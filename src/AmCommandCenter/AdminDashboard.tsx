@@ -9,8 +9,9 @@ import { CardSkinMaker } from './CardSkinMaker';
 import { FrameMaker } from './FrameMaker'; 
 import { ModerationDashboard } from './ModerationDashboard';
 import { UserManager } from './UserManager';
+import { CreatorPayoutTracker } from './CreatorPayoutTracker';
 import { supabase } from '../supabase';
-import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users, ShieldAlert, Download, Loader2, Eye, EyeOff, Search, Tag } from 'lucide-react';
+import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users, ShieldAlert, Download, Loader2, Eye, EyeOff, Search, Tag, ArrowUpDown, Mail, MapPin, Phone, Calendar } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
@@ -680,7 +681,17 @@ const IntegrationsManager = ({ setIsDirty }: any) => {
   );
 };
 
-// --- CONSOLIDATED 1-YEAR ANNUAL PRO CODE MANAGER (BATCH + CUSTOM BRANDED) ---
+type LedgerSortOption =
+  | 'date_desc'
+  | 'date_asc'
+  | 'name_asc'
+  | 'name_desc'
+  | 'email_asc'
+  | 'email_desc'
+  | 'code_asc'
+  | 'code_desc';
+
+// --- CONSOLIDATED 1-YEAR ANNUAL PRO CODE MANAGER (BATCH + CUSTOM BRANDED + SHOPIFY) ---
 const PromoCodeManager = () => {
   const [batchCodes, setBatchCodes] = useState<any[]>([]);
   const [brandedCodes, setBrandedCodes] = useState<any[]>([]);
@@ -696,9 +707,10 @@ const PromoCodeManager = () => {
   const [expireDays, setExpireDays] = useState(365);
   const [isCreatingCustom, setIsCreatingCustom] = useState(false);
 
-  // 3. Unified Ledger Filter & Distribution State
+  // 3. Unified Ledger Filter, Sort & Distribution State (Default: Newest Purchase First)
   const [ledgerFilter, setLedgerFilter] = useState<'all' | 'batch' | 'branded'>('all');
   const [ledgerSearch, setLedgerSearch] = useState('');
+  const [ledgerSort, setLedgerSort] = useState<LedgerSortOption>('date_desc');
   const [pendingSold, setPendingSold] = useState<Record<string, boolean>>({});
   const [isSavingLedger, setIsSavingLedger] = useState(false);
 
@@ -707,7 +719,7 @@ const PromoCodeManager = () => {
     const { data: pData } = await supabase.rpc('fetch_premium_ledger');
     if (pData) setBatchCodes(pData);
 
-    // Fetch custom-branded codes
+    // Fetch custom-branded & Shopify auto-minted codes (newest first by default)
     const { data: cData } = await supabase
       .from('promo_codes')
       .select('*')
@@ -819,15 +831,66 @@ const PromoCodeManager = () => {
 
   const filteredBatchCodes = useMemo(() => {
     const q = ledgerSearch.trim().toUpperCase();
-    if (!q) return batchCodes;
-    return batchCodes.filter(c => String(c.code || '').toUpperCase().includes(q));
-  }, [batchCodes, ledgerSearch]);
+    const base = !q
+      ? batchCodes
+      : batchCodes.filter(c => String(c.code || '').toUpperCase().includes(q));
+
+    return [...base].sort((a, b) => {
+      const timeA = a.created_at ? new Date(a.created_at).getTime() : (a.redeemed_at ? new Date(a.redeemed_at).getTime() : 0);
+      const timeB = b.created_at ? new Date(b.created_at).getTime() : (b.redeemed_at ? new Date(b.redeemed_at).getTime() : 0);
+      switch (ledgerSort) {
+        case 'date_asc':
+          return timeA - timeB;
+        case 'code_asc':
+          return String(a.code || '').localeCompare(String(b.code || ''));
+        case 'code_desc':
+          return String(b.code || '').localeCompare(String(a.code || ''));
+        default:
+          return timeB - timeA;
+      }
+    });
+  }, [batchCodes, ledgerSearch, ledgerSort]);
 
   const filteredBrandedCodes = useMemo(() => {
     const q = ledgerSearch.trim().toUpperCase();
-    if (!q) return brandedCodes;
-    return brandedCodes.filter(c => String(c.code || '').toUpperCase().includes(q));
-  }, [brandedCodes, ledgerSearch]);
+    const base = !q
+      ? brandedCodes
+      : brandedCodes.filter(c =>
+          String(c.code || '').toUpperCase().includes(q) ||
+          String(c.buyer_name || '').toUpperCase().includes(q) ||
+          String(c.buyer_email || '').toUpperCase().includes(q) ||
+          String(c.buyer_phone || '').toUpperCase().includes(q) ||
+          String(c.buyer_address || '').toUpperCase().includes(q) ||
+          String(c.order_number || '').toUpperCase().includes(q)
+        );
+
+    const getName = (c: any) => String(c.buyer_name || c.code || 'zzzz').trim().toLowerCase();
+    const getEmail = (c: any) => String(c.buyer_email || c.code || 'zzzz').trim().toLowerCase();
+    const getTime = (c: any) => (c.created_at ? new Date(c.created_at).getTime() : 0);
+
+    return [...base].sort((a, b) => {
+      switch (ledgerSort) {
+        case 'date_desc':
+          return getTime(b) - getTime(a);
+        case 'date_asc':
+          return getTime(a) - getTime(b);
+        case 'name_asc':
+          return getName(a).localeCompare(getName(b));
+        case 'name_desc':
+          return getName(b).localeCompare(getName(a));
+        case 'email_asc':
+          return getEmail(a).localeCompare(getEmail(b));
+        case 'email_desc':
+          return getEmail(b).localeCompare(getEmail(a));
+        case 'code_asc':
+          return String(a.code || '').localeCompare(String(b.code || ''));
+        case 'code_desc':
+          return String(b.code || '').localeCompare(String(a.code || ''));
+        default:
+          return getTime(b) - getTime(a);
+      }
+    });
+  }, [brandedCodes, ledgerSearch, ledgerSort]);
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl animate-fade-in">
@@ -972,33 +1035,33 @@ const PromoCodeManager = () => {
 
       {/* UNIFIED MASTER LEDGER */}
       <div className="bg-black p-6 rounded-xl border border-zinc-800">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-4 mb-5">
-          <div>
-            <div className="flex items-center gap-3">
-              <h3 className="text-sm font-black uppercase tracking-widest text-[#fe9a00]">
-                Master Annual Codes Ledger
-              </h3>
-              {hasPendingChanges && (
-                <button
-                  onClick={handleSaveLedger}
-                  disabled={isSavingLedger}
-                  className="bg-[#fe9a00] text-black text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded flex items-center gap-1 transition-all shadow-[0_0_10px_rgba(254,154,0,0.4)] cursor-pointer"
-                >
-                  {isSavingLedger ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save Distributed Marks'}
-                </button>
-              )}
+        <div className="flex flex-col gap-4 border-b border-zinc-800 pb-4 mb-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-3">
+                <h3 className="text-sm font-black uppercase tracking-widest text-[#fe9a00]">
+                  Master Annual Codes Ledger
+                </h3>
+                {hasPendingChanges && (
+                  <button
+                    onClick={handleSaveLedger}
+                    disabled={isSavingLedger}
+                    className="bg-[#fe9a00] text-black text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded flex items-center gap-1 transition-all shadow-[0_0_10px_rgba(254,154,0,0.4)] cursor-pointer"
+                  >
+                    {isSavingLedger ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save Distributed Marks'}
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-4 mt-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                <span>Shopify & Branded: <strong className="text-white">{brandedCodes.length}</strong></span>
+                <span>Batch Codes: <strong className="text-white">{batchCodes.length}</strong></span>
+                <span>Redeemed Batch: <strong className="text-emerald-400">{batchCodes.filter(c => c.is_used).length}</strong></span>
+                <span>Distributed: <strong className="text-[#fe9a00]">{batchCodes.filter(c => c.is_sold).length}</strong></span>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-4 mt-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-              <span>Batch Codes: <strong className="text-white">{batchCodes.length}</strong></span>
-              <span>Branded Codes: <strong className="text-white">{brandedCodes.length}</strong></span>
-              <span>Redeemed Batch: <strong className="text-emerald-400">{batchCodes.filter(c => c.is_used).length}</strong></span>
-              <span>Distributed: <strong className="text-[#fe9a00]">{batchCodes.filter(c => c.is_sold).length}</strong></span>
-            </div>
-          </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             {/* Filter Pills */}
-            <div className="flex bg-zinc-900 p-1 rounded-lg border border-zinc-800">
+            <div className="flex bg-zinc-900 p-1 rounded-lg border border-zinc-800 self-start md:self-auto">
               <button
                 type="button"
                 onClick={() => setLedgerFilter('all')}
@@ -1011,7 +1074,7 @@ const PromoCodeManager = () => {
                 onClick={() => setLedgerFilter('branded')}
                 className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer ${ledgerFilter === 'branded' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}
               >
-                Branded ({brandedCodes.length})
+                Shopify & Branded ({brandedCodes.length})
               </button>
               <button
                 type="button"
@@ -1021,45 +1084,103 @@ const PromoCodeManager = () => {
                 Batch ({batchCodes.length})
               </button>
             </div>
+          </div>
 
-            {/* Search Input */}
-            <div className="relative">
+          {/* Search & Sort Controls */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="relative flex-1">
               <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search code..."
+                placeholder="Search code, purchaser name, email, order #, address..."
                 value={ledgerSearch}
                 onChange={(e) => setLedgerSearch(e.target.value)}
-                className="w-full sm:w-48 bg-zinc-900 border border-zinc-700 text-white pl-8 pr-3 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00]"
+                className="w-full bg-zinc-900 border border-zinc-700 text-white pl-8 pr-3 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00]"
               />
+            </div>
+
+            <div className="relative">
+              <ArrowUpDown className="w-3.5 h-3.5 text-[#fe9a00] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <select
+                value={ledgerSort}
+                onChange={(e) => setLedgerSort(e.target.value as LedgerSortOption)}
+                className="w-full sm:w-auto bg-zinc-900 border border-zinc-700 text-white pl-8 pr-4 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
+                title="Sort Access Keys & Purchases"
+              >
+                <option value="date_desc">Sort: Newest Purchase First (Default)</option>
+                <option value="date_asc">Sort: Oldest Purchase First</option>
+                <option value="name_asc">Sort: Purchaser Name (A → Z)</option>
+                <option value="name_desc">Sort: Purchaser Name (Z → A)</option>
+                <option value="email_asc">Sort: Email Address (A → Z)</option>
+                <option value="email_desc">Sort: Email Address (Z → A)</option>
+                <option value="code_asc">Sort: Code (A → Z)</option>
+                <option value="code_desc">Sort: Code (Z → A)</option>
+              </select>
             </div>
           </div>
         </div>
 
         <div className="space-y-3 max-h-[520px] overflow-y-auto pr-2 custom-scrollbar">
-          {/* CUSTOM-BRANDED ANNUAL CODES */}
+          {/* SHOPIFY & CUSTOM-BRANDED ANNUAL CODES */}
           {(ledgerFilter === 'all' || ledgerFilter === 'branded') && filteredBrandedCodes.map((c) => {
             const isExpired = c.expires_at && new Date() > new Date(c.expires_at);
             const isDepleted = c.max_uses && c.times_used >= c.max_uses;
             const isInactive = isExpired || isDepleted;
+            const isShopifyOrder = Boolean(c.buyer_email || c.buyer_name || c.order_number);
 
             return (
               <div
                 key={`branded-${c.id}`}
                 className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-zinc-950 border border-[#fe9a00]/40 p-4 rounded-xl gap-4"
               >
-                <div>
+                <div className="space-y-1.5">
                   <div className="flex items-center gap-2.5 flex-wrap">
                     <span className="bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/40 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded">
-                      Custom Branded • 1-Year Pro
+                      {isShopifyOrder ? `Shopify Order ${c.order_number || ''}` : 'Custom Branded • 1-Year Pro'}
                     </span>
                     <h4 className={`font-black tracking-widest text-sm sm:text-base ${isInactive ? 'text-zinc-600 line-through' : 'text-white'}`}>
                       {c.code}
                     </h4>
+                    {c.created_at && (
+                      <span className="text-[10px] font-mono text-zinc-400 flex items-center gap-1">
+                        <Calendar className="w-3 h-3 text-[#fe9a00]" />
+                        Purchased: {new Date(c.created_at).toLocaleDateString()} {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-3 mt-2">
-                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${isInactive ? 'text-red-500 border-red-900 bg-red-900/10' : 'text-emerald-400 border-emerald-900 bg-emerald-900/10'}`}>
-                      {isDepleted ? 'ALL CLAIMED' : isExpired ? 'EXPIRED' : 'ACTIVE'}
+
+                  {/* PURCHASER NAME, EMAIL, PHONE & ADDRESS DISPLAY */}
+                  {isShopifyOrder && (
+                    <div className="bg-zinc-900/80 border border-zinc-800 rounded-lg px-3 py-2 text-xs space-y-1">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        {c.buyer_name && (
+                          <span className="text-zinc-300 font-bold">
+                            Purchaser: <strong className="text-white">{c.buyer_name}</strong>
+                          </span>
+                        )}
+                        {c.buyer_email && (
+                          <span className="text-[#fe9a00] font-bold flex items-center gap-1">
+                            <Mail className="w-3 h-3" /> {c.buyer_email}
+                          </span>
+                        )}
+                        {c.buyer_phone && (
+                          <span className="text-emerald-400 font-bold flex items-center gap-1 text-[11px]">
+                            <Phone className="w-3 h-3" /> {c.buyer_phone}
+                          </span>
+                        )}
+                      </div>
+                      {c.buyer_address && (
+                        <div className="text-[11px] text-zinc-400 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-[#fe9a00] shrink-0" />
+                          <span>{c.buyer_address}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-3 pt-0.5">
+                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${isInactive ? 'text-emerald-400 border-emerald-900 bg-emerald-900/10' : 'text-[#fe9a00] border-[#fe9a00]/40 bg-[#fe9a00]/10'}`}>
+                      {isDepleted ? 'CLAIMED / AUTO-UPGRADED' : isExpired ? 'EXPIRED' : 'ACTIVE (UNCLAIMED)'}
                     </span>
                     <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
                       Redeemed: <strong className="text-white">{c.times_used || 0} / {c.max_uses || 1}</strong>
@@ -1590,6 +1711,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
     { id: 'home', label: 'Home Editor' },
     { id: 'series', label: 'Series Page Editor' }, 
     { id: 'creators', label: 'Creator Directory' },
+    { id: 'payouts', label: 'Creator Payouts' },
     { id: 'users', label: 'User Directory' },
     { id: 'chapter', label: 'Chapter Upload' },
     { id: 'hype', label: 'Hype Economy' }, 
@@ -1631,6 +1753,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           {activeTab === 'home' && <HomeEditor Dropzone={Dropzone} setIsDirty={setIsDirty} />}
           {activeTab === 'series' && <SeriesEditor Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
           {activeTab === 'creators' && <CreatorVisibilityManager />}
+          {activeTab === 'payouts' && <CreatorPayoutTracker />}
           {activeTab === 'users' && <UserManager />}
           {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
           {activeTab === 'hype' && <HypeManager setIsDirty={setIsDirty} />}

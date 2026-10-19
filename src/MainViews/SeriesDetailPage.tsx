@@ -25,6 +25,14 @@ const iconMaskStyle = {
   maskPosition: 'center'
 };
 
+const isNewRelease = (publishAt?: string | null, createdAt?: string | null) => {
+  const effectiveDate = publishAt || createdAt;
+  if (!effectiveDate) return false;
+  const releaseTime = new Date(effectiveDate).getTime();
+  const now = Date.now();
+  return releaseTime <= now && (now - releaseTime) < 7 * 24 * 60 * 60 * 1000;
+};
+
 const seriesTutorialSlide = [
   {
     id: 'series-icons',
@@ -242,8 +250,20 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       const { data: freshSeries } = await supabase.from('series').select('*').eq('slug', targetSlug).single();
       if (freshSeries) setLocalSeries(freshSeries);
       
-      const { data: chapterData } = await supabase.from('chapters').select('*').eq('series_slug', targetSlug).eq('is_published', true).order('chapter_number', { ascending: true });
-      if (chapterData) setChapters(chapterData as any);
+      const { data: chapterData } = await supabase
+        .from('chapters')
+        .select('*')
+        .eq('series_slug', targetSlug)
+        .eq('is_published', true)
+        .order('chapter_number', { ascending: true });
+
+      if (chapterData) {
+        const now = Date.now();
+        const liveChapters = chapterData.filter(
+          (ch: any) => !ch.publish_at || new Date(ch.publish_at).getTime() <= now
+        );
+        setChapters(liveChapters as any);
+      }
       
       const { data: creatorData } = await supabase.from('series_creators').select('*').eq('series_slug', targetSlug).order('id', { ascending: true });
       if (creatorData && creatorData.length > 0) { setCreators(creatorData as any); } 
@@ -508,7 +528,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         />
       )}
 
-      {upsellConfig && (
+      {upsellConfig && userTier !== 'premium' && !isPremiumUser && (
         <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
             <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
@@ -903,6 +923,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 const actualProgress = readProgresses[String(ch.id)] || 0;
                 const hasTempUnlock = unlockedChapters.includes(ch.id);
                 const isLocked = checkIsLocked(ch.id) && !hasTempUnlock;
+                const showNewBadge = isNewRelease(ch.publish_at, ch.created_at);
 
                 const pageReacts = chapterStats[String(ch.id)]?.reacts || 0;
                 const displayReacts = (ch.react_count || 0) + pageReacts;
@@ -911,11 +932,24 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 <div key={ch.id} onClick={() => handleReadChapter(ch, absoluteIndex)} className="flex items-start sm:items-center gap-3 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
                   
                   <div className="relative overflow-hidden rounded-lg min-w-[80px] w-20 h-20 sm:min-w-[128px] sm:w-32 sm:h-32 flex-shrink-0">
-                    <img src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className={`w-full h-full object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`} alt="Thumbnail" />
+                    <img
+                      src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`}
+                      className={`w-full h-full object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`}
+                      style={{
+                        objectPosition: ch.thumbnail_position || '50% 50%',
+                        transform: `scale(${(ch.thumbnail_scale || 100) / 100})`
+                      }}
+                      alt="Thumbnail"
+                    />
                     <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
                     {isLocked && (
                       <div className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-black/80 backdrop-blur-md border border-zinc-700 p-1 sm:p-1.5 rounded-md">
                         <Lock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-zinc-400" />
+                      </div>
+                    )}
+                    {showNewBadge && (
+                      <div className="absolute top-1 right-1 z-20 bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+                        NEW!
                       </div>
                     )}
                   </div>
@@ -924,6 +958,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     <div className="flex-1 min-w-0 w-full">
                       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
                         <p className={`text-[9px] sm:text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
+                        {showNewBadge && (
+                          <span className="bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
+                            NEW!
+                          </span>
+                        )}
                         
                         <div className="flex items-center gap-1.5 sm:gap-2">
                           <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-900/80 border border-zinc-800 px-1.5 sm:px-2 py-0.5 rounded-full cursor-default">

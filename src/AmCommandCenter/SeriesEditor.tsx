@@ -1,7 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { Monitor, Smartphone, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown, Crop } from 'lucide-react';
+import { Monitor, Smartphone, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown, Crop, Calendar, Bell } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+
+const toLocalDateString = (isoString?: string | null) => {
+  const d = isoString ? new Date(isoString) : new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const toLocalTimeString = (isoString?: string | null) => {
+  if (!isoString) return '12:00';
+  const d = new Date(isoString);
+  const hours = String(d.getHours()).padStart(2, '0');
+  const mins = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${mins}`;
+};
 
 const COUNTRY_CODES = [
   { code: 'US', name: 'United States' }, { code: 'GB', name: 'United Kingdom' }, { code: 'JP', name: 'Japan' },
@@ -17,7 +33,7 @@ const COUNTRY_CODES = [
   { code: 'IE', name: 'Ireland' }, { code: 'PT', name: 'Portugal' }, { code: 'GR', name: 'Greece' }, { code: 'TR', name: 'Turkey' },
   { code: 'SA', name: 'Saudi Arabia' }, { code: 'AE', name: 'United Arab Emirates' }, { code: 'IL', name: 'Israel' }, { code: 'AR', name: 'Argentina' },
   { code: 'CL', name: 'Chile' }, { code: 'CO', name: 'Colombia' }, { code: 'PE', name: 'Peru' }, { code: 'VE', name: 'Venezuela' },
-  { code: 'JM', name: 'Jamaica' }, { code: 'PR', name: 'Puerto Rico' }, { code: 'BS', name: 'Bahamas' }, { code: 'HT', name: 'Haiti' },
+  { code: 'JM', name: 'Jamaica' }, { code: 'PR', name: 'Puerto Rico' }, { code: 'Bahamas', name: 'Bahamas' }, { code: 'HT', name: 'Haiti' },
   { code: 'HN', name: 'Honduras' }, { code: 'KW', name: 'Kuwait' }, { code: 'QA', name: 'Qatar' }, { code: 'BH', name: 'Bahrain' }, 
   { code: 'OM', name: 'Oman' }, { code: 'DO', name: 'Dominican Republic' }, { code: 'CR', name: 'Costa Rica' }, { code: 'CU', name: 'Cuba' }, 
   { code: 'SV', name: 'El Salvador' }, { code: 'PA', name: 'Panama' }, { code: 'MG', name: 'Madagascar' }
@@ -71,6 +87,10 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
     synopsis: '', awards: '', hasAwards: false, 
     contentRating: 'T',
     isHidden: false,
+    isScheduled: false,
+    autoNotify: true,
+    publishDate: toLocalDateString(),
+    publishTime: '12:00',
     creators: [{ role: 'Creator', name: '', bio: '', flagCode1: '', flagCode2: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
     characters: [] as any[] 
   });
@@ -120,6 +140,10 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           synopsis: '', awards: '', hasAwards: false, 
           contentRating: 'T', 
           isHidden: false,    
+          isScheduled: false,
+          autoNotify: true,
+          publishDate: toLocalDateString(),
+          publishTime: '12:00',
           creators: [{ role: 'Creator', name: '', flagCode1: '', flagCode2: '', avatar: '', bio: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
           characters: [] 
         });
@@ -153,6 +177,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
               avatar: selectedSeries.creator_avatar || '', bio: selectedSeries.creator_bio || '', twitter: selectedSeries.creator_twitter || '', instagram: selectedSeries.creator_instagram || '', supportLink: selectedSeries.creator_support_link || '', is_visible: true 
             }]; 
           }
+
+          const isFutureScheduled = Boolean(selectedSeries.publish_at && new Date(selectedSeries.publish_at).getTime() > Date.now());
           
           setFormData({ 
             seriesTitle: selectedSeries.title || '', bannerUrl: selectedSeries.cover_url || '', 
@@ -170,7 +196,11 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
             synopsis: selectedSeries.synopsis || '', awards: selectedSeries.awards || '', 
             hasAwards: selectedSeries.has_awards || false, 
             contentRating: selectedSeries.content_rating || 'T', 
-            isHidden: selectedSeries.is_hidden || false,         
+            isHidden: selectedSeries.is_hidden || false,
+            isScheduled: isFutureScheduled,
+            autoNotify: false,
+            publishDate: toLocalDateString(selectedSeries.publish_at),
+            publishTime: toLocalTimeString(selectedSeries.publish_at),
             creators: loadedCreators,
             characters: charData || [] 
           });
@@ -279,6 +309,14 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       const activeSlug = targetSeries === 'new' ? slug : targetSeries;
       const primaryCreator = formData.creators[0]; 
 
+      const existingSeriesObj = seriesList.find((s: any) => s.slug === activeSlug);
+      let publishTimestamp: string | null = existingSeriesObj?.publish_at || null;
+      if (formData.isScheduled) {
+        publishTimestamp = new Date(`${formData.publishDate}T${formData.publishTime}`).toISOString();
+      } else if (targetSeries === 'new' && !publishTimestamp) {
+        publishTimestamp = new Date().toISOString();
+      }
+
       const { error: seriesError } = await supabase.from('series').upsert({ 
         slug: activeSlug, title: formData.seriesTitle, synopsis: formData.synopsis, 
         cover_url: formData.bannerUrl, 
@@ -292,7 +330,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
         card_color: formData.cardColor, card_pattern: formData.cardPattern,
         awards: formData.hasAwards ? formData.awards : null, has_awards: formData.hasAwards, 
         content_rating: formData.contentRating, 
-        is_hidden: formData.isHidden,           
+        is_hidden: formData.isHidden,
+        publish_at: publishTimestamp,
         creator_name: primaryCreator.name, 
         flag_code: [primaryCreator.flagCode1, primaryCreator.flagCode2].filter(Boolean).join(','), 
         creator_avatar: primaryCreator.avatar, 
@@ -327,6 +366,28 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
         const { error: insertCharError } = await supabase.from('series_characters').insert(charPayload);
         if (insertCharError) throw insertCharError;
       }
+
+      // Sync automated New Series Drop notification if enabled and not hidden
+      const notifKey = `series_${activeSlug}`;
+      if (formData.isHidden) {
+        await supabase.from('app_notifications').delete().eq('source_key', notifKey);
+      } else if (formData.autoNotify) {
+        const effectiveReleaseIso = publishTimestamp || new Date().toISOString();
+        await supabase.from('app_notifications').upsert(
+          [
+            {
+              title: 'New Series Drop!',
+              message: `${formData.seriesTitle} is now on Saturday AM! Tap to start reading.`,
+              thumbnail_url: formData.bannerUrl || formData.characterUrl || null,
+              link_target: activeSlug,
+              publish_at: effectiveReleaseIso,
+              created_at: effectiveReleaseIso,
+              source_key: notifKey
+            }
+          ],
+          { onConflict: 'source_key' }
+        );
+      }
   
       window.dispatchEvent(new Event('seriesUpdated'));
       alert(`SUCCESS! Series Saved.`);
@@ -347,6 +408,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
     
     setIsSaving(true);
     try { 
+      await supabase.from('app_notifications').delete().eq('source_key', `series_${targetSeries}`);
       const { error: creatorErr } = await supabase.from('series_creators').delete().eq('series_slug', targetSeries);
       if (creatorErr) throw creatorErr;
 
@@ -498,15 +560,53 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           </div>
         </div>
 
-        <div className={`p-4 rounded border transition-colors ${formData.isHidden ? 'bg-red-900/10 border-red-900/50' : 'bg-black border-zinc-800'}`}>
-          <div className="flex items-center justify-between">
+        {/* VISIBILITY, SCHEDULING & AUTO-NOTIFICATION */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={`p-4 rounded-xl border transition-colors flex items-center justify-between ${formData.isHidden ? 'bg-red-900/10 border-red-900/50' : 'bg-black border-zinc-800'}`}>
             <div className="flex items-center gap-3">
                <input type="checkbox" checked={formData.isHidden} onChange={(e) => handleInputChange('isHidden', e.target.checked)} className="accent-red-500 w-5 h-5 cursor-pointer" />
                <label className={`text-xs font-black uppercase tracking-widest ${formData.isHidden ? 'text-red-500' : 'text-zinc-400'}`}>Hide Series (Unpublish)</label>
             </div>
-            {formData.isHidden && <span className="flex items-center gap-1.5 text-[9px] font-bold text-red-500 uppercase tracking-widest"><EyeOff className="w-3 h-3"/> Hidden from Readers</span>}
+            {formData.isHidden && <span className="flex items-center gap-1.5 text-[9px] font-bold text-red-500 uppercase tracking-widest"><EyeOff className="w-3 h-3"/> Hidden</span>}
+          </div>
+
+          <div className="bg-black border border-zinc-800 p-4 rounded-xl flex items-center justify-between gap-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.autoNotify}
+                onChange={(e) => handleInputChange('autoNotify', e.target.checked)}
+                className="accent-[#fe9a00] w-4 h-4"
+              />
+              <Bell className="w-3.5 h-3.5 text-[#fe9a00]" />
+              <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">Notify Fans on Launch</span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-700">
+              <input
+                type="checkbox"
+                checked={formData.isScheduled}
+                onChange={(e) => handleInputChange('isScheduled', e.target.checked)}
+                className="accent-[#fe9a00]"
+              />
+              <Calendar className="w-3.5 h-3.5 text-[#fe9a00]" />
+              <span className="text-[10px] font-black text-zinc-300 uppercase">Schedule Launch</span>
+            </label>
           </div>
         </div>
+
+        {formData.isScheduled && (
+          <div className="bg-black border border-[#fe9a00]/40 p-4 rounded-xl grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1.5">Series Launch Date</label>
+              <input type="date" value={formData.publishDate} onChange={(e) => handleInputChange('publishDate', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded p-2.5 text-white text-xs" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1.5">Series Launch Time</label>
+              <input type="time" value={formData.publishTime} onChange={(e) => handleInputChange('publishTime', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded p-2.5 text-white text-xs" />
+            </div>
+          </div>
+        )}
         
         {/* HERO BANNER SECTION: CLEAN DRAG/ZOOM CROP WINDOW (NO SLIDERS) */}
         <div className="border-b border-zinc-800 pb-6">

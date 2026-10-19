@@ -1,18 +1,54 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Crown, Zap, Star, Flame, CreditCard, X, Loader2, RefreshCcw, BookOpen, Trophy, AlertTriangle, Tag, Key } from 'lucide-react';
+import { ArrowLeft, Check, Crown, Zap, Star, Flame, CreditCard, X, Loader2, RefreshCcw, BookOpen, Trophy, AlertTriangle, Tag, Key, MapPin, Phone, Calendar, User } from 'lucide-react';
 import { supabase } from '../supabase';
+
+const COUNTRY_OPTIONS = [
+  "United States",
+  "United Kingdom",
+  "Canada",
+  "Australia",
+  "New Zealand",
+  "Ireland",
+  "Mexico",
+  "Brazil",
+  "France",
+  "Germany",
+  "Italy",
+  "Spain",
+  "Japan",
+  "South Korea",
+  "India",
+  "Philippines",
+  "Nigeria",
+  "South Africa",
+  "Other"
+];
+
+const isPoBoxAddress = (address: string): boolean => {
+  const poBoxRegex = /\b(?:p\.?\s*o\.?\s*box|post\s*office\s*box|postal\s*box|pobox)\b/i;
+  return poBoxRegex.test(address);
+};
 
 export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any) => {
   const [showModal, setShowModal] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState<'plan' | 'processing' | 'success'>('plan');
-  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('monthly');
+  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
   const [showDowngradeConfirm, setShowDowngradeConfirm] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   
   const [stripeKey, setStripeKey] = useState<string | null>(null);
 
-  // --- REDEMPTION & PROMO CODE STATE ---
-  const [redeemCode, setRedeemCode] = useState('');
+  // --- SUBSCRIBER REQUIRED MEMBER DETAILS ---
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [streetAddress, setStreetAddress] = useState('');
+  const [country, setCountry] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [formError, setFormError] = useState('');
+
+  // --- REDEMPTION & PROMO CODE STATE (AUTO-FILLS FROM SHOPIFY MAGIC LINK) ---
+  const [redeemCode, setRedeemCode] = useState(() => localStorage.getItem('auto_fill_premium_code') || '');
   const [redeeming, setRedeeming] = useState(false);
   const [alertConfig, setAlertConfig] = useState<{ type: 'success' | 'error', title: string, message: string } | null>(null);
 
@@ -22,19 +58,46 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   const isPremium = userTier === 'premium';
 
   useEffect(() => {
-    const fetchStripe = async () => {
-      const { data } = await supabase.from('app_settings').select('stripe_public_key').eq('id', 1).maybeSingle();
-      if (data?.stripe_public_key) setStripeKey(data.stripe_public_key);
+    const savedMagicCode = localStorage.getItem('auto_fill_premium_code');
+    if (savedMagicCode) {
+      setRedeemCode(savedMagicCode);
+    }
+
+    const fetchInitialData = async () => {
+      const { data: settingsData } = await supabase.from('app_settings').select('stripe_public_key').eq('id', 1).maybeSingle();
+      if (settingsData?.stripe_public_key) setStripeKey(settingsData.stripe_public_key);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('first_name, last_name, street_address, country, county, date_of_birth, phone_number')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (profile) {
+          setFirstName(profile.first_name || user.user_metadata?.first_name || '');
+          setLastName(profile.last_name || user.user_metadata?.last_name || '');
+          setStreetAddress(profile.street_address || user.user_metadata?.street_address || '');
+          setCountry(profile.country || profile.county || user.user_metadata?.country || user.user_metadata?.county || '');
+          setDateOfBirth(profile.date_of_birth || user.user_metadata?.date_of_birth || '');
+          setPhoneNumber(profile.phone_number || user.user_metadata?.phone_number || '');
+        }
+      }
     };
-    fetchStripe();
+    fetchInitialData();
   }, []);
 
-  const handleSubscribeClick = async () => {
+  const handleSubscribeClick = async (planChoice?: 'monthly' | 'yearly') => {
+    if (planChoice) {
+      setSelectedPlan(planChoice);
+    }
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       onLoginClick();
       return;
     }
+    setFormError('');
     setCheckoutStep('plan');
     setShowModal(true);
   };
@@ -49,8 +112,52 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
   };
 
+  const validateAndSaveMemberDetails = async (userId: string) => {
+    const cleanFirst = firstName.trim();
+    const cleanLast = lastName.trim();
+    const cleanAddress = streetAddress.trim();
+    const cleanCountry = country.trim();
+    const cleanDob = dateOfBirth.trim();
+    const cleanPhone = phoneNumber.trim();
+
+    if (!cleanFirst || !cleanLast || !cleanAddress || !cleanCountry || !cleanDob || !cleanPhone) {
+      throw new Error("Please complete all required subscriber fields (First Name, Last Name, Street Address, Country, Date of Birth, and Phone Number).");
+    }
+
+    if (isPoBoxAddress(cleanAddress)) {
+      throw new Error("P.O. Boxes are not permitted for prize shipping. Please enter a physical residential or street address.");
+    }
+
+    const { error: updateErr } = await supabase
+      .from('profiles')
+      .update({
+        first_name: cleanFirst,
+        last_name: cleanLast,
+        street_address: cleanAddress,
+        country: cleanCountry,
+        county: cleanCountry,
+        date_of_birth: cleanDob,
+        phone_number: cleanPhone
+      })
+      .eq('id', userId);
+
+    if (updateErr) {
+      throw new Error("Could not save subscriber details: " + updateErr.message);
+    }
+
+    return {
+      firstName: cleanFirst,
+      lastName: cleanLast,
+      streetAddress: cleanAddress,
+      country: cleanCountry,
+      dateOfBirth: cleanDob,
+      phoneNumber: cleanPhone
+    };
+  };
+
   // --- REAL STRIPE CHECKOUT INTEGRATION ---
   const handleStripeCheckout = async () => {
+    setFormError('');
     setCheckoutLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
 
@@ -61,12 +168,16 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
 
     try {
+      const memberDetails = await validateAndSaveMemberDetails(user.id);
+
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
         body: {
+          type: 'subscription',
           userId: user.id,
           userEmail: user.email,
           returnUrl: window.location.origin,
-          plan: selectedPlan
+          plan: selectedPlan,
+          ...memberDetails
         }
       });
 
@@ -79,23 +190,32 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         throw new Error("No checkout URL returned from Stripe.");
       }
     } catch (err: any) {
-      alert("Unable to reach Stripe Checkout: " + err.message);
+      setFormError(err.message || "Unable to reach Stripe Checkout.");
       setCheckoutLoading(false);
     }
   };
 
   // Simulated upgrade retained for local testing
   const handleDevUpgrade = async () => {
-    setCheckoutStep('processing');
+    setFormError('');
     const { data: { user } } = await supabase.auth.getUser();
     
-    if (user) {
-      await supabase.from('profiles').update({ is_premium: true }).eq('id', user.id);
+    if (!user) {
+      onLoginClick();
+      return;
+    }
+
+    try {
+      await validateAndSaveMemberDetails(user.id);
+      setCheckoutStep('processing');
+      await supabase.from('profiles').update({ is_premium: true, super_hypes_left: 3, hypes_remaining: 3 }).eq('id', user.id);
       window.dispatchEvent(new CustomEvent('profileUpdated'));
       
       setTimeout(() => {
         setCheckoutStep('success');
       }, 1500);
+    } catch (err: any) {
+      setFormError(err.message);
     }
   };
 
@@ -236,6 +356,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         throw profileUpdateErr;
       }
 
+      localStorage.removeItem('auto_fill_premium_code');
       window.dispatchEvent(new Event('profileUpdated'));
       setAlertConfig({
         type: 'success',
@@ -323,7 +444,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               disabled 
               className="w-full py-4 bg-zinc-800 text-zinc-500 font-black uppercase tracking-widest rounded-xl cursor-not-allowed"
             >
-              Current Plan
+              {isPremium ? 'Included in Pro' : 'Current Plan'}
             </button>
           </div>
 
@@ -333,15 +454,56 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             </div>
             <div className="absolute -top-24 -right-24 w-48 h-48 bg-purple-600/30 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="mb-8 relative z-10">
-              <h3 className="text-2xl font-black italic uppercase text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-[#fe9a00] mb-2 flex items-center gap-2">
+            <div className="mb-6 relative z-10">
+              <h3 className="text-2xl font-black italic uppercase text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-[#fe9a00] mb-4 flex items-center gap-2">
                 Saturday AM+ <Zap className="w-5 h-5 text-[#fe9a00]" />
               </h3>
-              <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-black text-white">$1.99</span>
-                <span className="text-zinc-400 font-bold text-sm">/ month (or $20/yr)</span>
+
+              {/* VISIBLE PLAN SWITCHER ON MAIN CARD: MONTHLY ($1.99) vs ANNUAL ($20.00) */}
+              <div className="grid grid-cols-2 gap-2.5 p-1.5 bg-black/80 border border-zinc-800 rounded-2xl mb-4">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlan('monthly')}
+                  className={`py-2.5 px-3 rounded-xl text-left transition-all cursor-pointer border ${
+                    selectedPlan === 'monthly'
+                      ? 'bg-[#fe9a00]/15 border-[#fe9a00] text-white shadow-[0_0_15px_rgba(254,154,0,0.2)]'
+                      : 'bg-transparent border-transparent text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400">Monthly Plan</div>
+                  <div className="text-lg font-black text-white mt-0.5">
+                    $1.99<span className="text-[10px] font-bold text-zinc-400">/mo</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlan('yearly')}
+                  className={`py-2.5 px-3 rounded-xl text-left transition-all cursor-pointer border relative ${
+                    selectedPlan === 'yearly'
+                      ? 'bg-purple-500/20 border-purple-400 text-white shadow-[0_0_15px_rgba(168,85,247,0.25)]'
+                      : 'bg-transparent border-transparent text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <span className="absolute -top-2 right-2 bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded">
+                    Save 16%
+                  </span>
+                  <div className="text-[9px] font-black uppercase tracking-widest text-purple-300">Annual Plan</div>
+                  <div className="text-lg font-black text-white mt-0.5">
+                    $20.00<span className="text-[10px] font-bold text-zinc-400">/yr</span>
+                  </div>
+                </button>
               </div>
-              <p className="text-purple-300 text-xs font-bold mt-3">The ultimate Super Fan experience.</p>
+
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-black text-white">
+                  {selectedPlan === 'yearly' ? '$20.00' : '$1.99'}
+                </span>
+                <span className="text-zinc-400 font-bold text-sm">
+                  {selectedPlan === 'yearly' ? '/ year (2 months free!)' : '/ month (or $20/yr)'}
+                </span>
+              </div>
+              <p className="text-purple-300 text-xs font-bold mt-2">The ultimate Super Fan experience.</p>
             </div>
 
             <div className="space-y-4 mb-8 flex-1 relative z-10">
@@ -372,20 +534,33 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             </div>
 
             {isPremium ? (
-              <div className="space-y-3">
+              <div className="space-y-3 relative z-10">
                 <button disabled className="w-full py-4 bg-purple-600/20 border border-purple-500 text-purple-400 font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2">
                   <Check className="w-5 h-5" /> Active Subscription
                 </button>
-                <button onClick={() => setShowDowngradeConfirm(true)} className="w-full py-2 text-zinc-500 hover:text-red-400 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center justify-center gap-1">
-                  <RefreshCcw className="w-3 h-3" /> Downgrade Your Access
-                </button>
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSubscribeClick(selectedPlan)}
+                    className="text-[#fe9a00] hover:underline text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer"
+                  >
+                    Open Checkout / Update Info
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDowngradeConfirm(true)}
+                    className="text-zinc-500 hover:text-red-400 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCcw className="w-3 h-3" /> Downgrade Access
+                  </button>
+                </div>
               </div>
             ) : (
               <button 
-                onClick={handleSubscribeClick}
-                className="w-full py-4 font-black uppercase tracking-widest rounded-xl transition-all duration-300 bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black shadow-[0_0_20px_rgba(254,154,0,0.4)] hover:shadow-[0_0_30px_rgba(255,255,255,0.6)] hover:scale-105"
+                onClick={() => handleSubscribeClick(selectedPlan)}
+                className="w-full py-4 font-black uppercase tracking-widest rounded-xl transition-all duration-300 bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black shadow-[0_0_20px_rgba(254,154,0,0.4)] hover:shadow-[0_0_30px_rgba(255,255,255,0.6)] hover:scale-105 cursor-pointer relative z-10"
               >
-                Upgrade to Pro
+                {selectedPlan === 'yearly' ? 'Upgrade to Pro ($20/yr)' : 'Upgrade to Pro ($1.99/mo)'}
               </button>
             )}
           </div>
@@ -455,58 +630,156 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
       {showModal && (
         <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in">
-          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative max-h-[92vh]">
             
             <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-purple-500 via-[#fe9a00] to-purple-500" />
             
-            <button onClick={() => setShowModal(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20">
+            <button onClick={() => setShowModal(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer">
               <X className="w-6 h-6" />
             </button>
 
-            <div className="p-6 sm:p-8">
+            <div className="p-6 sm:p-8 overflow-y-auto no-scrollbar">
               {checkoutStep === 'plan' && (
                 <div className="animate-fade-in">
-                  <div className="flex items-center gap-2 mb-6">
+                  <div className="flex items-center gap-2 mb-5">
                     <span className="bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded">Stripe Secure</span>
-                    <h3 className="text-xl font-black italic uppercase text-white">Checkout</h3>
+                    <h3 className="text-xl font-black italic uppercase text-white">Saturday AM+ Checkout</h3>
                   </div>
 
-                  <div className="space-y-4 mb-6">
+                  {/* PLAN SELECTOR */}
+                  <div className="grid grid-cols-2 gap-3 mb-5">
                     <div 
                       onClick={() => setSelectedPlan('monthly')}
-                      className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedPlan === 'monthly' ? 'border-[#fe9a00] bg-[#fe9a00]/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}
+                      className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${selectedPlan === 'monthly' ? 'border-[#fe9a00] bg-[#fe9a00]/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}
                     >
                       <div className="flex justify-between items-center mb-1">
-                        <span className="font-black uppercase tracking-widest text-sm text-white">Monthly</span>
-                        <span className="font-black text-[#fe9a00]">$1.99</span>
+                        <span className="font-black uppercase tracking-widest text-xs text-white">Monthly</span>
+                        <span className="font-black text-[#fe9a00] text-sm">$1.99</span>
                       </div>
-                      <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Billed every month</p>
+                      <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest">Billed monthly</p>
                     </div>
 
                     <div 
                       onClick={() => setSelectedPlan('yearly')}
-                      className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedPlan === 'yearly' ? 'border-purple-500 bg-purple-500/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}
+                      className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${selectedPlan === 'yearly' ? 'border-purple-500 bg-purple-500/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}
                     >
                       <div className="flex justify-between items-center mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-black uppercase tracking-widest text-sm text-white">Yearly</span>
-                          <span className="bg-purple-500 text-white text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest">
-                            {promoStatus === 'applied' ? 'PROMO APPLIED' : 'Save 16%'}
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-black uppercase tracking-widest text-xs text-white">Yearly</span>
+                          <span className="bg-purple-500 text-white text-[7px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest">
+                            {promoStatus === 'applied' ? 'PROMO' : 'Save 16%'}
                           </span>
                         </div>
-                        <span className="font-black text-purple-400 flex items-center gap-2">
-                          {promoStatus === 'applied' && <span className="text-zinc-500 line-through text-xs">$20.00</span>}
+                        <span className="font-black text-purple-400 text-sm flex items-center gap-1">
+                          {promoStatus === 'applied' && <span className="text-zinc-500 line-through text-[10px]">$20</span>}
                           {promoStatus === 'applied' ? '$15.00' : '$20.00'}
                         </span>
                       </div>
-                      <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Billed once per year</p>
+                      <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest">Billed yearly</p>
                     </div>
                   </div>
 
-                  <div className="mb-8">
-                    <div className="flex items-center gap-2 mb-2">
+                  {/* SUBSCRIBER CONTACT & PRIZE SHIPPING DETAILS */}
+                  <div className="bg-black/60 border border-zinc-800 rounded-2xl p-4 mb-5 space-y-3">
+                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5" /> Member & Prize Shipping Info
+                      </span>
+                      <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Required • No P.O. Boxes</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1">First Name *</label>
+                        <input
+                          type="text"
+                          placeholder="First Name"
+                          value={firstName}
+                          onChange={(e) => setFirstName(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00]"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1">Last Name *</label>
+                        <input
+                          type="text"
+                          placeholder="Last Name"
+                          value={lastName}
+                          onChange={(e) => setLastName(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00]"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
+                        <MapPin className="w-3 h-3 text-[#fe9a00]" /> Physical Street Address (No P.O. Boxes) *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="123 Manga Way, Apt 4B, City, State, ZIP"
+                        value={streetAddress}
+                        onChange={(e) => {
+                          setStreetAddress(e.target.value);
+                          if (formError) setFormError('');
+                        }}
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00]"
+                        required
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1">Country *</label>
+                        <select
+                          value={country}
+                          onChange={(e) => setCountry(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
+                          required
+                        >
+                          <option value="" disabled>Select Country</option>
+                          {COUNTRY_OPTIONS.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-[#fe9a00]" /> Date of Birth *
+                        </label>
+                        <input
+                          type="date"
+                          value={dateOfBirth}
+                          onChange={(e) => setDateOfBirth(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00]"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-[#fe9a00]" /> Phone Number *
+                        </label>
+                        <input
+                          type="tel"
+                          placeholder="+1 (555) 000-0000"
+                          value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00]"
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PROMO CODE */}
+                  <div className="mb-5">
+                    <div className="flex items-center gap-2 mb-1.5">
                       <Tag className="w-3.5 h-3.5 text-zinc-400" />
-                      <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Promo / Referral Code</span>
+                      <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Promo / Referral Code (Optional)</span>
                     </div>
                     <div className="flex gap-2">
                       <input 
@@ -514,29 +787,35 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                         placeholder="Enter Code..." 
                         value={promoCode}
                         onChange={(e) => { setPromoCode(e.target.value); setPromoStatus(null); }}
-                        className="flex-1 bg-black border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white font-bold uppercase tracking-wider focus:outline-none focus:border-purple-500"
+                        className="flex-1 bg-black border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white font-bold uppercase tracking-wider focus:outline-none focus:border-purple-500"
                       />
                       <button 
                         onClick={handleApplyPromo}
                         disabled={!promoCode.trim() || promoStatus === 'applied'}
-                        className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${promoStatus === 'applied' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-zinc-800 text-white hover:bg-zinc-700 disabled:opacity-50'}`}
+                        className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${promoStatus === 'applied' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-zinc-800 text-white hover:bg-zinc-700 disabled:opacity-50'}`}
                       >
                         {promoStatus === 'applied' ? <Check className="w-4 h-4" /> : 'Apply'}
                       </button>
                     </div>
-                    {promoStatus === 'applied' && <p className="text-emerald-400 text-[9px] font-black mt-2 uppercase tracking-widest">Code Applied: 25% Off Yearly Plan!</p>}
-                    {promoStatus === 'invalid' && <p className="text-red-400 text-[9px] font-black mt-2 uppercase tracking-widest">Invalid or expired code.</p>}
+                    {promoStatus === 'applied' && <p className="text-emerald-400 text-[9px] font-black mt-1.5 uppercase tracking-widest">Code Applied: 25% Off Yearly Plan!</p>}
+                    {promoStatus === 'invalid' && <p className="text-red-400 text-[9px] font-black mt-1.5 uppercase tracking-widest">Invalid or expired code.</p>}
                   </div>
+
+                  {formError && (
+                    <div className="mb-4 p-3 bg-red-950/60 border border-red-700 rounded-xl text-red-300 text-xs font-bold leading-relaxed">
+                      {formError}
+                    </div>
+                  )}
 
                   {/* REAL STRIPE CHECKOUT BUTTON */}
                   <button 
                     onClick={handleStripeCheckout}
                     disabled={checkoutLoading}
-                    className="w-full py-4 bg-gradient-to-r from-[#fe9a00] to-yellow-500 text-black font-black uppercase tracking-widest rounded-xl hover:from-white hover:to-white transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] disabled:opacity-50"
+                    className="w-full py-4 bg-gradient-to-r from-[#fe9a00] to-yellow-500 text-black font-black uppercase tracking-widest rounded-xl hover:from-white hover:to-white transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] disabled:opacity-50 cursor-pointer"
                   >
                     {checkoutLoading ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" /> Connecting to Stripe...
+                        <Loader2 className="w-4 h-4 animate-spin" /> Saving & Connecting to Stripe...
                       </>
                     ) : (
                       <>
@@ -548,7 +827,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                   {/* Dev Simulation Fallback */}
                   <button 
                     onClick={handleDevUpgrade}
-                    className="w-full mt-3 py-2 text-zinc-500 hover:text-zinc-300 font-bold uppercase tracking-widest text-[9px] transition-colors"
+                    className="w-full mt-3 py-2 text-zinc-500 hover:text-zinc-300 font-bold uppercase tracking-widest text-[9px] transition-colors cursor-pointer"
                   >
                     Simulate Payment (Dev Sandbox)
                   </button>
