@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { MangaReader } from './MangaReader';
 import { HypeButton } from '../Components/HypeButton'; 
@@ -137,6 +137,22 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Check if returning from a successful Stripe Donation Checkout
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('donation_status') === 'success') {
+      const returnedCreator = params.get('creator') || 'the Creator';
+      const returnedAmount = Number(params.get('amount') || 5);
+      setDonationCreator({ name: returnedCreator, avatar_url: '' });
+      setDonationAmount(returnedAmount);
+      setDonationStep('success');
+      window.dispatchEvent(new Event('profileUpdated'));
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('donation_status') === 'cancelled') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   const scrollToSection = (e: React.MouseEvent | any, ref: React.RefObject<HTMLDivElement>, center: boolean = false) => {
     if (e && e.stopPropagation) e.stopPropagation(); 
     if (ref.current) {
@@ -231,7 +247,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       
       const { data: creatorData } = await supabase.from('series_creators').select('*').eq('series_slug', targetSlug).order('id', { ascending: true });
       if (creatorData && creatorData.length > 0) { setCreators(creatorData as any); } 
-      else if (freshSeries) { setCreators([{ role: 'Creator', name: freshSeries.creator_name || 'Saturday AM', flag_code: freshSeries.flag_code || '', avatar_url: freshSeries.creator_avatar || '', bio: freshSeries.creator_bio || '', twitter_url: freshSeries.creator_twitter || '', instagram_url: freshSeries.creator_instagram || '', support_url: freshSeries.creator_support_link || '' }] as any); }
+      else if (freshSeries) { setCreators([{ role: 'Creator', name: freshSeries.creator_name || 'Saturday AM', flag_code: freshSeries.flag_code || '', avatar_url: freshSeries.creator_avatar || '', bio: freshSeries.creator_bio || '', twitter_url: freshSeries.creator_twitter || '', instagram_url: freshSeries.creator_instagram || '', support_url: freshSeries.creator_support_link || '', stripe_account_id: freshSeries.creator_stripe_account_id || '' }] as any); }
     
       const { data: charData } = await supabase.from('series_characters').select('*').eq('series_slug', targetSlug).order('id', { ascending: true });
       if (charData) setSeriesCharacters(charData as any);
@@ -403,28 +419,47 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     } catch (err) { setIsFavorited(previousState); }
   };
 
-  const handleProcessDonation = () => {
-    if (!currentUserId) {
+  const handleProcessDonation = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const activeUserId = currentUserId || user?.id;
+
+    if (!activeUserId) {
       setUpsellConfig({ type: 'visitor', message: "Create a Free Account to support creators and send fanmail!" });
       setDonationCreator(null);
       return;
     }
-    
+
+    if (!donationCreator) return;
+
     setDonationStep('processing');
-    
-    setTimeout(async () => {
-      try {
-        const pointsToAward = donationAmount * 100;
-        const { data: profile } = await supabase.from('profiles').select('total_hypes').eq('id', currentUserId).single();
-        if (profile) {
-          await supabase.from('profiles').update({ total_hypes: (profile.total_hypes || 0) + pointsToAward }).eq('id', currentUserId);
-          window.dispatchEvent(new Event('profileUpdated'));
+
+    try {
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: {
+          type: 'donation',
+          userId: activeUserId,
+          userEmail: user?.email,
+          returnUrl: window.location.origin,
+          creatorName: donationCreator.name || 'Creator',
+          stripeAccountId: donationCreator.stripe_account_id || localSeries?.creator_stripe_account_id || '',
+          amountDollars: donationAmount,
+          fanmail: fanmailText.trim(),
+          seriesSlug: localSeries?.slug || ''
         }
-      } catch(e) {
-        console.error("Donation processing error:", e);
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error("No checkout URL returned from Stripe.");
       }
-      setDonationStep('success');
-    }, 2000);
+    } catch (err: any) {
+      alert("Unable to start Stripe Tip Checkout: " + err.message);
+      setDonationStep('input');
+    }
   };
 
   if (!localSeries) return null;
@@ -513,21 +548,15 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               <>
                 <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer"><X className="w-6 h-6" /></button>
                 <div className="p-6 sm:p-8 animate-fade-in">
-                  
-                  <div className="bg-yellow-500/10 border border-yellow-500/50 p-4 rounded-xl flex items-start gap-3 mb-6">
-                    <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                    <div className="text-left">
-                      <h3 className="text-yellow-500 font-black uppercase tracking-widest text-[10px] mb-1">Beta Test Warning</h3>
-                      <p className="text-zinc-300 text-[10px] sm:text-xs font-bold leading-relaxed">
-                        This feature is currently in testing. Any tips made right now are simulated. No real money will be charged, and no funds will be sent to the creator.
-                      </p>
-                    </div>
-                  </div>
-
                   <div className="flex flex-col items-center mb-6 text-center mt-2">
-                    <img src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]" alt={donationCreator.name} />
+                    <img 
+                      src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} 
+                      className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]" 
+                      alt={donationCreator.name}
+                      onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }}
+                    />
                     <h3 className="text-xl font-black italic uppercase text-white leading-tight">Support {donationCreator.name}</h3>
-                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">Send a direct tip & private fanmail!</p>
+                    <p className="text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1">100% of your tip goes directly to the creator!</p>
                   </div>
 
                   <div className="grid grid-cols-4 gap-2 mb-6">
@@ -557,10 +586,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     onClick={handleProcessDonation}
                     className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
                   >
-                    Donate ${donationAmount}
+                    Donate ${donationAmount} via Stripe
                   </button>
                   <p className="text-center text-[8px] text-zinc-500 font-bold uppercase tracking-widest mt-4">
-                    Stripe integration pending. Donating massively improves your Fandom Score!
+                    Secure Stripe Checkout • Supporting creators boosts your Fandom Score!
                   </p>
                 </div>
               </>
@@ -569,8 +598,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             {donationStep === 'processing' && (
               <div className="py-16 flex flex-col items-center justify-center animate-fade-in text-center">
                 <Loader2 className="w-12 h-12 text-[#fe9a00] animate-spin mb-4" />
-                <h3 className="text-lg font-black uppercase tracking-widest text-white mb-2">Processing Donation</h3>
-                <p className="text-xs text-zinc-400 font-bold">Contacting secure payment gateway...</p>
+                <h3 className="text-lg font-black uppercase tracking-widest text-white mb-2">Connecting to Stripe</h3>
+                <p className="text-xs text-zinc-400 font-bold">Preparing secure creator tip checkout...</p>
               </div>
             )}
 
@@ -581,7 +610,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 </div>
                 <h3 className="text-2xl font-black italic uppercase text-white mb-2">Thank You!</h3>
                 <p className="text-xs sm:text-sm text-zinc-400 font-bold mb-8 leading-relaxed max-w-xs">
-                  Your ${donationAmount} tip and fanmail have been sent directly to {donationCreator.name}. <span className="text-[#fe9a00]">This massively improved your Fandom Score!</span>
+                  Your ${donationAmount} tip and fanmail have been sent directly to {donationCreator.name}. <span className="text-[#fe9a00]">Your Fandom Score has been boosted!</span>
                 </p>
                 <button 
                   onClick={() => { setDonationCreator(null); setDonationStep('input'); }}
@@ -1075,7 +1104,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   
                   <button 
                     onClick={() => {
-                      alert("BETA WARNING: This feature is currently in testing. Any tips made right now are simulated. No real money will be charged, and no funds will be sent to the creator.");
                       setDonationCreator(c);
                       setDonationStep('input');
                       setDonationAmount(5);

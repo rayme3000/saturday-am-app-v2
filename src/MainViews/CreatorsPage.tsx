@@ -15,6 +15,7 @@ interface CreatorProfile {
   twitter_url?: string;
   instagram_url?: string;
   support_url?: string;
+  stripe_account_id?: string;
   works: any[];
 }
 
@@ -30,6 +31,29 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
   const [fanmailText, setFanmailText] = useState('');
   const [donationStep, setDonationStep] = useState<'input' | 'processing' | 'success'>('input');
   const [expandedBios, setExpandedBios] = useState<Record<string, boolean>>({});
+
+  // Check if returning from a successful Stripe Donation Checkout
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('donation_status') === 'success') {
+      const returnedCreator = params.get('creator') || 'the Creator';
+      const returnedAmount = Number(params.get('amount') || 5);
+      setDonationCreator({
+        name: returnedCreator,
+        role: 'Creator',
+        bio: '',
+        avatar_url: '',
+        flag_codes: [],
+        works: []
+      });
+      setDonationAmount(returnedAmount);
+      setDonationStep('success');
+      window.dispatchEvent(new Event('profileUpdated'));
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('donation_status') === 'cancelled') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     const fetchCatalog = async () => {
@@ -74,6 +98,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
               twitter_url: row.twitter_url || matchedSeries?.creator_twitter || '',
               instagram_url: row.instagram_url || matchedSeries?.creator_instagram || '',
               support_url: row.support_url || matchedSeries?.creator_support_link || '',
+              stripe_account_id: row.stripe_account_id || matchedSeries?.creator_stripe_account_id || '',
               works: matchedSeries ? [matchedSeries] : []
             });
           } else {
@@ -85,6 +110,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
             if (!existing.avatar_url && row.avatar_url) existing.avatar_url = row.avatar_url;
             if (!existing.twitter_url && row.twitter_url) existing.twitter_url = row.twitter_url;
             if (!existing.instagram_url && row.instagram_url) existing.instagram_url = row.instagram_url;
+            if (!existing.stripe_account_id && row.stripe_account_id) existing.stripe_account_id = row.stripe_account_id;
           }
         });
 
@@ -103,6 +129,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
             twitter_url: s.creator_twitter || '',
             instagram_url: s.creator_instagram || '',
             support_url: s.creator_support_link || '',
+            stripe_account_id: s.creator_stripe_account_id || '',
             works: [s]
           });
         });
@@ -136,38 +163,47 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
     });
   }, [creators, searchQuery, sortBy]);
 
-  const handleProcessDonation = () => {
-    if (!currentUser?.id) {
+  const handleProcessDonation = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const activeUserId = currentUser?.id || user?.id;
+
+    if (!activeUserId) {
       if (onLoginClick) onLoginClick();
       setDonationCreator(null);
       return;
     }
 
-    setDonationStep('processing');
-    setTimeout(async () => {
-      try {
-        const bonusFandomPoints = donationAmount * 5;
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('fandom_score, creator_supports')
-          .eq('id', currentUser.id)
-          .maybeSingle();
+    if (!donationCreator) return;
 
-        if (profile) {
-          await supabase
-            .from('profiles')
-            .update({
-              fandom_score: (profile.fandom_score || 0) + bonusFandomPoints,
-              creator_supports: (profile.creator_supports || 0) + 1
-            })
-            .eq('id', currentUser.id);
-          window.dispatchEvent(new Event('profileUpdated'));
+    setDonationStep('processing');
+
+    try {
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: {
+          type: 'donation',
+          userId: activeUserId,
+          userEmail: user?.email || currentUser?.email,
+          returnUrl: window.location.origin,
+          creatorName: donationCreator.name,
+          stripeAccountId: donationCreator.stripe_account_id || '',
+          amountDollars: donationAmount,
+          fanmail: fanmailText.trim(),
+          seriesSlug: donationCreator.works?.[0]?.slug || ''
         }
-      } catch (e) {
-        console.error("Donation update error:", e);
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error("No checkout URL returned from Stripe.");
       }
-      setDonationStep('success');
-    }, 1800);
+    } catch (err: any) {
+      alert("Unable to start Stripe Tip Checkout: " + err.message);
+      setDonationStep('input');
+    }
   };
 
   return (
@@ -381,10 +417,11 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                     <img 
                       src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} 
                       className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]" 
-                      alt={donationCreator.name} 
+                      alt={donationCreator.name}
+                      onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }}
                     />
                     <h3 className="text-xl font-black italic uppercase text-white leading-tight">Support {donationCreator.name}</h3>
-                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">Send a direct tip & private fanmail</p>
+                    <p className="text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1">100% of your tip goes directly to the creator</p>
                   </div>
 
                   <div className="grid grid-cols-4 gap-2 mb-6">
@@ -414,7 +451,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                     onClick={handleProcessDonation}
                     className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
                   >
-                    Donate ${donationAmount}
+                    Donate ${donationAmount} via Stripe
                   </button>
                 </div>
               </>
@@ -422,7 +459,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
             {donationStep === 'processing' && (
               <div className="py-16 flex flex-col items-center justify-center animate-fade-in text-center">
-                <HypeLoader text="Contacting payment gateway..." className="w-16 h-16" fullScreen={false} />
+                <HypeLoader text="Connecting to Stripe Checkout..." className="w-16 h-16" fullScreen={false} />
               </div>
             )}
 
