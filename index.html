@@ -47,10 +47,18 @@
 
     <!-- Early Global Event Listener for PWA Installation -->
     <script>
+      window.deferredPrompt = null;
+
       window.addEventListener('beforeinstallprompt', (e) => {
         e.preventDefault();
         window.deferredPrompt = e;
+        localStorage.removeItem('am_pwa_installed');
         window.dispatchEvent(new Event('pwa-install-ready'));
+      });
+
+      window.addEventListener('appinstalled', () => {
+        window.deferredPrompt = null;
+        localStorage.setItem('am_pwa_installed', 'true');
       });
     </script>
 

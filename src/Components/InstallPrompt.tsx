@@ -2,17 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { Download, X, Laptop, Smartphone, Share } from 'lucide-react';
 
 export const InstallPrompt = () => {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(() => (window as any).deferredPrompt || null);
   const [isVisible, setIsVisible] = useState(false);
   const [deviceType, setDeviceType] = useState<'ios' | 'android' | 'desktop'>('desktop');
 
   useEffect(() => {
     const isStandalone = 
+      localStorage.getItem('am_pwa_installed') === 'true' ||
       window.matchMedia('(display-mode: standalone)').matches || 
-      ('standalone' in navigator && (navigator as any).standalone) ||
+      ('standalone' in navigator && Boolean((navigator as any).standalone)) ||
       document.referrer.includes('android-app://');
 
-    if (isStandalone) return;
+    if (isStandalone) {
+      setIsVisible(false);
+      return;
+    }
 
     const dismissedAt = localStorage.getItem('am_install_dismissed');
     if (dismissedAt && Date.now() - Number(dismissedAt) < 24 * 60 * 60 * 1000) {
@@ -34,12 +38,14 @@ export const InstallPrompt = () => {
     }
 
     if ((window as any).deferredPrompt) {
+      localStorage.removeItem('am_pwa_installed');
       setDeferredPrompt((window as any).deferredPrompt);
       setIsVisible(true);
     }
 
     const handlePrompt = (e: Event) => {
       e.preventDefault();
+      localStorage.removeItem('am_pwa_installed');
       (window as any).deferredPrompt = e;
       setDeferredPrompt(e);
       setIsVisible(true);
@@ -47,12 +53,14 @@ export const InstallPrompt = () => {
 
     const handleCustomReady = () => {
       if ((window as any).deferredPrompt) {
+        localStorage.removeItem('am_pwa_installed');
         setDeferredPrompt((window as any).deferredPrompt);
         setIsVisible(true);
       }
     };
 
     const handleAppInstalled = () => {
+      localStorage.setItem('am_pwa_installed', 'true');
       setIsVisible(false);
       setDeferredPrompt(null);
       (window as any).deferredPrompt = null;
@@ -70,14 +78,16 @@ export const InstallPrompt = () => {
   }, []);
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
+    const activePrompt = deferredPrompt || (window as any).deferredPrompt;
+    if (!activePrompt) return;
+    await activePrompt.prompt();
+    const { outcome } = await activePrompt.userChoice;
     if (outcome === 'accepted') {
+      localStorage.setItem('am_pwa_installed', 'true');
       setIsVisible(false);
+      setDeferredPrompt(null);
+      (window as any).deferredPrompt = null;
     }
-    setDeferredPrompt(null);
-    (window as any).deferredPrompt = null;
   };
 
   const handleDismiss = () => {
@@ -122,17 +132,13 @@ export const InstallPrompt = () => {
           <p className="text-zinc-400 text-[10px] font-bold leading-relaxed bg-black/50 p-2.5 rounded-lg border border-zinc-800">
             Tap the <Share className="w-3 h-3 inline pb-0.5 text-white" /> <strong className="text-white">Share</strong> button in Safari, then tap <strong className="text-[#fe9a00]">"Add to Home Screen"</strong>.
           </p>
-        ) : deferredPrompt ? (
+        ) : (
           <button 
             onClick={handleInstallClick} 
             className="w-full bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-[10px] shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" /> Install App
           </button>
-        ) : (
-          <p className="text-zinc-400 text-[10px] font-bold leading-relaxed bg-black/50 p-2.5 rounded-lg border border-zinc-800">
-            Click the <strong className="text-white">Install</strong> icon in your browser's address bar to install on PC/Mac.
-          </p>
         )}
       </div>
     </div>

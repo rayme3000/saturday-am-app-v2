@@ -119,7 +119,15 @@ export default function App() {
   const [userTier, setUserTier] = useState<'visitor' | 'free' | 'premium'>('visitor');
   const [authResolved, setAuthResolved] = useState(false);
 
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(() => (window as any).deferredPrompt || null);
+  const [isAppInstalled, setIsAppInstalled] = useState<boolean>(() => {
+    return (
+      localStorage.getItem('am_pwa_installed') === 'true' ||
+      window.matchMedia('(display-mode: standalone)').matches ||
+      ('standalone' in navigator && Boolean((navigator as any).standalone)) ||
+      document.referrer.includes('android-app://')
+    );
+  });
   const [showInstallPrompt, setShowInstallPrompt] = useState(false);
   const [showIosPrompt, setShowIosPrompt] = useState(false); 
   const [isIOSDevice, setIsIOSDevice] = useState(false);
@@ -388,14 +396,31 @@ export default function App() {
     };
   }, []);
 
-  // --- GUARANTEED PWA INSTALL PROMPT CONTROLLER ---
+  // --- NATIVE 1-CLICK PWA INSTALL CONTROLLER ---
   useEffect(() => {
     const isStandalone = 
       window.matchMedia('(display-mode: standalone)').matches || 
-      ('standalone' in navigator && (navigator as any).standalone) ||
+      ('standalone' in navigator && Boolean((navigator as any).standalone)) ||
       document.referrer.includes('android-app://');
 
-    if (isStandalone) return; 
+    if (isStandalone) {
+      localStorage.setItem('am_pwa_installed', 'true');
+      setIsAppInstalled(true);
+      setShowInstallPrompt(false);
+      setShowIosPrompt(false);
+      return; 
+    }
+
+    // Also check Chromium's getInstalledRelatedApps API if supported
+    if ('getInstalledRelatedApps' in navigator) {
+      (navigator as any).getInstalledRelatedApps().then((apps: any[]) => {
+        if (Array.isArray(apps) && apps.length > 0) {
+          localStorage.setItem('am_pwa_installed', 'true');
+          setIsAppInstalled(true);
+          setShowInstallPrompt(false);
+        }
+      }).catch(() => {});
+    }
 
     const checkCooldown = (key: string) => {
       const val = localStorage.getItem(key);
@@ -414,60 +439,81 @@ export default function App() {
     setIsIOSDevice(isIOS);
 
     if (isIOS) {
-      if (!checkCooldown('am_ios_prompt_dismissed')) {
+      if (!checkCooldown('am_ios_prompt_dismissed') && localStorage.getItem('am_pwa_installed') !== 'true') {
         const timer = setTimeout(() => setShowIosPrompt(true), 2000);
         return () => clearTimeout(timer);
       }
-    } else {
-      if ((window as any).deferredPrompt) {
-        setDeferredPrompt((window as any).deferredPrompt);
-      }
-
-      const handleBeforeInstall = (e: any) => {
-        e.preventDefault?.();
-        (window as any).deferredPrompt = e;
-        setDeferredPrompt(e);
-        if (!checkCooldown('am_install_prompt_dismissed')) {
-          setShowInstallPrompt(true);
-        }
-      };
-
-      const handlePwaReady = () => {
-        if ((window as any).deferredPrompt) {
-          setDeferredPrompt((window as any).deferredPrompt);
-        }
-        if (!checkCooldown('am_install_prompt_dismissed')) {
-          setShowInstallPrompt(true);
-        }
-      };
-
-      window.addEventListener('beforeinstallprompt', handleBeforeInstall);
-      window.addEventListener('pwa-install-ready', handlePwaReady);
-
-      let timer: any = null;
-      if (!checkCooldown('am_install_prompt_dismissed')) {
-        timer = setTimeout(() => {
-          setShowInstallPrompt(true);
-        }, 2000);
-      }
-
-      return () => { 
-        if (timer) clearTimeout(timer);
-        window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
-        window.removeEventListener('pwa-install-ready', handlePwaReady);
-      };
+      return;
     }
+
+    // If index.html already caught beforeinstallprompt before React mounted, use it immediately!
+    if ((window as any).deferredPrompt) {
+      // If Chrome fired beforeinstallprompt, the app is NOT currently installed
+      localStorage.removeItem('am_pwa_installed');
+      setIsAppInstalled(false);
+      setDeferredPrompt((window as any).deferredPrompt);
+      if (!checkCooldown('am_install_prompt_dismissed')) {
+        setShowInstallPrompt(true);
+      }
+    }
+
+    const handleBeforeInstall = (e: any) => {
+      e.preventDefault?.();
+      // Chrome only fires beforeinstallprompt when the PWA is not installed
+      localStorage.removeItem('am_pwa_installed');
+      setIsAppInstalled(false);
+      (window as any).deferredPrompt = e;
+      setDeferredPrompt(e);
+      if (!checkCooldown('am_install_prompt_dismissed')) {
+        setShowInstallPrompt(true);
+      }
+    };
+
+    const handlePwaReady = () => {
+      if ((window as any).deferredPrompt) {
+        localStorage.removeItem('am_pwa_installed');
+        setIsAppInstalled(false);
+        setDeferredPrompt((window as any).deferredPrompt);
+        if (!checkCooldown('am_install_prompt_dismissed')) {
+          setShowInstallPrompt(true);
+        }
+      }
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('pwa-install-ready', handlePwaReady);
+
+    return () => { 
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('pwa-install-ready', handlePwaReady);
+    };
   }, []);
 
   useEffect(() => {
     const handleAppInstalled = () => {
+      localStorage.setItem('am_pwa_installed', 'true');
+      setIsAppInstalled(true);
       setShowInstallPrompt(false);
       setShowIosPrompt(false);
+      setDesktopShowHelp(false);
       setDeferredPrompt(null);
       (window as any).deferredPrompt = null;
     };
+
+    const displayModeQuery = window.matchMedia('(display-mode: standalone)');
+    const handleDisplayModeChange = (e: MediaQueryListEvent) => {
+      if (e.matches) {
+        handleAppInstalled();
+      }
+    };
+
     window.addEventListener('appinstalled', handleAppInstalled);
-    return () => window.removeEventListener('appinstalled', handleAppInstalled);
+    displayModeQuery.addEventListener?.('change', handleDisplayModeChange);
+
+    return () => {
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      displayModeQuery.removeEventListener?.('change', handleDisplayModeChange);
+    };
   }, []);
 
   const handleInstallClick = async () => {
@@ -477,18 +523,24 @@ export default function App() {
       return;
     } 
     
-    if (deferredPrompt) {
+    // Always check both React state and window.deferredPrompt so it never misses the native prompt
+    const activePrompt = deferredPrompt || (window as any).deferredPrompt;
+
+    if (activePrompt) {
       try {
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
+        await activePrompt.prompt();
+        const { outcome } = await activePrompt.userChoice;
         if (outcome === 'accepted') {
+          localStorage.setItem('am_pwa_installed', 'true');
+          setIsAppInstalled(true);
           setShowInstallPrompt(false);
+          setDesktopShowHelp(false);
+          setDeferredPrompt(null);
+          (window as any).deferredPrompt = null;
         }
       } catch (err) {
         console.error("Install prompt error:", err);
       }
-      setDeferredPrompt(null);
-      (window as any).deferredPrompt = null;
     } else {
       setDesktopShowHelp(prev => !prev);
     }
@@ -655,7 +707,19 @@ export default function App() {
         </div>
       )}
 
-      <HamburgerMenu isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} onNavigate={handleNavigate} onOpenFlexCard={() => setIsFlexCardOpen(true)} userTier={userTier} onUpsell={handleTriggerUpsell} currentUser={currentUser} canInstall={true} onInstall={handleInstallClick} onLoginClick={() => setShowLogin(true)} onShareClick={() => setShowGlobalShareModal(true)} />
+      <HamburgerMenu
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        onNavigate={handleNavigate}
+        onOpenFlexCard={() => setIsFlexCardOpen(true)}
+        userTier={userTier}
+        onUpsell={handleTriggerUpsell}
+        currentUser={currentUser}
+        canInstall={!isAppInstalled && (Boolean(deferredPrompt) || isIOSDevice)}
+        onInstall={handleInstallClick}
+        onLoginClick={() => setShowLogin(true)}
+        onShareClick={() => setShowGlobalShareModal(true)}
+      />
 
       {isFlexCardOpen && <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} onNavigate={handleNavigate} />}
 
@@ -717,8 +781,8 @@ export default function App() {
         </button>
       )}
 
-      {/* COMPACT FLOATING INSTALL TOAST (HIDDEN IN ADMIN VIEW) */}
-      {showInstallPrompt && !showIosPrompt && currentView !== 'admin' && (
+      {/* COMPACT FLOATING INSTALL TOAST (ONLY SHOWN WHEN NATIVE 1-CLICK INSTALL IS AVAILABLE & NOT INSTALLED) */}
+      {showInstallPrompt && !isAppInstalled && !showIosPrompt && currentView !== 'admin' && (
         <div className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[6000] bg-zinc-950/95 border border-[#fe9a00]/70 p-2.5 sm:p-3 rounded-xl shadow-[0_10px_35px_rgba(0,0,0,0.9)] flex flex-col gap-2 animate-fade-in backdrop-blur-xl">
           <div className="flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -759,8 +823,8 @@ export default function App() {
         </div>
       )}
 
-      {/* COMPACT IOS SAFARI PWA INSTALL BOTTOM SHEET (HIDDEN IN ADMIN VIEW) */}
-      {showIosPrompt && currentView !== 'admin' && (
+      {/* COMPACT IOS SAFARI PWA INSTALL BOTTOM SHEET (HIDDEN IN ADMIN VIEW & WHEN INSTALLED) */}
+      {showIosPrompt && !isAppInstalled && currentView !== 'admin' && (
         <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-4 sm:p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-3 animate-fade-in-up pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2.5">
