@@ -28,6 +28,7 @@ const Shop = lazy(() => import('./MainViews/Shop').then(mod => ({ default: mod.S
 const LegalPages = lazy(() => import('./MainViews/LegalPages').then(mod => ({ default: mod.LegalPages }))); 
 const CharacterRoster = lazy(() => import('./MainViews/CharacterRoster').then(mod => ({ default: mod.CharacterRoster })));
 const CreatorsPage = lazy(() => import('./MainViews/CreatorsPage').then(mod => ({ default: mod.CreatorsPage })));
+const CreatorStudio = lazy(() => import('./MainViews/CreatorStudio').then(mod => ({ default: mod.CreatorStudio })));
 
 // 3. Lazy Load the views that use Default Exports
 const SettingsPage = lazy(() => import('./MainViews/Settings.tsx'));
@@ -239,7 +240,7 @@ export default function App() {
       return;
     }
 
-    if (['sub', 'admin', 'settings', 'legal'].includes(currentView) || showLogin) return;
+    if (['sub', 'admin', 'settings', 'legal', 'creator-studio'].includes(currentView) || showLogin) return;
 
     const rawVisits = sessionStorage.getItem('am_nav_counter') || '0';
     const nextVisits = parseInt(rawVisits, 10) + 1;
@@ -749,6 +750,7 @@ export default function App() {
             {currentView === 'faves' && (<Favorites userTier={userTier} setActiveTab={setCurrentView} onNavigate={handleNavigate} />)}
             {currentView === 'browse' && (<Browse userTier={userTier} onNavigate={handleNavigate} />)}
             {currentView === 'creators' && (<CreatorsPage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} />)}
+            {currentView === 'creator-studio' && (<CreatorStudio currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
             {currentView === 'shop' && (<Shop userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
             {currentView === 'legal' && (<LegalPages onBack={() => setCurrentView('home')} />)}
             {currentView === 'characters' && (<CharacterRoster currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}

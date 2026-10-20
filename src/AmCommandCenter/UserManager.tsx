@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabase';
-import { Search, Users, ChevronLeft, ChevronRight, Crown, Loader2, Calendar, Clock, Mail, Flame, BookOpen, MessageSquare, Trash2, RefreshCw, MapPin, Phone, Globe, Cake, Download, ArrowUpDown } from 'lucide-react';
+import { Search, Users, ChevronLeft, ChevronRight, Crown, Loader2, Calendar, Clock, Mail, Flame, BookOpen, MessageSquare, Trash2, RefreshCw, MapPin, Phone, Globe, Cake, Download, ArrowUpDown, Sparkles } from 'lucide-react';
 
 type UserSortOption =
   | 'date_desc'
@@ -13,10 +13,11 @@ type UserSortOption =
 
 export const UserManager = () => {
   const [users, setUsers] = useState<any[]>([]);
+  const [creatorsRoster, setCreatorsRoster] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<UserSortOption>('date_desc');
-  const [tierFilter, setTierFilter] = useState<'all' | 'pro' | 'standard'>('all');
+  const [tierFilter, setTierFilter] = useState<'all' | 'pro' | 'standard' | 'creators'>('all');
   const [page, setPage] = useState(0);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const pageSize = 25;
@@ -24,6 +25,16 @@ export const UserManager = () => {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
+      // Load official creator names for the linking dropdown
+      const { data: cData } = await supabase
+        .from('series_creators')
+        .select('name')
+        .order('name', { ascending: true });
+
+      if (cData) {
+        setCreatorsRoster(Array.from(new Set(cData.map((c: any) => String(c.name || '').trim()).filter(Boolean))));
+      }
+
       // Fetch full directory via RPC so we can sort globally across all pages by Date, Name, or Email
       const { data: rpcData, error: rpcError } = await supabase.rpc('get_admin_user_directory', {
         p_search: '',
@@ -82,6 +93,8 @@ export const UserManager = () => {
             date_of_birth: p.date_of_birth || '',
             phone_number: p.phone_number || '',
             is_premium: isPro,
+            role: p.role || 'reader',
+            linked_creator_name: p.linked_creator_name || '',
             created_at: u.created_at || p.created_at || p.tos_accepted_at || null,
             last_sign_in_at: u.last_sign_in_at || p.updated_at || p.last_hype_reset || null,
             purchased_at: shopifyPurchase?.purchased_at || null,
@@ -127,6 +140,8 @@ export const UserManager = () => {
             date_of_birth: p.date_of_birth || '',
             phone_number: p.phone_number || '',
             is_premium: isPro,
+            role: p.role || 'reader',
+            linked_creator_name: p.linked_creator_name || '',
             created_at: p.created_at || p.tos_accepted_at || null,
             last_sign_in_at: p.updated_at || p.last_hype_reset || null,
             purchased_at: shopifyPurchase?.purchased_at || null,
@@ -160,6 +175,7 @@ export const UserManager = () => {
     const filtered = users.filter((u) => {
       if (tierFilter === 'pro' && !u.is_premium) return false;
       if (tierFilter === 'standard' && u.is_premium) return false;
+      if (tierFilter === 'creators' && (!u.role || u.role === 'reader')) return false;
 
       if (!q) return true;
       const fullName = `${u.first_name || ''} ${u.last_name || ''}`.toLowerCase();
@@ -167,6 +183,8 @@ export const UserManager = () => {
         String(u.username || '').toLowerCase().includes(q) ||
         fullName.includes(q) ||
         String(u.email || '').toLowerCase().includes(q) ||
+        String(u.linked_creator_name || '').toLowerCase().includes(q) ||
+        String(u.role || '').toLowerCase().includes(q) ||
         String(u.street_address || '').toLowerCase().includes(q) ||
         String(u.phone_number || '').toLowerCase().includes(q) ||
         String(u.country || '').toLowerCase().includes(q) ||
@@ -225,6 +243,8 @@ export const UserManager = () => {
       "Username",
       "Email",
       "Tier",
+      "Role",
+      "Linked Creator",
       "First Name",
       "Last Name",
       "Street Address",
@@ -242,6 +262,8 @@ export const UserManager = () => {
       escapeCsv(u.username),
       escapeCsv(u.email),
       escapeCsv(u.is_premium ? 'Pro' : 'Standard'),
+      escapeCsv(u.role || 'reader'),
+      escapeCsv(u.linked_creator_name || ''),
       escapeCsv(u.first_name),
       escapeCsv(u.last_name),
       escapeCsv(u.street_address),
@@ -288,6 +310,40 @@ export const UserManager = () => {
     }
   };
 
+  const handleRoleChange = async (user: any, newRole: string) => {
+    setUpdatingId(user.id);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ role: newRole })
+        .eq('id', user.id);
+
+      if (error) throw error;
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole } : u));
+    } catch (err: any) {
+      alert("Failed to update role (make sure you ran the SQL snippet adding 'role' to profiles): " + err.message);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleLinkedCreatorChange = async (user: any, creatorName: string) => {
+    setUpdatingId(user.id);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ linked_creator_name: creatorName })
+        .eq('id', user.id);
+
+      if (error) throw error;
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, linked_creator_name: creatorName } : u));
+    } catch (err: any) {
+      alert("Failed to link creator name: " + err.message);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const handleDeleteUser = async (user: any) => {
     if (!window.confirm(`Are you sure you want to remove "${user.username}" (${user.email}) and wipe their profile & leaderboard stats?`)) return;
 
@@ -327,8 +383,10 @@ export const UserManager = () => {
     });
   };
 
+  const creatorsStaffCount = users.filter(u => u.role && u.role !== 'reader').length;
+
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl animate-fade-in">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-6xl animate-fade-in">
       
       {/* Header & Controls */}
       <div className="flex flex-col gap-4 mb-6 border-b border-zinc-800 pb-4">
@@ -338,13 +396,13 @@ export const UserManager = () => {
             <div>
               <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">User Directory</h2>
               <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-                Showing {totalCount} of {users.length} Total Accounts • Pro: {users.filter(u => u.is_premium).length}
+                Showing {totalCount} of {users.length} Total Accounts • Pro: {users.filter(u => u.is_premium).length} • Creators/Staff: {creatorsStaffCount}
               </p>
             </div>
           </div>
 
           {/* Tier Quick-Filter Pills */}
-          <div className="flex bg-black p-1 rounded-lg border border-zinc-800 self-start sm:self-auto">
+          <div className="flex flex-wrap bg-black p-1 rounded-lg border border-zinc-800 self-start sm:self-auto gap-1">
             <button
               type="button"
               onClick={() => { setTierFilter('all'); setPage(0); }}
@@ -366,6 +424,13 @@ export const UserManager = () => {
             >
               Standard ({users.filter(u => !u.is_premium).length})
             </button>
+            <button
+              type="button"
+              onClick={() => { setTierFilter('creators'); setPage(0); }}
+              className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-colors flex items-center gap-1 cursor-pointer ${tierFilter === 'creators' ? 'bg-[#fe9a00] text-black' : 'text-[#fe9a00] hover:bg-zinc-900'}`}
+            >
+              <Sparkles className="w-3 h-3" /> Creators & Staff ({creatorsStaffCount})
+            </button>
           </div>
         </div>
 
@@ -375,7 +440,7 @@ export const UserManager = () => {
             <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search name, email, username, address, phone, order #..."
+              placeholder="Search name, email, username, creator, role, address, order #..."
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(0); }}
               className="w-full bg-black border border-zinc-700 text-white pl-9 pr-3 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00]"
@@ -423,12 +488,13 @@ export const UserManager = () => {
 
       {/* Directory Table */}
       <div className="overflow-x-auto no-scrollbar">
-        <table className="w-full text-left border-collapse min-w-[960px]">
+        <table className="w-full text-left border-collapse min-w-[1080px]">
           <thead>
             <tr className="border-b border-zinc-800 text-[9px] font-black uppercase tracking-widest text-zinc-500">
               <th className="py-3 px-3">User & Full Name</th>
               <th className="py-3 px-3">Contact, Address & DOB</th>
               <th className="py-3 px-3">Tier (Click to Toggle)</th>
+              <th className="py-3 px-3 text-[#fe9a00]">Role & Linked Creator</th>
               <th className="py-3 px-3">Purchase / Signup Date</th>
               <th className="py-3 px-3 text-center">Activity Breakdown</th>
               <th className="py-3 px-3 text-right text-[#fe9a00]">Fandom Points</th>
@@ -438,14 +504,14 @@ export const UserManager = () => {
           <tbody className="divide-y divide-zinc-800/60 text-xs">
             {loading ? (
               <tr>
-                <td colSpan={7} className="py-12 text-center text-zinc-500 font-bold uppercase tracking-widest text-[10px]">
+                <td colSpan={8} className="py-12 text-center text-zinc-500 font-bold uppercase tracking-widest text-[10px]">
                   <Loader2 className="w-6 h-6 animate-spin text-[#fe9a00] mx-auto mb-2" />
                   Loading Accounts...
                 </td>
               </tr>
             ) : paginatedUsers.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-12 text-center text-zinc-500 font-bold italic">
+                <td colSpan={8} className="py-12 text-center text-zinc-500 font-bold italic">
                   No accounts found matching your query.
                 </td>
               </tr>
@@ -453,6 +519,7 @@ export const UserManager = () => {
               paginatedUsers.map((u) => {
                 const isBusy = updatingId === u.id;
                 const fullName = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+                const isElevatedRole = u.role && u.role !== 'reader';
 
                 return (
                   <tr key={u.id} className="hover:bg-zinc-800/40 transition-colors">
@@ -478,7 +545,7 @@ export const UserManager = () => {
                     </td>
 
                     <td className="py-3 px-3 align-top">
-                      <div className="flex flex-col gap-1 text-[10px] text-zinc-300 max-w-[240px]">
+                      <div className="flex flex-col gap-1 text-[10px] text-zinc-300 max-w-[220px]">
                         {u.street_address ? (
                           <span className="flex items-start gap-1 text-zinc-200 font-medium leading-snug">
                             <MapPin className="w-3 h-3 text-[#fe9a00] shrink-0 mt-0.5" />
@@ -526,6 +593,45 @@ export const UserManager = () => {
                           </span>
                         )}
                       </button>
+                    </td>
+
+                    {/* Role & Linked Creator Selector */}
+                    <td className="py-3 px-3 align-top">
+                      <div className="flex flex-col gap-1.5 min-w-[165px]">
+                        <select
+                          value={u.role || 'reader'}
+                          disabled={isBusy}
+                          onChange={(e) => handleRoleChange(u, e.target.value)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border focus:outline-none cursor-pointer ${
+                            u.role === 'core_creator' || u.role === 'staff'
+                              ? 'bg-[#fe9a00]/15 text-[#fe9a00] border-[#fe9a00]/50'
+                              : u.role === 'creator'
+                              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
+                              : 'bg-black text-zinc-400 border-zinc-800'
+                          }`}
+                        >
+                          <option value="reader" className="bg-zinc-950 text-zinc-300">Reader</option>
+                          <option value="creator" className="bg-zinc-950 text-emerald-400">Creator ($5/Sub)</option>
+                          <option value="core_creator" className="bg-zinc-950 text-[#fe9a00]">Core Creator ($10/Sub)</option>
+                          <option value="staff" className="bg-zinc-950 text-[#fe9a00]">Staff ($10/Sub)</option>
+                        </select>
+
+                        {isElevatedRole && (
+                          <select
+                            value={u.linked_creator_name || ''}
+                            disabled={isBusy}
+                            onChange={(e) => handleLinkedCreatorChange(u, e.target.value)}
+                            className="bg-black border border-zinc-700 text-white px-2 py-1 rounded-lg text-[10px] font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
+                          >
+                            <option value="">-- Link Creator Profile --</option>
+                            {creatorsRoster.map((cName) => (
+                              <option key={cName} value={cName}>
+                                {cName}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
                     </td>
 
                     <td className="py-3 px-3 text-zinc-400 font-mono text-[10px] align-top">
