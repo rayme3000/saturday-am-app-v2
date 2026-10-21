@@ -6,6 +6,56 @@ import { HypeLoader } from '../Components/HypeLoader';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
+// Built-in Stripe Connect account map + fallback resolver
+export const CREATOR_STRIPE_CONNECT_MAP: Record<string, string> = {
+  'oscar fong': 'acct_1USWwtGzA2Qad5v8',
+  'odunze oguguo': 'acct_1USiRECvtW3bYdhU',
+  'whyt manga': 'acct_1USiRECvtW3bYdhU',
+  'odunze oguguo (whyt manga)': 'acct_1USiRECvtW3bYdhU',
+  'erick pedrucci': 'acct_1USUE8GnNL3tCg0x',
+  'eric pedrucci': 'acct_1USUE8GnNL3tCg0x',
+  'erick perducci': 'acct_1USUE8GnNL3tCg0x',
+  'eric perducci': 'acct_1USUE8GnNL3tCg0x',
+  'eric': 'acct_1USUE8GnNL3tCg0x',
+  'stefano romano': 'acct_1USU8mKGryTzf1Ck',
+  'jeyodin': 'acct_1USMJFGv39K92CFY',
+  'frank simmonds': 'acct_1USDbD1EcQ1S1MjY'
+};
+
+export const normalizeCreatorKey = (rawName?: string): string => {
+  const clean = String(rawName || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  if (
+    clean === 'eric pedrucci' ||
+    clean === 'erick perducci' ||
+    clean === 'eric perducci' ||
+    clean === 'erick pedrucci'
+  ) {
+    return 'erick pedrucci';
+  }
+  return clean;
+};
+
+export const resolveCreatorStripeAccountId = (creatorName?: string, dbStripeId?: string): string => {
+  const cleanDb = String(dbStripeId || '').trim();
+  if (cleanDb.startsWith('acct_')) return cleanDb;
+
+  const lower = normalizeCreatorKey(creatorName);
+  if (!lower) return '';
+
+  if (CREATOR_STRIPE_CONNECT_MAP[lower]) {
+    return CREATOR_STRIPE_CONNECT_MAP[lower];
+  }
+
+  for (const [key, acctId] of Object.entries(CREATOR_STRIPE_CONNECT_MAP)) {
+    if (lower.includes(key) || key.includes(lower)) {
+      return acctId;
+    }
+  }
+
+  // Empty string instructs the Edge Function to process the charge directly into Saturday AM's main Stripe account
+  return '';
+};
+
 interface CreatorProfile {
   name: string;
   role: string;
@@ -67,10 +117,17 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
         const seriesMap = new Map<string, any>();
         (seriesData || []).forEach(s => seriesMap.set(s.slug, s));
 
-        const hiddenCreatorNames = new Set<string>();
+        // Track visibility per normalized creator key:
+        // If a creator has at least one row with is_visible !== false, keep them visible!
+        const visibilityMap = new Map<string, boolean>();
         (creatorRows || []).forEach((row: any) => {
-          if (row.is_visible === false && row.name) {
-            hiddenCreatorNames.add(row.name.trim().toLowerCase());
+          if (!row.name) return;
+          const key = normalizeCreatorKey(row.name);
+          const rowVisible = row.is_visible !== false;
+          if (!visibilityMap.has(key)) {
+            visibilityMap.set(key, rowVisible);
+          } else if (rowVisible) {
+            visibilityMap.set(key, true);
           }
         });
 
@@ -78,10 +135,15 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
         (creatorRows || []).forEach((row: any) => {
           if (!row.name) return;
-          const key = row.name.trim().toLowerCase();
-          if (hiddenCreatorNames.has(key)) return;
+          const key = normalizeCreatorKey(row.name);
+          if (visibilityMap.get(key) === false) return;
 
+          const displayName = key === 'erick pedrucci' ? 'Erick Pedrucci' : row.name.trim().replace(/\s+/g, ' ');
           const matchedSeries = seriesMap.get(row.series_slug);
+          const resolvedStripeId = resolveCreatorStripeAccountId(
+            displayName,
+            row.stripe_account_id || matchedSeries?.creator_stripe_account_id
+          );
 
           if (!creatorMap.has(key)) {
             const rawFlags = (row.flag_code || matchedSeries?.flag_code || '')
@@ -90,7 +152,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
               .filter(Boolean);
 
             creatorMap.set(key, {
-              name: row.name.trim(),
+              name: displayName,
               role: row.role || 'Creator',
               bio: row.bio || matchedSeries?.creator_bio || '',
               avatar_url: row.avatar_url || matchedSeries?.creator_avatar || '',
@@ -98,7 +160,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
               twitter_url: row.twitter_url || matchedSeries?.creator_twitter || '',
               instagram_url: row.instagram_url || matchedSeries?.creator_instagram || '',
               support_url: row.support_url || matchedSeries?.creator_support_link || '',
-              stripe_account_id: row.stripe_account_id || matchedSeries?.creator_stripe_account_id || '',
+              stripe_account_id: resolvedStripeId,
               works: matchedSeries ? [matchedSeries] : []
             });
           } else {
@@ -110,18 +172,19 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
             if (!existing.avatar_url && row.avatar_url) existing.avatar_url = row.avatar_url;
             if (!existing.twitter_url && row.twitter_url) existing.twitter_url = row.twitter_url;
             if (!existing.instagram_url && row.instagram_url) existing.instagram_url = row.instagram_url;
-            if (!existing.stripe_account_id && row.stripe_account_id) existing.stripe_account_id = row.stripe_account_id;
+            if (!existing.stripe_account_id && resolvedStripeId) existing.stripe_account_id = resolvedStripeId;
           }
         });
 
         (seriesData || []).forEach((s: any) => {
           if (!s.creator_name) return;
-          const key = s.creator_name.trim().toLowerCase();
-          if (hiddenCreatorNames.has(key) || creatorMap.has(key)) return;
+          const key = normalizeCreatorKey(s.creator_name);
+          if (visibilityMap.get(key) === false || creatorMap.has(key)) return;
 
+          const displayName = key === 'erick pedrucci' ? 'Erick Pedrucci' : s.creator_name.trim().replace(/\s+/g, ' ');
           const rawFlags = (s.flag_code || '').split(',').map((f: string) => f.trim()).filter(Boolean);
           creatorMap.set(key, {
-            name: s.creator_name.trim(),
+            name: displayName,
             role: 'Creator',
             bio: s.creator_bio || '',
             avatar_url: s.creator_avatar || '',
@@ -129,7 +192,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
             twitter_url: s.creator_twitter || '',
             instagram_url: s.creator_instagram || '',
             support_url: s.creator_support_link || '',
-            stripe_account_id: s.creator_stripe_account_id || '',
+            stripe_account_id: resolveCreatorStripeAccountId(displayName, s.creator_stripe_account_id),
             works: [s]
           });
         });
@@ -177,6 +240,12 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
     setDonationStep('processing');
 
+    // Resolve Connect ID if available; otherwise empty string routes funds directly to Saturday AM's default Stripe account
+    const targetStripeAccountId = resolveCreatorStripeAccountId(
+      donationCreator.name,
+      donationCreator.stripe_account_id
+    );
+
     try {
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
         body: {
@@ -185,7 +254,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
           userEmail: user?.email || currentUser?.email,
           returnUrl: window.location.origin,
           creatorName: donationCreator.name,
-          stripeAccountId: donationCreator.stripe_account_id || '',
+          stripeAccountId: targetStripeAccountId,
           amountDollars: donationAmount,
           fanmail: fanmailText.trim(),
           seriesSlug: donationCreator.works?.[0]?.slug || ''
@@ -274,7 +343,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                 className="bg-zinc-950/70 border border-zinc-800/80 rounded-xl p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 shadow-lg hover:border-zinc-700 transition-all backdrop-blur-sm"
               >
                 {/* Left Section: Avatar & Creator Details */}
-                <div className="flex items-start gap-4 flex-1 min-w-0 md:max-w-[420px] lg:max-w-[460px]">
+                <div className="flex items-start gap-4 flex-1 min-w-0 md:max-w-[400px] lg:max-w-[440px]">
                   <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-[#fe9a00] overflow-hidden flex-shrink-0 bg-zinc-900 shadow-[0_0_12px_rgba(254,154,0,0.25)]">
                     <img
                       src={creator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`}
@@ -341,7 +410,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
                 {/* Center / Right Section: Expanded Works Strip */}
                 {creator.works.length > 0 && (
-                  <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-1 shrink-0 max-w-full md:max-w-[340px] lg:max-w-[460px]">
+                  <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-1 shrink-0 max-w-full md:max-w-[320px] lg:max-w-[420px]">
                     <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 hidden xl:block shrink-0">
                       Works
                     </span>
@@ -370,16 +439,15 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                   </div>
                 )}
 
-                {/* Right Action Buttons */}
-                <div className="flex flex-row md:flex-col items-center gap-2 shrink-0 w-full md:w-28 border-t md:border-t-0 border-zinc-800/80 pt-3 md:pt-0">
-                  <div className="flex-1 md:flex-initial w-full [&_button]:w-full [&_button]:justify-center [&_button]:py-2 [&_button]:text-[10px]">
+                {/* Right Action Buttons (Widened to md:w-36 so Hype Creator text + icon never clip) */}
+                <div className="flex flex-row md:flex-col items-center gap-2.5 shrink-0 w-full md:w-36 border-t md:border-t-0 border-zinc-800/80 pt-3 md:pt-0">
+                  <div className="flex-1 md:flex-initial w-full [&_button]:w-full [&_button]:justify-center [&_button]:py-2.5 [&_button]:px-3 [&_button]:gap-1.5 [&_button]:text-[10px]">
                     <HypeButton
                       targetType="creator"
                       targetId={creator.name}
                       userId={currentUser?.id}
+                      isPremium={Boolean(currentUser?.is_premium)}
                       variant="default"
-                      label="Hype Creator"
-                      buttonText="Hype Creator"
                       onRequireAuth={() => onLoginClick && onLoginClick()}
                     />
                   </div>
@@ -391,9 +459,9 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                       setDonationAmount(5);
                       setFanmailText('');
                     }}
-                    className="flex-1 md:flex-initial w-full py-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase text-[10px] tracking-widest rounded-full transition-all flex items-center justify-center gap-1.5 shadow-[0_0_12px_rgba(254,154,0,0.25)] hover:scale-105 cursor-pointer"
+                    className="flex-1 md:flex-initial w-full py-2.5 px-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase text-[10px] tracking-widest rounded-full transition-all flex items-center justify-center gap-1.5 shadow-[0_0_12px_rgba(254,154,0,0.25)] hover:scale-105 cursor-pointer whitespace-nowrap"
                   >
-                    <Heart className="w-3.5 h-3.5 fill-black" />
+                    <Heart className="w-3.5 h-3.5 fill-black shrink-0" />
                     <span>Support</span>
                   </button>
                 </div>
