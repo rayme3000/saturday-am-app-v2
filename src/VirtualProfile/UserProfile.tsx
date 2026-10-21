@@ -497,7 +497,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <div className="w-6 h-6 bg-[#fe9a00] mb-2" style={iconMaskStyle} />
               <span className="text-3xl font-black">{profileStats.total_hypes.toLocaleString()}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes</span>
+              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes Given</span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <Star className="w-6 h-6 text-[#fe9a00] mb-2" />

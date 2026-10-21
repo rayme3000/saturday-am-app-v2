@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Search, X, ArrowLeft, Shield, Swords, MapPin, Activity, User,
-  Lock, Heart, Sparkles, BookOpen, Zap, AlertCircle, FileText, Flame
+  Search, X, ArrowLeft, Swords, MapPin, Activity, User,
+  Lock, Heart, BookOpen, Zap, AlertCircle, FileText
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
@@ -74,6 +74,16 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
 
   const [charLikes, setCharLikes] = useState<Record<string, boolean>>({});
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium'; message: string } | null>(null);
+
+  // Notify app overlay listener when character dossier modal is open
+  useEffect(() => {
+    if (selectedChar) {
+      window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
+      return () => {
+        window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: false }));
+      };
+    }
+  }, [selectedChar]);
 
   useEffect(() => {
     const fetchCharacters = async () => {
@@ -434,14 +444,14 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
         )}
       </div>
 
-      {/* SLEEK TABBED FIGHTER DOSSIER MODAL (NO WALLS OF TEXT) */}
+      {/* SLEEK TABBED FIGHTER DOSSIER MODAL (WITH SPACER CLEARANCE FOR AM CONSOLE) */}
       {selectedChar && (
         <div
-          className="fixed inset-0 z-[6000] bg-black/90 backdrop-blur-xl flex items-center justify-center animate-fade-in p-3 sm:p-6"
+          className="fixed inset-0 z-[6000] bg-black/90 backdrop-blur-xl flex items-center justify-center animate-fade-in px-3 pt-3 pb-24 sm:px-6 sm:pt-6 sm:pb-28"
           onClick={() => setSelectedChar(null)}
         >
           <div
-            className="w-full max-w-4xl max-h-[88vh] bg-zinc-950 border border-zinc-800 rounded-3xl relative flex flex-col md:flex-row shadow-[0_20px_70px_rgba(0,0,0,0.95)] overflow-hidden"
+            className="w-full max-w-4xl max-h-[82vh] bg-zinc-950 border border-zinc-800 rounded-3xl relative flex flex-col md:flex-row shadow-[0_20px_70px_rgba(0,0,0,0.95)] overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
             {/* Close Button */}
@@ -586,7 +596,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
             </div>
 
             {/* RIGHT DOSSIER COLUMN: Sleek Tabbed Views (Combat / Origin / Vital File) */}
-            <div className="w-full md:w-[62%] flex flex-col bg-black/95 relative z-10 min-h-[340px] max-h-[52vh] md:max-h-[88vh]">
+            <div className="w-full md:w-[62%] flex flex-col bg-black/95 relative z-10 min-h-[320px] max-h-[46vh] md:max-h-[82vh]">
               {/* Dossier Navigation Tabs */}
               <div className="flex items-center gap-2 px-6 pt-5 pb-3 border-b border-zinc-800/80 shrink-0 pr-14">
                 <button
@@ -623,8 +633,8 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                 </button>
               </div>
 
-              {/* Scrollable Tab Content Area */}
-              <div className="flex-1 overflow-y-auto no-scrollbar p-6 space-y-5">
+              {/* Scrollable Tab Content Area with Dedicated Bottom Spacer */}
+              <div className="flex-1 overflow-y-auto no-scrollbar p-6 pb-36 space-y-5">
                 {/* TAB 1: COMBAT & POWERS */}
                 {activeTab === 'combat' && (
                   <div className="space-y-5 animate-fade-in">
@@ -773,6 +783,9 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                     </div>
                   </div>
                 )}
+
+                {/* Dedicated bottom spacer so the AM Console never covers the last item */}
+                <div className="w-full h-32 shrink-0 pointer-events-none" />
               </div>
             </div>
           </div>
