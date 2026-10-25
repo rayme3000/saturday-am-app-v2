@@ -120,7 +120,7 @@ const MemoizedHorizontalImage = React.memo(({ src, alt, pageHotspots, onHotspotC
   </div>
 ));
 
-export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHome, onNext, hasNext, title, subtitle, userId, isPremium, initialPage = 0, onNavigate, series, chapter, onSupportCreator }: any) => {
+export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onNext, hasNext, title, subtitle, userId, isPremium, initialPage = 0, onNavigate, series, chapter, onSupportCreator }: any) => {
   const [currentPage, setCurrentPage] = useState(0);
   const [mode, setMode] = useState<'horizontal' | 'vertical'>('horizontal'); 
   const [isUIVisible, setIsUIVisible] = useState(true);
@@ -184,7 +184,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     chapter_number: title?.match(/\d+/)?.[0] || '1' 
   };
 
-  // Reset completion guard when switching chapters
   useEffect(() => {
     hasRecordedChapterCompletion.current = false;
   }, [chapterId]);
@@ -227,7 +226,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     }
   }, [chapterId]);
 
-  // Automatically record completion when user reaches the last page of the chapter
   useEffect(() => {
     if (!isLoadingProgress && pages.length > 0 && currentPage >= pages.length - 1) {
       recordCompletedChapterRead();
@@ -406,20 +404,17 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
     if (onNavigate) onNavigate({ action: 'home' });
   }, [onClose, onNavigate, saveProgressToDB]);
 
-  // --- UPSELL FUNNEL ROUTER FOR "READ NEXT" ---
   const handleNextChapter = useCallback(async (e?: any) => {
     if (e) e.stopPropagation();
 
     const activeUserId = userId || currentUser?.id;
     const isUserPremium = Boolean(internalIsPremium || isPremium);
 
-    // 1. Visitors: Must create a free account
     if (!activeUserId) {
       triggerAuthUpsell("Create a free account to read manga, save your reading history across devices, and drop weekly hypes!");
       return;
     }
 
-    // 2. Free Users: Must upgrade to Pro for subsequent chapters
     if (!isUserPremium) {
       setUpsellModal({
         title: "Read Without Limits",
@@ -430,7 +425,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       return;
     }
 
-    // 3. Pro Members: Advance to next chapter
     if (hasNext && onNext) {
       await saveProgressToDB(currentPageRef.current);
       onNext();
@@ -780,7 +774,7 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
               limitToBounds={true}
               doubleClick={{ step: 2 }}
               panning={{ disabled: currentScaleRef.current <= 1.05 }}
-              onTransformed={(ref) => { currentScaleRef.current = ref.state.scale; }}
+              onZoom={(ref: any) => { currentScaleRef.current = ref.state.scale; }}
             >
               {() => (
                 <div className="w-full h-full relative touch-none overscroll-none">
