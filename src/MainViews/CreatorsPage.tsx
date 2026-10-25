@@ -7,7 +7,11 @@ import { HypeLoader } from '../Components/HypeLoader';
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
 // Built-in Stripe Connect account map + fallback resolver
+// Empty string ('') routes donations directly to Saturday AM's main Stripe account
 export const CREATOR_STRIPE_CONNECT_MAP: Record<string, string> = {
+  'raymond brown': 'acct_1US3pv2d62PnIfST',
+  'rayme3000': 'acct_1US3pv2d62PnIfST',
+  'rayme3000@gmail.com': 'acct_1US3pv2d62PnIfST',
   'oscar fong': 'acct_1USWwtGzA2Qad5v8',
   'odunze oguguo': 'acct_1USiRECvtW3bYdhU',
   'whyt manga': 'acct_1USiRECvtW3bYdhU',
@@ -16,10 +20,14 @@ export const CREATOR_STRIPE_CONNECT_MAP: Record<string, string> = {
   'eric pedrucci': 'acct_1USUE8GnNL3tCg0x',
   'erick perducci': 'acct_1USUE8GnNL3tCg0x',
   'eric perducci': 'acct_1USUE8GnNL3tCg0x',
-  'eric': 'acct_1USUE8GnNL3tCg0x',
   'stefano romano': 'acct_1USU8mKGryTzf1Ck',
   'jeyodin': 'acct_1USMJFGv39K92CFY',
-  'frank simmonds': 'acct_1USDbD1EcQ1S1MjY'
+  'frank simmonds': 'acct_1USDbD1EcQ1S1MjY',
+  'austin harvey-younis': 'acct_1UT6TNK9op8GbFK7',
+  'austin harvey younis': 'acct_1UT6TNK9op8GbFK7',
+  'saturday.editorial@gmail.com': 'acct_1UT6TNK9op8GbFK7',
+  'frederick l. jones': '',
+  'vee': ''
 };
 
 export const normalizeCreatorKey = (rawName?: string): string => {
@@ -36,18 +44,24 @@ export const normalizeCreatorKey = (rawName?: string): string => {
 };
 
 export const resolveCreatorStripeAccountId = (creatorName?: string, dbStripeId?: string): string => {
+  const lower = normalizeCreatorKey(creatorName);
+
+  // Guard: If the creator is explicitly set to '' (Saturday AM default), do not use an accidental DB ID
+  if (lower && lower in CREATOR_STRIPE_CONNECT_MAP && CREATOR_STRIPE_CONNECT_MAP[lower] === '') {
+    return '';
+  }
+
   const cleanDb = String(dbStripeId || '').trim();
   if (cleanDb.startsWith('acct_')) return cleanDb;
 
-  const lower = normalizeCreatorKey(creatorName);
   if (!lower) return '';
 
-  if (CREATOR_STRIPE_CONNECT_MAP[lower]) {
+  if (lower in CREATOR_STRIPE_CONNECT_MAP) {
     return CREATOR_STRIPE_CONNECT_MAP[lower];
   }
 
   for (const [key, acctId] of Object.entries(CREATOR_STRIPE_CONNECT_MAP)) {
-    if (lower.includes(key) || key.includes(lower)) {
+    if (acctId && key.length > 4 && (lower.includes(key) || key.includes(lower))) {
       return acctId;
     }
   }
