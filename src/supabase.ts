@@ -9,7 +9,7 @@ console.log("🔑 Key Check:", supabaseKey ? "Key is loaded!" : "KEY IS UNDEFINE
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
 // --- GLOBAL TELEMETRY TRACKER ---
-export const trackTelemetry = async (eventType, metadata = {}) => {
+export const trackTelemetry = async (eventType: string, metadata: any = {}) => {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const userId = sessionData?.session?.user?.id || null;

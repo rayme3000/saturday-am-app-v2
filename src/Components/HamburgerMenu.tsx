@@ -1,5 +1,5 @@
 import { memo, useState, useEffect } from 'react';
-import { X, CreditCard, ShieldAlert, ExternalLink, Download, User, LogOut, Crown, HelpCircle, Share2, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, CreditCard, ShieldAlert, ExternalLink, Download, User, LogOut, Crown, HelpCircle, Share2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import { supabase } from '../supabase';
 
 export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser, canInstall, onInstall, onLoginClick, onShareClick }: any) => {
@@ -20,6 +20,11 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
     await supabase.auth.signOut();
     onClose();
   };
+
+  const hasCreatorStudioAccess = Boolean(
+    currentUser?.is_admin ||
+    ['creator', 'core_creator', 'staff'].includes(String(currentUser?.role || '').toLowerCase())
+  );
 
   const menuItems = [
     { name: 'AM Shop', action: 'shop', prefetch: () => import('../MainViews/Shop').then(mod => mod.Shop) },
@@ -81,17 +86,32 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
           </button>
         )}
 
-        {userTier === 'premium' && (
-          <button 
-            onClick={() => { 
-              onClose(); 
-              onOpenFlexCard(); 
-            }} 
-            className="flex items-center gap-4 bg-[#fe9a00] text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all mb-8 shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max cursor-pointer"
-          >
-            <CreditCard className="w-6 h-6" /> Flex Hype Card
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-4 mb-8">
+          {userTier === 'premium' && (
+            <button 
+              onClick={() => { 
+                onClose(); 
+                onOpenFlexCard(); 
+              }} 
+              className="flex items-center gap-4 bg-[#fe9a00] text-black px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-white hover:scale-105 transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)] w-max cursor-pointer"
+            >
+              <CreditCard className="w-6 h-6" /> Flex Hype Card
+            </button>
+          )}
+
+          {hasCreatorStudioAccess && (
+            <button
+              onClick={() => {
+                onClose();
+                onNavigate({ action: 'creator-studio' });
+              }}
+              onMouseEnter={() => import('../MainViews/CreatorStudio').then(mod => mod.CreatorStudio)}
+              className="flex items-center gap-3 bg-zinc-900 border-2 border-[#fe9a00] text-[#fe9a00] px-6 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black hover:scale-105 transition-all shadow-[0_0_25px_rgba(254,154,0,0.25)] w-max cursor-pointer"
+            >
+              <Sparkles className="w-6 h-6" /> Creator Studio
+            </button>
+          )}
+        </div>
 
         <div className="flex flex-col gap-5 flex-1">
           {visibleItems.map((item) => (
