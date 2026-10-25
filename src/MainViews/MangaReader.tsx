@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2, X, Heart, Home, PlayCircle, Lock } from 'lucide-react';
+import { ArrowLeft, SkipForward, RotateCcw, MoveHorizontal, MoveVertical, Share2, X, Heart, Home, PlayCircle, Lock, ShoppingBag } from 'lucide-react';
 import { supabase } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
@@ -387,7 +387,6 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       return;
     }
 
-    // qr.submitReact handles inserting into page_reacts and incrementing quick_reacts (+1) & fandom_score (+2)
     await qr.submitReact(...args);
   };
 
@@ -585,6 +584,8 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
       recordCompletedChapterRead();
     }, []);
 
+    const storeHref = series?.store_url || series?.shop_url || 'https://shopsaturdayam.com/';
+
     return (
       <div className="flex flex-col gap-3 w-full" onClick={(e) => e.stopPropagation()}>
         
@@ -640,6 +641,16 @@ export const MangaReader = ({ pages = [], onClose, chapterId, onHypeUpdate, onHo
         >
           <Heart className="w-5 h-5" /> Support the Creator
         </button>
+
+        <a
+          href={storeHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="w-full bg-zinc-900 border-2 border-zinc-700 text-white font-black uppercase tracking-widest py-4 rounded-full hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-all flex items-center justify-center gap-2 transform-gpu backface-hidden will-change-transform cursor-pointer no-underline"
+        >
+          <ShoppingBag className="w-5 h-5" /> Visit Store
+        </a>
 
         <button 
           onClick={handleClose} 

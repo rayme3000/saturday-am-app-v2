@@ -14,6 +14,21 @@ const leaderboardTutorialSlides = [
   }
 ];
 
+const EXCLUDED_STAFF_ADMIN_EMAILS = new Set([
+  'odunze.oguguo@yahoo.com',
+  'saturday.editorial@gmail.com',
+  'demetrene.billups@gmail.com',
+  'publisher@saturday-am.com',
+  'rayme3000@gmail.com',
+  'saturdayam.writer@gmail.com'
+]);
+
+const EXCLUDED_LEADERBOARD_ROLES = new Set([
+  'creator',
+  'core_creator',
+  'staff'
+]);
+
 export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
   const { seriesList = [] } = useSeriesData();
   const [activeTab, setActiveTab] = useState<'weekly' | 'monthly' | 'fans'>('monthly');
@@ -41,36 +56,71 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         lastSaturday.setHours(0, 0, 0, 0);
         const lastSaturdayIso = lastSaturday.toISOString();
 
-        // 1. TOP SUPPORTERS: RPC WITH AUTOMATIC LIFETIME BACKFILL (NEVER EMPTY)
+        // 0. FETCH CREATOR, STAFF & ADMIN USER IDS TO EXCLUDE FROM ALL LEADERBOARD CALCULATIONS
+        const { data: allProfilesMeta } = await supabase
+          .from('profiles')
+          .select('id, role, is_admin, email');
+
+        const excludedUserIds = new Set<string>();
+        (allProfilesMeta || []).forEach((p: any) => {
+          const role = String(p.role || 'reader').trim().toLowerCase();
+          const email = String(p.email || '').trim().toLowerCase();
+          if (
+            Boolean(p.is_admin) ||
+            EXCLUDED_LEADERBOARD_ROLES.has(role) ||
+            EXCLUDED_STAFF_ADMIN_EMAILS.has(email)
+          ) {
+            excludedUserIds.add(String(p.id));
+          }
+        });
+
+        const isFanActivity = (row: any) => {
+          const uid = row?.user_id || row?.id;
+          if (!uid) return true;
+          return !excludedUserIds.has(String(uid));
+        };
+
+        // 1. TOP SUPPORTERS: RPC WITH AUTOMATIC LIFETIME BACKFILL (FAN-ONLY)
         let finalFans: any[] = [];
 
         try {
           const { data: topFans, error: fansError } = await supabase.rpc('fetch_top_ten_fans');
           if (topFans && !fansError && topFans.length > 0) {
-            finalFans = topFans.map((f: any, i: number) => ({
-              ...f,
-              rank: f.rank || i + 1,
-              score: Number(f.score || 0)
-            }));
+            finalFans = topFans
+              .filter((f: any) => !excludedUserIds.has(String(f.id || f.user_id)))
+              .map((f: any, i: number) => ({
+                ...f,
+                rank: i + 1,
+                score: Number(f.score || 0)
+              }));
           }
         } catch (rpcErr) {
           console.warn("fetch_top_ten_fans RPC unavailable, falling back to profiles", rpcErr);
         }
 
-        // Backfill remaining slots from profiles if fewer than 10
+        // Backfill remaining slots from fan-only profiles if fewer than 10
         if (finalFans.length < 10) {
-          const existingIds = new Set(finalFans.map(f => f.id || f.user_id));
+          const existingIds = new Set(finalFans.map(f => String(f.id || f.user_id)));
           const slotsNeeded = 10 - finalFans.length;
 
           const { data: fallbackProfiles } = await supabase
             .from('profiles')
-            .select('id, username, avatar_url, avatar_frame_id, is_premium, fandom_score, quick_reacts, chapters_read')
+            .select('id, username, avatar_url, avatar_frame_id, is_premium, fandom_score, quick_reacts, chapters_read, role, is_admin, email')
             .order('fandom_score', { ascending: false })
-            .limit(slotsNeeded + existingIds.size);
+            .limit(slotsNeeded + existingIds.size + excludedUserIds.size + 25);
 
           if (fallbackProfiles) {
             const filtered = fallbackProfiles
-              .filter((p: any) => !existingIds.has(p.id))
+              .filter((p: any) => {
+                const pid = String(p.id);
+                if (existingIds.has(pid) || excludedUserIds.has(pid)) return false;
+                const r = String(p.role || 'reader').trim().toLowerCase();
+                const em = String(p.email || '').trim().toLowerCase();
+                if (p.is_admin || EXCLUDED_LEADERBOARD_ROLES.has(r) || EXCLUDED_STAFF_ADMIN_EMAILS.has(em)) {
+                  return false;
+                }
+                return true;
+              })
               .slice(0, slotsNeeded)
               .map((p: any, idx: number) => ({
                 id: p.id,
@@ -86,7 +136,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           }
         }
 
-        const formattedTop10 = finalFans.map((fan: any, index: number) => {
+        const formattedTop10 = finalFans.slice(0, 10).map((fan: any, index: number) => {
           let rankClass = 'C-Class Rank';
           if (index < 3) rankClass = 'S-Class Rank';
           else if (index < 6) rankClass = 'A-Class Rank';
@@ -101,43 +151,61 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
         setSuperFans(formattedTop10);
 
-        // 2. PERSONAL USER RANK
+        // 2. PERSONAL USER RANK (Fan-Only Ranking)
         if (currentUser?.id) {
-          let myRank: number | null = null;
-          let myScore: number = 0;
+          const currentRole = String(currentUser?.role || 'reader').trim().toLowerCase();
+          const currentEmail = String(currentUser?.email || '').trim().toLowerCase();
+          const isCurrentUserExcluded =
+            Boolean(currentUser?.is_admin) ||
+            EXCLUDED_LEADERBOARD_ROLES.has(currentRole) ||
+            EXCLUDED_STAFF_ADMIN_EMAILS.has(currentEmail) ||
+            excludedUserIds.has(String(currentUser.id));
 
-          try {
-            const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: currentUser.id });
-            if (myRankData && myRankData.length > 0) {
-              myScore = Number(myRankData[0].score);
-              myRank = Number(myRankData[0].rank);
-            }
-          } catch (e) { /* ignore */ }
-
-          if (myRank === null || isNaN(myRank)) {
-            const { data: myProfile } = await supabase.from('profiles').select('fandom_score').eq('id', currentUser.id).maybeSingle();
-            myScore = myProfile?.fandom_score || currentUser.fandom_score || 0;
-            
-            const { count } = await supabase
+          if (isCurrentUserExcluded) {
+            setUserRank({
+              rank: null,
+              isExcludedStaffOrCreator: true,
+              score: Number(currentUser.fandom_score || 0),
+              class: 'Official Creator / Staff'
+            });
+          } else {
+            const { data: myProfile } = await supabase
               .from('profiles')
-              .select('*', { count: 'exact', head: true })
-              .gt('fandom_score', myScore);
-              
-            myRank = (count || 0) + 1;
-          }
+              .select('fandom_score')
+              .eq('id', currentUser.id)
+              .maybeSingle();
 
-          let myClass = 'C-Class Rank';
-          if (myRank <= 3) myClass = 'S-Class Rank';
-          else if (myRank <= 10) myClass = 'A-Class Rank';
-          else if (myRank <= 50) myClass = 'B-Class Rank';
-          setUserRank({ rank: myRank, score: myScore, class: myClass });
+            const myScore = Number(myProfile?.fandom_score ?? currentUser.fandom_score ?? 0);
+
+            const { data: higherProfiles } = await supabase
+              .from('profiles')
+              .select('id')
+              .gt('fandom_score', myScore);
+
+            const higherFanCount = (higherProfiles || []).filter(
+              (p: any) => !excludedUserIds.has(String(p.id))
+            ).length;
+
+            const myRank = higherFanCount + 1;
+            let myClass = 'C-Class Rank';
+            if (myRank <= 3) myClass = 'S-Class Rank';
+            else if (myRank <= 10) myClass = 'A-Class Rank';
+            else if (myRank <= 50) myClass = 'B-Class Rank';
+
+            setUserRank({ rank: myRank, score: myScore, class: myClass, isExcludedStaffOrCreator: false });
+          }
         }
 
-        // 3. BIG 3 MONTHLY SERIES (Super Hypes + Total Hype Fallback)
-        const { data: superHypes } = await supabase.from('super_hypes').select('series_slug, created_at');
+        // 3. BIG 3 MONTHLY SERIES (Fan Super Hypes + Total Hype Fallback)
+        const { data: rawSuperHypes } = await supabase
+          .from('super_hypes')
+          .select('series_slug, created_at, user_id');
+
+        const superHypes = (rawSuperHypes || []).filter(isFanActivity);
+
         if (seriesList.length > 0) {
           const hypeCounts: Record<string, number> = {};
-          (superHypes || []).forEach((h: any) => { 
+          superHypes.forEach((h: any) => { 
             if (h.series_slug) {
               hypeCounts[h.series_slug] = (hypeCounts[h.series_slug] || 0) + 10;
             }
@@ -154,30 +222,27 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setBig3(rankedBig3.slice(0, 3));
         }
 
-        // 4. WEEKLY SERIES HYPES (Combines Weekly Super Hypes + Weekly Series Hypes + Weekly Series Likes)
+        // 4. WEEKLY SERIES HYPES (Fan-Only Weekly Super Hypes + Weekly Series Hypes + Weekly Series Likes)
         const [weeklySeriesHypesRes, weeklySeriesLikesRes] = await Promise.all([
-          supabase.from('hypes').select('target_id, created_at').eq('target_type', 'series').gte('created_at', lastSaturdayIso),
-          supabase.from('series_likes').select('series_slug, created_at').gte('created_at', lastSaturdayIso)
+          supabase.from('hypes').select('target_id, created_at, user_id').eq('target_type', 'series').gte('created_at', lastSaturdayIso),
+          supabase.from('series_likes').select('series_slug, created_at, user_id').gte('created_at', lastSaturdayIso)
         ]);
 
         if (seriesList.length > 0) {
           const seriesWeeklyMap: Record<string, number> = {};
 
-          // Count weekly super_hypes
-          (superHypes || []).forEach((sh: any) => {
+          superHypes.forEach((sh: any) => {
             if (sh.series_slug && (!sh.created_at || sh.created_at >= lastSaturdayIso)) {
               seriesWeeklyMap[sh.series_slug] = (seriesWeeklyMap[sh.series_slug] || 0) + 10;
             }
           });
 
-          // Count weekly standard series hypes
-          (weeklySeriesHypesRes.data || []).forEach((h: any) => {
+          (weeklySeriesHypesRes.data || []).filter(isFanActivity).forEach((h: any) => {
             const key = h.target_id;
             if (key) seriesWeeklyMap[key] = (seriesWeeklyMap[key] || 0) + 5;
           });
 
-          // Count weekly series likes
-          (weeklySeriesLikesRes.data || []).forEach((l: any) => {
+          (weeklySeriesLikesRes.data || []).filter(isFanActivity).forEach((l: any) => {
             if (l.series_slug) {
               seriesWeeklyMap[l.series_slug] = (seriesWeeklyMap[l.series_slug] || 0) + 1;
             }
@@ -194,20 +259,20 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setTopSeries(weeklyRankedSeries.slice(0, 5));
         }
 
-        // 5. WEEKLY CREATOR HYPES (+ Likes)
+        // 5. WEEKLY CREATOR HYPES (+ Likes, Fan-Only)
         const [allCreatorHypesRes, allCreatorLikesRes, allCreatorsDataRes] = await Promise.all([
-          supabase.from('hypes').select('target_id, created_at').eq('target_type', 'creator').gte('created_at', lastSaturdayIso),
-          supabase.from('creator_likes').select('creator_id, created_at').gte('created_at', lastSaturdayIso),
+          supabase.from('hypes').select('target_id, created_at, user_id').eq('target_type', 'creator').gte('created_at', lastSaturdayIso),
+          supabase.from('creator_likes').select('creator_id, created_at, user_id').gte('created_at', lastSaturdayIso),
           supabase.from('series_creators').select('name, avatar_url, role, series_slug').eq('is_visible', true)
         ]);
 
         const allCreatorsData = allCreatorsDataRes.data;
         if (allCreatorsData) {
           const creatorHypeCounts: Record<string, number> = {};
-          (allCreatorHypesRes.data || []).forEach((h: any) => { 
+          (allCreatorHypesRes.data || []).filter(isFanActivity).forEach((h: any) => { 
             creatorHypeCounts[h.target_id] = (creatorHypeCounts[h.target_id] || 0) + 5; 
           });
-          (allCreatorLikesRes.data || []).forEach((l: any) => {
+          (allCreatorLikesRes.data || []).filter(isFanActivity).forEach((l: any) => {
             creatorHypeCounts[l.creator_id] = (creatorHypeCounts[l.creator_id] || 0) + 1;
           });
           
@@ -224,20 +289,20 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setTopCreators(rankedCreators);
         }
 
-        // 6. WEEKLY CHARACTER HYPES (+ Likes)
+        // 6. WEEKLY CHARACTER HYPES (+ Likes, Fan-Only)
         const [allCharHypesRes, allCharLikesRes, allCharsDataRes] = await Promise.all([
-          supabase.from('hypes').select('target_id, created_at').eq('target_type', 'character').gte('created_at', lastSaturdayIso),
-          supabase.from('character_likes').select('character_id, created_at').gte('created_at', lastSaturdayIso),
+          supabase.from('hypes').select('target_id, created_at, user_id').eq('target_type', 'character').gte('created_at', lastSaturdayIso),
+          supabase.from('character_likes').select('character_id, created_at, user_id').gte('created_at', lastSaturdayIso),
           supabase.from('series_characters').select('id, name, headshot_url, series_slug').eq('is_hidden', false)
         ]);
 
         const allCharsData = allCharsDataRes.data;
         if (allCharsData) {
           const charHypeCounts: Record<string, number> = {};
-          (allCharHypesRes.data || []).forEach((h: any) => { 
+          (allCharHypesRes.data || []).filter(isFanActivity).forEach((h: any) => { 
             charHypeCounts[String(h.target_id)] = (charHypeCounts[String(h.target_id)] || 0) + 5; 
           });
-          (allCharLikesRes.data || []).forEach((l: any) => {
+          (allCharLikesRes.data || []).filter(isFanActivity).forEach((l: any) => {
             charHypeCounts[String(l.character_id)] = (charHypeCounts[String(l.character_id)] || 0) + 1;
           });
           
@@ -252,25 +317,25 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setTopCharacters(rankedChars);
         }
 
-        // 7. WEEKLY TOP CHAPTERS (Combines Chapter Hypes + Chapter Likes + Smart Comments / Quick Reacts + Completed Reads)
+        // 7. WEEKLY TOP CHAPTERS (Fan-Only Chapter Hypes + Likes + Smart Comments + Reads)
         const [chapterHypesRes, chapterLikesRes, chapterReactsRes, chapterReadsRes] = await Promise.all([
-          supabase.from('hypes').select('target_id').eq('target_type', 'chapter').gte('created_at', lastSaturdayIso),
-          supabase.from('chapter_likes').select('chapter_id').gte('created_at', lastSaturdayIso),
-          supabase.from('page_reacts').select('chapter_id').gte('created_at', lastSaturdayIso),
-          supabase.from('reading_history').select('chapter_id').gte('updated_at', lastSaturdayIso)
+          supabase.from('hypes').select('target_id, user_id').eq('target_type', 'chapter').gte('created_at', lastSaturdayIso),
+          supabase.from('chapter_likes').select('chapter_id, user_id').gte('created_at', lastSaturdayIso),
+          supabase.from('page_reacts').select('chapter_id, user_id').gte('created_at', lastSaturdayIso),
+          supabase.from('reading_history').select('chapter_id, user_id').gte('updated_at', lastSaturdayIso)
         ]);
 
         const chapterInteractionCounts: Record<string, number> = {};
-        (chapterHypesRes.data || []).forEach((h: any) => { 
+        (chapterHypesRes.data || []).filter(isFanActivity).forEach((h: any) => { 
           if (h.target_id) chapterInteractionCounts[h.target_id] = (chapterInteractionCounts[h.target_id] || 0) + 5; 
         });
-        (chapterLikesRes.data || []).forEach((l: any) => { 
+        (chapterLikesRes.data || []).filter(isFanActivity).forEach((l: any) => { 
           if (l.chapter_id) chapterInteractionCounts[l.chapter_id] = (chapterInteractionCounts[l.chapter_id] || 0) + 2; 
         });
-        (chapterReactsRes.data || []).forEach((r: any) => {
+        (chapterReactsRes.data || []).filter(isFanActivity).forEach((r: any) => {
           if (r.chapter_id) chapterInteractionCounts[r.chapter_id] = (chapterInteractionCounts[r.chapter_id] || 0) + 2;
         });
-        (chapterReadsRes.data || []).forEach((rd: any) => {
+        (chapterReadsRes.data || []).filter(isFanActivity).forEach((rd: any) => {
           if (rd.chapter_id) chapterInteractionCounts[rd.chapter_id] = (chapterInteractionCounts[rd.chapter_id] || 0) + 1;
         });
 
@@ -299,16 +364,16 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           setTopWeeklyChapters([]);
         }
 
-        // 8. MONTHLY BIG 3 CREATORS
+        // 8. MONTHLY BIG 3 CREATORS (Fan-Only Hypes)
         if (allCreatorsData) {
           const combinedCreatorScores: Record<string, number> = {};
           
           const { data: monthlyCreatorHypes } = await supabase
             .from('hypes')
-            .select('target_id')
+            .select('target_id, user_id')
             .eq('target_type', 'creator');
 
-          (monthlyCreatorHypes || []).forEach((h: any) => {
+          (monthlyCreatorHypes || []).filter(isFanActivity).forEach((h: any) => {
             combinedCreatorScores[h.target_id] = (combinedCreatorScores[h.target_id] || 0) + 5;
           });
 
@@ -316,7 +381,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           seriesList.forEach((s: any) => { if (s.creator_name) seriesToCreatorMap[s.slug] = s.creator_name; });
           allCreatorsData.forEach((c: any) => { if (c.series_slug && c.name) seriesToCreatorMap[c.series_slug] = c.name; });
 
-          (superHypes || []).forEach((h: any) => {
+          superHypes.forEach((h: any) => {
             const creatorName = seriesToCreatorMap[h.series_slug];
             if (creatorName) {
               combinedCreatorScores[creatorName] = (combinedCreatorScores[creatorName] || 0) + 10;
@@ -471,7 +536,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
               <div className="animate-fade-in max-w-2xl mx-auto">
                 <div className="text-center mb-8">
                   <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white">Weekly Polls</h2>
-                  <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">Resets Every Saturday at 12:00 AM</p>
+                  <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">Resets Every Saturday at 12:00 AM • Fan Votes Only</p>
                 </div>
                 
                 <LeaderboardCategory title="Most Hype Chapters" items={topWeeklyChapters} subtitle="Chapter Engagement" type="chapter" />
@@ -589,7 +654,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   <h2 className="text-xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2 pointer-events-none">
                     <Zap className="w-5 h-5 text-[#fe9a00]" /> Top 10 Supporters
                   </h2>
-                  <span className="text-[9px] text-zinc-500 font-bold tracking-widest uppercase pointer-events-none">Live Leaderboard • Updates Weekly</span>
+                  <span className="text-[9px] text-zinc-500 font-bold tracking-widest uppercase pointer-events-none">Fans & Readers Only • Updates Weekly</span>
                 </div>
 
                 <div className="flex flex-col gap-3">
@@ -627,7 +692,13 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                       <DecoratedAvatar avatarUrl={currentUser.avatar_url} frameId={currentUser.frame_id} size="w-14 h-14" iconSize="w-6 h-6" />
                       <div className="flex flex-col">
                         <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00]">Your Global Rank</span>
-                        <span className="text-xl font-black italic uppercase text-white tracking-wider">#{userRank.rank}</span>
+                        {userRank.isExcludedStaffOrCreator ? (
+                          <span className="text-xs sm:text-sm font-black uppercase text-zinc-300 tracking-wider mt-0.5">
+                            Creator / Staff Account (Unranked — Fan-Only Leaderboard)
+                          </span>
+                        ) : (
+                          <span className="text-xl font-black italic uppercase text-white tracking-wider">#{userRank.rank}</span>
+                        )}
                       </div>
                     </div>
                   </div>

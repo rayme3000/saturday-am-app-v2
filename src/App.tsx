@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
-import { ArrowUp, X, Lock, Share, Menu, Download, Info, CheckCircle2, AlertTriangle } from 'lucide-react'; 
+import { ArrowUp, X, Lock, Share, Menu, Download, Info, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react'; 
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 
@@ -14,7 +14,6 @@ import { useIntegrations } from "./Components/useIntegrations";
 
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
-import AdminLogin from './Auth/AdminLogin';
 import { GlobalFlexCard } from './Components/GlobalFlexCard';
 
 // 2. Lazy Load the views that use Named Exports
@@ -36,6 +35,22 @@ const BingoBook = lazy(() => import('./VirtualProfile/BingoBook'));
 const Favorites = lazy(() => import('./MainViews/MyFaves.tsx'));
 const Browse = lazy(() => import('./MainViews/Browse.tsx'));
 const Leaderboard = lazy(() => import('./MainViews/Leaderboard.tsx'));
+
+// Authorized Saturday AM Admin Emails
+export const ADMIN_EMAILS = [
+  'odunze.oguguo@yahoo.com',
+  'saturday.editorial@gmail.com',
+  'demetrene.billups@gmail.com',
+  'publisher@saturday-am.com',
+  'rayme3000@gmail.com'
+];
+
+export const checkIsAdminUser = (userOrProfile: any, sessionEmail?: string): boolean => {
+  if (!userOrProfile && !sessionEmail) return false;
+  if (userOrProfile?.is_admin === true) return true;
+  const email = String(userOrProfile?.email || sessionEmail || '').trim().toLowerCase();
+  return ADMIN_EMAILS.includes(email);
+};
 
 // --- GLOBAL ERROR BOUNDARY ---
 class AppErrorBoundary extends React.Component<any, any> {
@@ -99,7 +114,6 @@ export default function App() {
     return !localStorage.getItem('am_has_seen_intro');
   });
 
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isFlexCardOpen, setIsFlexCardOpen] = useState(false);
@@ -136,6 +150,8 @@ export default function App() {
 
   const isPopState = useRef(false);
   const isFetchingProfile = useRef(false);
+
+  const isUserAdmin = checkIsAdminUser(currentUser);
 
   // Safe wrapper so child components can never trigger an upsell modal for a Premium user
   const handleTriggerUpsell = useCallback((config: any) => {
@@ -280,15 +296,18 @@ export default function App() {
       try {
         const fallbackName = sessionUser.user_metadata?.username || 'Reader';
         const fallbackPremium = Boolean(sessionUser.user_metadata?.is_premium);
+        const fallbackAdmin = checkIsAdminUser(null, sessionUser.email);
 
         setCurrentUser((prev: any) => prev || {
           id: sessionUser.id,
+          email: sessionUser.email,
           username: fallbackName,
           avatar_url: '',
           frame_id: 'none',
           total_hypes: 0,
           super_hypes_left: fallbackPremium ? 3 : 1,
-          is_premium: fallbackPremium
+          is_premium: fallbackPremium,
+          is_admin: fallbackAdmin
         });
 
         const { data } = await supabase
@@ -298,7 +317,12 @@ export default function App() {
           .maybeSingle();
         
         if (data) {
-          setCurrentUser(data);
+          const verifiedAdmin = checkIsAdminUser(data, sessionUser.email);
+          setCurrentUser({
+            ...data,
+            email: data.email || sessionUser.email,
+            is_admin: verifiedAdmin
+          });
           const isPro = Boolean(data.is_premium);
           setUserTier(isPro ? 'premium' : 'free');
           if (isPro) setUpsellConfig(null);
@@ -308,19 +332,23 @@ export default function App() {
           await supabase.from('profiles').upsert([
             {
               id: sessionUser.id,
+              email: sessionUser.email,
               username: fallbackName,
               is_premium: fallbackPremium,
+              is_admin: fallbackAdmin,
               super_hypes_left: fallbackPremium ? 3 : 1
             }
           ], { onConflict: 'id' });
           setCurrentUser({
             id: sessionUser.id,
+            email: sessionUser.email,
             username: fallbackName,
             avatar_url: '',
             frame_id: 'none',
             total_hypes: 0,
             super_hypes_left: fallbackPremium ? 3 : 1,
-            is_premium: fallbackPremium
+            is_premium: fallbackPremium,
+            is_admin: fallbackAdmin
           }); 
         }
       } catch (err) {
@@ -412,7 +440,6 @@ export default function App() {
       return; 
     }
 
-    // Also check Chromium's getInstalledRelatedApps API if supported
     if ('getInstalledRelatedApps' in navigator) {
       (navigator as any).getInstalledRelatedApps().then((apps: any[]) => {
         if (Array.isArray(apps) && apps.length > 0) {
@@ -447,9 +474,7 @@ export default function App() {
       return;
     }
 
-    // If index.html already caught beforeinstallprompt before React mounted, use it immediately!
     if ((window as any).deferredPrompt) {
-      // If Chrome fired beforeinstallprompt, the app is NOT currently installed
       localStorage.removeItem('am_pwa_installed');
       setIsAppInstalled(false);
       setDeferredPrompt((window as any).deferredPrompt);
@@ -460,7 +485,6 @@ export default function App() {
 
     const handleBeforeInstall = (e: any) => {
       e.preventDefault?.();
-      // Chrome only fires beforeinstallprompt when the PWA is not installed
       localStorage.removeItem('am_pwa_installed');
       setIsAppInstalled(false);
       (window as any).deferredPrompt = e;
@@ -524,7 +548,6 @@ export default function App() {
       return;
     } 
     
-    // Always check both React state and window.deferredPrompt so it never misses the native prompt
     const activePrompt = deferredPrompt || (window as any).deferredPrompt;
 
     if (activePrompt) {
@@ -740,7 +763,39 @@ export default function App() {
           <div id="main-app-container" className="relative z-10 min-h-screen w-full bg-transparent">
             {currentView === 'home' && (<HomePage userTier={userTier} currentUser={currentUser} onNavigate={handleNavigate} onAdminAccess={() => setCurrentView('admin')} onLoginClick={() => setShowLogin(true)} onMenuToggle={() => setIsMenuOpen(true)} />)}
             {currentView === 'series' && (<SeriesDetailPage userTier={userTier} series={selectedSeries} onBack={() => { setCurrentView('home'); setSelectedSeries(null); }} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} onUpsell={handleTriggerUpsell} />)}
-            {currentView === 'admin' && (isAdminAuthenticated ? <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} /> : <AdminLogin onLogin={() => setIsAdminAuthenticated(true)} onBack={() => setCurrentView('home')} />)}
+            {currentView === 'admin' && (
+              isUserAdmin ? (
+                <AdminDashboard onBack={() => setCurrentView('home')} Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} />
+              ) : (
+                <div className="min-h-screen bg-black/95 text-white flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+                  <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/40 flex items-center justify-center mb-5">
+                    <ShieldAlert className="w-8 h-8 text-red-500" />
+                  </div>
+                  <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+                    Admin Access Required
+                  </h2>
+                  <p className="text-xs text-zinc-400 font-bold max-w-sm mb-6 leading-relaxed">
+                    Please sign in with an authorized Saturday AM administrator account to access the AM Command Center.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    {!currentUser && (
+                      <button
+                        onClick={() => setShowLogin(true)}
+                        className="px-6 py-3 bg-[#fe9a00] text-black font-black uppercase tracking-widest text-xs rounded-xl hover:bg-white transition-colors cursor-pointer"
+                      >
+                        Sign In
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setCurrentView('home')}
+                      className="px-6 py-3 bg-zinc-900 border border-zinc-700 text-white font-black uppercase tracking-widest text-xs rounded-xl hover:border-white transition-colors cursor-pointer"
+                    >
+                      Return Home
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
             {currentView === 'profile' && (<UserProfile userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} onLoginClick={() => setShowLogin(true)} onUpsell={handleTriggerUpsell} />)}
             {currentView === 'sub' && (<SubscriptionPage userTier={userTier} onBack={() => setCurrentView('home')} onLoginClick={() => setShowLogin(true)} onNavigate={handleNavigate} />)}
             {currentView === 'leaderboard' && (<Leaderboard userTier={userTier} currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}

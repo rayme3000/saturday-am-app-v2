@@ -19,7 +19,8 @@ import {
   Clock,
   Loader2,
   Users,
-  Save
+  Save,
+  Code2
 } from 'lucide-react';
 
 type PayoutSortOption =
@@ -32,18 +33,33 @@ type PayoutSortOption =
   | 'donor_asc'
   | 'donor_desc';
 
+export const DEV_RECIPIENT_EMAIL = 'rayme3000@gmail.com';
+export const DEV_CUT_PERCENT = 0.075; // 7.5% auto-adjusting across all monthly & annual prices
+
 export const CreatorPayoutTracker = () => {
   const [tips, setTips] = useState<any[]>([]);
   const [creators, setCreators] = useState<any[]>([]);
+  const [referredProfiles, setReferredProfiles] = useState<any[]>([]);
+  const [partnerProfiles, setPartnerProfiles] = useState<any[]>([]);
+  const [activeProCount, setActiveProCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // Price Tier Simulator / Active Pricing Selector (Auto-adjusts the 7.5% Dev Cut)
+  const [pricingMode, setPricingMode] = useState<'promo' | 'normal'>('promo');
+  const activeMonthlyPrice = pricingMode === 'promo' ? 1.99 : 2.99;
+  const activeAnnualPrice = pricingMode === 'promo' ? 20.00 : 35.99;
+
+  // Auto-calculated 7.5% Developer Cut per unit
+  const devCutPerMonthlySub = Number((activeMonthlyPrice * DEV_CUT_PERCENT).toFixed(2));
+  const devCutPerAnnualSub = Number((activeAnnualPrice * DEV_CUT_PERCENT).toFixed(2));
+
   // Filters & Sorting
-  const [selectedMonth, setSelectedMonth] = useState<string>('all'); // 'all' or 'YYYY-MM'
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [selectedCreator, setSelectedCreator] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<PayoutSortOption>('date_desc');
 
-  // Manual Entry Modal / Drawer (for testing or logging offline/convention/manual creator payouts)
+  // Manual Entry Modal / Drawer
   const [showAddForm, setShowAddForm] = useState(false);
   const [newCreatorName, setNewCreatorName] = useState('');
   const [newDonorName, setNewDonorName] = useState('');
@@ -61,7 +77,11 @@ export const CreatorPayoutTracker = () => {
   const fetchPayoutData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: tipsData, error: tipsErr }, { data: creatorsData }] = await Promise.all([
+      const [
+        { data: tipsData, error: tipsErr },
+        { data: creatorsData },
+        { data: profilesData }
+      ] = await Promise.all([
         supabase
           .from('creator_tips')
           .select('*')
@@ -69,13 +89,27 @@ export const CreatorPayoutTracker = () => {
         supabase
           .from('series_creators')
           .select('name, role, avatar_url, email')
-          .order('name', { ascending: true })
+          .order('name', { ascending: true }),
+        supabase
+          .from('profiles')
+          .select('id, username, email, role, linked_creator_name, referral_code, referred_by_code, referred_plan, is_premium, created_at')
       ]);
 
       if (tipsErr) {
         console.error('Error fetching creator_tips:', tipsErr.message);
       } else {
         setTips(tipsData || []);
+      }
+
+      if (profilesData) {
+        const proUsers = profilesData.filter((p: any) => p.is_premium);
+        setActiveProCount(proUsers.length);
+        setReferredProfiles(proUsers.filter((p: any) => p.referred_by_code));
+        setPartnerProfiles(
+          profilesData.filter((p: any) =>
+            ['creator', 'staff', 'influencer', 'core_creator'].includes(String(p.role || '').toLowerCase())
+          )
+        );
       }
 
       if (creatorsData) {
@@ -114,7 +148,49 @@ export const CreatorPayoutTracker = () => {
     fetchPayoutData();
   }, [fetchPayoutData]);
 
-  // Build available YYYY-MM month options dynamically from transactions + current month
+  // Calculate Referral Bounties ($5 Creator/Staff, $2 Influencer)
+  const referralCommissionSummary = useMemo(() => {
+    const partnerByCode = new Map<string, any>();
+    partnerProfiles.forEach((p) => {
+      const code = String(p.referral_code || '').trim().toUpperCase();
+      if (code) partnerByCode.set(code, p);
+    });
+
+    const summaryMap = new Map<string, {
+      code: string;
+      partnerName: string;
+      role: string;
+      rate: number;
+      referralsCount: number;
+      totalCommission: number;
+    }>();
+
+    referredProfiles.forEach((sub) => {
+      const code = String(sub.referred_by_code || '').trim().toUpperCase();
+      if (!code) return;
+      const partner = partnerByCode.get(code);
+      const rawRole = String(partner?.role || 'creator').toLowerCase();
+      const role = rawRole === 'core_creator' ? 'creator' : rawRole;
+      const rate = role === 'influencer' ? 2 : 5;
+      const partnerName = partner?.linked_creator_name || partner?.username || code;
+
+      const existing = summaryMap.get(code) || {
+        code,
+        partnerName,
+        role,
+        rate,
+        referralsCount: 0,
+        totalCommission: 0
+      };
+      existing.referralsCount += 1;
+      existing.totalCommission += rate;
+      summaryMap.set(code, existing);
+    });
+
+    return Array.from(summaryMap.values()).sort((a, b) => b.totalCommission - a.totalCommission);
+  }, [referredProfiles, partnerProfiles]);
+
+  // Build available YYYY-MM month options dynamically
   const availableMonths = useMemo(() => {
     const monthSet = new Set<string>();
     const now = new Date();
@@ -359,10 +435,10 @@ export const CreatorPayoutTracker = () => {
           <DollarSign className="w-6 h-6 text-[#fe9a00]" />
           <div>
             <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
-              Creator Payouts & Fan Mail Ledger
+              Creator Payouts, Referrals & Dev Split Ledger
             </h2>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-              Track lifetime creator earnings, monthly payouts, donor details & fan mail
+              Track 100% creator tips, $5/$2 annual referral bounties, and auto-scaling 7.5% backend dev share
             </p>
           </div>
         </div>
@@ -408,16 +484,125 @@ export const CreatorPayoutTracker = () => {
         </div>
       </div>
 
+      {/* AUTO-ADJUSTING 7.5% DEVELOPER CUT & REFERRAL BOUNTY ENGINE */}
+      <div className="bg-black border border-[#fe9a00]/40 rounded-2xl p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <Code2 className="w-5 h-5 text-[#fe9a00]" />
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-white">
+                Auto-Scaling 7.5% Backend Dev Share ({DEV_RECIPIENT_EMAIL}) & Referral Rules
+              </h3>
+              <p className="text-[10px] text-zinc-400 font-bold">
+                Automatically calculates 7.5% across all Monthly & Annual subscriptions and adjusts if prices increase
+              </p>
+            </div>
+          </div>
+
+          <div className="flex bg-zinc-900 p-1 rounded-lg border border-zinc-800 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setPricingMode('promo')}
+              className={`px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer ${
+                pricingMode === 'promo' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Launch Promo ($1.99 / $20.00)
+            </button>
+            <button
+              type="button"
+              onClick={() => setPricingMode('normal')}
+              className={`px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer ${
+                pricingMode === 'normal' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Normal Price ($2.99 / $35.99)
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5">
+            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
+              Monthly Sub (${activeMonthlyPrice.toFixed(2)}/mo)
+            </div>
+            <div className="text-lg font-black text-[#fe9a00] mt-1">
+              ${devCutPerMonthlySub.toFixed(2)} <span className="text-[10px] text-zinc-400 font-bold">/ active mo (7.5%)</span>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold mt-1">
+              Recipient: {DEV_RECIPIENT_EMAIL}
+            </div>
+          </div>
+
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5">
+            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
+              Annual Sub (${activeAnnualPrice.toFixed(2)}/yr)
+            </div>
+            <div className="text-lg font-black text-[#fe9a00] mt-1">
+              ${devCutPerAnnualSub.toFixed(2)} <span className="text-[10px] text-zinc-400 font-bold">/ annual sub (7.5%)</span>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold mt-1">
+              Current Active Pro Est: ${(activeProCount * devCutPerAnnualSub).toFixed(2)}
+            </div>
+          </div>
+
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5">
+            <div className="text-[9px] font-black uppercase tracking-widest text-emerald-400">
+              Creator & Staff Ref Code
+            </div>
+            <div className="text-lg font-black text-white mt-1">
+              $5.00 <span className="text-[10px] text-zinc-400 font-bold">/ Annual Sub</span>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold mt-1">
+              Includes 3-Day Free Trial (Card Req)
+            </div>
+          </div>
+
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5">
+            <div className="text-[9px] font-black uppercase tracking-widest text-purple-400">
+              Influencer Ref Code
+            </div>
+            <div className="text-lg font-black text-white mt-1">
+              $2.00 <span className="text-[10px] text-zinc-400 font-bold">/ Annual Sub</span>
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold mt-1">
+              Includes 3-Day Free Trial (Card Req)
+            </div>
+          </div>
+        </div>
+
+        {referralCommissionSummary.length > 0 && (
+          <div className="pt-2">
+            <div className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">
+              Active Annual Referral Commissions Earned
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {referralCommissionSummary.map((item) => (
+                <div
+                  key={item.code}
+                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-[10px] font-bold flex items-center gap-2"
+                >
+                  <span className="text-white font-black uppercase">{item.partnerName}</span>
+                  <span className="text-zinc-500 font-mono">({item.code})</span>
+                  <span className="text-emerald-400 font-black">
+                    ${item.totalCommission.toFixed(2)} ({item.referralsCount} × ${item.rate})
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* LIFETIME MILESTONE & KPI BANNER */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* 1. Lifetime Total Paid to Creators */}
         <div className="bg-gradient-to-br from-black via-zinc-950 to-[#fe9a00]/15 border-2 border-[#fe9a00] rounded-2xl p-5 shadow-[0_0_30px_rgba(254,154,0,0.12)] relative overflow-hidden">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" /> Lifetime Paid to Creators
+              <Sparkles className="w-3.5 h-3.5" /> Lifetime Tips Paid to Creators
             </span>
             <span className="bg-[#fe9a00]/20 text-[#fe9a00] text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
-              All-Time Milestone
+              100% Pass-Through
             </span>
           </div>
           <div className="text-3xl sm:text-4xl font-black text-white tracking-tight my-1">
@@ -428,7 +613,6 @@ export const CreatorPayoutTracker = () => {
           </p>
         </div>
 
-        {/* 2. Selected Period Total */}
         <div className="bg-black border border-zinc-800 rounded-2xl p-5 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1.5">
@@ -444,7 +628,6 @@ export const CreatorPayoutTracker = () => {
           </p>
         </div>
 
-        {/* 3. Top Supported Creator */}
         <div className="bg-black border border-zinc-800 rounded-2xl p-5 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1.5">
@@ -685,7 +868,6 @@ export const CreatorPayoutTracker = () => {
 
       {/* FILTER & SORT CONTROLS BAR */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-black p-4 rounded-xl border border-zinc-800">
-        {/* Search Input */}
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
@@ -697,7 +879,6 @@ export const CreatorPayoutTracker = () => {
           />
         </div>
 
-        {/* Month Selector */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <Calendar className="w-3.5 h-3.5 text-[#fe9a00] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -715,7 +896,6 @@ export const CreatorPayoutTracker = () => {
             </select>
           </div>
 
-          {/* Sort Selector */}
           <div className="relative">
             <ArrowUpDown className="w-3.5 h-3.5 text-[#fe9a00] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <select
