@@ -2,16 +2,40 @@ import { memo, useState, useEffect } from 'react';
 import { X, CreditCard, ShieldAlert, ExternalLink, Download, User, LogOut, Crown, HelpCircle, Share2, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import { supabase } from '../supabase';
 
-export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, onUpsell, currentUser, canInstall, onInstall, onLoginClick, onShareClick }: any) => {
+const KNOWN_CREATOR_EMAILS = new Set([
+  'rayme3000@gmail.com',
+  'publisher@saturday-am.com',
+  'fsimmonds4@gmail.com',
+  'dropkickanimation@gmail.com',
+  'saturday.editorial@gmail.com',
+  'odunze.oguguo@yahoo.com',
+  'oscar.edfong@gmail.com',
+  'erickpedrucciandre@yahoo.com',
+  'jeyodin@gmail.com',
+  'demetrene.billups@gmail.com',
+  'saturdayam.writer@gmail.com'
+]);
+
+const KNOWN_CREATOR_USERNAMES = new Set([
+  'rayme3000',
+  'effessart',
+  'jeyodin',
+  'whytmanga',
+  'whyt manga',
+  'dropkickanimation'
+]);
+
+export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard, userTier, currentUser, canInstall, onInstall, onLoginClick, onShareClick }: any) => {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showMore, setShowMore] = useState(false);
 
   // Dispatch event to completely hide underlying pulsing elements (solves blur lag and overlaps)
   useEffect(() => {
-    if (isOpen) {
-      window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
-      return () => window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: false }));
-    }
+    if (!isOpen) return;
+    window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
+    return () => {
+      window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: false }));
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -21,9 +45,16 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
     onClose();
   };
 
+  const cleanEmail = String(currentUser?.email || '').trim().toLowerCase();
+  const cleanUsername = String(currentUser?.username || '').trim().toLowerCase();
+  const cleanRole = String(currentUser?.role || '').trim().toLowerCase();
+
   const hasCreatorStudioAccess = Boolean(
     currentUser?.is_admin ||
-    ['creator', 'core_creator', 'staff'].includes(String(currentUser?.role || '').toLowerCase())
+    Boolean(currentUser?.linked_creator_name) ||
+    ['creator', 'core_creator', 'staff', 'influencer'].includes(cleanRole) ||
+    KNOWN_CREATOR_EMAILS.has(cleanEmail) ||
+    KNOWN_CREATOR_USERNAMES.has(cleanUsername)
   );
 
   const menuItems = [

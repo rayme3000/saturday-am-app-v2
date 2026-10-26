@@ -14,8 +14,28 @@ interface CreatorStudioProps {
 
 const STAFF_CREATOR_EMAILS = [
   'demetrene.billups@gmail.com',
-  'saturdayam.writer@gmail.com'
+  'saturdayam.writer@gmail.com',
+  'saturday.editorial@gmail.com'
 ];
+
+// Direct email/username -> canonical Creator Name lookup so creators with custom handles always match
+const CREATOR_IDENTITY_ALIAS_MAP: Record<string, string> = {
+  'rayme3000': 'Raymond Brown',
+  'rayme3000@gmail.com': 'Raymond Brown',
+  'effessart': 'Frank Simmonds',
+  'fsimmonds4@gmail.com': 'Frank Simmonds',
+  'dropkickanimation': 'Stefano Romano',
+  'dropkickanimation@gmail.com': 'Stefano Romano',
+  'saturday.editorial@gmail.com': 'Austin Harvey-Younis',
+  'odunze.oguguo@yahoo.com': 'Odunze Oguguo (Whyt Manga)',
+  'whytmanga': 'Odunze Oguguo (Whyt Manga)',
+  'whyt manga': 'Odunze Oguguo (Whyt Manga)',
+  'oscar.edfong@gmail.com': 'Oscar Fong',
+  'erickpedrucciandre@yahoo.com': 'Erick Pedrucci',
+  'jeyodin@gmail.com': 'JeyOdin',
+  'jeyodin': 'JeyOdin',
+  'publisher@saturday-am.com': 'Frederick L. Jones'
+};
 
 // Built-in Saturday AM catalog mapping so every creator always syncs with their series & one-shots
 const CREATOR_SERIES_CATALOG_MAP: Record<string, string[]> = {
@@ -28,6 +48,7 @@ const CREATOR_SERIES_CATALOG_MAP: Record<string, string[]> = {
   'issaka galadima': ['clock striker'],
   'mike saharat srimuang': ['clock striker'],
   'frank simmonds': ['fan-x-boy'],
+  'effessart': ['fan-x-boy'],
   'kristina andabak': ['grimmheim'],
   'erick pedrucci': ['gun+bone', 'gun', 'hammer'],
   'fred tornager': ['gunhild'],
@@ -123,8 +144,11 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
       const userName = String(currentUser?.username || '').trim().toLowerCase();
       const fullName = `${currentUser?.first_name || ''} ${currentUser?.last_name || ''}`.trim().toLowerCase();
 
-      if (userName === 'rayme3000' || fullName.includes('raymond brown')) {
-        setSelectedCreatorName(dedupedMap.get('raymond brown') || 'Raymond Brown');
+      // Check direct alias map by email or username (handles Effessart -> Frank Simmonds, rayme3000 -> Raymond Brown, etc.)
+      const aliasMatch = CREATOR_IDENTITY_ALIAS_MAP[uEmail] || CREATOR_IDENTITY_ALIAS_MAP[userName];
+      if (aliasMatch) {
+        const normAlias = normalizeCreatorKey(aliasMatch);
+        setSelectedCreatorName(dedupedMap.get(normAlias) || aliasMatch);
         return;
       }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { HypeButton } from '../Components/HypeButton';
 import { Search, Heart, PenTool, X, CheckCircle2, ArrowUpDown } from 'lucide-react';
@@ -21,8 +21,12 @@ export const CREATOR_STRIPE_CONNECT_MAP: Record<string, string> = {
   'erick perducci': 'acct_1USUE8GnNL3tCg0x',
   'eric perducci': 'acct_1USUE8GnNL3tCg0x',
   'stefano romano': 'acct_1USU8mKGryTzf1Ck',
+  'dropkickanimation': 'acct_1USU8mKGryTzf1Ck',
+  'dropkickanimation@gmail.com': 'acct_1USU8mKGryTzf1Ck',
   'jeyodin': 'acct_1USMJFGv39K92CFY',
   'frank simmonds': 'acct_1USDbD1EcQ1S1MjY',
+  'effessart': 'acct_1USDbD1EcQ1S1MjY',
+  'fsimmonds4@gmail.com': 'acct_1USDbD1EcQ1S1MjY',
   'austin harvey-younis': 'acct_1UT6TNK9op8GbFK7',
   'austin harvey younis': 'acct_1UT6TNK9op8GbFK7',
   'saturday.editorial@gmail.com': 'acct_1UT6TNK9op8GbFK7',
@@ -453,7 +457,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                   </div>
                 )}
 
-                {/* Right Action Buttons (Widened to md:w-36 so Hype Creator text + icon never clip) */}
+                {/* Right Action Buttons */}
                 <div className="flex flex-row md:flex-col items-center gap-2.5 shrink-0 w-full md:w-36 border-t md:border-t-0 border-zinc-800/80 pt-3 md:pt-0">
                   <div className="flex-1 md:flex-initial w-full [&_button]:w-full [&_button]:justify-center [&_button]:py-2.5 [&_button]:px-3 [&_button]:gap-1.5 [&_button]:text-[10px]">
                     <HypeButton
