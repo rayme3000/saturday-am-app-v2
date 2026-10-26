@@ -24,8 +24,10 @@ const isReleasedYet = (publishAt?: string | null) => {
 
 let memHeroSlides: any = null;
 let memHomeSections: any = null;
+let memLatestChapters: any = null;
 let memRecentReads: any = null;
 let memNotifications: any = null;
+let lastHomeFetchTime = 0;
 
 const homeTutorialSlides = [
   {
@@ -49,7 +51,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [currentSlide, setCurrentSlide] = useState(0);
   const [heroSlides, setHeroSlides] = useState<any[]>(memHeroSlides || []);
   const [homeSections, setHomeSections] = useState<any[]>(memHomeSections || []);
-  const [latestChapters, setLatestChapters] = useState<any[]>([]);
+  const [latestChapters, setLatestChapters] = useState<any[]>(memLatestChapters || []);
   const [isLoadingSlides, setIsLoadingSlides] = useState(!memHeroSlides);
   
   const [recentReads, setRecentReads] = useState<any[]>(memRecentReads || []);
@@ -61,7 +63,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [isRefreshingApp, setIsRefreshingApp] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
-  // Re-evaluate scheduled drops every 30 seconds while user is on the page
+  // Re-evaluate scheduled drops every 30 seconds locally in browser memory (zero database load!)
   useEffect(() => {
     const interval = setInterval(() => setNowTick(Date.now()), 30000);
     return () => clearInterval(interval);
@@ -76,8 +78,10 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       // 1. Clear in-memory caches
       memHeroSlides = null;
       memHomeSections = null;
+      memLatestChapters = null;
       memRecentReads = null;
       memNotifications = null;
+      lastHomeFetchTime = 0;
 
       // 2. Unregister any active Service Workers so iOS/Android fetches the newest build
       if ('serviceWorker' in navigator) {
@@ -133,30 +137,40 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     const savedDismissed = JSON.parse(localStorage.getItem('am_dismissed_notifs') || '[]');
     setDismissedNotifs(savedDismissed);
 
-    const fetchHomeData = async () => {
+    const fetchHomeData = async (force = false) => {
+      // Use cached data if fetched within the last 3 minutes to protect against traffic spikes
+      if (!force && memHeroSlides && memHomeSections && memLatestChapters && (Date.now() - lastHomeFetchTime < 3 * 60 * 1000)) {
+        setHeroSlides(memHeroSlides);
+        setHomeSections(memHomeSections);
+        setLatestChapters(memLatestChapters);
+        setIsLoadingSlides(false);
+        return;
+      }
+
       try {
-        const { data: slideData } = await supabase.from('hero_slides').select('*').order('id', { ascending: true });
+        const [{ data: slideData }, { data: sectionData }, { data: chapData }] = await Promise.all([
+          supabase.from('hero_slides').select('*').order('id', { ascending: true }),
+          supabase.from('home_sections').select('*').order('display_order', { ascending: true }),
+          supabase.from('chapters').select('*').eq('is_published', true).order('created_at', { ascending: false }).limit(50)
+        ]);
+
         if (slideData) {
           setHeroSlides(slideData);
           memHeroSlides = slideData;
         }
 
-        const { data: sectionData } = await supabase.from('home_sections').select('*').order('display_order', { ascending: true });
         if (sectionData) {
           setHomeSections(sectionData);
           memHomeSections = sectionData;
         }
 
-        const { data: chapData } = await supabase
-          .from('chapters')
-          .select('*')
-          .eq('is_published', true)
-          .order('created_at', { ascending: false }) 
-          .limit(50);
-          
-        if (chapData) setLatestChapters(chapData);
+        if (chapData) {
+          setLatestChapters(chapData);
+          memLatestChapters = chapData;
+        }
 
         await fetchGlobalNotifications();
+        lastHomeFetchTime = Date.now();
       } catch (err: any) {
         console.error("Error fetching home data:", err.message);
       } finally {
@@ -166,22 +180,17 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     
     fetchHomeData();
 
-    const notifChannel = supabase.channel('public:home_live_sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'app_notifications' }, () => {
-        fetchGlobalNotifications();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chapters' }, async () => {
-        const { data: chapData } = await supabase
-          .from('chapters')
-          .select('*')
-          .eq('is_published', true)
-          .order('created_at', { ascending: false })
-          .limit(50);
-        if (chapData) setLatestChapters(chapData);
-      })
-      .subscribe();
+    // Spike-safe visibility refresh: only re-fetches if the user returns to the tab after 5+ minutes (0 WebSocket overhead!)
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastHomeFetchTime > 5 * 60 * 1000) {
+        fetchHomeData(true);
+      }
+    };
 
-    return () => { supabase.removeChannel(notifChannel); };
+    document.addEventListener('visibilitychange', handleVisibilityRefresh);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+    };
   }, []);
 
   useEffect(() => {
@@ -352,7 +361,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           ) : (
             <div className="hidden sm:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity mr-1" onClick={() => onNavigate({ action: 'profile' })}>
                <DecoratedAvatar avatarUrl={currentUser.avatar_url} frameId={currentUser.frame_id} size="w-8 h-8" iconSize="w-4 h-4" />
-               {userTier === 'premium' && <span className="bg-purple-900/40 border border-purple-500 text-purple-400 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black tracking-widest uppercase ml-1 animate-fade-in">PRO</span>}
+               {userTier === 'premium' && <span className="bg-purple-900/40 border border-purple-500 text-purple-400 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black tracking-widest uppercase ml-1 animate-fade-in">PLUS</span>}
             </div>
           )}
 

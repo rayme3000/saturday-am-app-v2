@@ -127,7 +127,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [visibleCount, setVisibleCount] = useState(10);
 
-  const [showAdModal, setShowAdModal] = useState(false);
+  const [, setShowAdModal] = useState(false);
   const [targetChapter, setTargetChapter] = useState<any>(null);
   const [unlockedChapters, setUnlockedChapters] = useState<string[]>([]);
   
@@ -247,16 +247,21 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     try {
       const targetSlug = typeof series === 'string' ? series : (localSeries?.slug || series?.slug);
       if (!targetSlug) return;
-      const { data: freshSeries } = await supabase.from('series').select('*').eq('slug', targetSlug).single();
+
+      const [
+        { data: freshSeries },
+        { data: chapterData },
+        { data: creatorData },
+        { data: charData }
+      ] = await Promise.all([
+        supabase.from('series').select('*').eq('slug', targetSlug).single(),
+        supabase.from('chapters').select('*').eq('series_slug', targetSlug).eq('is_published', true).order('chapter_number', { ascending: true }),
+        supabase.from('series_creators').select('*').eq('series_slug', targetSlug).order('id', { ascending: true }),
+        supabase.from('series_characters').select('*').eq('series_slug', targetSlug).order('id', { ascending: true })
+      ]);
+
       if (freshSeries) setLocalSeries(freshSeries);
       
-      const { data: chapterData } = await supabase
-        .from('chapters')
-        .select('*')
-        .eq('series_slug', targetSlug)
-        .eq('is_published', true)
-        .order('chapter_number', { ascending: true });
-
       if (chapterData) {
         const now = Date.now();
         const liveChapters = chapterData.filter(
@@ -265,11 +270,22 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         setChapters(liveChapters as any);
       }
       
-      const { data: creatorData } = await supabase.from('series_creators').select('*').eq('series_slug', targetSlug).order('id', { ascending: true });
-      if (creatorData && creatorData.length > 0) { setCreators(creatorData as any); } 
-      else if (freshSeries) { setCreators([{ role: 'Creator', name: freshSeries.creator_name || 'Saturday AM', flag_code: freshSeries.flag_code || '', avatar_url: freshSeries.creator_avatar || '', bio: freshSeries.creator_bio || '', twitter_url: freshSeries.creator_twitter || '', instagram_url: freshSeries.creator_instagram || '', support_url: freshSeries.creator_support_link || '', stripe_account_id: freshSeries.creator_stripe_account_id || '' }] as any); }
+      if (creatorData && creatorData.length > 0) {
+        setCreators(creatorData as any);
+      } else if (freshSeries) {
+        setCreators([{
+          role: 'Creator',
+          name: freshSeries.creator_name || 'Saturday AM',
+          flag_code: freshSeries.flag_code || '',
+          avatar_url: freshSeries.creator_avatar || '',
+          bio: freshSeries.creator_bio || '',
+          twitter_url: freshSeries.creator_twitter || '',
+          instagram_url: freshSeries.creator_instagram || '',
+          support_url: freshSeries.creator_support_link || '',
+          stripe_account_id: freshSeries.creator_stripe_account_id || ''
+        }] as any);
+      }
     
-      const { data: charData } = await supabase.from('series_characters').select('*').eq('series_slug', targetSlug).order('id', { ascending: true });
       if (charData) setSeriesCharacters(charData as any);
     } catch (err) { console.error("Failed to load series details:", err); }
   }, [series, localSeries?.slug]);
@@ -280,21 +296,24 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return () => window.removeEventListener('seriesUpdated', fetchDetails);
   }, [fetchDetails]);
 
+  // --- SPIKE-SAFE READING PROGRESS CALCULATION (USES `ch.page_count` WITHOUT FULL-SCANNING `pages`) ---
   useEffect(() => {
     if (!currentUserId || chapters.length === 0) return;
     const fetchReadingProgress = async () => {
       const chapterIds = chapters.map(c => String(c.id));
-      const { data: historyData } = await supabase.from('reading_history').select('chapter_id, page_index').eq('user_id', currentUserId).in('chapter_id', chapterIds);
-      if (!historyData || historyData.length === 0) return;
+      const { data: historyData } = await supabase
+        .from('reading_history')
+        .select('chapter_id, page_index')
+        .eq('user_id', currentUserId)
+        .in('chapter_id', chapterIds);
 
-      const { data: pagesData } = await supabase.from('pages').select('chapter_id').in('chapter_id', chapterIds);
-      const pageCounts: any = {};
-      if (pagesData) pagesData.forEach((p: any) => { pageCounts[String(p.chapter_id)] = (pageCounts[String(p.chapter_id)] || 0) + 1; });
+      if (!historyData || historyData.length === 0) return;
 
       const progressMap: any = {};
       historyData.forEach((h: any) => {
         const cId = String(h.chapter_id);
-        const totalPages = pageCounts[cId] || 1;
+        const matchedChap = chapters.find(c => String(c.id) === cId);
+        const totalPages = Number(matchedChap?.page_count) > 0 ? Number(matchedChap.page_count) : 25;
         const maxPage = Math.max(1, totalPages - 1);
         const percentage = Math.min(100, Math.round((h.page_index / maxPage) * 100));
         progressMap[cId] = percentage;
@@ -355,7 +374,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return absoluteIndex !== 0; 
   };
 
-  const handleReadChapter = async (chapter: any, absoluteIndex: number, initialPage = 0) => {
+  const handleReadChapter = async (chapter: any, _absoluteIndex: number, initialPage = 0) => {
     const isInitiallyLocked = checkIsLocked(chapter.id);
     const hasTempUnlock = unlockedChapters.includes(chapter.id);
 
@@ -370,6 +389,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       }
       setTargetChapter(chapter);
       setShowAdModal(true);
+      setUpsellConfig({
+        type: 'premium',
+        message: "Upgrade to a Saturday AM Manga Hype PLUS Subscription to unlock the entire vault and read every chapter without limits!"
+      });
       return;
     }
 
@@ -391,24 +414,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       }
     } 
     else { setIsAutoLoading(false); alert("No pages found for this chapter yet!"); }
-  };
-
-  const handleAdComplete = async () => {
-    if (!targetChapter) return;
-    try {
-      const { data, error } = await supabase.rpc('unlock_chapter_with_ad', { p_chapter_id: targetChapter.id });
-      if (error) throw error;
-      if (data === true) {
-        alert("Chapter Unlocked for 24 Hours!");
-        setUnlockedChapters(prev => [...prev, targetChapter.id]);
-        setShowAdModal(false);
-        const absoluteIndex = chapters.findIndex(c => c.id === targetChapter.id);
-        handleReadChapter(targetChapter, absoluteIndex, 0);
-      } else {
-        alert("You have reached your daily ad-unlock limit! Upgrade to Pro for unlimited reading.");
-        setShowAdModal(false);
-      }
-    } catch (err) { alert("An error occurred. Please try again."); }
   };
 
   const triggerAwards = () => {
@@ -514,7 +519,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         </div>
       )}
 
-      <ShareModal isOpen={showShareModal} onClose={() => setShowShareModal(false)} series={localSeries} chapter={chapters.find(c => c.id === activeChapterId)} currentUser={{ id: currentUserId }} />
+      <ShareModal isOpen={showShareModal} onClose={() => setShowShareModal(false)} series={localSeries} chapter={chapters.find(c => c.id === activeChapterId) || targetChapter} currentUser={{ id: currentUserId }} />
 
       {showPromo && (
         <PromoModal 
@@ -533,7 +538,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
             <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
             <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.type === 'visitor' ? 'Account Required' : 'Premium Feature'}</h2>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.type === 'visitor' ? 'Account Required' : 'PLUS Feature'}</h2>
             <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
             {upsellConfig.type === 'visitor' ? (
               <button 
@@ -553,7 +558,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 }} 
                 className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors cursor-pointer shadow-[0_0_20px_rgba(254,154,0,0.3)]"
               >
-                Upgrade to Pro ($1.99)
+                Upgrade to PLUS ($1.99)
               </button>
             )}
           </div>
@@ -625,7 +630,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
             {donationStep === 'success' && (
               <div className="py-12 px-6 flex flex-col items-center justify-center animate-fade-in text-center">
-                <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center border-2 border-emerald-500 mb-6 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+                <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center border-2 border-emerald-500 mb-6 shadow-[0_0_30px_rgba(16,185,247,0.3)]">
                   <CheckCircle2 className="w-10 h-10 text-emerald-400" />
                 </div>
                 <h3 className="text-2xl font-black italic uppercase text-white mb-2">Thank You!</h3>
@@ -821,8 +826,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 seriesSlug={localSeries.slug} 
                 userId={currentUserId} 
                 isPremium={isPremiumUser}
-                onRequirePremium={() => setUpsellConfig({ type: 'premium', message: "Hypes are a Premium feature! Upgrade to support creators with ultra-visible hype." })}
-                onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create an account and upgrade to Premium to drop Hypes!" })}
+                onRequirePremium={() => setUpsellConfig({ type: 'premium', message: "Hypes are a PLUS feature! Upgrade to support creators with ultra-visible hype." })}
+                onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create an account and upgrade to PLUS to drop Hypes!" })}
               />
               <button 
                 onClick={(e) => scrollToSection(e, creatorRef)} 
