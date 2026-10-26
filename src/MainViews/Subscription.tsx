@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Zap, Star, Flame, CreditCard, X, Loader2, RefreshCcw, BookOpen, Trophy, AlertTriangle, Tag, Key, MapPin, Phone, Calendar, User, Sparkles, Clock, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Check, Zap, Star, Flame, CreditCard, X, Loader2, RefreshCcw, BookOpen, Trophy, AlertTriangle, Tag, Key, MapPin, Phone, Calendar, User, Sparkles, Clock, MessageSquare, Shield } from 'lucide-react';
 import { supabase } from '../supabase';
 import { HypeLoader } from '../Components/HypeLoader';
+import { checkIsAdminUser } from '../App';
+
 export const NORMAL_MONTHLY_PRICE = 2.99;
 export const PROMO_MONTHLY_PRICE = 1.99;
 export const NORMAL_ANNUAL_PRICE = 35.99;
@@ -34,6 +36,20 @@ const isPoBoxAddress = (address: string): boolean => {
   return poBoxRegex.test(address);
 };
 
+// COPPA Age Verification Helper: Returns true if the date of birth is less than 13 years ago
+const isUnderThirteen = (dobString: string): boolean => {
+  if (!dobString) return false;
+  const dob = new Date(dobString);
+  if (isNaN(dob.getTime())) return false;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+    age--;
+  }
+  return age < 13;
+};
+
 interface ReferralPartnerInfo {
   valid: boolean;
   partner_id?: string;
@@ -51,6 +67,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   const [showDowngradeConfirm, setShowDowngradeConfirm] = useState(false);
   const [cancellingSub, setCancellingSub] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [isAdminOrLocal, setIsAdminOrLocal] = useState(false);
   
   const [, setStripeKey] = useState<string | null>(null);
 
@@ -61,6 +78,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   const [country, setCountry] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [agreedToAutoRenew, setAgreedToAutoRenew] = useState(false);
   const [formError, setFormError] = useState('');
 
   // --- REDEMPTION & PROMO CODE STATE (AUTO-FILLS FROM SHOPIFY MAGIC LINK) ---
@@ -100,6 +118,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   };
 
   useEffect(() => {
+    const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
     const params = new URLSearchParams(window.location.search);
     const urlRef = params.get('ref') || params.get('referral') || params.get('vip');
     if (urlRef) {
@@ -126,16 +146,22 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       if (user) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('first_name, last_name, country, county, date_of_birth')
+          .select('first_name, last_name, country, county, date_of_birth, street_address, phone_number, is_admin, email')
           .eq('id', user.id)
           .maybeSingle();
+
+        setIsAdminOrLocal(isLocalhost || checkIsAdminUser(profile, user.email));
 
         if (profile) {
           setFirstName(profile.first_name || user.user_metadata?.first_name || '');
           setLastName(profile.last_name || user.user_metadata?.last_name || '');
           setCountry(profile.country || profile.county || user.user_metadata?.country || user.user_metadata?.county || '');
           setDateOfBirth(profile.date_of_birth || user.user_metadata?.date_of_birth || '');
+          setStreetAddress(profile.street_address || user.user_metadata?.street_address || '');
+          setPhoneNumber(profile.phone_number || user.user_metadata?.phone_number || '');
         }
+      } else {
+        setIsAdminOrLocal(isLocalhost);
       }
     };
     fetchInitialData();
@@ -180,8 +206,16 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       throw new Error("Please complete all required subscriber fields (First Name, Last Name, Street Address, Country, Date of Birth, and Phone Number).");
     }
 
+    if (isUnderThirteen(cleanDob)) {
+      throw new Error("You must be at least 13 years old to subscribe to Saturday AM Manga Hype PLUS.");
+    }
+
     if (isPoBoxAddress(cleanAddress)) {
       throw new Error("P.O. Boxes are not permitted for prize shipping. Please enter a physical residential or street address.");
+    }
+
+    if (!agreedToAutoRenew) {
+      throw new Error("Please check the box confirming the auto-renewal and 1-click cancellation terms before continuing to Stripe.");
     }
 
     const effectivePlan = appliedReferral?.valid ? 'yearly' : selectedPlan;
@@ -191,6 +225,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       .update({
         first_name: cleanFirst,
         last_name: cleanLast,
+        street_address: cleanAddress,
+        phone_number: cleanPhone,
         country: cleanCountry,
         county: cleanCountry,
         date_of_birth: cleanDob,
@@ -255,7 +291,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
   };
 
-  // Simulated upgrade retained for local testing
+  // Simulated upgrade retained strictly for Admin / Localhost testing
   const handleDevUpgrade = async () => {
     setFormError('');
     const { data: { user } } = await supabase.auth.getUser();
@@ -318,7 +354,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       setAlertConfig({
         type: 'success',
         title: 'Subscription Canceled',
-        message: 'Your recurring subscription has been canceled and your account is now on the Standard Free plan. All of your Fandom Points, stats, and Bingo Book signatures remain saved!'
+        message: 'Your recurring Saturday AM Manga Hype PLUS Subscription has been canceled and your account is now on the Standard Free plan. All of your Fandom Points, stats, and Bingo Book signatures remain saved!'
       });
     } catch (err: any) {
       setAlertConfig({
@@ -487,8 +523,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       window.dispatchEvent(new Event('profileUpdated'));
       setAlertConfig({
         type: 'success',
-        title: 'Premium Unlocked!',
-        message: 'Success! 1-Year Premium Access has been applied to your account.'
+        title: 'PLUS Unlocked!',
+        message: 'Success! 1-Year Saturday AM Manga Hype PLUS Access has been applied to your account.'
       });
       setRedeemCode('');
       setTimeout(() => {
@@ -504,6 +540,12 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       setRedeeming(false);
     }
   };
+
+  const trialEndDateString = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
 
   return (
     <div className="min-h-screen bg-black text-white relative pb-24 font-sans">
@@ -527,16 +569,16 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         
         <div className="text-center mb-12 animate-fade-in-up">
           {/* GLOWING OFFICIAL SATURDAY AM HYPE ICON */}
-<div className="inline-flex items-center justify-center p-4 bg-[#fe9a00]/15 rounded-full border-2 border-[#fe9a00]/60 mb-6 shadow-[0_0_45px_rgba(254,154,0,0.6)] relative">
-  <div className="absolute inset-0 rounded-full bg-[#fe9a00]/25 blur-xl animate-pulse pointer-events-none" />
-  <HypeLoader text="" className="w-14 h-14 relative z-10" fullScreen={false} />
-</div>
+          <div className="inline-flex items-center justify-center p-4 bg-[#fe9a00]/15 rounded-full border-2 border-[#fe9a00]/60 mb-6 shadow-[0_0_45px_rgba(254,154,0,0.6)] relative">
+            <div className="absolute inset-0 rounded-full bg-[#fe9a00]/25 blur-xl animate-pulse pointer-events-none" />
+            <HypeLoader text="" className="w-14 h-14 relative z-10" fullScreen={false} />
+          </div>
 
           <h2 className="text-4xl md:text-5xl font-black italic uppercase tracking-tighter mb-4 drop-shadow-lg">
             Read Without <span className="text-[#fe9a00]">Limits.</span>
           </h2>
           <p className="text-zinc-400 text-sm md:text-base font-bold max-w-2xl mx-auto leading-relaxed">
-            Upgrade to Saturday AM+ to unlock the entire manga vault, customize your digital profile, and dominate the global leaderboards with exclusive Super Hypes.
+            Upgrade to a <span className="text-white">Saturday AM Manga Hype PLUS Subscription</span> to unlock the entire manga vault, customize your digital profile, and dominate the global leaderboards with exclusive Super Hypes.
           </p>
         </div>
 
@@ -574,7 +616,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               disabled 
               className="w-full py-4 bg-zinc-800 text-zinc-500 font-black uppercase tracking-widest rounded-xl cursor-not-allowed"
             >
-              {isPremium ? 'Included in Pro' : 'Current Plan'}
+              {isPremium ? 'Included in PLUS' : 'Current Plan'}
             </button>
           </div>
 
@@ -585,8 +627,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             <div className="absolute -top-24 -right-24 w-48 h-48 bg-purple-600/30 rounded-full blur-3xl pointer-events-none" />
 
             <div className="mb-6 relative z-10">
-              <h3 className="text-2xl font-black italic uppercase text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-[#fe9a00] mb-4 flex items-center gap-2">
-                Saturday AM+ <Zap className="w-5 h-5 text-[#fe9a00]" />
+              <h3 className="text-xl sm:text-2xl font-black italic uppercase text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-[#fe9a00] mb-4 flex items-center gap-2 leading-tight">
+                Saturday AM Manga Hype PLUS <Zap className="w-5 h-5 text-[#fe9a00] shrink-0" />
               </h3>
 
               {/* VISIBLE PLAN SWITCHER ON MAIN CARD WITH STRIKETHROUGH NORMAL PRICES */}
@@ -643,7 +685,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                   {selectedPlan === 'yearly' ? '$20.00' : '$1.99'}
                 </span>
                 <span className="text-zinc-400 font-bold text-xs">
-                  {selectedPlan === 'yearly' ? '/ year' : '/ month'}
+                  {selectedPlan === 'yearly' ? '/ year (auto-renews)' : '/ month (auto-renews)'}
                 </span>
               </div>
 
@@ -663,7 +705,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                 </div>
               ) : (
                 <p className="text-purple-300 text-xs font-bold mt-2">
-                  The ultimate Super Fan experience.
+                  Cancel anytime in 1 click inside Settings.
                 </p>
               )}
             </div>
@@ -706,7 +748,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             {isPremium ? (
               <div className="space-y-3 relative z-10">
                 <button disabled className="w-full py-4 bg-purple-600/20 border border-purple-500 text-purple-400 font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2">
-                  <Check className="w-5 h-5" /> Active Subscription
+                  <Check className="w-5 h-5" /> Active PLUS Subscription
                 </button>
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <button
@@ -721,7 +763,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                     onClick={() => setShowDowngradeConfirm(true)}
                     className="text-zinc-500 hover:text-red-400 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1 cursor-pointer"
                   >
-                    <RefreshCcw className="w-3 h-3" /> Cancel / Downgrade
+                    <RefreshCcw className="w-3 h-3" /> Cancel / Downgrade (1-Click)
                   </button>
                 </div>
               </div>
@@ -733,8 +775,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                 {appliedReferral?.valid
                   ? 'Start 3-Day Free Trial ($20/yr after)'
                   : selectedPlan === 'yearly'
-                  ? 'Upgrade to Pro ($20/yr)'
-                  : 'Upgrade to Pro ($1.99/mo)'}
+                  ? 'Upgrade to PLUS ($20/yr)'
+                  : 'Upgrade to PLUS ($1.99/mo)'}
               </button>
             )}
           </div>
@@ -779,7 +821,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             </div>
             <h3 className="text-xl font-black italic uppercase text-white mb-2">Cancel Subscription?</h3>
             <p className="text-xs text-zinc-400 font-bold mb-8 leading-relaxed">
-              This will cancel your recurring billing and switch your account back to the Standard Free tier. <span className="text-[#fe9a00]">All of your Fandom Points, leaderboard stats, and Bingo Book signatures will remain saved!</span>
+              This will cancel your recurring Saturday AM Manga Hype PLUS Subscription billing and switch your account back to the Standard Free tier. <span className="text-[#fe9a00]">All of your Fandom Points, leaderboard stats, and Bingo Book signatures will remain saved!</span>
             </p>
             <div className="w-full flex gap-3">
               <button 
@@ -787,7 +829,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                 onClick={() => setShowDowngradeConfirm(false)}
                 className="flex-1 py-3 bg-zinc-800 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer"
               >
-                Keep Pro
+                Keep PLUS
               </button>
               <button 
                 disabled={cancellingSub}
@@ -814,9 +856,9 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             <div className="p-6 sm:p-8 overflow-y-auto no-scrollbar">
               {checkoutStep === 'plan' && (
                 <div className="animate-fade-in">
-                  <div className="flex items-center gap-2 mb-5">
-                    <span className="bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded">Stripe Secure</span>
-                    <h3 className="text-xl font-black italic uppercase text-white">Saturday AM+ Checkout</h3>
+                  <div className="flex items-center gap-2 mb-5 pr-8">
+                    <span className="bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded shrink-0">Stripe Secure</span>
+                    <h3 className="text-base sm:text-lg font-black italic uppercase text-white leading-tight">Saturday AM Manga Hype PLUS Subscription</h3>
                   </div>
 
                   {/* PLAN SELECTOR WITH STRIKETHROUGH NORMAL PRICE & REFERRAL LOCK */}
@@ -873,7 +915,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                       <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
                         <User className="w-3.5 h-3.5" /> Member & Prize Shipping Info
                       </span>
-                      <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Required • No P.O. Boxes</span>
+                      <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Required • 13+ • No P.O. Boxes</span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2.5">
@@ -936,7 +978,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
                       <div>
                         <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
-                          <Calendar className="w-3 h-3 text-[#fe9a00]" /> Date of Birth *
+                          <Calendar className="w-3 h-3 text-[#fe9a00]" /> Date of Birth (13+) *
                         </label>
                         <input
                           type="date"
@@ -964,7 +1006,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                   </div>
 
                   {/* CREATOR / STAFF / INFLUENCER REFERRAL CODE (ANNUAL ONLY + 3-DAY FREE TRIAL) */}
-                  <div className="mb-5">
+                  <div className="mb-4">
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-2">
                         <Tag className="w-3.5 h-3.5 text-[#fe9a00]" />
@@ -1004,7 +1046,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                     </div>
                     {promoStatus === 'applied' && appliedReferral?.valid && (
                       <div className="mt-2 p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-700/50 text-emerald-300 text-[10px] font-bold leading-relaxed">
-                        <strong className="uppercase tracking-wider text-emerald-400">3-Day Free Trial Unlocked ({appliedReferral.partner_name}):</strong> Valid on the Annual Membership ($20.00/yr after 3-day trial; credit card required at checkout).
+                        <strong className="uppercase tracking-wider text-emerald-400">3-Day Free Trial Unlocked ({appliedReferral.partner_name}):</strong> $0.00 due today! Valid on the Annual Saturday AM Manga Hype PLUS Subscription ($20.00/yr after 3-day trial; credit card required at checkout).
                       </div>
                     )}
                     {promoStatus === 'invalid' && (
@@ -1012,6 +1054,47 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                         Invalid referral code. Please check the spelling and try again.
                       </p>
                     )}
+                  </div>
+
+                  {/* FTC NEGATIVE OPTION / AUTO-RENEWAL & FREE TRIAL DISCLOSURE BOX */}
+                  <div className="mb-4 p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl space-y-2.5">
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        id="ftcAutoRenewConsent"
+                        checked={agreedToAutoRenew}
+                        onChange={(e) => {
+                          setAgreedToAutoRenew(e.target.checked);
+                          if (formError) setFormError('');
+                        }}
+                        className="mt-0.5 w-4 h-4 accent-[#fe9a00] bg-black border-zinc-700 rounded cursor-pointer shrink-0"
+                      />
+                      <label htmlFor="ftcAutoRenewConsent" className="text-[10px] text-zinc-300 font-bold leading-relaxed cursor-pointer select-none">
+                        {appliedReferral?.valid ? (
+                          <>
+                            <span className="text-[#fe9a00] font-black uppercase">3-Day Free Trial &amp; Auto-Renewal Terms:</span> I understand I will be charged <strong>$0.00 today</strong> for my <strong>Saturday AM Manga Hype PLUS Subscription</strong> trial. Unless I cancel before <strong>{trialEndDateString}</strong> (72 hours), my payment method will automatically be charged <strong>$20.00/year</strong> and annually thereafter. I can cancel anytime in <strong>1 click</strong> inside <strong>Settings &rarr; Cancel Subscription</strong>.
+                          </>
+                        ) : selectedPlan === 'yearly' ? (
+                          <>
+                            <span className="text-[#fe9a00] font-black uppercase">Auto-Renewal Terms:</span> I authorize Saturday AM to charge my payment method <strong>$20.00 today</strong> and <strong>$20.00/year</strong> automatically each year for my <strong>Saturday AM Manga Hype PLUS Subscription</strong> until I cancel. I can cancel anytime in <strong>1 click</strong> inside <strong>Settings &rarr; Cancel Subscription</strong>.
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-[#fe9a00] font-black uppercase">Auto-Renewal Terms:</span> I authorize Saturday AM to charge my payment method <strong>$1.99 today</strong> and <strong>$1.99/month</strong> automatically each month for my <strong>Saturday AM Manga Hype PLUS Subscription</strong> until I cancel. I can cancel anytime in <strong>1 click</strong> inside <strong>Settings &rarr; Cancel Subscription</strong>.
+                          </>
+                        )}
+                      </label>
+                    </div>
+                    <div className="flex items-center justify-between text-[9px] text-zinc-500 font-bold pt-1 border-t border-zinc-900">
+                      <span className="flex items-center gap-1"><Shield className="w-3 h-3 text-[#fe9a00]" /> PCI-DSS Tokenized via Stripe</span>
+                      <button
+                        type="button"
+                        onClick={() => { setShowModal(false); onNavigate({ action: 'legal' }); }}
+                        className="text-zinc-400 hover:text-[#fe9a00] underline cursor-pointer"
+                      >
+                        View Full Terms &amp; Privacy Policy
+                      </button>
+                    </div>
                   </div>
 
                   {formError && (
@@ -1032,7 +1115,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                       </>
                     ) : appliedReferral?.valid ? (
                       <>
-                        Start 3-Day Free Trial (Then $20/yr) <ArrowLeft className="w-4 h-4 rotate-180" />
+                        Start 3-Day Free Trial ($0 Today, Then $20/yr) <ArrowLeft className="w-4 h-4 rotate-180" />
                       </>
                     ) : (
                       <>
@@ -1041,13 +1124,15 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                     )}
                   </button>
 
-                  {/* Dev Simulation Fallback */}
-                  <button 
-                    onClick={handleDevUpgrade}
-                    className="w-full mt-3 py-2 text-zinc-500 hover:text-zinc-300 font-bold uppercase tracking-widest text-[9px] transition-colors cursor-pointer"
-                  >
-                    Simulate Payment (Dev Sandbox)
-                  </button>
+                  {/* Dev Simulation Fallback — Strictly hidden from regular public users! */}
+                  {isAdminOrLocal && (
+                    <button 
+                      onClick={handleDevUpgrade}
+                      className="w-full mt-3 py-2 text-zinc-500 hover:text-zinc-300 font-bold uppercase tracking-widest text-[9px] transition-colors cursor-pointer"
+                    >
+                      Simulate Payment (Admin / Dev Sandbox Only)
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1064,9 +1149,9 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                   <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center border-2 border-emerald-500 mb-6 shadow-[0_0_30px_rgba(168,85,247,0.3)]">
                     <Check className="w-10 h-10 text-emerald-400" />
                   </div>
-                  <h3 className="text-2xl font-black italic uppercase text-white mb-2">Welcome to Pro</h3>
+                  <h3 className="text-2xl font-black italic uppercase text-white mb-2">Welcome to PLUS</h3>
                   <p className="text-sm text-zinc-400 font-bold mb-8 leading-relaxed">
-                    Your payment was successful! You now have unlimited access to the entire Saturday AM ecosystem.
+                    Your Saturday AM Manga Hype PLUS Subscription is active! You now have unlimited access to the entire Saturday AM ecosystem.
                   </p>
                   <button 
                     onClick={() => { setShowModal(false); onNavigate({ action: 'profile' }); }}

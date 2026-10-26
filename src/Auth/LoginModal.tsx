@@ -8,6 +8,20 @@ const isPoBoxAddress = (address: string): boolean => {
   return poBoxRegex.test(address);
 };
 
+// COPPA Age Verification Helper: Returns true if the date of birth is less than 13 years ago
+const isUnderThirteen = (dobString: string): boolean => {
+  if (!dobString) return false;
+  const dob = new Date(dobString);
+  if (isNaN(dob.getTime())) return false;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+    age--;
+  }
+  return age < 13;
+};
+
 const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup' }: any) => {
   const [isSignUp, setIsSignUp] = useState(initialMode === 'signup');
   const [isForgotPassword, setIsForgotPassword] = useState(false);
@@ -87,6 +101,13 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
         const submittedReferral = (formData.get('referral') as string) || referral;
         const cleanCode = (((formData.get('accessCode') as string) ?? accessCode) || '').trim().toUpperCase();
 
+        // COPPA 13+ Check
+        if (submittedDob && isUnderThirteen(submittedDob)) {
+          setError('You must be at least 13 years old to create a Saturday AM account.');
+          setLoading(false);
+          return;
+        }
+
         if (submittedStreetAddress && isPoBoxAddress(submittedStreetAddress)) {
           setError('P.O. Boxes are not permitted. Please enter a physical residential or street address.');
           setLoading(false);
@@ -94,7 +115,7 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
         }
 
         if (!tosAccepted) {
-          setError('You must agree to the Terms of Service to create an account.');
+          setError('You must confirm you are 13+ and agree to the Terms of Service & Privacy Policy.');
           setLoading(false);
           return;
         }
@@ -529,7 +550,7 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
                       />
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="block text-[8px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">Date of Birth</label>
+                          <label className="block text-[8px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">Date of Birth (13+)</label>
                           <input
                             name="dateOfBirth"
                             type="date"
@@ -610,17 +631,17 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
                       id="tos"
                       checked={tosAccepted}
                       onChange={(e) => setTosAccepted(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 accent-[#fe9a00] bg-black border-zinc-700 rounded cursor-pointer"
+                      className="mt-0.5 w-4 h-4 accent-[#fe9a00] bg-black border-zinc-700 rounded cursor-pointer shrink-0"
                       required
                     />
-                    <label htmlFor="tos" className="text-xs text-zinc-400 font-bold leading-relaxed cursor-pointer select-none">
-                      I have read and agree to the{' '}
+                    <label htmlFor="tos" className="text-[11px] text-zinc-400 font-bold leading-relaxed cursor-pointer select-none">
+                      I confirm that I am <strong>at least 13 years old</strong> (or 16+ in the EU/UK) and agree to the{' '}
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); setShowTosModal(true); }}
-                        className="text-[#fe9a00] hover:text-white underline transition-colors font-black uppercase tracking-wider text-[10px] ml-1 cursor-pointer"
+                        className="text-[#fe9a00] hover:text-white underline transition-colors font-black uppercase tracking-wider text-[10px] cursor-pointer"
                       >
-                        Terms of Service
+                        Terms of Service, Privacy Policy &amp; Data Disclosures
                       </button>.
                     </label>
                   </div>
@@ -669,7 +690,7 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
         </div>
       </div>
 
-      {/* --- TERMS OF SERVICE MODAL --- */}
+      {/* --- TERMS OF SERVICE & PRIVACY POLICY MODAL --- */}
       {showTosModal && (
         <div className="fixed inset-0 z-[8000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in">
           <div className="bg-zinc-900 border border-zinc-700 p-6 sm:p-8 rounded-2xl w-full max-w-2xl relative shadow-2xl flex flex-col max-h-[85vh]">
@@ -681,29 +702,64 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
               <X className="w-5 h-5" />
             </button>
 
-            <h3 className="text-2xl font-black italic uppercase text-[#fe9a00] mb-6 border-b border-zinc-800 pb-4 tracking-tighter">
-              Terms of Service
+            <h3 className="text-xl sm:text-2xl font-black italic uppercase text-[#fe9a00] mb-4 border-b border-zinc-800 pb-4 tracking-tighter pr-8">
+              Terms of Service &amp; Privacy Disclosures
             </h3>
 
-            <div className="overflow-y-auto pr-4 space-y-6 text-sm text-zinc-300 font-medium custom-scrollbar flex-1 pb-4 leading-relaxed">
-              <p>Welcome to Saturday AM. By accessing our app, creating an account, or using our services, you agree to abide by these terms.</p>
+            <div className="overflow-y-auto pr-3 space-y-5 text-xs text-zinc-300 font-medium custom-scrollbar flex-1 pb-4 leading-relaxed">
               <div>
-                <h4 className="font-black uppercase tracking-widest text-white mb-2 text-[10px]">
-                  1. User Conduct & Community Rules
+                <h4 className="font-black uppercase tracking-widest text-white mb-1 text-[10px]">
+                  1. Age Requirement (COPPA 13+ Compliance)
                 </h4>
-                <p className="text-xs">
-                  You agree to not post any abusive, threatening, discriminatory, or vulgar content. We maintain a zero-tolerance policy for harassment.
+                <p>
+                  You must be at least 13 years old (or 16+ in the EEA/UK) to create a Saturday AM account. We do not knowingly collect personal information from children under 13.
+                </p>
+              </div>
+
+              <div>
+                <h4 className="font-black uppercase tracking-widest text-white mb-1 text-[10px]">
+                  2. Data Collection &amp; Third-Party Providers
+                </h4>
+                <p>
+                  We collect your name, username, email, country, reading history, Hypes, comments, and app telemetry to operate leaderboards and sync your library. We do not sell your personal data. Data is processed securely through our infrastructure partners: <strong>Supabase</strong> (database &amp; authentication), <strong>Stripe</strong> (payment processing), <strong>Cloudflare R2</strong> (media CDN), <strong>Resend</strong> (transactional emails), and <strong>Shopify</strong> (merchandise). You may permanently delete your account and all associated data at any time in <strong>Settings &rarr; Delete Account</strong>.
+                </p>
+              </div>
+
+              <div>
+                <h4 className="font-black uppercase tracking-widest text-white mb-1 text-[10px]">
+                  3. AI Moderation &amp; No AI Model Training
+                </h4>
+                <p>
+                  Community comments and Smart Reactions are screened using automated filters and AI moderation to prevent hate speech and harassment. Saturday AM never uses your personal data, comments, or creator artwork to train generative AI models.
+                </p>
+              </div>
+
+              <div>
+                <h4 className="font-black uppercase tracking-widest text-white mb-1 text-[10px]">
+                  4. Subscriptions, 3-Day Free Trials &amp; 1-Click Cancellation
+                </h4>
+                <p>
+                  Saturday AM+ Pro memberships ($1.99/mo or $35.99/yr; $20.00/yr with referral code) auto-renew unless canceled. Referral annual trials include a 3-Day Free Trial that automatically converts to $20.00/yr after 72 hours unless canceled. You can cancel anytime in 1 click inside <strong>Settings &rarr; Cancel Subscription</strong>. Virtual items (Hypes, Fandom Scores, digital signatures) have no cash value.
+                </p>
+              </div>
+
+              <div>
+                <h4 className="font-black uppercase tracking-widest text-white mb-1 text-[10px]">
+                  5. Binding Individual Arbitration &amp; Class-Action Waiver
+                </h4>
+                <p>
+                  By creating an account, you agree that any dispute arising from or relating to Saturday AM shall be resolved exclusively through binding individual arbitration, and you waive any right to participate in a class-action lawsuit.
                 </p>
               </div>
             </div>
 
-            <div className="mt-6 pt-4 border-t border-zinc-800 flex gap-4">
+            <div className="mt-4 pt-4 border-t border-zinc-800 flex gap-4">
               <button
                 type="button"
                 onClick={() => { setTosAccepted(true); setShowTosModal(false); }}
-                className="flex-1 py-4 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
+                className="flex-1 py-4 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer text-xs"
               >
-                I Agree to the Terms
+                I Confirm I Am 13+ &amp; Agree to Terms
               </button>
             </div>
           </div>
