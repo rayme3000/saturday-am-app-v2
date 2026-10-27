@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2 } from 'lucide-react';
-import { supabase } from '../supabase';
+import { supabase, trackTelemetry } from '../supabase';
+import { useSeriesData } from '../userSeriesData';
+import {
+  isCompletedRunSeries,
+  isActiveOneShotWednesday,
+  getOneShotWednesdaySeries,
+  isChapterReleasedForUser,
+  isInPlusEarlyAccessWindow
+} from '../oneshotWednesday';
 import { MangaReader } from './MangaReader';
 import { HypeButton } from '../Components/HypeButton'; 
 import { LikeButton } from '../Components/LikeButton';
@@ -9,7 +17,6 @@ import { PromoModal } from '../Components/PromoModal';
 import { ShareModal } from '../Components/ShareModal';
 import { useTelemetry } from '../Components/useTelemetry';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
-import { trackTelemetry } from '../supabase';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -85,6 +92,7 @@ const ContentRatingBadge = ({ rating }: { rating: string }) => {
 };
 
 export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLoginClick, onNavigate }: any) => {
+  const { seriesList = [] } = useSeriesData();
   const [localSeries, setLocalSeries] = useState(series);
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('chapters');
@@ -138,6 +146,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const commentsRef = useRef<HTMLDivElement>(null);
   const creatorRef = useRef<HTMLDivElement>(null);
 
+  // Check both localSeries and seriesList so raw DB fetches never lose home_section
+  const isCompletedRun = isCompletedRunSeries(localSeries, seriesList) || isCompletedRunSeries(series, seriesList);
+  const isUnlockedForOneShotWednesday = isActiveOneShotWednesday(localSeries || series, seriesList);
+  const currentWednesdayPick = getOneShotWednesdaySeries(seriesList);
+
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 640);
     checkMobile();
@@ -161,7 +174,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }
   }, []);
 
-  const scrollToSection = (e: React.MouseEvent | any, ref: React.RefObject<HTMLDivElement>, center: boolean = false) => {
+  const scrollToSection = (e: React.MouseEvent | any, ref: React.RefObject<HTMLDivElement | null>, center: boolean = false) => {
     if (e && e.stopPropagation) e.stopPropagation(); 
     if (ref.current) {
       if (center) {
@@ -260,12 +273,18 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         supabase.from('series_characters').select('*').eq('series_slug', targetSlug).order('id', { ascending: true })
       ]);
 
-      if (freshSeries) setLocalSeries(freshSeries);
+      if (freshSeries) {
+        setLocalSeries((prev: any) => ({
+          ...prev,
+          ...freshSeries,
+          home_section: freshSeries.home_section || prev?.home_section || series?.home_section
+        }));
+      }
       
       if (chapterData) {
-        const now = Date.now();
-        const liveChapters = chapterData.filter(
-          (ch: any) => !ch.publish_at || new Date(ch.publish_at).getTime() <= now
+        const isPlus = userTier === 'premium' || isPremiumUser;
+        const liveChapters = chapterData.filter((ch: any) =>
+          isChapterReleasedForUser(ch.publish_at, isPlus)
         );
         setChapters(liveChapters as any);
       }
@@ -288,7 +307,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     
       if (charData) setSeriesCharacters(charData as any);
     } catch (err) { console.error("Failed to load series details:", err); }
-  }, [series, localSeries?.slug]);
+  }, [series, localSeries?.slug, userTier, isPremiumUser]);
 
   useEffect(() => {
     fetchDetails();
@@ -338,37 +357,17 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     fetchChapterStats();
   }, [chapters, readerClosedCount, localSeries?.slug]);
 
-  useEffect(() => {
-    if (chapters.length > 0 && series?.autoOpenChapterId && !hasAutoOpened) {
-      const absoluteIndex = chapters.findIndex(c => String(c.id) === String(series.autoOpenChapterId));
-      if (absoluteIndex !== -1) {
-        const chapter = chapters[absoluteIndex];
-        if (chapter && chapter.id) { setTimeout(() => { handleReadChapter(chapter, absoluteIndex, series.autoOpenPage || 0); }, 100); } 
-        else { setIsAutoLoading(false); }
-      } else { setIsAutoLoading(false); }
-      setHasAutoOpened(true); 
-    }
-  }, [chapters, series, hasAutoOpened]);
-
-  const sortedChapters = [...chapters].sort((a, b) => {
-    if (sortOrder === 'asc') return a.chapter_number - b.chapter_number;
-    return b.chapter_number - a.chapter_number;
-  });
-
-  const displayedChapters = sortedChapters.slice(0, visibleCount);
-
-  const aggregatedSubHypes = chapters.reduce((sum: number, ch: any) => {
-    const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
-    return sum + (ch.hype_count || 0) + pageHypes;
-  }, 0);
-  
-  const aggregatedSeriesReacts = chapters.reduce((sum: number, ch: any) => {
-    const pageReacts = chapterStats[String(ch.id)]?.reacts || 0;
-    return sum + (ch.react_count || 0) + pageReacts;
-  }, 0);
-  
   const checkIsLocked = (chapterId: string) => {
-    if (userTier === 'premium') return false; 
+    if (userTier === 'premium' || isPremiumUser) return false;
+
+    // COMPLETED RUNS PAYWALL & ONE-SHOT WEDNESDAYS LOGIC
+    if (isCompletedRun) {
+      if (isUnlockedForOneShotWednesday && userTier === 'free') {
+        return false;
+      }
+      return true;
+    }
+
     const absoluteIndex = chapters.findIndex(c => c.id === chapterId);
     if (userTier === 'free') return !(absoluteIndex < 3 || absoluteIndex === chapters.length - 1);
     return absoluteIndex !== 0; 
@@ -383,7 +382,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       if (userTier === 'visitor') { 
         setUpsellConfig({ 
           type: 'visitor', 
-          message: "Create a Free Account to unlock Chapters 1-3 and read the newest release." 
+          message: isCompletedRun
+            ? (isUnlockedForOneShotWednesday
+                ? "⚡ It's One-Shot Wednesday! Create a Free Account right now to read this entire Completed Run FREE for 24 hours!"
+                : "Completed Runs are exclusive to Saturday AM+ PLUS members (with 1 title unlocked every One-Shot Wednesday). Create a Free Account to get started!")
+            : "Create a Free Account to unlock Chapters 1-3 and read the newest release." 
         }); 
         return; 
       }
@@ -391,7 +394,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       setShowAdModal(true);
       setUpsellConfig({
         type: 'premium',
-        message: "Upgrade to a Saturday AM Manga Hype PLUS Subscription to unlock the entire vault and read every chapter without limits!"
+        message: isCompletedRun
+          ? `This Completed Run is locked in the Saturday AM+ PLUS Vault! Upgrade to PLUS ($1.99/mo) to read it right now, or check back on One-Shot Wednesdays (Next Spotlight: ${currentWednesdayPick?.title || 'TBA'}).`
+          : "Upgrade to a Saturday AM Manga Hype PLUS Subscription to unlock the entire vault and read every chapter without limits!"
       });
       return;
     }
@@ -415,6 +420,36 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     } 
     else { setIsAutoLoading(false); alert("No pages found for this chapter yet!"); }
   };
+
+  useEffect(() => {
+    if (chapters.length > 0 && series?.autoOpenChapterId && !hasAutoOpened) {
+      const absoluteIndex = chapters.findIndex(c => String(c.id) === String(series.autoOpenChapterId));
+      if (absoluteIndex !== -1) {
+        const chapter = chapters[absoluteIndex];
+        if (chapter && chapter.id) { setTimeout(() => { handleReadChapter(chapter, absoluteIndex, series.autoOpenPage || 0); }, 100); } 
+        else { setIsAutoLoading(false); }
+      } else { setIsAutoLoading(false); }
+      setHasAutoOpened(true); 
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapters, series, hasAutoOpened]);
+
+  const sortedChapters = [...chapters].sort((a, b) => {
+    if (sortOrder === 'asc') return a.chapter_number - b.chapter_number;
+    return b.chapter_number - a.chapter_number;
+  });
+
+  const displayedChapters = sortedChapters.slice(0, visibleCount);
+
+  const aggregatedSubHypes = chapters.reduce((sum: number, ch: any) => {
+    const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
+    return sum + (ch.hype_count || 0) + pageHypes;
+  }, 0);
+  
+  const aggregatedSeriesReacts = chapters.reduce((sum: number, ch: any) => {
+    const pageReacts = chapterStats[String(ch.id)]?.reacts || 0;
+    return sum + (ch.react_count || 0) + pageReacts;
+  }, 0);
 
   const triggerAwards = () => {
     setShowAwards(true);
@@ -538,7 +573,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
             <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
             <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.type === 'visitor' ? 'Account Required' : 'PLUS Feature'}</h2>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.type === 'visitor' ? 'Account Required' : 'PLUS Vault Exclusive'}</h2>
             <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
             {upsellConfig.type === 'visitor' ? (
               <button 
@@ -811,6 +846,19 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
           <ContentRatingBadge rating={localSeries.content_rating || 'T'} />
 
+          {isCompletedRun && userTier !== 'premium' && !isPremiumUser && (
+            <div className={`mt-4 px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg ${
+              isUnlockedForOneShotWednesday
+                ? 'bg-[#fe9a00]/20 border-[#fe9a00] text-[#fe9a00] animate-pulse'
+                : 'bg-purple-950/40 border-purple-500/50 text-purple-300'
+            }`}>
+              <Lock className="w-3.5 h-3.5" />
+              {isUnlockedForOneShotWednesday
+                ? '⚡ ONE-SHOT WEDNESDAY: READ FREE BEFORE MIDNIGHT!'
+                : 'COMPLETED RUN • SATURDAY AM+ PLUS EXCLUSIVE VAULT'}
+            </div>
+          )}
+
           <div className="mt-6 px-2 text-center max-w-2xl">
             <p className={`text-sm text-zinc-300 leading-relaxed ${!isExpanded ? 'line-clamp-3' : ''}`}>{safeSynopsis}</p>
             {safeSynopsis.length > 150 && (<button onClick={() => setIsExpanded(!isExpanded)} className="text-[#fe9a00] font-black tracking-widest text-[10px] mt-2 uppercase hover:text-white transition-colors cursor-pointer">{isExpanded ? '- READ LESS' : '+ READ MORE'}</button>)}
@@ -928,6 +976,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 const actualProgress = readProgresses[String(ch.id)] || 0;
                 const hasTempUnlock = unlockedChapters.includes(ch.id);
                 const isLocked = checkIsLocked(ch.id) && !hasTempUnlock;
+                const isEarlyAccess = isInPlusEarlyAccessWindow(ch.publish_at);
                 const showNewBadge = isNewRelease(ch.publish_at, ch.created_at);
 
                 const pageReacts = chapterStats[String(ch.id)]?.reacts || 0;
@@ -952,7 +1001,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                         <Lock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-zinc-400" />
                       </div>
                     )}
-                    {showNewBadge && (
+                    {isEarlyAccess ? (
+                      <div className="absolute top-1 right-1 z-20 bg-gradient-to-r from-purple-600 to-[#fe9a00] text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(168,85,247,0.8)] animate-pulse pointer-events-none">
+                        ⚡ 12H EARLY
+                      </div>
+                    ) : showNewBadge && (
                       <div className="absolute top-1 right-1 z-20 bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
                         NEW!
                       </div>
@@ -963,7 +1016,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     <div className="flex-1 min-w-0 w-full">
                       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
                         <p className={`text-[9px] sm:text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
-                        {showNewBadge && (
+                        {isEarlyAccess ? (
+                          <span className="bg-purple-600/30 border border-purple-400 text-purple-200 text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
+                            ⚡ PLUS 12H EARLY ACCESS
+                          </span>
+                        ) : showNewBadge && (
                           <span className="bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
                             NEW!
                           </span>
@@ -1114,13 +1171,15 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         
         <div ref={commentsRef} className="w-full max-w-3xl mx-auto pt-8">
           <SeriesCommentsSection 
-            seriesSlug={localSeries?.slug} 
-            currentUser={currentUserId ? { id: currentUserId, tier: userTier } : null}
-            onRequireAuth={() => setUpsellConfig({ 
-              type: 'visitor', 
-              message: "Create a Free Account to join the community discussion and share your thoughts!" 
-            })} 
-          />        
+            {...({
+              seriesSlug: localSeries?.slug,
+              currentUser: currentUserId ? { id: currentUserId, tier: userTier } : null,
+              onRequireAuth: () => setUpsellConfig({ 
+                type: 'visitor', 
+                message: "Create a Free Account to join the community discussion and share your thoughts!" 
+              })
+            } as any)}
+          />     
         </div>
 
         <div ref={creatorRef} className="pb-24 px-6 w-full max-w-3xl mx-auto scroll-mt-24">

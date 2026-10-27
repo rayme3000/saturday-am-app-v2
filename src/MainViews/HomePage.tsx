@@ -6,6 +6,7 @@ import { DecoratedAvatar } from '../Components/DecoratedAvatar';
 import { Menu, X, Bell, CheckCircle, Play, RefreshCw } from 'lucide-react';
 import { useTelemetry } from '../Components/useTelemetry'; 
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
+import { isChapterReleasedForUser, isInPlusEarlyAccessWindow } from '../oneshotWednesday';
 
 // Checks if a chapter or series is within 7 days of its official release timestamp (publish_at || created_at)
 const isNewRelease = (publishAt?: string | null, createdAt?: string | null) => {
@@ -63,6 +64,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [isRefreshingApp, setIsRefreshingApp] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
+  const isPlusSubscriber = userTier === 'premium' || Boolean(currentUser?.is_premium);
+
   // Re-evaluate scheduled drops every 30 seconds locally in browser memory (zero database load!)
   useEffect(() => {
     const interval = setInterval(() => setNowTick(Date.now()), 30000);
@@ -106,7 +109,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
   const visibleNotifications = useMemo(() => {
     return notifications
-      .filter(n => !dismissedNotifs.includes(n.id) && isReleasedYet(n.publish_at))
+      .filter(n => !dismissedNotifs.includes(n.id) && isChapterReleasedForUser(n.publish_at, isPlusSubscriber))
       .sort((a, b) => {
         const timeA = new Date(a.publish_at || a.created_at || 0).getTime();
         const timeB = new Date(b.publish_at || b.created_at || 0).getTime();
@@ -114,7 +117,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       })
       .slice(0, 15);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notifications, dismissedNotifs, nowTick]);
+  }, [notifications, dismissedNotifs, nowTick, isPlusSubscriber]);
 
   const fetchGlobalNotifications = async () => {
     try {
@@ -151,7 +154,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         const [{ data: slideData }, { data: sectionData }, { data: chapData }] = await Promise.all([
           supabase.from('hero_slides').select('*').order('id', { ascending: true }),
           supabase.from('home_sections').select('*').order('display_order', { ascending: true }),
-          supabase.from('chapters').select('*').eq('is_published', true).order('created_at', { ascending: false }).limit(50)
+          supabase.from('chapters').select('*').eq('is_published', true).order('created_at', { ascending: false }).limit(200)
         ]);
 
         if (slideData) {
@@ -238,7 +241,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         const combined = history.map((h: any) => {
           const chap = chapters.find((c: any) => String(c.id) === String(h.chapter_id));
 
-          if (chap && chap.is_published && isReleasedYet(chap.publish_at)) {
+          if (chap && chap.is_published && isChapterReleasedForUser(chap.publish_at, isPlusSubscriber)) {
             const series = seriesList.find((s: any) => s.slug === chap.series_slug);
             if (!series || series.is_hidden || !isReleasedYet(series.publish_at)) return null;
             return { ...h, type: 'series', target: { ...series, action: 'series' }, title: series.title, subtitle: `Chapter ${chap.chapter_number}`, image: chap.thumbnail_url || series.cover_url };
@@ -254,7 +257,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     };
 
     fetchRecentReads();
-  }, [seriesList, isLoading, currentUser]);
+  }, [seriesList, isLoading, currentUser, isPlusSubscriber]);
 
   useEffect(() => {
     const timer = setInterval(() => { setCurrentSlide((prev) => (heroSlides.length > 0 ? (prev + 1) % heroSlides.length : 0)); }, 5000);
@@ -281,13 +284,13 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     }
   };
 
-  // Filter Latest Chapters: must be published, release timestamp must have arrived, and parent series must be live
+  // Filter Latest Chapters: must be published, release timestamp must have arrived (or 12h early for PLUS), and parent series must be live
   const visibleLatestChapters = useMemo(() => {
     return latestChapters
       .filter(chapter => {
         if (!chapter.is_published) return false;
-        if (!isReleasedYet(chapter.publish_at)) return false;
-        const seriesData = seriesList.find(s => s.slug === chapter.series_slug);
+        if (!isChapterReleasedForUser(chapter.publish_at, isPlusSubscriber)) return false;
+        const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug);
         return seriesData && !seriesData.is_hidden && isReleasedYet(seriesData.publish_at);
       })
       .sort((a, b) => {
@@ -297,7 +300,23 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       })
       .slice(0, 10);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestChapters, seriesList, nowTick]);
+  }, [latestChapters, seriesList, nowTick, isPlusSubscriber]);
+
+  // Maps each series_slug to its earliest upcoming scheduled chapter publish_at timestamp
+  const nextScheduledBySeries = useMemo(() => {
+    const map: Record<string, string> = {};
+    latestChapters.forEach((ch: any) => {
+      if (!ch.is_published || !ch.publish_at) return;
+      if (!isChapterReleasedForUser(ch.publish_at, isPlusSubscriber)) {
+        const existing = map[ch.series_slug];
+        if (!existing || new Date(ch.publish_at).getTime() < new Date(existing).getTime()) {
+          map[ch.series_slug] = ch.publish_at;
+        }
+      }
+    });
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestChapters, isPlusSubscriber, nowTick]);
 
   // --- UPDATED LARGE HYPE FLAME LOADER FOR HOMEPAGE ---
   if (isLoading || isLoadingSlides) {
@@ -462,7 +481,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             
             <div className="flex overflow-x-auto gap-4 pb-4 snap-x no-scrollbar items-start">
               {visibleLatestChapters.map((chapter) => {
-                const seriesData = seriesList.find(s => s.slug === chapter.series_slug) || {};
+                const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug) || {};
+                const isEarlyAccess = isInPlusEarlyAccessWindow(chapter.publish_at);
                 const showNewBadge = isNewRelease(chapter.publish_at, chapter.created_at);
 
                 return (
@@ -482,7 +502,11 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                         CH. {chapter.chapter_number}
                       </p>
                     </div>
-                    {showNewBadge && (
+                    {isEarlyAccess ? (
+                      <div className="absolute top-1.5 right-1.5 z-30 bg-gradient-to-r from-purple-600 to-[#fe9a00] text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(168,85,247,0.8)] animate-pulse pointer-events-none">
+                        ⚡ 12H EARLY ACCESS
+                      </div>
+                    ) : showNewBadge && (
                       <div className="absolute top-1.5 right-1.5 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
                         NEW!
                       </div>
@@ -539,6 +563,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
               series={seriesInSection} 
               onSeriesClick={onNavigate} 
               currentUser={currentUser}
+              userTier={userTier}
+              nextScheduledBySeries={nextScheduledBySeries}
               onRequireAuth={onLoginClick}
             />
           );

@@ -3,6 +3,7 @@ import { AnalyticsDashboard } from './AnalyticsDashboard';
 import { HomeEditor } from './HomeEditor';
 import { SeriesEditor } from './SeriesEditor';
 import { ChapterUploader } from './ChapterUploader';
+import { ReleaseScheduler } from './ReleaseScheduler';
 import { AvatarMaker } from './AvatarMaker';
 import { StickerMaker } from './StickerMaker';
 import { CardSkinMaker } from './CardSkinMaker';
@@ -715,11 +716,9 @@ const PromoCodeManager = () => {
   const [isSavingLedger, setIsSavingLedger] = useState(false);
 
   const fetchAllAnnualCodes = async () => {
-    // Keep all existing 1-Year Batch Codes intact
     const { data: pData } = await supabase.rpc('fetch_premium_ledger');
     if (pData) setBatchCodes(pData);
 
-    // Fetch custom-branded & Shopify auto-minted codes (newest first by default)
     const { data: cData } = await supabase
       .from('promo_codes')
       .select('*')
@@ -787,7 +786,6 @@ const PromoCodeManager = () => {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + Number(expireDays || 365));
 
-    // Always force tier: 'premium' so custom-branded codes unlock 1-Year Annual Pro
     const { error } = await supabase.from('promo_codes').insert([{
       code: clean,
       tier: 'premium',
@@ -1318,7 +1316,7 @@ const MasterSignatureManager = ({ Dropzone }: any) => {
         if (typeof nameStr !== 'string') return;
         nameStr = nameStr.replace(/^(written by|art by|created by|story by|illustrated by)[:\s]+/i, '');
         const splitNames = nameStr.split(/,|\s+&\s+|\s+and\s+|\s*\/\s*/i);
-        splitNames.forEach(rawName => {
+        splitNames.forEach((rawName: string) => {
           const cName = rawName.trim();
           if (cName.length >= 2) {
             const mapKey = cName.toLowerCase();
@@ -1469,7 +1467,7 @@ const BingoCodeManager = () => {
         if (typeof nameStr !== 'string') return;
         nameStr = nameStr.replace(/^(written by|art by|created by|story by|illustrated by)[:\s]+/i, '');
         const splitNames = nameStr.split(/,|\s+&\s+|\s+and\s+|\s*\/\s*/i);
-        splitNames.forEach(rawName => {
+        splitNames.forEach((rawName: string) => {
           const cName = rawName.trim();
           if (cName.length >= 2) {
             const mapKey = cName.toLowerCase();
@@ -1714,6 +1712,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
     { id: 'payouts', label: 'Creator Payouts' },
     { id: 'users', label: 'User Directory' },
     { id: 'chapter', label: 'Chapter Upload' },
+    { id: 'scheduler', label: 'Release Scheduler' },
     { id: 'hype', label: 'Hype Economy' }, 
     { id: 'avatars', label: 'Avatar Maker' }, 
     { id: 'frames', label: 'Frame Maker' }, 
@@ -1756,11 +1755,12 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           {activeTab === 'payouts' && <CreatorPayoutTracker />}
           {activeTab === 'users' && <UserManager />}
           {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
+          {activeTab === 'scheduler' && <ReleaseScheduler setIsDirty={setIsDirty} />}
           {activeTab === 'hype' && <HypeManager setIsDirty={setIsDirty} />}
           {activeTab === 'avatars' && <AvatarMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
-          {activeTab === 'frames' && <FrameMaker setIsDirty={setIsDirty} />} 
+          {activeTab === 'frames' && <FrameMaker />} 
           {activeTab === 'stickers' && <StickerMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
-          {activeTab === 'cardskins' && <CardSkinMaker setIsDirty={setIsDirty} />}
+          {activeTab === 'cardskins' && <CardSkinMaker />} 
           {activeTab === 'accesskeys' && <PromoCodeManager />} 
           {activeTab === 'signatures' && <MasterSignatureManager Dropzone={Dropzone} />}
           {activeTab === 'bingocodes' && <BingoCodeManager />} 

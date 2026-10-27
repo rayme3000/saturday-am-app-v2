@@ -565,7 +565,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         </h1>
       </div>
 
-      <div className="relative z-10 max-w-5xl mx-auto px-6 pt-8">
+      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 pt-8">
         
         <div className="text-center mb-12 animate-fade-in-up">
           {/* GLOWING OFFICIAL SATURDAY AM HYPE ICON */}
@@ -578,13 +578,13 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             Read Without <span className="text-[#fe9a00]">Limits.</span>
           </h2>
           <p className="text-zinc-400 text-sm md:text-base font-bold max-w-2xl mx-auto leading-relaxed">
-            Upgrade to a <span className="text-white">Saturday AM Manga Hype PLUS Subscription</span> to unlock the entire manga vault, customize your digital profile, and dominate the global leaderboards with exclusive Super Hypes.
+            Upgrade to a <span className="text-white">Saturday AM Manga Hype PLUS Subscription</span> to unlock the entire manga vault, get 12-hour early access to new chapter drops, and dominate the global leaderboards with exclusive Super Hypes.
           </p>
         </div>
 
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           
-          <div className="bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-3xl p-8 flex flex-col relative overflow-hidden">
+          <div className="bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-3xl p-6 sm:p-8 flex flex-col relative overflow-hidden">
             <div className="mb-8">
               <h3 className="text-2xl font-black italic uppercase text-zinc-300 mb-2">Standard</h3>
               <div className="flex items-baseline gap-1">
@@ -596,11 +596,11 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             <div className="space-y-4 mb-8 flex-1">
               <div className="flex items-start gap-3">
                 <Check className="w-5 h-5 text-zinc-500 shrink-0" />
-                <span className="text-sm font-bold text-zinc-300">Read the latest 3 chapters of any series</span>
+                <span className="text-sm font-bold text-zinc-300">Read the first 3 chapters & newest release of active series</span>
               </div>
               <div className="flex items-start gap-3">
                 <Check className="w-5 h-5 text-zinc-500 shrink-0" />
-                <span className="text-sm font-bold text-zinc-300">Access to standard Bi-Weekly Magazines</span>
+                <span className="text-sm font-bold text-zinc-300">24-hour free access to featured One-Shot Wednesdays</span>
               </div>
               <div className="flex items-start gap-3">
                 <Check className="w-5 h-5 text-zinc-500 shrink-0" />
@@ -620,24 +620,24 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             </button>
           </div>
 
-          <div className="bg-gradient-to-b from-purple-900/40 to-black backdrop-blur-xl border border-purple-500/50 rounded-3xl p-8 flex flex-col relative overflow-hidden shadow-[0_0_50px_rgba(168,85,247,0.15)] transform md:-translate-y-4">
+          <div className="bg-gradient-to-b from-purple-900/40 to-black backdrop-blur-xl border border-purple-500/50 rounded-3xl p-6 sm:p-8 flex flex-col relative overflow-hidden shadow-[0_0_50px_rgba(168,85,247,0.15)] transform md:-translate-y-4">
             <div className="absolute top-0 right-0 bg-gradient-to-r from-[#fe9a00] to-yellow-500 text-black text-[10px] font-black uppercase tracking-widest py-1.5 px-4 rounded-bl-xl z-10">
               Most Popular
             </div>
             <div className="absolute -top-24 -right-24 w-48 h-48 bg-purple-600/30 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="mb-6 relative z-10">
-              <h3 className="text-xl sm:text-2xl font-black italic uppercase text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-[#fe9a00] mb-4 flex items-center gap-2 leading-tight">
+            <div className="mb-6 pt-3 sm:pt-0 relative z-10">
+              <h3 className="text-xl sm:text-2xl font-black italic uppercase text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-[#fe9a00] mb-4 flex items-center gap-2 leading-tight pr-16 sm:pr-0">
                 Saturday AM Manga Hype PLUS <Zap className="w-5 h-5 text-[#fe9a00] shrink-0" />
               </h3>
 
-              {/* VISIBLE PLAN SWITCHER ON MAIN CARD WITH STRIKETHROUGH NORMAL PRICES */}
-              <div className="grid grid-cols-2 gap-2.5 p-1.5 bg-black/80 border border-zinc-800 rounded-2xl mb-4">
+              {/* MOBILE-SAFE PLAN SWITCHER ON MAIN CARD (NO OVERLAPPING TEXT) */}
+              <div className="grid grid-cols-2 gap-2 sm:gap-2.5 p-1.5 bg-black/80 border border-zinc-800 rounded-2xl mb-5">
                 <button
                   type="button"
                   disabled={Boolean(appliedReferral?.valid)}
                   onClick={() => setSelectedPlan('monthly')}
-                  className={`py-2.5 px-3 rounded-xl text-left transition-all border ${
+                  className={`py-3 px-2.5 sm:px-3.5 rounded-xl text-left transition-all border flex flex-col justify-between ${
                     appliedReferral?.valid
                       ? 'opacity-40 cursor-not-allowed border-transparent'
                       : selectedPlan === 'monthly'
@@ -645,10 +645,14 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                       : 'bg-transparent border-transparent text-zinc-400 hover:text-white cursor-pointer'
                   }`}
                 >
-                  <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400">Monthly Plan</div>
-                  <div className="flex items-baseline gap-1.5 mt-0.5">
-                    <span className="text-xs font-bold text-zinc-500 line-through">$2.99</span>
-                    <span className="text-lg font-black text-white">
+                  <div className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-zinc-400 leading-tight">
+                    Monthly Plan
+                  </div>
+                  <div className="mt-1.5 flex flex-col sm:flex-row sm:items-baseline sm:gap-1.5">
+                    <span className="text-[10px] sm:text-xs font-bold text-zinc-500 line-through leading-none">
+                      $2.99
+                    </span>
+                    <span className="text-base sm:text-lg font-black text-white leading-tight whitespace-nowrap">
                       $1.99<span className="text-[10px] font-bold text-zinc-400">/mo</span>
                     </span>
                   </div>
@@ -657,19 +661,23 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                 <button
                   type="button"
                   onClick={() => setSelectedPlan('yearly')}
-                  className={`py-2.5 px-3 rounded-xl text-left transition-all cursor-pointer border relative ${
+                  className={`py-3 px-2.5 sm:px-3.5 rounded-xl text-left transition-all cursor-pointer border relative flex flex-col justify-between ${
                     selectedPlan === 'yearly'
                       ? 'bg-purple-500/20 border-purple-400 text-white shadow-[0_0_15px_rgba(168,85,247,0.25)]'
                       : 'bg-transparent border-transparent text-zinc-400 hover:text-white'
                   }`}
                 >
-                  <span className="absolute -top-2 right-2 bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded">
+                  <span className="absolute -top-2.5 right-2 bg-[#fe9a00] text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-md whitespace-nowrap">
                     Save 44%
                   </span>
-                  <div className="text-[9px] font-black uppercase tracking-widest text-purple-300">Annual Plan</div>
-                  <div className="flex items-baseline gap-1.5 mt-0.5">
-                    <span className="text-xs font-bold text-zinc-500 line-through">$35.99</span>
-                    <span className="text-lg font-black text-white">
+                  <div className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-purple-300 leading-tight">
+                    Annual Plan
+                  </div>
+                  <div className="mt-1.5 flex flex-col sm:flex-row sm:items-baseline sm:gap-1.5">
+                    <span className="text-[10px] sm:text-xs font-bold text-zinc-500 line-through leading-none">
+                      $35.99
+                    </span>
+                    <span className="text-base sm:text-lg font-black text-white leading-tight whitespace-nowrap">
                       $20.00<span className="text-[10px] font-bold text-zinc-400">/yr</span>
                     </span>
                   </div>
@@ -713,7 +721,11 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             <div className="space-y-4 mb-8 flex-1 relative z-10">
               <div className="flex items-start gap-3">
                 <Check className="w-5 h-5 text-[#fe9a00] shrink-0" />
-                <span className="text-sm font-bold text-white">Unlock & binge the <span className="text-[#fe9a00]">Entire Manga Vault</span></span>
+                <span className="text-sm font-bold text-white">Unlock & binge the <span className="text-[#fe9a00]">Entire Manga Vault & Completed Runs</span></span>
+              </div>
+              <div className="flex items-start gap-3">
+                <Clock className="w-5 h-5 text-[#fe9a00] shrink-0" />
+                <span className="text-sm font-bold text-white">Get <span className="text-[#fe9a00]">12-Hour Early Access</span> to all new chapter drops</span>
               </div>
               <div className="flex items-start gap-3">
                 <Trophy className="w-5 h-5 text-yellow-400 shrink-0" />
@@ -782,8 +794,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           </div>
         </div>
 
-        {/* --- STORE CODE & PARTNER REDEMPTION --- */}
-        <div className="max-w-4xl mx-auto mt-8 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-3xl p-8 flex flex-col md:flex-row items-center gap-6 shadow-xl relative overflow-hidden">
+        {/* --- STORE CODE & PARTNER REDEMPTION (FIXED MOBILE OVERLAP) --- */}
+        <div className="max-w-4xl mx-auto mt-8 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row items-center gap-6 shadow-xl relative overflow-hidden">
            <div className="absolute top-0 right-0 w-32 h-32 bg-[#fe9a00]/10 rounded-bl-full blur-2xl pointer-events-none" />
            <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shrink-0 z-10">
              <Key className="w-8 h-8 text-[#fe9a00]" />
@@ -792,19 +804,19 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
              <h3 className="text-xl font-black italic uppercase text-white mb-2">Redeem Store or Partner Code</h3>
              <p className="text-xs font-bold text-zinc-400 max-w-md mx-auto md:mx-0">Have a 12-character premium code from the Shopify store or an official Partner Activation Key? Enter it here to unlock your benefits.</p>
            </div>
-           <form onSubmit={handleRedeemCode} className="w-full md:w-auto flex-shrink-0 relative mt-4 md:mt-0 z-10">
+           <form onSubmit={handleRedeemCode} className="w-full md:w-auto flex-shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 mt-2 md:mt-0 z-10">
              <input 
                 type="text" 
                 placeholder="XXXX-XXXX-XXXX" 
                 value={redeemCode}
                 onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
-                className="w-full md:w-64 bg-black border border-zinc-700 text-[#fe9a00] font-black tracking-widest text-sm p-4 rounded-xl focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-normal placeholder:text-zinc-600 text-center"
+                className="w-full sm:w-56 bg-black border border-zinc-700 text-[#fe9a00] font-black tracking-widest text-sm px-4 py-3.5 rounded-xl focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-widest placeholder:text-zinc-600 text-center"
                 required
              />
              <button 
                 type="submit" 
                 disabled={redeeming || !redeemCode.trim()}
-                className="absolute right-2 top-2 bottom-2 px-6 bg-zinc-800 rounded-lg flex items-center justify-center text-white hover:bg-[#fe9a00] hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-black text-[10px] uppercase tracking-widest cursor-pointer"
+                className="py-3.5 px-6 bg-zinc-800 rounded-xl flex items-center justify-center text-white hover:bg-[#fe9a00] hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-black text-xs uppercase tracking-widest cursor-pointer shrink-0"
              >
                 {redeeming ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Redeem'}
              </button>
@@ -875,7 +887,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                           : 'border-zinc-800 bg-black hover:border-zinc-600 cursor-pointer'
                       }`}
                     >
-                      <div className="flex justify-between items-center mb-1">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-1 gap-0.5">
                         <span className="font-black uppercase tracking-widest text-xs text-white">Monthly</span>
                         <div className="flex items-baseline gap-1">
                           <span className="text-zinc-500 line-through text-[10px] font-bold">$2.99</span>
@@ -889,16 +901,14 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
                     <div 
                       onClick={() => setSelectedPlan('yearly')}
-                      className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${selectedPlan === 'yearly' ? 'border-purple-500 bg-purple-500/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}
+                      className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all relative ${selectedPlan === 'yearly' ? 'border-purple-500 bg-purple-500/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}
                     >
-                      <div className="flex justify-between items-center mb-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-black uppercase tracking-widest text-xs text-white">Yearly</span>
-                          <span className="bg-purple-500 text-white text-[7px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest">
-                            {appliedReferral?.valid ? '3-DAY TRIAL' : 'Save 44%'}
-                          </span>
-                        </div>
-                        <span className="font-black text-purple-400 text-sm flex items-center gap-1">
+                      <span className="bg-purple-500 text-white text-[7px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest inline-block mb-1">
+                        {appliedReferral?.valid ? '3-DAY TRIAL' : 'Save 44%'}
+                      </span>
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-1 gap-0.5">
+                        <span className="font-black uppercase tracking-widest text-xs text-white">Yearly</span>
+                        <span className="font-black text-purple-400 text-sm flex items-baseline gap-1">
                           <span className="text-zinc-500 line-through text-[10px] font-bold">$35.99</span>
                           <span>$20.00</span>
                         </span>

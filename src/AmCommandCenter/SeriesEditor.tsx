@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Monitor, Smartphone, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown, Crop, Calendar, Bell } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+import { getOneShotWednesdaySeries } from '../oneshotWednesday';
 
 const toLocalDateString = (isoString?: string | null) => {
   const d = isoString ? new Date(isoString) : new Date();
@@ -73,7 +74,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
   const [expandedCharIndex, setExpandedCharIndex] = useState<number | null>(null);
   const [seriesChapters, setSeriesChapters] = useState<any[]>([]);
   
-  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [, setCropFile] = useState<File | null>(null);
   const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
   const [cropTarget, setCropTarget] = useState<{ charIndex: number, field: string, altIndex?: number } | null>(null);
 
@@ -86,6 +87,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
     cardColor: '#18181b', cardPattern: 'none',
     synopsis: '', awards: '', hasAwards: false, 
     contentRating: 'T',
+    homeSection: '',
     isHidden: false,
     isScheduled: false,
     autoNotify: true,
@@ -139,6 +141,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           cardColor: '#18181b', cardPattern: 'none',
           synopsis: '', awards: '', hasAwards: false, 
           contentRating: 'T', 
+          homeSection: '',
           isHidden: false,    
           isScheduled: false,
           autoNotify: true,
@@ -196,6 +199,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
             synopsis: selectedSeries.synopsis || '', awards: selectedSeries.awards || '', 
             hasAwards: selectedSeries.has_awards || false, 
             contentRating: selectedSeries.content_rating || 'T', 
+            homeSection: selectedSeries.home_section || '',
             isHidden: selectedSeries.is_hidden || false,
             isScheduled: isFutureScheduled,
             autoNotify: false,
@@ -330,6 +334,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
         card_color: formData.cardColor, card_pattern: formData.cardPattern,
         awards: formData.hasAwards ? formData.awards : null, has_awards: formData.hasAwards, 
         content_rating: formData.contentRating, 
+        home_section: formData.homeSection || null,
         is_hidden: formData.isHidden,
         publish_at: publishTimestamp,
         creator_name: primaryCreator.name, 
@@ -450,6 +455,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       handleInputChange('creators', nc);
     }
   };
+
+  const currentWednesdaySpotlight = getOneShotWednesdaySeries(seriesList);
 
   return (
     <div className="space-y-6 animate-fade-in-up pb-32 relative">
@@ -592,6 +599,46 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
               <Calendar className="w-3.5 h-3.5 text-[#fe9a00]" />
               <span className="text-[10px] font-black text-zinc-300 uppercase">Schedule Launch</span>
             </label>
+          </div>
+        </div>
+
+        {/* COMPLETED RUNS (PLUS VAULT) & ONE-SHOT WEDNESDAY TOGGLE */}
+        <div className={`p-4 rounded-xl border transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+          formData.homeSection === 'Completed Runs'
+            ? 'bg-purple-950/20 border-purple-500/50'
+            : 'bg-black border-zinc-800'
+        }`}>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={formData.homeSection === 'Completed Runs'}
+              onChange={(e) => {
+                const existingSeriesObj = seriesList.find((s: any) => s.slug === targetSeries);
+                const previousSection =
+                  existingSeriesObj?.home_section && existingSeriesObj.home_section !== 'Completed Runs'
+                    ? existingSeriesObj.home_section
+                    : '';
+                handleInputChange('homeSection', e.target.checked ? 'Completed Runs' : previousSection);
+              }}
+              className="accent-[#fe9a00] w-5 h-5 cursor-pointer"
+            />
+            <div>
+              <span className="text-xs font-black uppercase tracking-widest text-white block">
+                Completed Run (PLUS Vault & One-Shot Wednesdays)
+              </span>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                Locks all chapters to PLUS subscribers except when featured on One-Shot Wednesdays
+              </span>
+            </div>
+          </div>
+
+          <div className="text-right shrink-0">
+            <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] block">
+              Active / Next Wednesday Pick:
+            </span>
+            <span className="text-xs font-black text-white uppercase">
+              {currentWednesdaySpotlight?.title || 'None Assigned'}
+            </span>
           </div>
         </div>
 
@@ -1037,6 +1084,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                           key={char.headshot_url}
                           src={char.headshot_url} 
                           className="w-full h-full object-cover relative z-10" 
+                          alt={char.name || 'Character'}
                           onError={(e) => { e.currentTarget.style.display = 'none'; }}
                         />
                       )}
@@ -1254,7 +1302,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                              </button>
                              
                              <div className="relative w-16 h-16 rounded-full bg-zinc-800 border-2 border-zinc-700 overflow-hidden flex items-center justify-center">
-                                {alt.url ? <img src={alt.url} className="w-full h-full object-cover relative z-10 bg-zinc-900" onError={(e) => { e.currentTarget.style.display = 'none'; }} /> : <User className="w-6 h-6 text-zinc-600 absolute" />}
+                                {alt.url ? <img src={alt.url} className="w-full h-full object-cover relative z-10 bg-zinc-900" alt={alt.name || 'Alt Form'} onError={(e) => { e.currentTarget.style.display = 'none'; }} /> : <User className="w-6 h-6 text-zinc-600 absolute" />}
                              </div>
                            </div>
                         ))}
