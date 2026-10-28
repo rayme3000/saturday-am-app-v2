@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, RefreshCw, Key } from 'lucide-react';
-import { supabase } from '../supabase';
+import { ArrowLeft, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, RefreshCw, Key, Heart } from 'lucide-react';
+import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
 import { GlobalFlexCard } from '../Components/GlobalFlexCard';
@@ -151,7 +151,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
 
   const [userProfile, setUserProfile] = useState(memUserProfile || { username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] as (string | null)[] });
   const [tempProfile, setTempProfile] = useState({ ...userProfile });
-  const [profileStats, setProfileStats] = useState(memProfileStats || { total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: '---', score: 0, hypes_remaining: 0 });
+  const [profileStats, setProfileStats] = useState(memProfileStats || { total_hypes: 0, total_likes: 0, quick_reacts: 0, chapters_read: 0, rank: '---', score: 0, hypes_remaining: 0 });
 
   const [unlockedHunts, setUnlockedHunts] = useState(0);
   const [totalHunts, setTotalHunts] = useState(11);
@@ -189,7 +189,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
       memUserProfile = null;
       setIsLoggedIn(false);
       setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] });
-      setProfileStats({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: '---', score: 0, hypes_remaining: 0 });
+      setProfileStats({ total_hypes: 0, total_likes: 0, quick_reacts: 0, chapters_read: 0, rank: '---', score: 0, hypes_remaining: 0 });
     };
 
     window.addEventListener('instantLogout', handleInstantLogout);
@@ -213,20 +213,26 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
         profileRes,
         allProfilesMetaRes,
         hypesCountRes,
-        superHypesCountRes,
         reactsCountRes,
         commentsCountRes,
         completedReadsCountRes,
-        historyReadsCountRes
+        historyReadsCountRes,
+        seriesLikesCountRes,
+        chapterLikesCountRes,
+        characterLikesCountRes,
+        creatorLikesCountRes
       ] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-        supabase.from('profiles').select('id, role, is_admin, email, linked_creator_name, fandom_score'),
+        supabase.from('profiles').select('id, username, role, is_admin, email, linked_creator_name, fandom_score'),
         supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id).neq('target_type', 'comment'),
-        supabase.from('super_hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('page_reacts').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('series_comments').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('completed_reads').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('reading_history').select('*', { count: 'exact', head: true }).eq('user_id', user.id)
+        supabase.from('reading_history').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('series_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('chapter_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('character_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('creator_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id)
       ]);
 
       const data = profileRes.data;
@@ -234,29 +240,41 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
         const myScore = Number(data.fandom_score || 0);
         const allProfiles = allProfilesMetaRes.data || [];
         const myRole = String(data.role || 'reader').trim().toLowerCase();
+        const myUname = String(data.username || '').trim().toLowerCase();
         const isCurrentUserStaffOrCreator =
           Boolean(data.is_admin) ||
           EXCLUDED_LEADERBOARD_ROLES.has(myRole) ||
           EXCLUDED_STAFF_ADMIN_EMAILS.has(cleanEmail) ||
+          myUname.includes('test') ||
+          cleanEmail.includes('test') ||
+          ['sano2026', 'freemium3000', 'freeaccount3000', 'rayme3000', 'fred@saturday.a', 'fredtest1', 'fred_test_2', 'billsup2000'].includes(myUname) ||
           Boolean(String(data.linked_creator_name || '').trim());
 
         let myRank: string | number = '---';
         if (isCurrentUserStaffOrCreator) {
           myRank = 'CREW';
         } else {
-          const higherFansCount = allProfiles.filter((p: any) => {
-            if (String(p.id) === String(user.id)) return false;
+          const higherUniqueNames = new Set<string>();
+          allProfiles.forEach((p: any) => {
+            if (String(p.id) === String(user.id)) return;
             const r = String(p.role || 'reader').trim().toLowerCase();
             const em = String(p.email || '').trim().toLowerCase();
+            const uname = String(p.username || '').trim().toLowerCase();
             const isExcluded =
               Boolean(p.is_admin) ||
               EXCLUDED_LEADERBOARD_ROLES.has(r) ||
               EXCLUDED_STAFF_ADMIN_EMAILS.has(em) ||
+              uname.includes('test') ||
+              em.includes('test') ||
+              !uname ||
+              ['saturday fan', 'unnamed reader', 'reader', 'sano2026', 'freemium3000', 'freeaccount3000', 'rayme3000', 'fred@saturday.a', 'fredtest1', 'fred_test_2', 'billsup2000'].includes(uname) ||
               Boolean(String(p.linked_creator_name || '').trim());
-            if (isExcluded) return false;
-            return Number(p.fandom_score || 0) > myScore;
-          }).length;
-          myRank = higherFansCount + 1;
+            if (isExcluded) return;
+            if (Number(p.fandom_score || 0) > myScore) {
+              higherUniqueNames.add(uname);
+            }
+          });
+          myRank = higherUniqueNames.size + 1;
         }
 
         const isUserPremium = Boolean(data.is_premium);
@@ -266,10 +284,11 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
           Number(data.total_hypes || 0),
           Number(hypesCountRes.count || 0)
         );
-        const verifiedSuperHypes = Math.max(
-          Number(data.super_hypes || 0),
-          Number(superHypesCountRes.count || 0)
-        );
+        const verifiedTotalLikes =
+          Number(seriesLikesCountRes.count || 0) +
+          Number(chapterLikesCountRes.count || 0) +
+          Number(characterLikesCountRes.count || 0) +
+          Number(creatorLikesCountRes.count || 0);
         const verifiedSmartComments = Math.max(
           Number(data.quick_reacts || 0),
           Number(reactsCountRes.count || 0) + Number(commentsCountRes.count || 0)
@@ -282,7 +301,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
 
         const newStats = {
           total_hypes: verifiedTotalHypes,
-          super_hypes: verifiedSuperHypes,
+          total_likes: verifiedTotalLikes,
           quick_reacts: verifiedSmartComments,
           chapters_read: verifiedChaptersRead,
           rank: String(myRank),
@@ -352,7 +371,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
       newLoadout[existingIndex] = null;
     }
     newLoadout[selectingSlot] = seriesSlug;
-    setTempProfile(prev => ({ ...prev, topFive: newLoadout }));
+    setTempProfile((prev: any) => ({ ...prev, topFive: newLoadout }));
     setSelectingSlot(null);
   };
 
@@ -373,6 +392,14 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
         return;
       }
     }
+
+    trackTelemetry('profile_loadout_saved', {
+      has_avatar: Boolean(tempProfile.avatarUrl),
+      has_frame: Boolean(tempProfile.frameId),
+      has_skin: Boolean(tempProfile.cardSkin),
+      top_five_count: (tempProfile.topFive || []).filter(Boolean).length
+    });
+
     setUserProfile({ ...tempProfile });
     memUserProfile = { ...tempProfile };
 
@@ -581,9 +608,9 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes Given</span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
-              <Star className="w-6 h-6 text-[#fe9a00] mb-2" />
-              <span className="text-3xl font-black">{(profileStats.super_hypes || 0).toLocaleString()}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes Dropped</span>
+              <Heart className="w-6 h-6 text-[#fe9a00] mb-2" />
+              <span className="text-3xl font-black">{(profileStats.total_likes || 0).toLocaleString()}</span>
+              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Likes Given</span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" />

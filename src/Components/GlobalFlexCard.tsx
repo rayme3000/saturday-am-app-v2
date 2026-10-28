@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { User, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart, Lock, Sparkles } from 'lucide-react';
-import { supabase } from '../supabase';
+import { User, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart, Lock, Sparkles, Award } from 'lucide-react';
+import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
@@ -158,7 +158,7 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [profileStats, setProfileStats] = useState({
     total_hypes: 0,
-    super_hypes: 0,
+    total_likes: 0,
     quick_reacts: 0,
     chapters_read: 0,
     rank: '---',
@@ -182,6 +182,7 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
 
   useEffect(() => {
     if (isOpen) {
+      trackTelemetry('hype_card_open');
       window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
       return () => {
         window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: false }));
@@ -230,12 +231,14 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
         profileRes,
         allProfilesMetaRes,
         hypesCountRes,
-        superHypesCountRes,
         creatorHypesCountRes,
         reactsCountRes,
         commentsCountRes,
         completedReadsCountRes,
         historyReadsCountRes,
+        seriesLikesCountRes,
+        chapterLikesCountRes,
+        characterLikesCountRes,
         creatorLikesCountRes,
         tipsByEmailRes,
         shareEventsRes
@@ -243,14 +246,16 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
         supabase.from('avatar_frames').select('*').eq('is_active', true),
         supabase.from('card_skins').select('*').eq('is_active', true),
         supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-        supabase.from('profiles').select('id, role, is_admin, email, linked_creator_name, fandom_score'),
+        supabase.from('profiles').select('id, username, role, is_admin, email, linked_creator_name, fandom_score'),
         supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id).neq('target_type', 'comment'),
-        supabase.from('super_hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('target_type', 'creator'),
         supabase.from('page_reacts').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('series_comments').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('completed_reads').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('reading_history').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('series_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('chapter_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('character_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         supabase.from('creator_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
         cleanEmail
           ? supabase.from('creator_tips').select('*', { count: 'exact', head: true }).ilike('donor_email', cleanEmail)
@@ -272,40 +277,52 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
         // Compute Fan-Only Rank matching Leaderboard.tsx
         const allProfiles = allProfilesMetaRes.data || [];
         const myRole = String(data.role || 'reader').trim().toLowerCase();
+        const myUname = String(data.username || '').trim().toLowerCase();
         const isCurrentUserStaffOrCreator =
           Boolean(data.is_admin) ||
           EXCLUDED_LEADERBOARD_ROLES.has(myRole) ||
           EXCLUDED_STAFF_ADMIN_EMAILS.has(cleanEmail) ||
+          myUname.includes('test') ||
+          cleanEmail.includes('test') ||
+          ['sano2026', 'freemium3000', 'freeaccount3000', 'rayme3000', 'fred@saturday.a', 'fredtest1', 'fred_test_2', 'billsup2000'].includes(myUname) ||
           Boolean(String(data.linked_creator_name || '').trim());
 
         let myRank: string | number = '---';
         if (isCurrentUserStaffOrCreator) {
           myRank = 'STAFF';
         } else {
-          const higherFansCount = allProfiles.filter((p: any) => {
-            if (String(p.id) === String(user.id)) return false;
+          const higherUniqueNames = new Set<string>();
+          allProfiles.forEach((p: any) => {
+            if (String(p.id) === String(user.id)) return;
             const r = String(p.role || 'reader').trim().toLowerCase();
             const em = String(p.email || '').trim().toLowerCase();
+            const uname = String(p.username || '').trim().toLowerCase();
             const isExcluded =
               Boolean(p.is_admin) ||
               EXCLUDED_LEADERBOARD_ROLES.has(r) ||
               EXCLUDED_STAFF_ADMIN_EMAILS.has(em) ||
+              uname.includes('test') ||
+              em.includes('test') ||
+              !uname ||
+              ['saturday fan', 'unnamed reader', 'reader', 'sano2026', 'freemium3000', 'freeaccount3000', 'rayme3000', 'fred@saturday.a', 'fredtest1', 'fred_test_2', 'billsup2000'].includes(uname) ||
               Boolean(String(p.linked_creator_name || '').trim());
-            if (isExcluded) return false;
-            return Number(p.fandom_score || 0) > myScore;
-          }).length;
-          myRank = higherFansCount + 1;
+            if (isExcluded) return;
+            if (Number(p.fandom_score || 0) > myScore) {
+              higherUniqueNames.add(uname);
+            }
+          });
+          myRank = higherUniqueNames.size + 1;
         }
 
-        // Ground-Truth Stat Reconciliation
         const verifiedTotalHypes = Math.max(
           Number(data.total_hypes || 0),
           Number(hypesCountRes.count || 0)
         );
-        const verifiedSuperHypes = Math.max(
-          Number(data.super_hypes || 0),
-          Number(superHypesCountRes.count || 0)
-        );
+        const verifiedTotalLikes =
+          Number(seriesLikesCountRes.count || 0) +
+          Number(chapterLikesCountRes.count || 0) +
+          Number(characterLikesCountRes.count || 0) +
+          Number(creatorLikesCountRes.count || 0);
         const verifiedCommentsAndReacts = Math.max(
           Number(data.quick_reacts || 0),
           Number(reactsCountRes.count || 0) + Number(commentsCountRes.count || 0)
@@ -329,7 +346,7 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
         setIsSubscriber(Boolean(data.is_premium));
         setProfileStats({
           total_hypes: verifiedTotalHypes,
-          super_hypes: verifiedSuperHypes,
+          total_likes: verifiedTotalLikes,
           quick_reacts: verifiedCommentsAndReacts,
           chapters_read: verifiedChaptersRead,
           shares: verifiedShares,
@@ -450,7 +467,12 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
               transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
               WebkitTransform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'
             }}
-            onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              const nextFlip = !isFlipped;
+              setIsFlipped(nextFlip);
+              if (nextFlip) trackTelemetry('hype_card_flip');
+            }}
           >
             {/* FRONT OF CARD */}
             <div
@@ -576,7 +598,7 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
                     </div>
                   </div>
 
-                  {/* STATS */}
+                  {/* STATS (UNIFIED HYPES + LIKES + COMMENTS + READS + SHARES + SUPPORT) */}
                   <div className="flex justify-between items-center bg-black/40 border border-white/5 shadow-inner" style={{ padding: '2cqi 0', borderRadius: '2cqi', margin: 'auto 0' }}>
                     <div className="text-center flex-1 border-r border-white/5">
                       <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Hypes</p>
@@ -586,24 +608,34 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
                       </p>
                     </div>
                     <div className="text-center flex-1 border-r border-white/5">
-                      <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Super</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}><Star style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.super_hypes)}</p>
+                      <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Likes</p>
+                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
+                        <Heart style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.total_likes)}
+                      </p>
                     </div>
                     <div className="text-center flex-1 border-r border-white/5">
                       <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Comments</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}><MessageSquare style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.quick_reacts)}</p>
+                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
+                        <MessageSquare style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.quick_reacts)}
+                      </p>
                     </div>
                     <div className="text-center flex-1 border-r border-white/5">
                       <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Reads</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}><BookOpen style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.chapters_read)}</p>
+                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
+                        <BookOpen style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.chapters_read)}
+                      </p>
                     </div>
                     <div className="text-center flex-1 border-r border-white/5">
                       <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Shares</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}><Share2 style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.shares)}</p>
+                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
+                        <Share2 style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.shares)}
+                      </p>
                     </div>
                     <div className="text-center flex-1">
                       <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Support</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}><Heart style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.creator_supports)}</p>
+                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
+                        <Award style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.creator_supports)}
+                      </p>
                     </div>
                   </div>
 

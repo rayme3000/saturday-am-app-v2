@@ -29,7 +29,11 @@ import {
   BarChart3,
   Layers,
   ShieldCheck,
-  CheckCircle2
+  CheckCircle2,
+  Trophy,
+  CreditCard,
+  Sliders,
+  Stamp
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
@@ -48,6 +52,17 @@ export const EXCLUDED_STAFF_ADMIN_EMAILS = new Set([
   'fsimmonds4@gmail.com'
 ]);
 
+export const EXCLUDED_TEST_STAFF_IDS = new Set([
+  'abaf26d1-c0d6-4d70-bbbe-9e1784366257', // AMAPPTEST1
+  '53bf553c-425a-4d1c-978f-e6bc93910099', // AMAPPTEST2
+  'c1bc4936-b192-45bb-a5c7-57900d24a030', // AMAPPTEST3
+  '35c470b1-df48-4aa1-bd1c-68a0eb26ee92', // AMAPPTEST5
+  '203b25d6-7c80-4161-9a13-debd7299982c', // AMAPPTEST6
+  '79cf838d-a214-4d87-a036-b62328547840', // AMTEST5
+  '829bc0be-6b8e-42cf-ab61-54624c785c69', // Freeaccount3000
+  '6aa6e204-59eb-4444-8fc5-f95d628c16ab'  // rayme3000
+]);
+
 export const ELEVATED_CREATOR_STAFF_ROLES = new Set([
   'creator',
   'core_creator',
@@ -57,15 +72,33 @@ export const ELEVATED_CREATOR_STAFF_ROLES = new Set([
   'moderator'
 ]);
 
+const isUuidFormat = (str: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+
 export const isStaffOrCreatorProfile = (p: any): boolean => {
   if (!p) return false;
+  const uid = String(p.id || p.user_id || '').trim();
   const role = String(p.role || 'reader').trim().toLowerCase();
   const email = String(p.email || '').trim().toLowerCase();
+  const uname = String(p.username || '').trim().toLowerCase();
   const hasLinkedCreator = Boolean(String(p.linked_creator_name || '').trim());
   return (
     Boolean(p.is_admin) ||
+    EXCLUDED_TEST_STAFF_IDS.has(uid) ||
     ELEVATED_CREATOR_STAFF_ROLES.has(role) ||
     EXCLUDED_STAFF_ADMIN_EMAILS.has(email) ||
+    uname.includes('test') ||
+    email.includes('test') ||
+    [
+      'sano2026',
+      'freemium3000',
+      'freeaccount3000',
+      'rayme3000',
+      'fred@saturday.a',
+      'fredtest1',
+      'fred_test_2',
+      'billsup2000'
+    ].includes(uname) ||
     hasLinkedCreator
   );
 };
@@ -468,6 +501,7 @@ interface DailyChartBucket {
   reads: number;
   completed: number;
   signups: number;
+  plusSignups: number;
   engagements: number;
 }
 
@@ -501,8 +535,12 @@ export const AnalyticsDashboard = () => {
       const [
         profilesRes,
         adminDirRes,
+        promoCodesRes,
         seriesTableRes,
         chaptersTableRes,
+        charactersTableRes,
+        creatorsTableRes,
+        bingoCodesRes,
         readingHistoryRes,
         completedReadsRes,
         hypesRes,
@@ -518,11 +556,18 @@ export const AnalyticsDashboard = () => {
       ] = await Promise.all([
         supabase.from('profiles').select('*').limit(10000),
         supabase.rpc('get_admin_user_directory', { p_search: '', p_limit: 5000, p_offset: 0 }),
+        supabase
+          .from('promo_codes')
+          .select('buyer_email, created_at, order_number, times_used')
+          .order('created_at', { ascending: false }),
         supabase.from('series').select('*'),
         supabase.from('chapters').select('id, series_slug, chapter_number, title'),
+        supabase.from('series_characters').select('id, name, series_slug'),
+        supabase.from('series_creators').select('id, name, series_slug'),
+        supabase.from('bingo_codes').select('*'),
         supabase.from('reading_history').select('*').limit(25000),
         supabase.from('completed_reads').select('*').limit(25000),
-        supabase.from('hypes').select('*').limit(25000),
+        supabase.from('hypes').select('*').neq('target_type', 'comment').limit(25000),
         supabase.from('super_hypes').select('*').limit(25000),
         supabase.from('page_reacts').select('*').limit(25000),
         supabase.from('series_comments').select('*').limit(25000),
@@ -542,21 +587,52 @@ export const AnalyticsDashboard = () => {
         });
       }
 
+      // Map Shopify / Promo Code purchase dates by buyer_email
+      const promoDateByEmail = new Map<string, string>();
+      (promoCodesRes.data || []).forEach((row: any) => {
+        const em = String(row.buyer_email || '').trim().toLowerCase();
+        if (em && row.created_at && !promoDateByEmail.has(em)) {
+          promoDateByEmail.set(em, row.created_at);
+        }
+      });
+
       const rawProfiles = (profilesRes.data || []).map((p: any) => {
         const authUser = authDirMap.get(String(p.id)) || {};
+        const cleanEm = String(p.email || authUser.email || '').trim();
+        const promoPurchaseAt = cleanEm
+          ? promoDateByEmail.get(cleanEm.toLowerCase()) || null
+          : null;
+
         return {
           ...authUser,
           ...p,
           id: String(p.id),
-          email: String(p.email || authUser.email || '').trim(),
-          created_at: authUser.created_at || p.created_at || p.tos_accepted_at || null
+          email: cleanEm,
+          created_at: p.created_at || authUser.created_at || p.tos_accepted_at || null,
+          plus_activated_at: Boolean(p.is_premium)
+            ? p.subscribed_at ||
+              promoPurchaseAt ||
+              p.updated_at ||
+              p.created_at ||
+              authUser.created_at ||
+              null
+            : null,
+          plus_plan_type: Boolean(p.is_premium)
+            ? p.subscription_plan ||
+              p.referred_plan ||
+              (promoPurchaseAt ? 'yearly' : 'monthly')
+            : null
         };
       });
 
       setRawTables({
         profiles: rawProfiles,
+        promoCodes: promoCodesRes.data || [],
         series: seriesTableRes.data || [],
         chapters: chaptersTableRes.data || [],
+        characters: charactersTableRes.data || [],
+        creators: creatorsTableRes.data || [],
+        bingoCodes: bingoCodesRes.data || [],
         readingHistory: readingHistoryRes.data || [],
         completedReads: completedReadsRes.data || [],
         hypes: hypesRes.data || [],
@@ -584,7 +660,7 @@ export const AnalyticsDashboard = () => {
     fetchAnalytics();
 
     const subscription = supabase
-      .channel('realtime_analytics_v2')
+      .channel('realtime_analytics_v5')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reading_history' }, () => {
         fetchAnalytics();
       })
@@ -598,7 +674,7 @@ export const AnalyticsDashboard = () => {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'hypes' }, () => {
         fetchAnalytics();
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'super_hypes' }, () => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'telemetry_events' }, () => {
         fetchAnalytics();
       })
       .subscribe();
@@ -613,7 +689,7 @@ export const AnalyticsDashboard = () => {
     if (!rawTables) return null;
 
     const allProfiles: any[] = rawTables.profiles || [];
-    const staffCreatorIds = new Set<string>();
+    const staffCreatorIds = new Set<string>(EXCLUDED_TEST_STAFF_IDS);
     const staffCreatorEmails = new Set<string>(EXCLUDED_STAFF_ADMIN_EMAILS);
 
     const fanProfiles: any[] = [];
@@ -650,7 +726,8 @@ export const AnalyticsDashboard = () => {
         : allProfiles;
 
     const totalUsers = activeProfiles.length;
-    const premiumUsers = activeProfiles.filter(p => Boolean(p.is_premium)).length;
+    const premiumProfilesList = activeProfiles.filter(p => Boolean(p.is_premium));
+    const premiumUsers = premiumProfilesList.length;
     const freeUsers = Math.max(0, totalUsers - premiumUsers);
 
     // Date boundaries
@@ -686,6 +763,31 @@ export const AnalyticsDashboard = () => {
       })
       .filter((d): d is Date => Boolean(d && !isNaN(d.getTime())));
 
+    // PLUS Signups / Upgrades Dates (All PLUS, Monthly Plan $1.99/mo, and Annual Plan $20/yr)
+    const getPlusDate = (p: any): Date | null => {
+      const raw = p.plus_activated_at || p.subscribed_at || p.updated_at || p.created_at;
+      const d = raw ? new Date(raw) : null;
+      return d && !isNaN(d.getTime()) ? d : null;
+    };
+
+    const plusSignupDates = premiumProfilesList
+      .map(getPlusDate)
+      .filter((d): d is Date => Boolean(d));
+
+    const monthlyPlanProfiles = premiumProfilesList.filter(
+      p => String(p.plus_plan_type || 'monthly').toLowerCase() !== 'yearly'
+    );
+    const annualPlanProfiles = premiumProfilesList.filter(
+      p => String(p.plus_plan_type || '').toLowerCase() === 'yearly'
+    );
+
+    const monthlyPlusDates = monthlyPlanProfiles
+      .map(getPlusDate)
+      .filter((d): d is Date => Boolean(d));
+    const annualPlusDates = annualPlanProfiles
+      .map(getPlusDate)
+      .filter((d): d is Date => Boolean(d));
+
     const countDatesBetween = (dates: Date[], start: Date, end?: Date) =>
       dates.filter(d => d >= start && (!end || d < end)).length;
 
@@ -695,7 +797,24 @@ export const AnalyticsDashboard = () => {
       newUsersWeek: countDatesBetween(profileDates, startOfWeek),
       newUsersLastWeek: countDatesBetween(profileDates, startOfLastWeek, startOfWeek),
       newUsersMonth: countDatesBetween(profileDates, startOfMonth),
-      newUsersLastMonth: countDatesBetween(profileDates, startOfLastMonth, startOfMonth)
+      newUsersLastMonth: countDatesBetween(profileDates, startOfLastMonth, startOfMonth),
+      plusToday: countDatesBetween(plusSignupDates, startOfToday),
+      plusYesterday: countDatesBetween(plusSignupDates, startOfYesterday, startOfToday),
+      plusTodayMonthly: countDatesBetween(monthlyPlusDates, startOfToday),
+      plusTodayAnnual: countDatesBetween(annualPlusDates, startOfToday),
+
+      plusWeek: countDatesBetween(plusSignupDates, startOfWeek),
+      plusLastWeek: countDatesBetween(plusSignupDates, startOfLastWeek, startOfWeek),
+      plusWeekMonthly: countDatesBetween(monthlyPlusDates, startOfWeek),
+      plusWeekAnnual: countDatesBetween(annualPlusDates, startOfWeek),
+
+      plusMonth: countDatesBetween(plusSignupDates, startOfMonth),
+      plusLastMonth: countDatesBetween(plusSignupDates, startOfLastMonth, startOfMonth),
+      plusMonthMonthly: countDatesBetween(monthlyPlusDates, startOfMonth),
+      plusMonthAnnual: countDatesBetween(annualPlusDates, startOfMonth),
+
+      activeMonthlyPlanCount: monthlyPlanProfiles.length,
+      activeAnnualPlanCount: annualPlanProfiles.length
     };
 
     const recentUsers = [...activeProfiles]
@@ -720,47 +839,146 @@ export const AnalyticsDashboard = () => {
     const tipsData = (rawTables.creatorTips || []).filter(matchesAudience);
     const telemetryRows = (rawTables.telemetryEvents || []).filter(matchesAudience);
 
-    // --- DE-DUPLICATE SUPER HYPES FROM HYPES TABLE ---
-    // In HypeEconomyContext.tsx, spendSuperHype inserts 1 row into super_hypes AND 1 row into hypes (target_type='series').
-    // We remove those mirror rows from rawHypesData so Standard Hypes and Super Hypes are 100% distinct and never double-counted!
-    const superHypeFingerprints = new Map<string, number>();
+    // --- UNIFIED DE-DUPLICATED HYPES ---
+    const hypesFingerprints = new Set<string>();
+    const allUnifiedHypes: any[] = [];
+
+    rawHypesData.forEach((h: any) => {
+      allUnifiedHypes.push(h);
+      if (h.target_type === 'series') {
+        const minuteBucket = h.created_at ? String(h.created_at).slice(0, 16) : '';
+        hypesFingerprints.add(`${h.user_id}_${h.target_id}_${minuteBucket}`);
+      }
+    });
+
     superHypesData.forEach((sh: any) => {
       const minuteBucket = sh.created_at ? String(sh.created_at).slice(0, 16) : '';
       const key = `${sh.user_id}_${sh.series_slug}_${minuteBucket}`;
-      superHypeFingerprints.set(key, (superHypeFingerprints.get(key) || 0) + 1);
-    });
-
-    const pureStandardHypesData = rawHypesData.filter((h: any) => {
-      if (h.target_type !== 'series') return true;
-      const minuteBucket = h.created_at ? String(h.created_at).slice(0, 16) : '';
-      const key = `${h.user_id}_${h.target_id}_${minuteBucket}`;
-      const count = superHypeFingerprints.get(key) || 0;
-      if (count > 0) {
-        superHypeFingerprints.set(key, count - 1);
-        return false; // Skip mirror row created by spendSuperHype
+      if (!hypesFingerprints.has(key)) {
+        hypesFingerprints.add(key);
+        allUnifiedHypes.push({
+          id: sh.id,
+          user_id: sh.user_id,
+          target_type: 'series',
+          target_id: sh.series_slug,
+          created_at: sh.created_at
+        });
       }
-      return true;
     });
 
-    // Active 7d and 30d Users (across reading_history, hypes, super_hypes, reacts, comments, likes)
+    // --- ACTIVE USERS & PEAK ACTIVE USERS (DAY, WEEK, MONTH) ---
+    const activeTodaySet = new Set<string>();
     const active7dSet = new Set<string>();
     const active30dSet = new Set<string>();
-    const registerActiveUser = (uid?: string, rawDt?: string) => {
-      if (!uid || !rawDt) return;
-      const dt = new Date(rawDt);
-      if (isNaN(dt.getTime())) return;
-      if (dt >= startOfWeek) active7dSet.add(String(uid));
-      if (dt >= startOfMonth) active30dSet.add(String(uid));
+
+    const dauMap = new Map<string, Set<string>>();
+    const wauMap = new Map<string, Set<string>>();
+    const mauMap = new Map<string, Set<string>>();
+
+    const getMondayKey = (d: Date): string => {
+      const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const day = copy.getDay();
+      const diff = copy.getDate() - day + (day === 0 ? -6 : 1);
+      copy.setDate(diff);
+      return copy.toISOString().split('T')[0];
     };
 
-    historyRows.forEach((r: any) => registerActiveUser(r.user_id, r.updated_at || r.created_at));
-    completedRows.forEach((r: any) => registerActiveUser(r.user_id, r.created_at));
-    pureStandardHypesData.forEach((r: any) => registerActiveUser(r.user_id, r.created_at));
-    superHypesData.forEach((r: any) => registerActiveUser(r.user_id, r.created_at));
-    reactsData.forEach((r: any) => registerActiveUser(r.user_id, r.created_at));
-    commentsData.forEach((r: any) => registerActiveUser(r.user_id, r.created_at));
+    const registerActiveEvent = (actorId?: string, rawDt?: string) => {
+      if (!actorId || !rawDt) return;
+      const dt = new Date(rawDt);
+      if (isNaN(dt.getTime())) return;
 
-    // Chapter Read Timestamps (Unique user+chapter opens in reading_history)
+      const cleanActor = String(actorId);
+      if (dt >= startOfToday) activeTodaySet.add(cleanActor);
+      if (dt >= startOfWeek) active7dSet.add(cleanActor);
+      if (dt >= startOfMonth) active30dSet.add(cleanActor);
+
+      const dayKey = dt.toISOString().split('T')[0];
+      if (!dauMap.has(dayKey)) dauMap.set(dayKey, new Set());
+      dauMap.get(dayKey)!.add(cleanActor);
+
+      const weekKey = getMondayKey(dt);
+      if (!wauMap.has(weekKey)) wauMap.set(weekKey, new Set());
+      wauMap.get(weekKey)!.add(cleanActor);
+
+      const monthKey = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+      if (!mauMap.has(monthKey)) mauMap.set(monthKey, new Set());
+      mauMap.get(monthKey)!.add(cleanActor);
+    };
+
+    historyRows.forEach((r: any) => registerActiveEvent(r.user_id, r.updated_at || r.created_at));
+    completedRows.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
+    allUnifiedHypes.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
+    reactsData.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
+    commentsData.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
+    seriesLikesData.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
+    chapterLikesData.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
+    characterLikesData.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
+    creatorLikesData.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
+    telemetryRows.forEach((t: any) =>
+      registerActiveEvent(t.user_id || t.session_id, t.created_at)
+    );
+
+    let peakDayCount = 0;
+    let peakDayKey = '';
+    dauMap.forEach((set, key) => {
+      if (set.size > peakDayCount || (set.size === peakDayCount && key > peakDayKey)) {
+        peakDayCount = set.size;
+        peakDayKey = key;
+      }
+    });
+    const peakDayLabel = peakDayKey
+      ? new Date(`${peakDayKey}T12:00:00`).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        })
+      : 'No data yet';
+
+    let peakWeekCount = 0;
+    let peakWeekKey = '';
+    wauMap.forEach((set, key) => {
+      if (set.size > peakWeekCount || (set.size === peakWeekCount && key > peakWeekKey)) {
+        peakWeekCount = set.size;
+        peakWeekKey = key;
+      }
+    });
+    const peakWeekLabel = peakWeekKey
+      ? `Week of ${new Date(`${peakWeekKey}T12:00:00`).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        })}`
+      : 'No data yet';
+
+    let peakMonthCount = 0;
+    let peakMonthKey = '';
+    mauMap.forEach((set, key) => {
+      if (set.size > peakMonthCount || (set.size === peakMonthCount && key > peakMonthKey)) {
+        peakMonthCount = set.size;
+        peakMonthKey = key;
+      }
+    });
+    const peakMonthLabel = peakMonthKey
+      ? new Date(
+          Number(peakMonthKey.split('-')[0]),
+          Number(peakMonthKey.split('-')[1]) - 1,
+          1
+        ).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : 'No data yet';
+
+    const peakActiveStats = {
+      peakDayCount: Math.max(peakDayCount, activeTodaySet.size),
+      peakDayLabel,
+      currentDayActive: activeTodaySet.size,
+      peakWeekCount: Math.max(peakWeekCount, active7dSet.size),
+      peakWeekLabel,
+      currentWeekActive: active7dSet.size,
+      peakMonthCount: Math.max(peakMonthCount, active30dSet.size),
+      peakMonthLabel,
+      currentMonthActive: active30dSet.size
+    };
+
     const readDates: Date[] = historyRows
       .map((r: any) => new Date(r.updated_at || r.created_at || now))
       .filter((d: Date) => !isNaN(d.getTime()));
@@ -777,6 +995,7 @@ export const AnalyticsDashboard = () => {
       total_users: totalUsers,
       premium_users: premiumUsers,
       free_users: freeUsers,
+      active_today: activeTodaySet.size,
       active_7d: active7dSet.size,
       active_30d: active30dSet.size,
       reads_today: countDatesBetween(readDates, startOfToday),
@@ -809,6 +1028,7 @@ export const AnalyticsDashboard = () => {
         reads: 0,
         completed: 0,
         signups: 0,
+        plusSignups: 0,
         engagements: 0
       };
       buckets.push(bucket);
@@ -838,9 +1058,14 @@ export const AnalyticsDashboard = () => {
       if (b) b.signups += 1;
     });
 
+    plusSignupDates.forEach(dt => {
+      const key = dt.toISOString().split('T')[0];
+      const b = bucketMap.get(key);
+      if (b) b.plusSignups += 1;
+    });
+
     [
-      ...pureStandardHypesData,
-      ...superHypesData,
+      ...allUnifiedHypes,
       ...reactsData,
       ...commentsData,
       ...seriesLikesData,
@@ -859,11 +1084,14 @@ export const AnalyticsDashboard = () => {
       }
     });
 
-    // --- TELEMETRY STATS (FILTERED BY AUDIENCE MODE) ---
+    // --- TELEMETRY STATS & FEATURE INTERACTIONS (HYPE CARD, PROFILE LOADOUT, BINGO BOOK) ---
     const uniqueSessions = new Set<string>();
     const uniqueVisitorIds = new Set<string>();
     let storeClicks = 0;
     let bannerClicks = 0;
+    let hypeCardTelemetryOpens = 0;
+    let loadoutTelemetrySaves = 0;
+    let bingoTelemetryEvents = 0;
     const seriesVisitsPerSlug: Record<string, number> = {};
 
     telemetryRows.forEach((t: any) => {
@@ -883,6 +1111,12 @@ export const AnalyticsDashboard = () => {
         storeClicks += 1;
       } else if (evType.includes('banner') || evType.includes('slide') || evType.includes('hero')) {
         bannerClicks += 1;
+      } else if (evType.includes('hype_card') || evType.includes('flex_card')) {
+        hypeCardTelemetryOpens += 1;
+      } else if (evType.includes('loadout') || evType.includes('profile_save')) {
+        loadoutTelemetrySaves += 1;
+      } else if (evType.includes('bingo')) {
+        bingoTelemetryEvents += 1;
       }
     });
 
@@ -893,7 +1127,51 @@ export const AnalyticsDashboard = () => {
       banner_clicks: bannerClicks
     };
 
-    // --- FEATURE ENGAGEMENT BREAKDOWN ---
+    // --- PROFILE LOADOUT, HYPE CARD & BINGO BOOK GROUND-TRUTH COUNTS ---
+    let profilesWithTopFive = 0;
+    let profilesWithAvatar = 0;
+    let profilesWithFrame = 0;
+    let profilesWithCardSkin = 0;
+    let profilesWithAnyLoadout = 0;
+
+    activeProfiles.forEach((p: any) => {
+      const hasTop5 =
+        Array.isArray(p.top_five) &&
+        p.top_five.some((item: any) => item && item !== 'null');
+      const hasAvatar = Boolean(p.avatar_url && String(p.avatar_url).trim() !== '');
+      const hasFrame = Boolean(
+        p.avatar_frame_id &&
+          String(p.avatar_frame_id).trim() !== '' &&
+          String(p.avatar_frame_id).toLowerCase() !== 'none'
+      );
+      const hasSkin = Boolean(p.card_skin && String(p.card_skin).trim() !== '');
+
+      if (hasTop5) profilesWithTopFive += 1;
+      if (hasAvatar) profilesWithAvatar += 1;
+      if (hasFrame) profilesWithFrame += 1;
+      if (hasSkin) profilesWithCardSkin += 1;
+      if (hasTop5 || hasAvatar || hasFrame || hasSkin) profilesWithAnyLoadout += 1;
+    });
+
+    const totalLoadoutCustomizations = Math.max(
+      loadoutTelemetrySaves,
+      profilesWithTopFive + profilesWithAvatar + profilesWithFrame + profilesWithCardSkin
+    );
+
+    const totalHypeCardInteractions = Math.max(
+      hypeCardTelemetryOpens,
+      profilesWithCardSkin + profilesWithFrame
+    );
+
+    // Bingo Book interactions: telemetry opens/claims + active/claimed bingo_codes
+    const bingoCodesList = rawTables.bingoCodes || [];
+    const bingoCodeRedemptions = bingoCodesList.reduce(
+      (sum: number, c: any) => sum + (Number(c.times_used || c.uses || 0) || 1),
+      0
+    );
+    const totalBingoBookInteractions = bingoTelemetryEvents + bingoCodeRedemptions;
+
+    // --- FEATURE ENGAGEMENT BREAKDOWN (WITH LOADOUT, HYPE CARD & BINGO BOOK) ---
     const totalLikesAllTypes =
       seriesLikesData.length +
       chapterLikesData.length +
@@ -901,10 +1179,10 @@ export const AnalyticsDashboard = () => {
       creatorLikesData.length;
 
     const hypesByTarget = {
-      series: pureStandardHypesData.filter((h: any) => h.target_type === 'series').length,
-      chapter: pureStandardHypesData.filter((h: any) => h.target_type === 'chapter').length,
-      character: pureStandardHypesData.filter((h: any) => h.target_type === 'character').length,
-      creator: pureStandardHypesData.filter((h: any) => h.target_type === 'creator').length
+      series: allUnifiedHypes.filter((h: any) => h.target_type === 'series').length,
+      chapter: allUnifiedHypes.filter((h: any) => h.target_type === 'chapter').length,
+      character: allUnifiedHypes.filter((h: any) => h.target_type === 'character').length,
+      creator: allUnifiedHypes.filter((h: any) => h.target_type === 'creator').length
     };
 
     const totalTipDollars = tipsData.reduce(
@@ -915,9 +1193,8 @@ export const AnalyticsDashboard = () => {
     const engagementBreakdown = {
       chapterReads: chaptersOpenedLifetime,
       completedChapters: chaptersCompletedLifetime,
-      standardHypes: pureStandardHypesData.length,
+      totalHypes: allUnifiedHypes.length,
       hypesByTarget,
-      superHypes: superHypesData.length,
       quickReacts: reactsData.length,
       totalLikes: totalLikesAllTypes,
       seriesLikes: seriesLikesData.length,
@@ -926,36 +1203,107 @@ export const AnalyticsDashboard = () => {
       creatorLikes: creatorLikesData.length,
       comments: commentsData.length,
       creatorTipsCount: tipsData.length,
-      creatorTipsDollars: totalTipDollars
+      creatorTipsDollars: totalTipDollars,
+      // New Feature Engagement Metrics:
+      profileLoadoutCustomizations: totalLoadoutCustomizations,
+      profilesWithAnyLoadout,
+      profilesWithTopFive,
+      profilesWithAvatar,
+      profilesWithFrame,
+      profilesWithCardSkin,
+      hypeCardOpens: totalHypeCardInteractions,
+      bingoBookInteractions: totalBingoBookInteractions,
+      activeBingoCodesCount: bingoCodesList.length
     };
 
-    // --- SERIES PERFORMANCE & HEALTH ---
-    const chaptersList = rawTables.chapters || [];
-    const chapToSeries = new Map<string, string>();
-    const chapToNumber = new Map<string, number>();
-    chaptersList.forEach((c: any) => {
-      chapToSeries.set(String(c.id), c.series_slug);
-      if (c.chapter_number !== undefined) {
-        chapToNumber.set(String(c.id), Number(c.chapter_number));
-      }
-    });
-
+    // --- COMPREHENSIVE ID -> HUMAN NAME LOOKUP MAPS (NO RAW UUIDS IN FEED!) ---
     const rawSeriesSource =
       rawTables.series && rawTables.series.length > 0 ? rawTables.series : seriesList || [];
     const seriesTitleMap = new Map<string, string>();
     rawSeriesSource.forEach((s: any) => {
-      if (s.slug) seriesTitleMap.set(s.slug, s.title || s.slug);
+      const title = s.title || s.slug || 'Series';
+      if (s.slug) seriesTitleMap.set(String(s.slug), title);
+      if (s.id) seriesTitleMap.set(String(s.id), title);
     });
+
+    const chaptersList = rawTables.chapters || [];
+    const chapToSeries = new Map<string, string>();
+    const chapToNumber = new Map<string, number>();
+    const chapToTitle = new Map<string, string>();
+    chaptersList.forEach((c: any) => {
+      const cid = String(c.id);
+      chapToSeries.set(cid, c.series_slug);
+      if (c.chapter_number !== undefined) {
+        chapToNumber.set(cid, Number(c.chapter_number));
+      }
+      if (c.title) {
+        chapToTitle.set(cid, String(c.title));
+      }
+    });
+
+    const charIdToLabel = new Map<string, string>();
+    (rawTables.characters || []).forEach((ch: any) => {
+      if (ch.id && ch.name) {
+        const sTitle = seriesTitleMap.get(String(ch.series_slug || ''));
+        charIdToLabel.set(
+          String(ch.id),
+          sTitle ? `${ch.name} (${sTitle})` : String(ch.name)
+        );
+      }
+    });
+
+    const creatorIdToName = new Map<string, string>();
+    (rawTables.creators || []).forEach((cr: any) => {
+      if (cr.id && cr.name) {
+        creatorIdToName.set(String(cr.id), String(cr.name));
+      }
+    });
+
+    const resolveHypeTargetLabel = (h: any): string => {
+      const rawId = String(h.target_id || '').trim();
+      const tType = String(h.target_type || '').toLowerCase();
+
+      // 1. Check Series (by slug or UUID)
+      if (seriesTitleMap.has(rawId)) {
+        return seriesTitleMap.get(rawId)!;
+      }
+
+      // 2. Check Chapter (by UUID)
+      if (chapToSeries.has(rawId)) {
+        const sSlug = chapToSeries.get(rawId) || '';
+        const sTitle = seriesTitleMap.get(sSlug) || sSlug || 'Series';
+        const chNum = chapToNumber.get(rawId);
+        return `${sTitle}${chNum !== undefined ? ` • Ch. ${chNum}` : ''}`;
+      }
+
+      // 3. Check Character (by UUID)
+      if (charIdToLabel.has(rawId)) {
+        return charIdToLabel.get(rawId)!;
+      }
+
+      // 4. Check Creator (by UUID)
+      if (creatorIdToName.has(rawId)) {
+        return creatorIdToName.get(rawId)!;
+      }
+
+      // 5. Fallback: If rawId is a UUID for a deleted/archived chapter or item, never show the raw UUID string!
+      if (isUuidFormat(rawId)) {
+        if (tType === 'chapter') return 'a Manga Chapter';
+        if (tType === 'character') return 'a Featured Character';
+        if (tType === 'creator') return 'a Saturday AM Creator';
+        return 'a Featured Series';
+      }
+
+      return rawId || 'a Series';
+    };
 
     // Recent Community Activity Feed
     const feedItems: any[] = [];
-    superHypesData.slice(-8).forEach((sh: any) => {
+    allUnifiedHypes.slice(-8).forEach((h: any) => {
       feedItems.push({
-        type: 'super_hype',
-        label: `Super Hype dropped on ${
-          seriesTitleMap.get(sh.series_slug) || sh.series_slug || 'a series'
-        }`,
-        timestamp: sh.created_at || now.toISOString()
+        type: 'hype',
+        label: `Hype dropped on ${resolveHypeTargetLabel(h)}`,
+        timestamp: h.created_at || now.toISOString()
       });
     });
     commentsData.slice(-8).forEach((cm: any) => {
@@ -978,6 +1326,29 @@ export const AnalyticsDashboard = () => {
         timestamp: tp.created_at || now.toISOString()
       });
     });
+    telemetryRows
+      .filter((t: any) => {
+        const et = String(t.event_type || '').toLowerCase();
+        return (
+          et.includes('hype_card') ||
+          et.includes('loadout') ||
+          et.includes('bingo')
+        );
+      })
+      .slice(-8)
+      .forEach((t: any) => {
+        const et = String(t.event_type || '').toLowerCase();
+        const label = et.includes('hype_card')
+          ? 'Fan flexed their Virtual Hype Card'
+          : et.includes('loadout')
+          ? 'Fan customized their Profile Loadout'
+          : 'Fan opened the Creator Bingo Book';
+        feedItems.push({
+          type: 'feature',
+          label,
+          timestamp: t.created_at || now.toISOString()
+        });
+      });
     historyRows.slice(-10).forEach((rh: any) => {
       const sSlug = chapToSeries.get(String(rh.chapter_id));
       const chNum = chapToNumber.get(String(rh.chapter_id));
@@ -1019,21 +1390,13 @@ export const AnalyticsDashboard = () => {
       }
     });
 
-    const standardHypesPerSeries: Record<string, number> = {};
-    const superHypesPerSeries: Record<string, number> = {};
-
-    superHypesData.forEach((sh: any) => {
-      if (sh.series_slug) {
-        superHypesPerSeries[sh.series_slug] = (superHypesPerSeries[sh.series_slug] || 0) + 1;
-      }
-    });
-
-    pureStandardHypesData.forEach((h: any) => {
+    const hypesPerSeries: Record<string, number> = {};
+    allUnifiedHypes.forEach((h: any) => {
       if (h.target_type === 'series' && h.target_id) {
-        standardHypesPerSeries[h.target_id] = (standardHypesPerSeries[h.target_id] || 0) + 1;
+        hypesPerSeries[h.target_id] = (hypesPerSeries[h.target_id] || 0) + 1;
       } else if (h.target_type === 'chapter' && h.target_id) {
         const slug = chapToSeries.get(String(h.target_id));
-        if (slug) standardHypesPerSeries[slug] = (standardHypesPerSeries[slug] || 0) + 1;
+        if (slug) hypesPerSeries[slug] = (hypesPerSeries[slug] || 0) + 1;
       }
     });
 
@@ -1072,10 +1435,7 @@ export const AnalyticsDashboard = () => {
       const telemetryVisits = seriesVisitsPerSlug[slug] || 0;
       const pageVisits = Math.max(telemetryVisits, totalReads);
 
-      const stdHypes = standardHypesPerSeries[slug] || 0;
-      const supHypes = superHypesPerSeries[slug] || 0;
-      const totalHypeActions = stdHypes + supHypes;
-
+      const totalHypeActions = hypesPerSeries[slug] || 0;
       const totalLikes = likesPerSeries[slug] || 0;
       const totalReacts = reactsPerSeries[slug] || 0;
       const totalComments = commentsPerSeries[slug] || 0;
@@ -1089,8 +1449,7 @@ export const AnalyticsDashboard = () => {
       const engagementScore =
         totalReads +
         completedReads * 2 +
-        supHypes * 10 +
-        stdHypes * 5 +
+        totalHypeActions * 5 +
         totalLikes * 2 +
         totalReacts * 2 +
         totalComments * 3;
@@ -1106,8 +1465,6 @@ export const AnalyticsDashboard = () => {
         completed_reads: completedReads,
         ctr_percentage: ctr,
         total_hypes: totalHypeActions,
-        standard_hypes: stdHypes,
-        super_hypes: supHypes,
         total_likes: totalLikes,
         total_reacts: totalReacts,
         total_comments: totalComments,
@@ -1125,6 +1482,7 @@ export const AnalyticsDashboard = () => {
       },
       globalStats,
       growthStats,
+      peakActiveStats,
       dailyTimeline: buckets,
       recentUsers,
       telemetryStats,
@@ -1187,6 +1545,7 @@ export const AnalyticsDashboard = () => {
     countsSummary,
     globalStats,
     growthStats,
+    peakActiveStats,
     dailyTimeline,
     recentUsers,
     telemetryStats,
@@ -1381,7 +1740,6 @@ export const AnalyticsDashboard = () => {
         <div className="space-y-6 animate-fade-in">
           {/* EXECUTIVE KPI CARDS */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Total Accounts in Active Filter */}
             <div className="bg-gradient-to-br from-black via-zinc-950 to-blue-950/20 border border-zinc-800 p-5 rounded-2xl flex flex-col justify-between">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2.5">
@@ -1408,7 +1766,6 @@ export const AnalyticsDashboard = () => {
               </div>
             </div>
 
-            {/* Subscribers & Conversion */}
             <div className="bg-gradient-to-br from-black via-zinc-950 to-purple-950/25 border border-purple-500/30 p-5 rounded-2xl flex flex-col justify-between">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2.5">
@@ -1427,13 +1784,12 @@ export const AnalyticsDashboard = () => {
                 <span className="text-3xl font-black tracking-tight text-white">
                   {globalStats.premium_users.toLocaleString()}
                 </span>
-                <span className="text-[10px] font-bold text-zinc-500">
-                  {globalStats.free_users.toLocaleString()} Standard
+                <span className="text-[10px] font-bold text-purple-300">
+                  +{growthStats.plusMonth} in 30d
                 </span>
               </div>
             </div>
 
-            {/* 30-Day Active & Stickiness */}
             <div className="bg-gradient-to-br from-black via-zinc-950 to-amber-950/25 border border-[#fe9a00]/40 p-5 rounded-2xl flex flex-col justify-between">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2.5">
@@ -1458,7 +1814,6 @@ export const AnalyticsDashboard = () => {
               </div>
             </div>
 
-            {/* Chapters Opened vs Completed */}
             <div className="bg-gradient-to-br from-black via-zinc-950 to-emerald-950/20 border border-zinc-800 p-5 rounded-2xl flex flex-col justify-between">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2.5">
@@ -1484,13 +1839,183 @@ export const AnalyticsDashboard = () => {
             </div>
           </div>
 
+          {/* PLUS SUBSCRIBER SIGNUPS & UPGRADES VELOCITY (DAILY, WEEKLY, MONTHLY — MONTHLY + ANNUAL PLANS) */}
+          <div className="bg-gradient-to-r from-purple-950/30 via-black to-zinc-950 border border-purple-500/40 rounded-2xl p-5 shadow-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <Crown className="w-4 h-4 text-purple-400" />
+                <h3 className="text-xs font-black uppercase tracking-widest text-white">
+                  PLUS Subscriber Signups & Upgrades (Monthly $1.99/mo + Annual $20/yr)
+                </h3>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest">
+                <span className="text-purple-300">
+                  Total Active PLUS: {globalStats.premium_users.toLocaleString()}
+                </span>
+                <span className="text-zinc-600">•</span>
+                <span className="bg-[#fe9a00]/15 border border-[#fe9a00]/40 text-[#fe9a00] px-2 py-0.5 rounded-full">
+                  {growthStats.activeMonthlyPlanCount} Monthly ($1.99)
+                </span>
+                <span className="bg-purple-500/20 border border-purple-500/40 text-purple-300 px-2 py-0.5 rounded-full">
+                  {growthStats.activeAnnualPlanCount} Annual ($20)
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-zinc-950/90 border border-purple-500/30 p-4 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] text-purple-300 font-black uppercase tracking-widest block mb-1">
+                    PLUS Signups Today
+                  </span>
+                  <span className="text-2xl font-black text-white">
+                    +{growthStats.plusToday.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-[#fe9a00] font-bold block mt-0.5">
+                    {growthStats.plusTodayMonthly} Monthly • {growthStats.plusTodayAnnual} Annual
+                  </span>
+                  <span className="text-[9px] text-zinc-500 font-bold block mt-0.5">
+                    Yesterday: {growthStats.plusYesterday}
+                  </span>
+                </div>
+                <TrendBadge
+                  current={growthStats.plusToday}
+                  past={growthStats.plusYesterday}
+                  label="vs yest"
+                />
+              </div>
+
+              <div className="bg-zinc-950/90 border border-purple-500/30 p-4 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] text-purple-300 font-black uppercase tracking-widest block mb-1">
+                    PLUS Signups (Last 7 Days)
+                  </span>
+                  <span className="text-2xl font-black text-white">
+                    +{growthStats.plusWeek.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-[#fe9a00] font-bold block mt-0.5">
+                    {growthStats.plusWeekMonthly} Monthly • {growthStats.plusWeekAnnual} Annual
+                  </span>
+                  <span className="text-[9px] text-zinc-500 font-bold block mt-0.5">
+                    Prior 7d: {growthStats.plusLastWeek}
+                  </span>
+                </div>
+                <TrendBadge
+                  current={growthStats.plusWeek}
+                  past={growthStats.plusLastWeek}
+                  label="WoW"
+                />
+              </div>
+
+              <div className="bg-zinc-950/90 border border-purple-500/30 p-4 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] text-purple-300 font-black uppercase tracking-widest block mb-1">
+                    PLUS Signups (Last 30 Days)
+                  </span>
+                  <span className="text-2xl font-black text-white">
+                    +{growthStats.plusMonth.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-[#fe9a00] font-bold block mt-0.5">
+                    {growthStats.plusMonthMonthly} Monthly • {growthStats.plusMonthAnnual} Annual
+                  </span>
+                  <span className="text-[9px] text-zinc-500 font-bold block mt-0.5">
+                    Prior 30d: {growthStats.plusLastMonth}
+                  </span>
+                </div>
+                <TrendBadge
+                  current={growthStats.plusMonth}
+                  past={growthStats.plusLastMonth}
+                  label="MoM"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* PEAK ACTIVE USERS (ALL-TIME RECORDS: DAY, WEEK, MONTH) */}
+          <div className="bg-gradient-to-r from-amber-950/25 via-black to-zinc-950 border border-[#fe9a00]/40 rounded-2xl p-5 shadow-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <Trophy className="w-4 h-4 text-[#fe9a00]" />
+                <h3 className="text-xs font-black uppercase tracking-widest text-white">
+                  Peak Active Users — High-Water Marks (Day • Week • Month)
+                </h3>
+              </div>
+              <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+                Unique Active Users Across Reads, Hypes, Likes, Reacts & Sessions
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-zinc-950/90 border border-zinc-800 p-4 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] text-[#fe9a00] font-black uppercase tracking-widest block mb-1">
+                    Peak Active Day (DAU Record)
+                  </span>
+                  <span className="text-2xl font-black text-white">
+                    {peakActiveStats.peakDayCount.toLocaleString()}{' '}
+                    <span className="text-xs font-bold text-zinc-400">users</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-400 font-bold block mt-0.5">
+                    Record Set: <strong className="text-white">{peakActiveStats.peakDayLabel}</strong>
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="px-2.5 py-1 rounded-full bg-[#fe9a00]/15 border border-[#fe9a00]/40 text-[#fe9a00] text-[9px] font-black uppercase tracking-wider block">
+                    Today: {peakActiveStats.currentDayActive}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-zinc-950/90 border border-zinc-800 p-4 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] text-[#fe9a00] font-black uppercase tracking-widest block mb-1">
+                    Peak Active Week (WAU Record)
+                  </span>
+                  <span className="text-2xl font-black text-white">
+                    {peakActiveStats.peakWeekCount.toLocaleString()}{' '}
+                    <span className="text-xs font-bold text-zinc-400">users</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-400 font-bold block mt-0.5">
+                    Record Set: <strong className="text-white">{peakActiveStats.peakWeekLabel}</strong>
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="px-2.5 py-1 rounded-full bg-[#fe9a00]/15 border border-[#fe9a00]/40 text-[#fe9a00] text-[9px] font-black uppercase tracking-wider block">
+                    Last 7d: {peakActiveStats.currentWeekActive}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-zinc-950/90 border border-zinc-800 p-4 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] text-[#fe9a00] font-black uppercase tracking-widest block mb-1">
+                    Peak Active Month (MAU Record)
+                  </span>
+                  <span className="text-2xl font-black text-white">
+                    {peakActiveStats.peakMonthCount.toLocaleString()}{' '}
+                    <span className="text-xs font-bold text-zinc-400">users</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-400 font-bold block mt-0.5">
+                    Record Set:{' '}
+                    <strong className="text-white">{peakActiveStats.peakMonthLabel}</strong>
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="px-2.5 py-1 rounded-full bg-[#fe9a00]/15 border border-[#fe9a00]/40 text-[#fe9a00] text-[9px] font-black uppercase tracking-wider block">
+                    Last 30d: {peakActiveStats.currentMonthActive}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* NEW USER ACQUISITION VELOCITY ROW */}
           <div className="bg-black/80 border border-zinc-800 rounded-2xl p-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
               <div className="flex items-center gap-2">
                 <UserPlus className="w-4 h-4 text-blue-400" />
                 <h3 className="text-xs font-black uppercase tracking-widest text-white">
-                  New Signup Velocity ({audienceMode === 'fans_only' ? 'Pure Fans' : 'Selected Audience'})
+                  All New Account Signups ({audienceMode === 'fans_only' ? 'Pure Fans' : 'Selected Audience'})
                 </h3>
               </div>
               <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">
@@ -1567,7 +2092,7 @@ export const AnalyticsDashboard = () => {
                 </div>
                 <p className="text-[11px] text-zinc-400 font-medium mt-0.5">
                   Hover over any day to inspect daily chapter reads, 100% completions, new signups,
-                  and interactions.
+                  PLUS upgrades, and interactions.
                 </p>
               </div>
 
@@ -1597,14 +2122,16 @@ export const AnalyticsDashboard = () => {
                     key={day.dateKey}
                     className="flex-1 flex flex-col items-center h-full justify-end group relative"
                   >
-                    {/* Hover Tooltip */}
-                    <div className="opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity absolute -top-16 left-1/2 -translate-x-1/2 z-30 bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 shadow-xl whitespace-nowrap text-center">
+                    <div className="opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity absolute -top-20 left-1/2 -translate-x-1/2 z-30 bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 shadow-xl whitespace-nowrap text-center">
                       <p className="text-[9px] font-black uppercase text-white">{day.label}</p>
                       <p className="text-[9px] font-bold text-[#fe9a00]">
                         {day.reads} Opened ({day.completed} Finished)
                       </p>
                       <p className="text-[9px] font-bold text-blue-400">
-                        +{day.signups} New Signups • {day.engagements} Actions
+                        +{day.signups} Signups ({day.plusSignups} PLUS)
+                      </p>
+                      <p className="text-[9px] font-bold text-zinc-400">
+                        {day.engagements} Community Actions
                       </p>
                     </div>
 
@@ -1770,7 +2297,6 @@ export const AnalyticsDashboard = () => {
 
           {/* RECENT USER SIGNUPS & TELEMETRY */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Recent User Signups */}
             <div className="lg:col-span-7 bg-black/80 border border-zinc-800 rounded-2xl p-5">
               <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
                 <div className="flex items-center gap-2">
@@ -1829,7 +2355,6 @@ export const AnalyticsDashboard = () => {
               </div>
             </div>
 
-            {/* Telemetry Snapshot */}
             <div className="lg:col-span-5 bg-black/80 border border-zinc-800 rounded-2xl p-5 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
@@ -1905,11 +2430,11 @@ export const AnalyticsDashboard = () => {
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 2: FEATURE ENGAGEMENT (WHAT USERS ARE ENGAGING WITH)              */}
+      {/* TAB 2: FEATURE ENGAGEMENT (WITH BINGO BOOK, LOADOUT & HYPE CARD)      */}
       {/* ===================================================================== */}
       {activeTab === 'engagement' && (
         <div className="space-y-6 animate-fade-in">
-          {/* ENGAGEMENT PILLARS GRID */}
+          {/* ROW 1: CORE READING & CONTENT INTERACTION PILLARS */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
             <div className="bg-black border border-zinc-800 p-4 rounded-2xl">
               <div className="flex items-center gap-2 text-[#fe9a00] mb-2">
@@ -1926,34 +2451,35 @@ export const AnalyticsDashboard = () => {
               </p>
             </div>
 
-            <div className="bg-black border border-zinc-800 p-4 rounded-2xl">
-              <div className="flex items-center gap-2 text-amber-400 mb-2">
+            <div className="bg-black border border-[#fe9a00]/40 p-4 rounded-2xl">
+              <div className="flex items-center gap-2 text-[#fe9a00] mb-2">
                 <Flame className="w-4 h-4" />
                 <span className="text-[9px] font-black uppercase tracking-widest">
-                  Standard Hypes
+                  Total Hypes
                 </span>
               </div>
               <p className="text-2xl font-black text-white">
-                {engagementBreakdown.standardHypes.toLocaleString()}
+                {engagementBreakdown.totalHypes.toLocaleString()}
               </p>
-              <p className="text-[9px] text-zinc-500 font-bold mt-1">
-                Ch:{engagementBreakdown.hypesByTarget.chapter} • Ser:
-                {engagementBreakdown.hypesByTarget.series} • Chr:
+              <p className="text-[9px] text-zinc-400 font-bold mt-1">
+                Ser:{engagementBreakdown.hypesByTarget.series} • Ch:
+                {engagementBreakdown.hypesByTarget.chapter} • Chr:
                 {engagementBreakdown.hypesByTarget.character} • Cr:
                 {engagementBreakdown.hypesByTarget.creator}
               </p>
             </div>
 
-            <div className="bg-black border border-purple-500/30 p-4 rounded-2xl">
-              <div className="flex items-center gap-2 text-purple-400 mb-2">
-                <Sparkles className="w-4 h-4" />
-                <span className="text-[9px] font-black uppercase tracking-widest">Super Hypes</span>
+            <div className="bg-black border border-zinc-800 p-4 rounded-2xl">
+              <div className="flex items-center gap-2 text-red-400 mb-2">
+                <Heart className="w-4 h-4" />
+                <span className="text-[9px] font-black uppercase tracking-widest">Total Likes</span>
               </div>
               <p className="text-2xl font-black text-white">
-                {engagementBreakdown.superHypes.toLocaleString()}
+                {engagementBreakdown.totalLikes.toLocaleString()}
               </p>
               <p className="text-[9px] text-zinc-500 font-bold mt-1">
-                De-duplicated (+10 Score)
+                Ser:{engagementBreakdown.seriesLikes} • Ch:{engagementBreakdown.chapterLikes} • Chr:
+                {engagementBreakdown.characterLikes} • Cr:{engagementBreakdown.creatorLikes}
               </p>
             </div>
 
@@ -1971,17 +2497,16 @@ export const AnalyticsDashboard = () => {
             </div>
 
             <div className="bg-black border border-zinc-800 p-4 rounded-2xl">
-              <div className="flex items-center gap-2 text-red-400 mb-2">
-                <Heart className="w-4 h-4" />
-                <span className="text-[9px] font-black uppercase tracking-widest">Total Likes</span>
+              <div className="flex items-center gap-2 text-blue-400 mb-2">
+                <MessageSquare className="w-4 h-4" />
+                <span className="text-[9px] font-black uppercase tracking-widest">
+                  Series Comments
+                </span>
               </div>
               <p className="text-2xl font-black text-white">
-                {engagementBreakdown.totalLikes.toLocaleString()}
+                {engagementBreakdown.comments.toLocaleString()}
               </p>
-              <p className="text-[9px] text-zinc-500 font-bold mt-1">
-                Ser:{engagementBreakdown.seriesLikes} • Ch:{engagementBreakdown.chapterLikes} • Chr:
-                {engagementBreakdown.characterLikes} • Cr:{engagementBreakdown.creatorLikes}
-              </p>
+              <p className="text-[9px] text-zinc-500 font-bold mt-1">Community discussions</p>
             </div>
 
             <div className="bg-black border border-emerald-500/30 p-4 rounded-2xl">
@@ -2000,40 +2525,117 @@ export const AnalyticsDashboard = () => {
             </div>
           </div>
 
+          {/* ROW 2: VIRTUAL PROFILE LOADOUT, HYPE CARD FLEX & BINGO BOOK ANALYTICS */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-gradient-to-br from-black via-zinc-950 to-purple-950/25 border border-purple-500/30 p-4 rounded-2xl flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-purple-400 mb-1">
+                  <Sliders className="w-4 h-4" />
+                  <span className="text-[9px] font-black uppercase tracking-widest">
+                    Profile Loadout Customizations
+                  </span>
+                </div>
+                <p className="text-2xl font-black text-white">
+                  {engagementBreakdown.profileLoadoutCustomizations.toLocaleString()}
+                </p>
+                <p className="text-[9px] text-zinc-400 font-bold mt-1">
+                  Top 5: {engagementBreakdown.profilesWithTopFive} • Avatars:{' '}
+                  {engagementBreakdown.profilesWithAvatar} • Frames:{' '}
+                  {engagementBreakdown.profilesWithFrame} • Skins:{' '}
+                  {engagementBreakdown.profilesWithCardSkin}
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[9px] font-black uppercase tracking-wider shrink-0">
+                {engagementBreakdown.profilesWithAnyLoadout} Fans
+              </span>
+            </div>
+
+            <div className="bg-gradient-to-br from-black via-zinc-950 to-amber-950/25 border border-[#fe9a00]/30 p-4 rounded-2xl flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-[#fe9a00] mb-1">
+                  <CreditCard className="w-4 h-4" />
+                  <span className="text-[9px] font-black uppercase tracking-widest">
+                    Hype Card Opens & Equips
+                  </span>
+                </div>
+                <p className="text-2xl font-black text-white">
+                  {engagementBreakdown.hypeCardOpens.toLocaleString()}
+                </p>
+                <p className="text-[9px] text-zinc-400 font-bold mt-1">
+                  Custom Card Skins Equipped: {engagementBreakdown.profilesWithCardSkin}
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-[#fe9a00]/15 border border-[#fe9a00]/30 text-[#fe9a00] text-[9px] font-black uppercase tracking-wider shrink-0">
+                Flex Pass
+              </span>
+            </div>
+
+            <div className="bg-gradient-to-br from-black via-zinc-950 to-emerald-950/25 border border-emerald-500/30 p-4 rounded-2xl flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-emerald-400 mb-1">
+                  <Stamp className="w-4 h-4" />
+                  <span className="text-[9px] font-black uppercase tracking-widest">
+                    Bingo Book Hunts & Opens
+                  </span>
+                </div>
+                <p className="text-2xl font-black text-white">
+                  {engagementBreakdown.bingoBookInteractions.toLocaleString()}
+                </p>
+                <p className="text-[9px] text-zinc-400 font-bold mt-1">
+                  Active Event PINs in Vault: {engagementBreakdown.activeBingoCodesCount}
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[9px] font-black uppercase tracking-wider shrink-0">
+                Autographs
+              </span>
+            </div>
+          </div>
+
           {/* INTERACTION DISTRIBUTION + LIVE COMMUNITY ACTIVITY FEED */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left: Visual Feature Share */}
             <div className="lg:col-span-6 bg-black/80 border border-zinc-800 rounded-2xl p-6 space-y-4">
               <div>
                 <h3 className="text-xs font-black uppercase tracking-widest text-[#fe9a00]">
-                  How Fans Interact With Content
+                  How Fans Interact With Content & Features
                 </h3>
                 <p className="text-[11px] text-zinc-400 font-medium mt-0.5">
-                  De-duplicated breakdown of non-read community actions across all app features.
+                  De-duplicated breakdown of community actions across reading, profile loadouts,
+                  Hype Cards, and Bingo Book.
                 </p>
               </div>
 
               {(() => {
                 const items = [
                   {
-                    label: 'Standard Hypes (Chapters, Series, Characters, Creators)',
-                    count: engagementBreakdown.standardHypes,
-                    color: 'bg-[#fe9a00]'
-                  },
-                  {
                     label: 'Total Heart Likes (Series, Chapters, Characters, Creators)',
                     count: engagementBreakdown.totalLikes,
                     color: 'bg-red-500'
                   },
                   {
+                    label: 'Total Hypes (Series, Chapters, Characters, Creators)',
+                    count: engagementBreakdown.totalHypes,
+                    color: 'bg-[#fe9a00]'
+                  },
+                  {
+                    label: 'Profile Loadout Customizations (Top 5, Avatars, Frames, Skins)',
+                    count: engagementBreakdown.profileLoadoutCustomizations,
+                    color: 'bg-purple-500'
+                  },
+                  {
+                    label: 'Hype Card Opens & Custom Pass Equips',
+                    count: engagementBreakdown.hypeCardOpens,
+                    color: 'bg-amber-400'
+                  },
+                  {
+                    label: 'Bingo Book Opens & Autograph Hunts',
+                    count: engagementBreakdown.bingoBookInteractions,
+                    color: 'bg-emerald-400'
+                  },
+                  {
                     label: 'In-Reader Smart Comments (Page Quick Reacts)',
                     count: engagementBreakdown.quickReacts,
                     color: 'bg-cyan-400'
-                  },
-                  {
-                    label: 'Super Hypes (Main Series Boosts)',
-                    count: engagementBreakdown.superHypes,
-                    color: 'bg-purple-500'
                   },
                   {
                     label: 'Series Discussion Comments',
@@ -2043,7 +2645,7 @@ export const AnalyticsDashboard = () => {
                   {
                     label: 'Direct Creator Tips & Fanmail',
                     count: engagementBreakdown.creatorTipsCount,
-                    color: 'bg-emerald-400'
+                    color: 'bg-teal-400'
                   }
                 ];
                 const totalActions = Math.max(
@@ -2052,11 +2654,11 @@ export const AnalyticsDashboard = () => {
                 );
 
                 return (
-                  <div className="space-y-3.5 pt-2">
+                  <div className="space-y-3 pt-1">
                     {items.map(item => {
                       const pct = Math.round((item.count / totalActions) * 100);
                       return (
-                        <div key={item.label} className="space-y-1.5">
+                        <div key={item.label} className="space-y-1">
                           <div className="flex justify-between text-xs font-bold">
                             <span className="text-zinc-300">{item.label}</span>
                             <span className="text-white font-black">
@@ -2064,7 +2666,7 @@ export const AnalyticsDashboard = () => {
                               <span className="text-zinc-500 text-[10px]">({pct}%)</span>
                             </span>
                           </div>
-                          <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden">
+                          <div className="w-full h-2 bg-zinc-900 rounded-full overflow-hidden">
                             <div
                               className={`h-full ${item.color} rounded-full transition-all duration-500`}
                               style={{ width: `${Math.max(item.count > 0 ? 4 : 0, pct)}%` }}
@@ -2092,7 +2694,7 @@ export const AnalyticsDashboard = () => {
                 </span>
               </div>
 
-              <div className="space-y-2.5 max-h-[340px] overflow-y-auto pr-1 custom-scrollbar">
+              <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar">
                 {recentActivityFeed.length === 0 ? (
                   <p className="text-xs text-zinc-500 font-bold py-8 text-center">
                     No recent activity events recorded for this filter.
@@ -2108,16 +2710,20 @@ export const AnalyticsDashboard = () => {
                           className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
                             ev.type === 'tip'
                               ? 'bg-emerald-500/20 text-emerald-400'
-                              : ev.type === 'super_hype'
+                              : ev.type === 'hype'
+                              ? 'bg-[#fe9a00]/20 text-[#fe9a00]'
+                              : ev.type === 'feature'
                               ? 'bg-purple-500/20 text-purple-400'
                               : ev.type === 'comment'
                               ? 'bg-blue-500/20 text-blue-400'
-                              : 'bg-[#fe9a00]/20 text-[#fe9a00]'
+                              : 'bg-zinc-800 text-zinc-300'
                           }`}
                         >
                           {ev.type === 'tip' ? (
                             <DollarSign className="w-3.5 h-3.5" />
-                          ) : ev.type === 'super_hype' ? (
+                          ) : ev.type === 'hype' ? (
+                            <Flame className="w-3.5 h-3.5" />
+                          ) : ev.type === 'feature' ? (
                             <Sparkles className="w-3.5 h-3.5" />
                           ) : ev.type === 'comment' ? (
                             <MessageSquare className="w-3.5 h-3.5" />
@@ -2251,7 +2857,7 @@ export const AnalyticsDashboard = () => {
           {/* SERIES PERFORMANCE TABLE */}
           <div className="bg-black border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[1100px]">
+              <table className="w-full text-left border-collapse min-w-[1050px]">
                 <thead>
                   <tr className="bg-zinc-950 border-b border-zinc-800">
                     <th className="p-4 text-[9px] font-black uppercase tracking-widest text-zinc-500 w-12 text-center">
@@ -2276,7 +2882,7 @@ export const AnalyticsDashboard = () => {
                       <Filter className="w-3 h-3 inline mb-0.5" /> Reader CTR
                     </th>
                     <th className="p-4 text-[9px] font-black uppercase tracking-widest text-zinc-500 text-right">
-                      <Flame className="w-3 h-3 inline mb-0.5 text-[#fe9a00]" /> Hypes (Sup/Std)
+                      <Flame className="w-3 h-3 inline mb-0.5 text-[#fe9a00]" /> Total Hypes
                     </th>
                     <th className="p-4 text-[9px] font-black uppercase tracking-widest text-red-400 text-right">
                       <Heart className="w-3 h-3 inline mb-0.5" /> Likes
@@ -2342,10 +2948,7 @@ export const AnalyticsDashboard = () => {
                           {(Number(series.ctr_percentage) || 0).toFixed(1)}%
                         </td>
                         <td className="p-4 text-right font-bold text-zinc-200">
-                          {(Number(series.total_hypes) || 0).toLocaleString()}{' '}
-                          <span className="text-[10px] text-zinc-500">
-                            ({series.super_hypes}/{series.standard_hypes})
-                          </span>
+                          {(Number(series.total_hypes) || 0).toLocaleString()}
                         </td>
                         <td className="p-4 text-right font-bold text-red-400">
                           {(Number(series.total_likes) || 0).toLocaleString()}
