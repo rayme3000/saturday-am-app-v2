@@ -53,13 +53,13 @@ interface MatrixDayRow {
   dateStr: string;
   timeStr: string;
   label: string;
-  dayType: 'MONDAY' | 'SATURDAY' | 'WILDCARD';
+  dayType: 'MONDAY' | 'WEDNESDAY' | 'SATURDAY' | 'WILDCARD';
   weekNumber: number; // Always 1..8 relative to TODAY (or 0 for Wildcard Events)
   wildcardTitle?: string;
   slots: MatrixSlot[];
 }
 
-// Generates a strictly rolling 8-Week window (Week 1 to Week 8 relative to today) so week numbers NEVER pile up past 8!
+// Generates a strictly rolling 8-Week window (Week 1 to Week 8 relative to today) for MON, WED, and SAT (24 total drop days)
 const generateRollingEightWeekSlots = (): MatrixDayRow[] => {
   const rows: MatrixDayRow[] = [];
   const start = new Date();
@@ -67,9 +67,10 @@ const generateRollingEightWeekSlots = (): MatrixDayRow[] => {
 
   const dayCursor = new Date(start);
 
-  while (rows.length < 16) {
-    const dow = dayCursor.getDay(); // 1 = Monday, 6 = Saturday
-    if (dow === 1 || dow === 6) {
+  // 8 weeks * 3 days per week (Mon, Wed, Sat) = 24 rows
+  while (rows.length < 24) {
+    const dow = dayCursor.getDay(); // 1 = Monday, 3 = Wednesday, 6 = Saturday
+    if (dow === 1 || dow === 3 || dow === 6) {
       const dateStr = formatDateInput(dayCursor);
       const readable = dayCursor.toLocaleDateString('en-US', {
         weekday: 'short',
@@ -78,17 +79,21 @@ const generateRollingEightWeekSlots = (): MatrixDayRow[] => {
         year: 'numeric'
       });
 
-      const isSat = dow === 6;
-      const defaultSlotCount = isSat ? 3 : 2;
-      // Rolling 1..8 index based purely on current upcoming window
-      const rollingWeekNumber = Math.min(8, Math.max(1, Math.ceil((rows.length + 1) / 2)));
+      const dayType: 'MONDAY' | 'WEDNESDAY' | 'SATURDAY' =
+        dow === 6 ? 'SATURDAY' : dow === 3 ? 'WEDNESDAY' : 'MONDAY';
+
+      // Default slot counts: Saturday = 4 (Flagship + Hammer + Maximo + Gun+Bone), Wednesday = 4 (Co-Headliner + 3x Spoon), Monday = 3 (Redskin + Zephyr + Fan-X-Boy/Henshin!)
+      const defaultSlotCount = dayType === 'SATURDAY' ? 4 : dayType === 'WEDNESDAY' ? 4 : 3;
+
+      // Rolling 1..8 week number (every 3 release days = 1 week)
+      const rollingWeekNumber = Math.min(8, Math.max(1, Math.ceil((rows.length + 1) / 3)));
 
       rows.push({
         id: `std_${dateStr}`,
         dateStr,
         timeStr: '09:00',
         label: readable,
-        dayType: isSat ? 'SATURDAY' : 'MONDAY',
+        dayType,
         weekNumber: rollingWeekNumber,
         slots: Array.from({ length: defaultSlotCount }, () => ({
           seriesSlug: '',
@@ -111,7 +116,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
   const [savingTargetId, setSavingTargetId] = useState<string | null>(null);
   const [autoQueueNotifs, setAutoQueueNotifs] = useState(true);
 
-  // Rolling 8-Week Standard Rows (Week 1..8)
+  // Rolling 8-Week Standard Rows (Week 1..8 across Mon, Wed, Sat)
   const [matrixRows, setMatrixRows] = useState<MatrixDayRow[]>(() => generateRollingEightWeekSlots());
   // Wildcard / Holiday Special Rows (Separate from the 8-Week rotation so it never disrupts cadence)
   const [wildcardRows, setWildcardRows] = useState<MatrixDayRow[]>([]);
@@ -120,15 +125,16 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
   const [newWildcardDate, setNewWildcardDate] = useState(() => formatDateInput(new Date()));
   const [newWildcardTime, setNewWildcardTime] = useState('09:00');
 
-  const [dayFilter, setDayFilter] = useState<'ALL' | 'SATURDAY' | 'MONDAY'>('ALL');
+  const [dayFilter, setDayFilter] = useState<'ALL' | 'SATURDAY' | 'WEDNESDAY' | 'MONDAY'>('ALL');
   // Open Week 1 by default so the screen is clean and easy to read
   const [expandedWeeks, setExpandedWeeks] = useState<Record<number, boolean>>({ 1: true });
 
   // Mode 2: Single-Series Cadence Stagger & One-Off Override State
   const [selectedSeriesSlug, setSelectedSeriesSlug] = useState<string>('');
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
-  const [staggerDay, setStaggerDay] = useState<'SATURDAY' | 'MONDAY'>('SATURDAY');
+  const [staggerDay, setStaggerDay] = useState<'SATURDAY' | 'WEDNESDAY' | 'MONDAY'>('SATURDAY');
   const [staggerIntervalWeeks, setStaggerIntervalWeeks] = useState<number>(1);
+  const [chaptersPerDropDay, setChaptersPerDropDay] = useState<number>(1);
   const [staggerStartDate, setStaggerStartDate] = useState<string>(() => {
     const firstSat = generateRollingEightWeekSlots().find(r => r.dayType === 'SATURDAY');
     return firstSat ? firstSat.dateStr : formatDateInput(new Date());
@@ -180,7 +186,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
             });
           }
         } else {
-          // Any future scheduled chapter NOT on the standard 8-week Mon/Sat dates is automatically loaded as a Wildcard / Holiday Drop!
+          // Any future scheduled chapter NOT on the standard 8-week Mon/Wed/Sat dates is automatically loaded as a Wildcard / Holiday Drop!
           if (!detectedWildcardsMap.has(pubDateStr)) {
             const savedNames = JSON.parse(localStorage.getItem('am_wildcard_names') || '{}');
             const readable = pubDateObj.toLocaleDateString('en-US', {
@@ -572,7 +578,8 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     }
 
     const baseDate = new Date(`${staggerStartDate}T12:00:00`);
-    const targetDow = staggerDay === 'SATURDAY' ? 6 : 1;
+    const targetDow =
+      staggerDay === 'SATURDAY' ? 6 : staggerDay === 'WEDNESDAY' ? 3 : 1;
 
     while (baseDate.getDay() !== targetDow) {
       baseDate.setDate(baseDate.getDate() + 1);
@@ -585,9 +592,12 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     });
 
     const nextEdits = { ...oneOffEdits };
+    const safePerDay = Math.max(1, chaptersPerDropDay);
+
     sortedSelected.forEach((chapId, idx) => {
+      const dropGroupIndex = Math.floor(idx / safePerDay);
       const dropDate = new Date(baseDate);
-      dropDate.setDate(dropDate.getDate() + idx * staggerIntervalWeeks * 7);
+      dropDate.setDate(dropDate.getDate() + dropGroupIndex * staggerIntervalWeeks * 7);
       nextEdits[chapId] = {
         date: formatDateInput(dropDate),
         time: staggerTime || '09:00',
@@ -595,6 +605,53 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
       };
     });
 
+    setOneOffEdits(nextEdits);
+    if (setIsDirty) setIsDirty(true);
+  };
+
+  // Special 1-Click Spoon Preset: First 10 checked chapters drop on the first Wednesday, then 3 chapters every Wednesday after!
+  const applySpoonCatchUpPreset = () => {
+    if (selectedChapterIds.length === 0) {
+      return alert('Check the chapters below that you want to include in the Spoon Catch-Up schedule.');
+    }
+
+    const baseDate = new Date(`${staggerStartDate}T12:00:00`);
+    // Snap to next Wednesday (day 3)
+    while (baseDate.getDay() !== 3) {
+      baseDate.setDate(baseDate.getDate() + 1);
+    }
+
+    const sortedSelected = [...selectedChapterIds].sort((a, b) => {
+      const chapA = currentSeriesChapters.find(c => String(c.id) === a);
+      const chapB = currentSeriesChapters.find(c => String(c.id) === b);
+      return (chapA?.chapter_number || 0) - (chapB?.chapter_number || 0);
+    });
+
+    const nextEdits = { ...oneOffEdits };
+    sortedSelected.forEach((chapId, idx) => {
+      const dropDate = new Date(baseDate);
+      if (idx < 10) {
+        // First 10 chapters launch together on Day 1 (First Arc Binge Pack)
+        nextEdits[chapId] = {
+          date: formatDateInput(dropDate),
+          time: staggerTime || '09:00',
+          isPublished: true
+        };
+      } else {
+        // Remaining chapters drop 3 per Wednesday
+        const weekOffset = Math.floor((idx - 10) / 3) + 1;
+        dropDate.setDate(dropDate.getDate() + weekOffset * 7);
+        nextEdits[chapId] = {
+          date: formatDateInput(dropDate),
+          time: staggerTime || '09:00',
+          isPublished: true
+        };
+      }
+    });
+
+    setStaggerDay('WEDNESDAY');
+    setChaptersPerDropDay(3);
+    setStaggerIntervalWeeks(1);
     setOneOffEdits(nextEdits);
     if (setIsDirty) setIsDirty(true);
   };
@@ -658,9 +715,34 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     fetchAllChapters();
   };
 
-  // Renders the slot cards for any given day (Monday, Saturday, or Wildcard)
+  // Renders the slot cards for any given day (Monday, Wednesday, Saturday, or Wildcard)
   const renderDayCard = (dayRow: MatrixDayRow, isWildcard: boolean) => {
     const isSaturday = dayRow.dayType === 'SATURDAY';
+    const isWednesday = dayRow.dayType === 'WEDNESDAY';
+    const isOddWeek = dayRow.weekNumber % 2 === 1;
+
+    const getSlotLabel = (slotIdx: number): string => {
+      if (isWildcard) return `Event Slot #${slotIdx + 1}`;
+      if (isSaturday) {
+        if (slotIdx === 0) return `Slot 1 • Flagship (${isOddWeek ? 'Apple Black' : 'Clock Striker'})`;
+        if (slotIdx === 1) return 'Slot 2 • Hammer';
+        if (slotIdx === 2) return 'Slot 3 • Maximo';
+        if (slotIdx === 3) return 'Slot 4 • Gun+Bone';
+        return `Saturday Slot #${slotIdx + 1}`;
+      }
+      if (isWednesday) {
+        if (slotIdx === 0) return `Slot 1 • Bi-Weekly (${isOddWeek ? 'Oblivion Rouge' : 'Junkwoods'})`;
+        if (slotIdx === 1) return 'Slot 2 • Spoon (Drop #1)';
+        if (slotIdx === 2) return 'Slot 3 • Spoon (Drop #2)';
+        if (slotIdx === 3) return 'Slot 4 • Spoon (Drop #3)';
+        return `Wednesday Slot #${slotIdx + 1}`;
+      }
+      // Monday
+      if (slotIdx === 0) return 'Slot 1 • Redskin';
+      if (slotIdx === 1) return 'Slot 2 • Zephyr';
+      if (slotIdx === 2) return 'Slot 3 • Fan-X-Boy / Henshin!';
+      return `Monday Slot #${slotIdx + 1}`;
+    };
 
     return (
       <div
@@ -670,6 +752,8 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
             ? 'bg-purple-950/20 border-purple-500/50 shadow-[0_0_20px_rgba(168,85,247,0.1)]'
             : isSaturday
             ? 'bg-zinc-950 border-[#fe9a00]/40'
+            : isWednesday
+            ? 'bg-zinc-950 border-emerald-500/40'
             : 'bg-zinc-950 border-zinc-800'
         }`}
       >
@@ -683,6 +767,8 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                     ? 'bg-purple-500 text-white'
                     : isSaturday
                     ? 'bg-[#fe9a00] text-black'
+                    : isWednesday
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                     : 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
                 }`}
               >
@@ -690,7 +776,9 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                   ? `★ WILDCARD: ${dayRow.wildcardTitle}`
                   : isSaturday
                   ? '⚡ SATURDAY MORNING BLOCK'
-                  : '📅 MONDAY DROP'}
+                  : isWednesday
+                  ? '🥄 WEDNESDAY ORIGINALS + OSW'
+                  : '📅 MONDAY MOMENTUM BLOCK'}
               </span>
               <h4 className="text-sm font-black text-white uppercase tracking-wider">{dayRow.label}</h4>
               <span className="text-[10px] font-mono text-zinc-400">
@@ -736,7 +824,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
           </div>
 
           {/* Slots Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {dayRow.slots.map((slot, slotIdx) => {
               const seriesChaps = slot.seriesSlug ? chaptersBySeries[slot.seriesSlug] || [] : [];
               const hasSelection = Boolean(slot.seriesSlug || slot.chapterId);
@@ -753,18 +841,18 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                        {slotIdx === 0 && isSaturday ? 'Slot 1 • Anchor' : `Drop Slot #${slotIdx + 1}`}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 truncate">
+                        {getSlotLabel(slotIdx)}
                       </span>
                       {slot.persistedInDb && (
-                        <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
                           Saved
                         </span>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 shrink-0">
                       {hasSelection && (
                         <button
                           type="button"
@@ -834,14 +922,14 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
   };
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl animate-fade-in space-y-6">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-6xl animate-fade-in space-y-6">
       {/* Header & Mode Switcher */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-5">
         <div className="flex items-center gap-3">
           <Calendar className="w-6 h-6 text-[#fe9a00]" />
           <div>
             <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
-              Master Release Scheduler
+              Master Release Scheduler (Mon • Wed • Sat)
             </h2>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
               Rolling 8-Week Window (Never piles up past Week 8) + Non-Disruptive Wildcard Holiday Drops
@@ -928,16 +1016,24 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
           <div className="flex flex-wrap items-center justify-between gap-3 bg-black/80 p-4 rounded-xl border border-zinc-800">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mr-1">Show:</span>
-              {(['ALL', 'SATURDAY', 'MONDAY'] as const).map(f => (
+              {(['ALL', 'SATURDAY', 'WEDNESDAY', 'MONDAY'] as const).map(f => (
                 <button
                   key={f}
                   type="button"
                   onClick={() => setDayFilter(f)}
                   className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors ${
-                    dayFilter === f ? 'bg-[#fe9a00] text-black' : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
+                    dayFilter === f
+                      ? 'bg-[#fe9a00] text-black'
+                      : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'
                   }`}
                 >
-                  {f === 'ALL' ? 'Mondays & Saturdays' : f === 'SATURDAY' ? 'Saturdays Only' : 'Mondays Only'}
+                  {f === 'ALL'
+                    ? 'All (Mon / Wed / Sat)'
+                    : f === 'SATURDAY'
+                    ? 'Saturdays Only'
+                    : f === 'WEDNESDAY'
+                    ? 'Wednesdays Only'
+                    : 'Mondays Only'}
                 </button>
               ))}
 
@@ -946,7 +1042,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                 onClick={() => setShowNewWildcardForm(!showNewWildcardForm)}
                 className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest bg-purple-600 hover:bg-purple-500 text-white flex items-center gap-1.5 shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all cursor-pointer ml-1"
               >
-                <Star className="w-3 h-3 fill-white" /> + Add Wildcard / Holiday Event
+                <Star className="w-3 h-3 fill-white" /> + Add Wildcard / Binge Pack Event
               </button>
             </div>
 
@@ -987,7 +1083,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                 <div className="flex items-center gap-2">
                   <Star className="w-4 h-4 text-[#fe9a00] fill-[#fe9a00]" />
                   <h3 className="text-xs font-black uppercase tracking-widest text-white">
-                    Create Wildcard / Holiday Special Release (Does Not Disrupt 8-Week Rotation)
+                    Create Wildcard / Monthly Spoon Binge Pack / Holiday Release
                   </h3>
                 </div>
                 <button
@@ -1006,7 +1102,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Thanksgiving Special / Christmas Drop"
+                    placeholder="e.g. Spoon Monthly 6-Pack / Zarqa Debut"
                     value={newWildcardTitle}
                     onChange={e => setNewWildcardTitle(e.target.value)}
                     required
@@ -1054,7 +1150,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black uppercase tracking-widest text-purple-300 flex items-center gap-2">
                   <Star className="w-4 h-4 text-[#fe9a00] fill-[#fe9a00]" />
-                  Wildcard & Holiday Special Events ({wildcardRows.length}) — Independent from 8-Week Cycle
+                  Wildcard & Special Binge Events ({wildcardRows.length}) — Independent from 8-Week Cycle
                 </span>
               </div>
               <div className="space-y-3">
@@ -1212,27 +1308,54 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
 
             {selectedSeriesSlug && (
               <div className="bg-zinc-900/70 border border-[#fe9a00]/30 rounded-xl p-4 space-y-4">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-2">
                   <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
                     <Zap className="w-3.5 h-3.5" /> 1-Click Auto-Stagger Selected Chapters
                   </span>
-                  <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
-                    {selectedChapterIds.length} chapter(s) checked below
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={applySpoonCatchUpPreset}
+                      className="px-3 py-1 rounded-lg bg-emerald-600/30 border border-emerald-400/50 text-emerald-200 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-600/50 transition-colors cursor-pointer"
+                    >
+                      🥄 Spoon Preset (10-Ch Launch + 3/Wed)
+                    </button>
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
+                      {selectedChapterIds.length} chapter(s) checked below
+                    </span>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                   <div>
                     <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1">
                       Release Day
                     </label>
                     <select
                       value={staggerDay}
-                      onChange={e => setStaggerDay(e.target.value as 'SATURDAY' | 'MONDAY')}
+                      onChange={e => setStaggerDay(e.target.value as 'SATURDAY' | 'WEDNESDAY' | 'MONDAY')}
                       className="w-full bg-black border border-zinc-700 rounded-lg p-2.5 text-xs text-white font-bold cursor-pointer"
                     >
                       <option value="SATURDAY">Every Saturday</option>
+                      <option value="WEDNESDAY">Every Wednesday</option>
                       <option value="MONDAY">Every Monday</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1">
+                      Chapters Per Drop
+                    </label>
+                    <select
+                      value={chaptersPerDropDay}
+                      onChange={e => setChaptersPerDropDay(Number(e.target.value))}
+                      className="w-full bg-black border border-zinc-700 rounded-lg p-2.5 text-xs text-white font-bold cursor-pointer"
+                    >
+                      <option value={1}>1 Chapter / Drop</option>
+                      <option value={2}>2 Chapters / Drop</option>
+                      <option value={3}>3 Chapters / Drop (Spoon)</option>
+                      <option value={6}>6 Chapters (Binge Pack)</option>
+                      <option value={10}>10 Chapters (Arc Launch)</option>
                     </select>
                   </div>
 
@@ -1247,7 +1370,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                     >
                       <option value={1}>Weekly (Every 1 Week)</option>
                       <option value={2}>Bi-Weekly (Every 2 Weeks)</option>
-                      <option value={3}>Every 3 Weeks (Flagship)</option>
+                      <option value={3}>Every 3 Weeks</option>
                       <option value={4}>Every 4 Weeks (Monthly)</option>
                     </select>
                   </div>

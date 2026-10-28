@@ -4,6 +4,7 @@ import { HomeEditor } from './HomeEditor';
 import { SeriesEditor } from './SeriesEditor';
 import { ChapterUploader } from './ChapterUploader';
 import { ReleaseScheduler } from './ReleaseScheduler';
+import { HouseAdBuilder } from './HouseAdBuilder';
 import { AvatarMaker } from './AvatarMaker';
 import { StickerMaker } from './StickerMaker';
 import { CardSkinMaker } from './CardSkinMaker';
@@ -1713,6 +1714,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
     { id: 'users', label: 'User Directory' },
     { id: 'chapter', label: 'Chapter Upload' },
     { id: 'scheduler', label: 'Release Scheduler' },
+    { id: 'adstudio', label: 'Ad Studio' },
     { id: 'hype', label: 'Hype Economy' }, 
     { id: 'avatars', label: 'Avatar Maker' }, 
     { id: 'frames', label: 'Frame Maker' }, 
@@ -1756,6 +1758,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           {activeTab === 'users' && <UserManager />}
           {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
           {activeTab === 'scheduler' && <ReleaseScheduler setIsDirty={setIsDirty} />}
+          {activeTab === 'adstudio' && <HouseAdBuilder Dropzone={Dropzone} setIsDirty={setIsDirty} />}
           {activeTab === 'hype' && <HypeManager setIsDirty={setIsDirty} />}
           {activeTab === 'avatars' && <AvatarMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
           {activeTab === 'frames' && <FrameMaker />} 

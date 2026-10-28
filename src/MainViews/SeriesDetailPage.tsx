@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2, Clock } from 'lucide-react';
 import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import {
@@ -7,7 +7,8 @@ import {
   isActiveOneShotWednesday,
   getOneShotWednesdaySeries,
   isChapterReleasedForUser,
-  isInPlusEarlyAccessWindow
+  isInPlusEarlyAccessWindow,
+  PLUS_EARLY_ACCESS_MS
 } from '../oneshotWednesday';
 import { MangaReader } from './MangaReader';
 import { HypeButton } from '../Components/HypeButton'; 
@@ -15,6 +16,7 @@ import { LikeButton } from '../Components/LikeButton';
 import { SeriesCommentsSection } from '../Components/SeriesCommentsSection';
 import { PromoModal } from '../Components/PromoModal'; 
 import { ShareModal } from '../Components/ShareModal';
+import { RewardedAdModal } from '../Components/RewardedAdModal';
 import { useTelemetry } from '../Components/useTelemetry';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
@@ -38,6 +40,17 @@ const isNewRelease = (publishAt?: string | null, createdAt?: string | null) => {
   const releaseTime = new Date(effectiveDate).getTime();
   const now = Date.now();
   return releaseTime <= now && (now - releaseTime) < 7 * 24 * 60 * 60 * 1000;
+};
+
+const formatLiveCountdown = (targetMs: number, nowMs: number) => {
+  const diff = targetMs - nowMs;
+  if (diff <= 0) return 'DROPPING NOW!';
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+  const mins = Math.floor((diff / (1000 * 60)) % 60);
+  if (days > 0) return `${days}D ${hours}H ${mins}M`;
+  if (hours > 0) return `${hours}H ${mins}M`;
+  return `${Math.max(1, mins)}M`;
 };
 
 const seriesTutorialSlide = [
@@ -98,6 +111,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [activeTab, setActiveTab] = useState('chapters');
   const [isReaderOpen, setIsReaderOpen] = useState(false);
   const [chapters, setChapters] = useState<any[]>([]);
+  const [nextScheduledChapter, setNextScheduledChapter] = useState<any | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [activePages, setActivePages] = useState([]);
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [creators, setCreators] = useState<any[]>([]);
@@ -135,7 +150,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [visibleCount, setVisibleCount] = useState(10);
 
-  const [, setShowAdModal] = useState(false);
+  const [showAdModal, setShowAdModal] = useState(false);
   const [targetChapter, setTargetChapter] = useState<any>(null);
   const [unlockedChapters, setUnlockedChapters] = useState<string[]>([]);
   
@@ -146,10 +161,38 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const commentsRef = useRef<HTMLDivElement>(null);
   const creatorRef = useRef<HTMLDivElement>(null);
 
-  // Check both localSeries and seriesList so raw DB fetches never lose home_section
   const isCompletedRun = isCompletedRunSeries(localSeries, seriesList) || isCompletedRunSeries(series, seriesList);
   const isUnlockedForOneShotWednesday = isActiveOneShotWednesday(localSeries || series, seriesList);
   const currentWednesdayPick = getOneShotWednesdaySeries(seriesList);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('donation_status') === 'success') {
+      const returnedCreator = params.get('creator') || 'the Creator';
+      const returnedAmount = Number(params.get('amount') || 5);
+      const returnedSessionId = params.get('session_id') || '';
+
+      setDonationCreator({ name: returnedCreator, avatar_url: '' });
+      setDonationAmount(returnedAmount);
+      setDonationStep('success');
+
+      if (returnedSessionId) {
+        supabase.functions.invoke('create-checkout-session', {
+          body: {
+            type: 'confirm_donation',
+            sessionId: returnedSessionId,
+            creatorName: returnedCreator,
+            amountDollars: returnedAmount
+          }
+        });
+      }
+
+      window.dispatchEvent(new Event('profileUpdated'));
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('donation_status') === 'cancelled') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 640);
@@ -158,7 +201,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Check if returning from a successful Stripe Donation Checkout
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('donation_status') === 'success') {
@@ -250,7 +292,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       try {
         const { data, error } = await supabase.from('temporary_unlocks').select('chapter_id');
         if (error) throw error;
-        if (data) setUnlockedChapters(data.map(d => d.chapter_id));
+        if (data) setUnlockedChapters(data.map(d => String(d.chapter_id)));
       } catch (err) { console.error("Error fetching temporary unlocks:", err); }
     };
     fetchUnlocks();
@@ -287,6 +329,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           isChapterReleasedForUser(ch.publish_at, isPlus)
         );
         setChapters(liveChapters as any);
+
+        const upcomingChapters = chapterData
+          .filter((ch: any) => !isChapterReleasedForUser(ch.publish_at, isPlus) && ch.publish_at)
+          .sort((a: any, b: any) => new Date(a.publish_at).getTime() - new Date(b.publish_at).getTime());
+
+        setNextScheduledChapter(upcomingChapters.length > 0 ? upcomingChapters[0] : null);
       }
       
       if (creatorData && creatorData.length > 0) {
@@ -315,7 +363,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return () => window.removeEventListener('seriesUpdated', fetchDetails);
   }, [fetchDetails]);
 
-  // --- SPIKE-SAFE READING PROGRESS CALCULATION (USES `ch.page_count` WITHOUT FULL-SCANNING `pages`) ---
   useEffect(() => {
     if (!currentUserId || chapters.length === 0) return;
     const fetchReadingProgress = async () => {
@@ -360,7 +407,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const checkIsLocked = (chapterId: string) => {
     if (userTier === 'premium' || isPremiumUser) return false;
 
-    // COMPLETED RUNS PAYWALL & ONE-SHOT WEDNESDAYS LOGIC
     if (isCompletedRun) {
       if (isUnlockedForOneShotWednesday && userTier === 'free') {
         return false;
@@ -373,9 +419,36 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return absoluteIndex !== 0; 
   };
 
+  const openChapterInReader = async (chapter: any, initialPage = 0) => {
+    const { data } = await supabase
+      .from('pages')
+      .select('id, image_url')
+      .eq('chapter_id', chapter.id)
+      .order('page_order', { ascending: true });
+
+    if (data && data.length > 0) {
+      window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: true } }));
+      setActivePages(data as any);
+      setActiveChapterId(chapter.id);
+      setStartPage(initialPage);
+      setIsReaderOpen(true);
+      setIsAutoLoading(false);
+
+      if (userTier !== 'premium') {
+        let reads = parseInt(sessionStorage.getItem('am_read_counter') || '0');
+        reads += 1;
+        if (reads % 5 === 0) setShowShareModal(true);
+        sessionStorage.setItem('am_read_counter', reads.toString());
+      }
+    } else {
+      setIsAutoLoading(false);
+      alert("No pages found for this chapter yet!");
+    }
+  };
+
   const handleReadChapter = async (chapter: any, _absoluteIndex: number, initialPage = 0) => {
     const isInitiallyLocked = checkIsLocked(chapter.id);
-    const hasTempUnlock = unlockedChapters.includes(chapter.id);
+    const hasTempUnlock = unlockedChapters.includes(String(chapter.id));
 
     if (isInitiallyLocked && !hasTempUnlock) {
       setIsAutoLoading(false);
@@ -386,39 +459,49 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             ? (isUnlockedForOneShotWednesday
                 ? "⚡ It's One-Shot Wednesday! Create a Free Account right now to read this entire Completed Run FREE for 24 hours!"
                 : "Completed Runs are exclusive to Saturday AM+ PLUS members (with 1 title unlocked every One-Shot Wednesday). Create a Free Account to get started!")
-            : "Create a Free Account to unlock Chapters 1-3 and read the newest release." 
+            : "Create a Free Account to unlock Chapters 1-3, read the newest release, and unlock chapters with 15s spotlights!" 
         }); 
         return; 
       }
+
+      // Completed Runs stay strictly behind the PLUS Vault paywall (except on One-Shot Wednesdays)
+      if (isCompletedRun) {
+        setUpsellConfig({
+          type: 'premium',
+          message: `This Completed Run is locked in the Saturday AM+ PLUS Vault! Upgrade to PLUS ($1.99/mo) to read it right now, or check back on One-Shot Wednesdays (Next Spotlight: ${currentWednesdayPick?.title || 'TBA'}).`
+        });
+        return;
+      }
+
+      // Ongoing Series (Chapters 4+): Open the 15s Rewarded Ad Modal (or Upgrade to PLUS)
       setTargetChapter(chapter);
       setShowAdModal(true);
-      setUpsellConfig({
-        type: 'premium',
-        message: isCompletedRun
-          ? `This Completed Run is locked in the Saturday AM+ PLUS Vault! Upgrade to PLUS ($1.99/mo) to read it right now, or check back on One-Shot Wednesdays (Next Spotlight: ${currentWednesdayPick?.title || 'TBA'}).`
-          : "Upgrade to a Saturday AM Manga Hype PLUS Subscription to unlock the entire vault and read every chapter without limits!"
-      });
       return;
     }
 
-    const { data } = await supabase.from('pages').select('id, image_url').eq('chapter_id', chapter.id).order('page_order', { ascending: true });
-      
-    if (data && data.length > 0) { 
-      window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: true } }));
-      setActivePages(data as any); 
-      setActiveChapterId(chapter.id);
-      setStartPage(initialPage); 
-      setIsReaderOpen(true); 
-      setIsAutoLoading(false); 
-      
-      if (userTier !== 'premium') {
-        let reads = parseInt(sessionStorage.getItem('am_read_counter') || '0');
-        reads += 1;
-        if (reads % 5 === 0) setShowShareModal(true); 
-        sessionStorage.setItem('am_read_counter', reads.toString());
+    await openChapterInReader(chapter, initialPage);
+  };
+
+  const handleRewardEarnedUnlock = async () => {
+    if (!targetChapter) return;
+    const chapIdStr = String(targetChapter.id);
+
+    try {
+      if (currentUserId) {
+        await supabase.from('temporary_unlocks').insert([
+          {
+            user_id: currentUserId,
+            chapter_id: targetChapter.id
+          }
+        ]);
       }
-    } 
-    else { setIsAutoLoading(false); alert("No pages found for this chapter yet!"); }
+    } catch (err) {
+      console.warn('Temporary unlock record note:', err);
+    }
+
+    setUnlockedChapters(prev => (prev.includes(chapIdStr) ? prev : [...prev, chapIdStr]));
+    setShowAdModal(false);
+    await openChapterInReader(targetChapter, 0);
   };
 
   useEffect(() => {
@@ -537,6 +620,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const logoScale = localSeries.logo_scale ?? 100;
   const logoOffset = localSeries.logo_offset ?? 16;
 
+  const isPlusActive = userTier === 'premium' || isPremiumUser;
+  const scheduledTargetMs = nextScheduledChapter?.publish_at
+    ? new Date(nextScheduledChapter.publish_at).getTime() - (isPlusActive ? PLUS_EARLY_ACCESS_MS : 0)
+    : null;
+
   return (
     <div className="relative min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-transparent text-white">
       
@@ -555,6 +643,19 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       )}
 
       <ShareModal isOpen={showShareModal} onClose={() => setShowShareModal(false)} series={localSeries} chapter={chapters.find(c => c.id === activeChapterId) || targetChapter} currentUser={{ id: currentUserId }} />
+
+      {/* 15-SECOND REWARDED VIDEO / ANIMATED HOUSE AD MODAL */}
+      <RewardedAdModal
+        isOpen={showAdModal}
+        onClose={() => setShowAdModal(false)}
+        onRewardEarned={handleRewardEarnedUnlock}
+        onUpgradeClick={() => {
+          setShowAdModal(false);
+          if (onNavigate) onNavigate({ action: 'sub' });
+        }}
+        chapterNumber={targetChapter?.chapter_number}
+        seriesTitle={localSeries?.title}
+      />
 
       {showPromo && (
         <PromoModal 
@@ -953,6 +1054,45 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           {/* --- CHAPTERS CONTENT --- */}
           {activeTab === 'chapters' && (
             <div className="animate-fade-in">
+              {/* LIVE NEXT NEW CHAPTER TIMER BANNER */}
+              {nextScheduledChapter && scheduledTargetMs && scheduledTargetMs > nowTick && (
+                <div className={`mb-6 p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg ${
+                  isPlusActive
+                    ? 'bg-gradient-to-r from-purple-950/60 via-zinc-900 to-amber-950/40 border-purple-500/40'
+                    : 'bg-zinc-900/90 border-[#fe9a00]/40'
+                }`}>
+                  <div className="flex items-center gap-3 text-center sm:text-left">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                      isPlusActive ? 'bg-purple-600/30 border border-purple-400/50 text-purple-300' : 'bg-[#fe9a00]/20 border border-[#fe9a00]/40 text-[#fe9a00]'
+                    }`}>
+                      <Clock className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-white">
+                        {isPlusActive
+                          ? `⚡ Next New Chapter (Ch. ${nextScheduledChapter.chapter_number}) • 12H Early Access`
+                          : `⏳ Next New Chapter (Ch. ${nextScheduledChapter.chapter_number}) Scheduled`}
+                      </p>
+                      <p className="text-[9px] sm:text-[10px] font-bold text-zinc-400 mt-0.5">
+                        {isPlusActive
+                          ? 'Your PLUS Early Access unlocks 12 hours before the public release!'
+                          : '⚡ Saturday AM+ PLUS members unlock this chapter 12 hours early!'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-widest border ${
+                      isPlusActive
+                        ? 'bg-black/60 border-purple-400/50 text-purple-200'
+                        : 'bg-black/60 border-[#fe9a00]/50 text-[#fe9a00]'
+                    }`}>
+                      Drops in {formatLiveCountdown(scheduledTargetMs, nowTick)}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {chapters.length > 0 && (
                 <div className="flex justify-between items-center w-full mb-6 px-2">
                   <span className="text-zinc-500 font-bold text-[10px] sm:text-xs uppercase tracking-widest">
@@ -974,7 +1114,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               {displayedChapters.map((ch: any) => {
                 const absoluteIndex = chapters.findIndex(c => c.id === ch.id);
                 const actualProgress = readProgresses[String(ch.id)] || 0;
-                const hasTempUnlock = unlockedChapters.includes(ch.id);
+                const hasTempUnlock = unlockedChapters.includes(String(ch.id));
                 const isLocked = checkIsLocked(ch.id) && !hasTempUnlock;
                 const isEarlyAccess = isInPlusEarlyAccessWindow(ch.publish_at);
                 const showNewBadge = isNewRelease(ch.publish_at, ch.created_at);
