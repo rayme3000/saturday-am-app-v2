@@ -228,12 +228,14 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
 
                   {/* TOP BADGE: ONE-SHOT WEDNESDAY, PLUS VAULT, NEXT CH COUNTDOWN, OR NEW */}
                   {showFreeWednesdayCue ? (
-                    <div className="absolute top-1.5 left-1.5 right-9 z-40 flex flex-col gap-0.5 pointer-events-none">
-                      <div className="bg-gradient-to-r from-[#fe9a00] via-yellow-400 to-[#fe9a00] text-black text-[7px] sm:text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-t shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-1 w-max max-w-full truncate">
+                    <div className="absolute top-1.5 left-1.5 right-8 z-40 flex flex-col gap-0.5 pointer-events-none">
+                      <div className="bg-gradient-to-r from-[#fe9a00] via-yellow-400 to-[#fe9a00] text-black text-[7px] sm:text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded sm:rounded-b-none sm:rounded-t shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-0.5 sm:gap-1 w-max max-w-full">
                         <Zap className="w-2.5 h-2.5 fill-black shrink-0" />
-                        <span className="truncate">FREE TODAY</span>
+                        <span className="sm:hidden">FREE</span>
+                        <span className="hidden sm:inline truncate">FREE TODAY</span>
                       </div>
-                      <div className="bg-black/90 backdrop-blur-md border border-[#fe9a00] text-[#fe9a00] text-[7px] sm:text-[8px] font-mono font-black uppercase tracking-tight px-1.5 py-0.5 rounded-b shadow-lg flex items-center gap-1 w-max max-w-full">
+                      {/* Hidden on mobile (<640px) so it doesn't cover the cover art, since the timer is already below the card title! */}
+                      <div className="hidden sm:flex bg-black/90 backdrop-blur-md border border-[#fe9a00] text-[#fe9a00] text-[8px] font-mono font-black uppercase tracking-tight px-1.5 py-0.5 rounded-b shadow-lg items-center gap-1 w-max max-w-full">
                         <Clock className="w-2.5 h-2.5 text-red-500 animate-spin shrink-0" style={{ animationDuration: '6s' }} />
                         <span>{countdownText}</span>
                       </div>
@@ -243,7 +245,7 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                       PLUS VAULT
                     </div>
                   ) : nextChapterCountdown ? (
-                    <div className={`absolute top-1.5 left-1.5 z-40 text-[7px] sm:text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-lg pointer-events-none flex items-center gap-1 ${
+                    <div className={`hidden sm:flex absolute top-1.5 left-1.5 z-40 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-lg pointer-events-none items-center gap-1 ${
                       nextChapterCountdown.isSoon
                         ? 'bg-[#fe9a00] text-black animate-pulse'
                         : 'bg-black/85 backdrop-blur-md text-[#fe9a00] border border-[#fe9a00]/60'
@@ -261,8 +263,9 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
 
                   {/* BOTTOM URGENCY RIBBON FOR ACTIVE WEDNESDAY ONE-SHOT (NON-PLUS ONLY) */}
                   {showFreeWednesdayCue && (
-                    <div className="absolute bottom-0 inset-x-0 z-40 bg-gradient-to-r from-red-600 via-[#fe9a00] to-red-600 text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest py-1 px-1.5 text-center shadow-[0_-4px_12px_rgba(254,154,0,0.6)] pointer-events-none truncate">
-                      READ NOW • LOCKS AT MIDNIGHT!
+                    <div className="absolute bottom-0 inset-x-0 z-40 bg-gradient-to-r from-red-600 via-[#fe9a00] to-red-600 text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest py-1 px-1 text-center shadow-[0_-4px_12px_rgba(254,154,0,0.6)] pointer-events-none truncate">
+                      <span className="sm:hidden">READ FREE TODAY</span>
+                      <span className="hidden sm:inline">READ NOW • LOCKS AT MIDNIGHT!</span>
                     </div>
                   )}
 
