@@ -6,29 +6,33 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'prompt',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-192x192-v2.png', 'pwa-512x512-v2.png'],
+      registerType: 'autoUpdate',
+      injectRegister: 'auto',
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+        navigateFallbackDenylist: [/^\/share/, /^\/api/]
+      },
       manifest: {
-        name: 'Saturday AM',
+        name: 'Saturday AM - Manga Hype',
         short_name: 'Saturday AM',
-        description: 'The premier destination for diverse manga.',
+        description: 'Read original diverse manga online with Saturday AM.',
         theme_color: '#000000',
         background_color: '#000000',
         display: 'standalone',
         orientation: 'portrait',
+        start_url: '/',
         icons: [
           {
-            src: 'pwa-192x192-v2.png',
+            src: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/pwa-512x512-v4.png?v=4',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
-            src: 'pwa-512x512-v2.png',
-            sizes: '512x512',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512-v2.png',
+            src: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/pwa-512x512-v4.png?v=4',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
