@@ -17,6 +17,26 @@ const iconMaskStyle = {
   maskPosition: 'center'
 };
 
+const EXCLUDED_STAFF_ADMIN_EMAILS = new Set([
+  'odunze.oguguo@yahoo.com',
+  'saturday.editorial@gmail.com',
+  'demetrene.billups@gmail.com',
+  'publisher@saturday-am.com',
+  'rayme3000@gmail.com',
+  'saturdayam.writer@gmail.com',
+  'dropkickanimation@gmail.com',
+  'fsimmonds4@gmail.com'
+]);
+
+const EXCLUDED_LEADERBOARD_ROLES = new Set([
+  'creator',
+  'core_creator',
+  'staff',
+  'influencer',
+  'admin',
+  'moderator'
+]);
+
 const isNewItem = (createdAt: string | undefined) => {
   if (!createdAt) return false;
   return Date.now() - new Date(createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
@@ -25,9 +45,23 @@ const isNewItem = (createdAt: string | undefined) => {
 let memProfileStats: any = null;
 let memUserProfile: any = null;
 
-const getFandomTier = (lifetimeScore: number, isPremium: boolean = false) => {
+interface FandomTierInfo {
+  name: string;
+  min?: number;
+  max?: number;
+  color: string;
+  hex: string;
+  bar?: string;
+  glow?: string;
+  isLocked?: boolean;
+}
+
+const getFandomTier = (
+  lifetimeScore: number,
+  isPremium: boolean = false
+): { currentTier: FandomTierInfo; nextTier: FandomTierInfo | null; progressPercent: number } => {
   const score = lifetimeScore || 0;
-  const tiers = [
+  const tiers: FandomTierInfo[] = [
     { name: 'Ember', min: 0, max: 99, color: 'text-rose-900', hex: '#881337', bar: 'bg-rose-900', glow: 'drop-shadow-[0_0_8px_rgba(136,19,55,0.8)]' },
     { name: 'Glint', min: 100, max: 999, color: 'text-red-700', hex: '#b91c1c', bar: 'bg-red-700', glow: 'drop-shadow-[0_0_8px_rgba(185,28,28,0.8)]' },
     { name: 'Flare', min: 1000, max: 4999, color: 'text-red-500', hex: '#ef4444', bar: 'bg-red-500', glow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]' },
@@ -39,18 +73,18 @@ const getFandomTier = (lifetimeScore: number, isPremium: boolean = false) => {
 
   if (!isPremium && score >= 1000) {
     return {
-      currentTier: tiers[1], 
-      nextTier: { name: 'Flare', color: 'text-zinc-500', hex: '#71717a', isLocked: true },
+      currentTier: tiers[1],
+      nextTier: { name: 'Flare', color: 'text-zinc-500', hex: '#71717a', glow: '', isLocked: true },
       progressPercent: 100
     };
   }
 
-  const currentIndex = tiers.findIndex(t => score >= t.min && score <= t.max);
+  const currentIndex = tiers.findIndex(t => score >= (t.min ?? 0) && score <= (t.max ?? Infinity));
   const currentTier = tiers[currentIndex !== -1 ? currentIndex : 0];
   const nextTier = currentIndex < tiers.length - 1 ? tiers[currentIndex + 1] : null;
 
   let progressPercent = 100;
-  if (nextTier && !nextTier.isLocked) {
+  if (nextTier && !nextTier.isLocked && nextTier.min !== undefined && currentTier.min !== undefined) {
     progressPercent = Math.min(100, Math.max(0, ((score - currentTier.min) / (nextTier.min - currentTier.min)) * 100));
   }
 
@@ -103,22 +137,22 @@ const RenderFrameAnimations = ({ anim, color }: { anim: string, color: string })
 
 export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any) => {
   const { seriesList = [], vaultAvatars = [], cardSkins = [], vaultFrames = [] } = useSeriesData();
-  
+
   const [showFlexCard, setShowFlexCard] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('faves');
   const [selectingSlot, setSelectingSlot] = useState<number | null>(null);
-  const [isSubscriber, setIsSubscriber] = useState(false); 
-  const [isLoggedIn, setIsLoggedIn] = useState(false);   
+  const [isSubscriber, setIsSubscriber] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
-  const [errorToast, setErrorToast] = useState(''); 
+  const [errorToast, setErrorToast] = useState('');
   const [timeLeft, setTimeLeft] = useState('');
-  
+
   const [userProfile, setUserProfile] = useState(memUserProfile || { username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] as (string | null)[] });
-  const [tempProfile, setTempProfile] = useState({...userProfile});
-  const [profileStats, setProfileStats] = useState(memProfileStats || { total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---", score: 0, hypes_remaining: 0 });
-  
+  const [tempProfile, setTempProfile] = useState({ ...userProfile });
+  const [profileStats, setProfileStats] = useState(memProfileStats || { total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: '---', score: 0, hypes_remaining: 0 });
+
   const [unlockedHunts, setUnlockedHunts] = useState(0);
   const [totalHunts, setTotalHunts] = useState(11);
 
@@ -130,7 +164,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
     const calculateTimeUntilSaturday = () => {
       const now = new Date();
       const nextSaturday = new Date();
-      
+
       nextSaturday.setUTCHours(0, 0, 0, 0);
       const daysUntilSaturday = (6 - now.getUTCDay() + 7) % 7;
       const daysToAdd = daysUntilSaturday === 0 ? 7 : daysUntilSaturday;
@@ -155,7 +189,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
       memUserProfile = null;
       setIsLoggedIn(false);
       setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] });
-      setProfileStats({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---", score: 0, hypes_remaining: 0 });
+      setProfileStats({ total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: '---', score: 0, hypes_remaining: 0 });
     };
 
     window.addEventListener('instantLogout', handleInstantLogout);
@@ -173,64 +207,109 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
     if (user) {
       setIsLoggedIn(true);
       const fallbackName = user.user_metadata?.username || 'Reader';
+      const cleanEmail = String(user.email || '').trim().toLowerCase();
 
-      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-      
-      let myRank: string | number = "---";
-      let myScore = 0;
+      const [
+        profileRes,
+        allProfilesMetaRes,
+        hypesCountRes,
+        superHypesCountRes,
+        reactsCountRes,
+        commentsCountRes,
+        completedReadsCountRes,
+        historyReadsCountRes
+      ] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+        supabase.from('profiles').select('id, role, is_admin, email, linked_creator_name, fandom_score'),
+        supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id).neq('target_type', 'comment'),
+        supabase.from('super_hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('page_reacts').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('series_comments').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('completed_reads').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('reading_history').select('*', { count: 'exact', head: true }).eq('user_id', user.id)
+      ]);
 
-      try {
-        const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: user.id });
-        if (myRankData && myRankData.length > 0) {
-          myRank = Number(myRankData[0].rank);
-          myScore = Number(myRankData[0].score);
-        }
-      } catch {
-        // Fallback rank calculation
-      }
-
+      const data = profileRes.data;
       if (data) {
-        if (myRank === "---" || isNaN(Number(myRank))) {
-          const { count } = await supabase
-            .from('profiles')
-            .select('*', { count: 'exact', head: true })
-            .gt('fandom_score', data.fandom_score || 0);
-          myRank = (count || 0) + 1;
+        const myScore = Number(data.fandom_score || 0);
+        const allProfiles = allProfilesMetaRes.data || [];
+        const myRole = String(data.role || 'reader').trim().toLowerCase();
+        const isCurrentUserStaffOrCreator =
+          Boolean(data.is_admin) ||
+          EXCLUDED_LEADERBOARD_ROLES.has(myRole) ||
+          EXCLUDED_STAFF_ADMIN_EMAILS.has(cleanEmail) ||
+          Boolean(String(data.linked_creator_name || '').trim());
+
+        let myRank: string | number = '---';
+        if (isCurrentUserStaffOrCreator) {
+          myRank = 'CREW';
+        } else {
+          const higherFansCount = allProfiles.filter((p: any) => {
+            if (String(p.id) === String(user.id)) return false;
+            const r = String(p.role || 'reader').trim().toLowerCase();
+            const em = String(p.email || '').trim().toLowerCase();
+            const isExcluded =
+              Boolean(p.is_admin) ||
+              EXCLUDED_LEADERBOARD_ROLES.has(r) ||
+              EXCLUDED_STAFF_ADMIN_EMAILS.has(em) ||
+              Boolean(String(p.linked_creator_name || '').trim());
+            if (isExcluded) return false;
+            return Number(p.fandom_score || 0) > myScore;
+          }).length;
+          myRank = higherFansCount + 1;
         }
 
         const isUserPremium = Boolean(data.is_premium);
         const userHypesLeft = data.super_hypes_left ?? data.hypes_remaining ?? (isUserPremium ? 3 : 1);
 
-        const newStats = { 
-          total_hypes: data.total_hypes || 0, 
-          super_hypes: userHypesLeft, 
-          quick_reacts: data.quick_reacts || 0, 
-          chapters_read: data.chapters_read || 0, 
-          rank: myRank as string, 
-          score: data.fandom_score ?? myScore ?? 0, 
-          hypes_remaining: userHypesLeft 
+        const verifiedTotalHypes = Math.max(
+          Number(data.total_hypes || 0),
+          Number(hypesCountRes.count || 0)
+        );
+        const verifiedSuperHypes = Math.max(
+          Number(data.super_hypes || 0),
+          Number(superHypesCountRes.count || 0)
+        );
+        const verifiedSmartComments = Math.max(
+          Number(data.quick_reacts || 0),
+          Number(reactsCountRes.count || 0) + Number(commentsCountRes.count || 0)
+        );
+        const verifiedChaptersRead = Math.max(
+          Number(data.chapters_read || 0),
+          Number(completedReadsCountRes.count || 0),
+          Number(historyReadsCountRes.count || 0)
+        );
+
+        const newStats = {
+          total_hypes: verifiedTotalHypes,
+          super_hypes: verifiedSuperHypes,
+          quick_reacts: verifiedSmartComments,
+          chapters_read: verifiedChaptersRead,
+          rank: String(myRank),
+          score: myScore,
+          hypes_remaining: userHypesLeft
         };
         setProfileStats(newStats);
-        memProfileStats = newStats; 
-        
+        memProfileStats = newStats;
+
         setIsSubscriber(isUserPremium);
-        
+
         let rawTopFive = (data.top_five || []).map((item: any) => (item === 'null' || !item ? null : item));
         while (rawTopFive.length < 5) {
           rawTopFive.push(null);
         }
         rawTopFive = rawTopFive.slice(0, 5);
 
-        const loadedProfile = { 
-          username: data.username || fallbackName, 
-          topFive: rawTopFive, 
-          cardSkin: data.card_skin || '', 
-          avatarUrl: data.avatar_url || '', 
-          frameId: data.avatar_frame_id || '' 
+        const loadedProfile = {
+          username: data.username || fallbackName,
+          topFive: rawTopFive,
+          cardSkin: data.card_skin || '',
+          avatarUrl: data.avatar_url || '',
+          frameId: data.avatar_frame_id || ''
         };
         setUserProfile(loadedProfile);
         setTempProfile(loadedProfile);
-        memUserProfile = loadedProfile; 
+        memUserProfile = loadedProfile;
       }
     } else {
       setIsLoggedIn(false);
@@ -259,7 +338,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
       else setUpsellConfig(config);
       return;
     }
-    setTempProfile({...userProfile});
+    setTempProfile({ ...userProfile });
     setActiveTab(targetTab);
     setSelectingSlot(slotIndex);
     setIsEditing(true);
@@ -282,21 +361,21 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
     if (user) {
       const realName = user.user_metadata?.username || tempProfile.username;
       const { error } = await supabase.from('profiles').update({
-          username: realName, 
-          top_five: tempProfile.topFive, 
-          card_skin: tempProfile.cardSkin,
-          avatar_url: tempProfile.avatarUrl, 
-          avatar_frame_id: tempProfile.frameId === '' ? null : tempProfile.frameId
-        }).eq('id', user.id);
-      if (error) { 
-        setErrorToast("Failed to save! Please check your connection."); 
-        setTimeout(() => setErrorToast(''), 3000); 
-        return; 
+        username: realName,
+        top_five: tempProfile.topFive,
+        card_skin: tempProfile.cardSkin,
+        avatar_url: tempProfile.avatarUrl,
+        avatar_frame_id: tempProfile.frameId === '' ? null : tempProfile.frameId
+      }).eq('id', user.id);
+      if (error) {
+        setErrorToast('Failed to save! Please check your connection.');
+        setTimeout(() => setErrorToast(''), 3000);
+        return;
       }
     }
-    setUserProfile({...tempProfile});
-    memUserProfile = {...tempProfile}; 
-    
+    setUserProfile({ ...tempProfile });
+    memUserProfile = { ...tempProfile };
+
     setIsEditing(false);
     setShowSuccessToast(true);
     setTimeout(() => setShowSuccessToast(false), 3000);
@@ -314,7 +393,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
   ];
   const displaySeriesList = seriesList && seriesList.length > 0 ? seriesList : fallbackSeriesList;
 
-  const renderAvatarWithFrame = (avatarUrl: string, frameId: string, sizeClass = "w-32 h-32 sm:w-40 sm:h-40", iconSize = "w-12 h-12") => {
+  const renderAvatarWithFrame = (avatarUrl: string, frameId: string, sizeClass = 'w-32 h-32 sm:w-40 sm:h-40', iconSize = 'w-12 h-12') => {
     const frame = vaultFrames.find((f: any) => f.id === frameId);
     const borderColor = frame ? frame.border_color : 'transparent';
     const glowColor = frame?.glow_color && frame.glow_color !== 'transparent' ? frame.glow_color : 'transparent';
@@ -322,10 +401,10 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
 
     return (
       <div className={`relative flex items-center justify-center flex-shrink-0 ${sizeClass}`}>
-         <div className={`rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center z-10 w-full h-full transition-all shadow-xl`} style={{ border: frame ? `2px solid ${borderColor}` : '2px solid transparent', boxShadow: glowColor !== 'transparent' ? `0 0 15px ${glowColor}` : 'none' }}>
-           {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className={`${iconSize} text-zinc-500`} />}
-         </div>
-         <RenderFrameAnimations anim={animStyle} color={borderColor} />
+        <div className={`rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center z-10 w-full h-full transition-all shadow-xl`} style={{ border: frame ? `2px solid ${borderColor}` : '2px solid transparent', boxShadow: glowColor !== 'transparent' ? `0 0 15px ${glowColor}` : 'none' }}>
+          {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className={`${iconSize} text-zinc-500`} />}
+        </div>
+        <RenderFrameAnimations anim={animStyle} color={borderColor} />
       </div>
     );
   };
@@ -358,7 +437,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-32 sm:pb-40">
-      <GlobalFlexCard isOpen={showFlexCard} onClose={() => setShowFlexCard(false)} />
+      <GlobalFlexCard isOpen={showFlexCard} onClose={() => setShowFlexCard(false)} onNavigate={onNavigate} />
 
       <div className="fixed inset-0 z-[-1] bg-black">
         <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
@@ -372,8 +451,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
 
       <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-xl pl-6 pr-20 sm:pr-24 pt-6 pb-4 border-b border-zinc-800 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 sm:gap-0">
         <div>
-          <button 
-            onClick={onBack} 
+          <button
+            onClick={onBack}
             className="mb-4 flex items-center gap-2 text-zinc-400 hover:text-white transition-colors w-max cursor-pointer"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -408,18 +487,18 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
             <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter drop-shadow-lg">{userProfile.username}</h1>
             <p className={`text-xs font-black uppercase tracking-widest mt-1 italic drop-shadow-md ${isSubscriber ? 'text-purple-400' : 'text-zinc-400'}`}>{isSubscriber ? 'Premium Saturday AM+ Member' : 'Standard Member'}</p>
           </div>
-          
+
           <div className="sm:ml-auto flex items-center justify-center gap-3 mt-4 sm:mt-0">
             {isLoggedIn ? (
-              <button 
-                onClick={handleLogout} 
+              <button
+                onClick={handleLogout}
                 className="bg-zinc-900 border border-zinc-700 text-white px-4 sm:px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-xs hover:bg-red-600 hover:border-red-600 transition-all shadow-md cursor-pointer"
               >
                 Logout
               </button>
             ) : (
-              <button 
-                onClick={onLoginClick} 
+              <button
+                onClick={onLoginClick}
                 className="bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] sm:text-xs hover:bg-white transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
               >
                 Log In
@@ -434,12 +513,14 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
         <div className="px-6 mb-10">
           <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-6 bg-gradient-to-r from-zinc-900/90 via-black/80 to-zinc-900/90 border border-zinc-800 rounded-2xl p-6 shadow-2xl backdrop-blur-md relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-[#fe9a00]/10 rounded-bl-full blur-2xl pointer-events-none" />
-            
+
             <div className="flex items-center gap-4">
               <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shadow-[0_0_15px_rgba(254,154,0,0.3)]"><Trophy className="w-8 h-8 sm:w-10 sm:h-10 text-[#fe9a00]" /></div>
               <div className="flex flex-col text-center sm:text-left">
                 <h3 className="text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1">Monthly Leaderboard Rank</h3>
-                <div className="text-4xl sm:text-5xl font-black italic uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-[#fe9a00] drop-shadow-md">#{profileStats.rank}</div>
+                <div className="text-4xl sm:text-5xl font-black italic uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-[#fe9a00] drop-shadow-md">
+                  {profileStats.rank === 'CREW' ? 'CREW' : `#${profileStats.rank}`}
+                </div>
                 <button onClick={() => onNavigate({ action: 'leaderboard' })} className="mt-2 w-max bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(0,0,0,0.3)] mx-auto sm:mx-0 cursor-pointer">View Leaderboard</button>
               </div>
             </div>
@@ -457,7 +538,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               </div>
 
               <div className="relative h-3 w-full bg-zinc-900 rounded-full border border-zinc-800 overflow-hidden shadow-inner mt-2">
-                <div 
+                <div
                   className={`absolute top-0 left-0 h-full transition-all duration-1000 ease-out ${currentTier.bar} shadow-[0_0_10px_rgba(255,255,255,0.3)]`}
                   style={{ width: `${progressPercent}%` }}
                 />
@@ -466,8 +547,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               {nextTier ? (
                 <div className="flex justify-between items-center mt-2">
                   {nextTier.isLocked ? (
-                    <span 
-                      className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 cursor-pointer hover:text-white transition-colors" 
+                    <span
+                      className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 cursor-pointer hover:text-white transition-colors"
                       onClick={() => {
                         const cfg = { title: 'Rank Capped', message: 'Free users are capped at the Glint rank. Subscribe to Saturday AM+ to unlock Flare and beyond!' };
                         if (onUpsell) onUpsell(cfg); else setUpsellConfig(cfg);
@@ -501,8 +582,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <Star className="w-6 h-6 text-[#fe9a00] mb-2" />
-              <span className="text-3xl font-black">{profileStats.super_hypes?.toLocaleString() || 0}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes Left</span>
+              <span className="text-3xl font-black">{(profileStats.super_hypes || 0).toLocaleString()}</span>
+              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Super Hypes Dropped</span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" />
@@ -521,7 +602,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               <span className="text-[10px] text-zinc-300 uppercase tracking-widest font-bold relative z-10">Premium Status</span>
             </div>
           </div>
-          
+
           <div className="bg-zinc-900/80 backdrop-blur-md border border-zinc-800 rounded-xl p-5 md:p-6 mb-2 mt-8 flex flex-col sm:flex-row items-center gap-6 shadow-xl">
             <div className="flex-1 w-full">
               <div className="flex justify-between items-end mb-3">
@@ -534,16 +615,16 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
             </div>
             <button onClick={() => onNavigate({ action: 'bingobook' })} className="w-full sm:w-auto bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-6 py-3 sm:py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-[0_0_10px_rgba(0,0,0,0.3)] hover:shadow-[0_0_20px_rgba(254,154,0,0.4)] cursor-pointer">Open Bingo Book</button>
           </div>
-          
+
           <div className="flex justify-between items-end mb-4 mt-12">
             <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 drop-shadow-md"><Star className="w-4 h-4 text-[#fe9a00]" /> Top 5 Fave Series</h3>
           </div>
-          
+
           <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
             {[0, 1, 2, 3, 4].map((index) => {
               const slug = userProfile.topFive[index];
               const isValidSeries = slug && displaySeriesList.some((s: any) => s.slug === slug);
-              
+
               return (
                 <React.Fragment key={index}>
                   {isValidSeries ? renderMiniCard(slug, false, () => openEditor('faves', index)) : renderEmptySlot(() => openEditor('faves', index))}
@@ -555,20 +636,20 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
 
         <div className="flex flex-col items-center justify-center w-full mt-12 mb-8 px-6 gap-4">
           <div className="relative group w-full sm:w-auto flex justify-center">
-            <button 
+            <button
               onClick={() => {
                 setShowFlexCard(true);
                 if (!isSubscriber) {
                   const cfg = {
-                    title: "Saturday AM+ Pass",
-                    message: "Free users can view standard cards. Upgrade to Pro to customize with holographic skins, animated borders, and shareable flex cards!"
+                    title: 'Saturday AM+ Pass',
+                    message: 'Free users can view standard cards. Upgrade to Pro to customize with holographic skins, animated borders, and shareable flex cards!'
                   };
                   if (onUpsell) onUpsell(cfg); else setUpsellConfig(cfg);
                 }
-              }} 
+              }}
               className="flex items-center justify-center gap-4 bg-white text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)] w-full sm:w-max cursor-pointer"
             >
-              <CreditCard className="w-6 h-6"/> Flex your Hype Card
+              <CreditCard className="w-6 h-6" /> Flex your Hype Card
             </button>
           </div>
 
@@ -579,11 +660,11 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
           )}
 
           {isSubscriber && (
-            <button 
-              onClick={() => onNavigate({ action: 'sub' })} 
+            <button
+              onClick={() => onNavigate({ action: 'sub' })}
               className="flex items-center gap-4 bg-zinc-900 border border-zinc-700 text-zinc-300 px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-all shadow-[0_0_20px_rgba(0,0,0,0.4)] w-max mx-auto sm:mx-0 cursor-pointer"
             >
-              <Key className="w-6 h-6"/> Redeem Upgrade
+              <Key className="w-6 h-6" /> Redeem Upgrade
             </button>
           )}
         </div>
@@ -613,18 +694,18 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               <button onClick={() => { setActiveTab('faves'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'faves' ? 'bg-zinc-800 text-[#fe9a00]' : 'text-zinc-500 hover:text-white'}`}>Top 5</button>
               <button onClick={() => { setActiveTab('art'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'art' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Avatar Art</button>
               <button onClick={() => { setActiveTab('frame'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'frame' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Border Frame</button>
-              <button 
-                onClick={() => { 
+              <button
+                onClick={() => {
                   if (!isSubscriber) {
-                    setUpsellConfig({ 
-                      title: 'Hype Card Skins', 
-                      message: 'Custom AM Card Skins are exclusively for Saturday AM+ members! Upgrade to customize your digital pass.' 
+                    setUpsellConfig({
+                      title: 'Hype Card Skins',
+                      message: 'Custom AM Card Skins are exclusively for Saturday AM+ members! Upgrade to customize your digital pass.'
                     });
-                    return; 
+                    return;
                   }
-                  setActiveTab('card'); 
-                  setSelectingSlot(null); 
-                }} 
+                  setActiveTab('card');
+                  setSelectingSlot(null);
+                }}
                 className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'card' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'} flex items-center justify-center gap-1`}
               >
                 {!isSubscriber && <Lock className="w-3 h-3 text-[#fe9a00]" />} Hype Card
@@ -632,7 +713,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
             </div>
 
             <div className="p-6 overflow-y-auto flex-1 bg-black/40 no-scrollbar">
-              
               {activeTab === 'faves' && (
                 <div className="space-y-6">
                   <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-2">Equip your favorite series to your profile slots</p>
@@ -655,13 +735,13 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                     <div className="bg-zinc-900 border border-zinc-700 p-4 rounded-xl mt-4 animate-fade-in-up shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
                       <div className="flex justify-between items-center mb-4 border-b border-zinc-800 pb-3">
                         <h4 className="text-[#fe9a00] text-[10px] font-black uppercase tracking-widest">Select Series for Slot {selectingSlot + 1}</h4>
-                        <button 
-                          onClick={() => { 
-                            const newLoadout = [...tempProfile.topFive]; 
-                            newLoadout[selectingSlot] = null; 
-                            setTempProfile({...tempProfile, topFive: newLoadout}); 
-                            setSelectingSlot(null); 
-                          }} 
+                        <button
+                          onClick={() => {
+                            const newLoadout = [...tempProfile.topFive];
+                            newLoadout[selectingSlot] = null;
+                            setTempProfile({ ...tempProfile, topFive: newLoadout });
+                            setSelectingSlot(null);
+                          }}
                           className="text-[9px] font-black uppercase tracking-widest text-red-500 hover:text-red-400 border border-red-900/30 px-3 py-1.5 rounded transition-colors bg-red-900/10 hover:bg-red-900/30 cursor-pointer"
                         >
                           Clear Slot
@@ -673,12 +753,12 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                           const isAlreadyEquipped = tempProfile.topFive.includes(s.slug);
 
                           return (
-                            <div 
-                              key={s.slug} 
-                              onClick={() => handleSelectSeriesForSlot(s.slug)} 
+                            <div
+                              key={s.slug}
+                              onClick={() => handleSelectSeriesForSlot(s.slug)}
                               className={`relative rounded overflow-hidden cursor-pointer group border flex items-center gap-2 p-1.5 transition-all ${
-                                isCurrentlyInThisSlot 
-                                  ? 'border-[#fe9a00] bg-zinc-800' 
+                                isCurrentlyInThisSlot
+                                  ? 'border-[#fe9a00] bg-zinc-800'
                                   : 'border-zinc-800 hover:border-[#fe9a00] bg-black hover:bg-zinc-900'
                               }`}
                             >
@@ -700,21 +780,23 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                 <div className="space-y-6">
                   <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-4">Select an artwork skin for your Hype Card</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    <div onClick={() => setTempProfile({...tempProfile, cardSkin: ''})} className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${!tempProfile.cardSkin ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-zinc-500'}`}>
+                    <div onClick={() => setTempProfile({ ...tempProfile, cardSkin: '' })} className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${!tempProfile.cardSkin ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-zinc-500'}`}>
                       <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-80 mix-blend-overlay" />
                       <div className="absolute inset-0 flex items-center justify-center bg-black/40"><span className="text-[10px] font-black uppercase tracking-widest text-white drop-shadow-md">Carbon Black</span></div>
                     </div>
 
                     {cardSkins.map((skin: any) => (
-                      <div key={skin.id} 
-                           onClick={() => {
-                              if (!isSubscriber) { 
-                                setUpsellConfig({ title: 'Premium Feature', message: 'Custom AM Card Skins are exclusively for Saturday AM+ members! Upgrade to customize your digital pass.' }); 
-                                return; 
-                              }
-                              setTempProfile({...tempProfile, cardSkin: skin.image_url})
-                           }} 
-                           className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === skin.image_url ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-[#fe9a00]/50'}`}>
+                      <div
+                        key={skin.id}
+                        onClick={() => {
+                          if (!isSubscriber) {
+                            setUpsellConfig({ title: 'Premium Feature', message: 'Custom AM Card Skins are exclusively for Saturday AM+ members! Upgrade to customize your digital pass.' });
+                            return;
+                          }
+                          setTempProfile({ ...tempProfile, cardSkin: skin.image_url });
+                        }}
+                        className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === skin.image_url ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-[#fe9a00]/50'}`}
+                      >
                         <img src={skin.image_url} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" alt={skin.name} />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 hover:opacity-100 transition-opacity"><span className="text-[10px] font-black uppercase tracking-widest text-white text-center px-2">{skin.name}</span></div>
                         {!isSubscriber && <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-10"><Lock className="w-6 h-6 text-zinc-400" /></div>}
@@ -728,16 +810,16 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               {activeTab === 'art' && (
                 <>
                   <div className="flex items-center justify-center mb-8">
-                     <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center border-transparent shadow-xl">
-                       {tempProfile.avatarUrl ? <img src={tempProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-zinc-500" />}
-                     </div>
+                    <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center border-transparent shadow-xl">
+                      {tempProfile.avatarUrl ? <img src={tempProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-zinc-500" />}
+                    </div>
                   </div>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                    <div onClick={() => setTempProfile({...tempProfile, avatarUrl: ''})} className={`relative cursor-pointer rounded-full p-1 transition-all ${!tempProfile.avatarUrl ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
+                    <div onClick={() => setTempProfile({ ...tempProfile, avatarUrl: '' })} className={`relative cursor-pointer rounded-full p-1 transition-all ${!tempProfile.avatarUrl ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
                       <div className="w-full aspect-square bg-zinc-800 rounded-full border-2 border-black flex items-center justify-center"><User className="w-8 h-8 text-zinc-500" /></div>
                     </div>
                     {vaultAvatars.map((avatar: any) => (
-                      <div key={avatar.id} onClick={() => setTempProfile({...tempProfile, avatarUrl: avatar.image_url})} className={`relative cursor-pointer rounded-full p-1 transition-all ${tempProfile.avatarUrl === avatar.image_url ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
+                      <div key={avatar.id} onClick={() => setTempProfile({ ...tempProfile, avatarUrl: avatar.image_url })} className={`relative cursor-pointer rounded-full p-1 transition-all ${tempProfile.avatarUrl === avatar.image_url ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
                         <img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" />
                         {isNewItem(avatar.created_at) && <div className="absolute top-0 right-0 z-30 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded-full shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
                       </div>
@@ -749,40 +831,41 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               {activeTab === 'frame' && (
                 <>
                   <div className="flex items-center justify-center mb-8">
-                     {renderAvatarWithFrame(tempProfile.avatarUrl, tempProfile.frameId, "w-24 h-24 sm:w-32 sm:h-32")}
+                    {renderAvatarWithFrame(tempProfile.avatarUrl, tempProfile.frameId, 'w-24 h-24 sm:w-32 sm:h-32')}
                   </div>
 
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                    <div onClick={() => setTempProfile({...tempProfile, frameId: ''})} className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${!tempProfile.frameId ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'bg-black border border-zinc-800 hover:border-zinc-500'}`}>
+                    <div onClick={() => setTempProfile({ ...tempProfile, frameId: '' })} className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${!tempProfile.frameId ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'bg-black border border-zinc-800 hover:border-zinc-500'}`}>
                       <div className="w-12 h-12 rounded-full border-2 border-zinc-700 mb-2 flex items-center justify-center"><X className="w-6 h-6 text-zinc-500" /></div>
                       <span className="text-[9px] font-black uppercase text-zinc-400">None</span>
                     </div>
                   </div>
 
                   <div className="mt-8 mb-4 border-b border-zinc-800 pb-2">
-                     <h3 className="text-sm font-black uppercase tracking-widest text-purple-400 flex items-center gap-2">
-                       <Award className="w-4 h-4" /> Pro Member Frames
-                     </h3>
+                    <h3 className="text-sm font-black uppercase tracking-widest text-purple-400 flex items-center gap-2">
+                      <Award className="w-4 h-4" /> Pro Member Frames
+                    </h3>
                   </div>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
                     {vaultFrames.filter((f: any) => f.tier === 'Premium').map((f: any) => (
-                      <div key={f.id} 
-                           onClick={() => {
-                             if (!isSubscriber) {
-                               setUpsellConfig({ title: 'Premium Feature', message: 'Premium Avatar Frames are exclusively for Saturday AM+ members! Upgrade to equip this frame.' });
-                               return;
-                             }
-                             setTempProfile({...tempProfile, frameId: f.id});
-                           }} 
-                           className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${tempProfile.frameId === f.id ? 'bg-zinc-800 border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'bg-black border border-purple-900/30 hover:border-purple-500'}`}>
-                        
+                      <div
+                        key={f.id}
+                        onClick={() => {
+                          if (!isSubscriber) {
+                            setUpsellConfig({ title: 'Premium Feature', message: 'Premium Avatar Frames are exclusively for Saturday AM+ members! Upgrade to equip this frame.' });
+                            return;
+                          }
+                          setTempProfile({ ...tempProfile, frameId: f.id });
+                        }}
+                        className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${tempProfile.frameId === f.id ? 'bg-zinc-800 border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'bg-black border border-purple-900/30 hover:border-purple-500'}`}
+                      >
                         <div className="relative flex items-center justify-center w-12 h-12 mb-2 flex-shrink-0">
-                           <div className="rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 w-full h-full" style={{ border: `2px solid ${f.border_color}`, boxShadow: f.glow_color !== 'transparent' ? `0 0 10px ${f.glow_color}` : 'none' }} />
-                           <RenderFrameAnimations anim={f.animation_style} color={f.border_color} />
+                          <div className="rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 w-full h-full" style={{ border: `2px solid ${f.border_color}`, boxShadow: f.glow_color !== 'transparent' ? `0 0 10px ${f.glow_color}` : 'none' }} />
+                          <RenderFrameAnimations anim={f.animation_style} color={f.border_color} />
                         </div>
 
                         <span className="text-[9px] font-black text-white uppercase text-center leading-tight line-clamp-1">{f.name}</span>
-                        
+
                         {!isSubscriber && (
                           <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center z-20 rounded-xl">
                             <Lock className="w-5 h-5 text-zinc-400" />
@@ -794,19 +877,20 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                   </div>
 
                   <div className="mt-8 mb-4 border-b border-zinc-800 pb-2">
-                     <h3 className="text-sm font-black uppercase tracking-widest text-zinc-400 flex items-center gap-2">
-                       <User className="w-4 h-4" /> Basic Frames
-                     </h3>
+                    <h3 className="text-sm font-black uppercase tracking-widest text-zinc-400 flex items-center gap-2">
+                      <User className="w-4 h-4" /> Basic Frames
+                    </h3>
                   </div>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
                     {vaultFrames.filter((f: any) => f.tier !== 'Premium').map((f: any) => (
-                      <div key={f.id} 
-                           onClick={() => setTempProfile({...tempProfile, frameId: f.id})} 
-                           className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${tempProfile.frameId === f.id ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'bg-black border border-zinc-800 hover:border-zinc-500'}`}>
-                        
+                      <div
+                        key={f.id}
+                        onClick={() => setTempProfile({ ...tempProfile, frameId: f.id })}
+                        className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${tempProfile.frameId === f.id ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'bg-black border border-zinc-800 hover:border-zinc-500'}`}
+                      >
                         <div className="relative flex items-center justify-center w-12 h-12 mb-2 flex-shrink-0">
-                           <div className="rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 w-full h-full" style={{ border: `2px solid ${f.border_color}`, boxShadow: f.glow_color !== 'transparent' ? `0 0 10px ${f.glow_color}` : 'none' }} />
-                           <RenderFrameAnimations anim={f.animation_style} color={f.border_color} />
+                          <div className="rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 w-full h-full" style={{ border: `2px solid ${f.border_color}`, boxShadow: f.glow_color !== 'transparent' ? `0 0 10px ${f.glow_color}` : 'none' }} />
+                          <RenderFrameAnimations anim={f.animation_style} color={f.border_color} />
                         </div>
 
                         <span className="text-[9px] font-black text-white uppercase text-center leading-tight line-clamp-1">{f.name}</span>
@@ -816,9 +900,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                   </div>
                 </>
               )}
-
             </div>
-            
+
             <div className="p-6 border-t border-zinc-800 bg-black">
               <button onClick={saveProfile} className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer">
                 Save & Equip Loadout

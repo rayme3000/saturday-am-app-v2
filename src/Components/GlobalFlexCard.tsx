@@ -1,11 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { User, Trophy, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart, Lock, Sparkles } from 'lucide-react';
+import { User, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart, Lock, Sparkles } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
-import { APP_ICONS } from '../appIcons';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
-import { useHypeEconomy } from '../HypeEconomyContext'; 
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
@@ -19,6 +17,26 @@ const iconMaskStyle = {
   maskRepeat: 'no-repeat',
   maskPosition: 'center'
 };
+
+const EXCLUDED_STAFF_ADMIN_EMAILS = new Set([
+  'odunze.oguguo@yahoo.com',
+  'saturday.editorial@gmail.com',
+  'demetrene.billups@gmail.com',
+  'publisher@saturday-am.com',
+  'rayme3000@gmail.com',
+  'saturdayam.writer@gmail.com',
+  'dropkickanimation@gmail.com',
+  'fsimmonds4@gmail.com'
+]);
+
+const EXCLUDED_LEADERBOARD_ROLES = new Set([
+  'creator',
+  'core_creator',
+  'staff',
+  'influencer',
+  'admin',
+  'moderator'
+]);
 
 const hypeCardTutorialSlides = [
   {
@@ -35,9 +53,23 @@ const hypeCardTutorialSlides = [
   }
 ];
 
-const getFandomTier = (lifetimeScore: number, isPremium: boolean = false) => {
+interface FandomTierInfo {
+  name: string;
+  min?: number;
+  max?: number;
+  color: string;
+  hex: string;
+  bar?: string;
+  glow?: string;
+  isLocked?: boolean;
+}
+
+const getFandomTier = (
+  lifetimeScore: number,
+  isPremium: boolean = false
+): { currentTier: FandomTierInfo; nextTier: FandomTierInfo | null; progressPercent: number } => {
   const score = lifetimeScore || 0;
-  const tiers = [
+  const tiers: FandomTierInfo[] = [
     { name: 'Ember', min: 0, max: 99, color: 'text-rose-900', hex: '#881337', bar: 'bg-rose-900', glow: 'drop-shadow-[0_0_8px_rgba(136,19,55,0.8)]' },
     { name: 'Glint', min: 100, max: 999, color: 'text-red-700', hex: '#b91c1c', bar: 'bg-red-700', glow: 'drop-shadow-[0_0_8px_rgba(185,28,28,0.8)]' },
     { name: 'Flare', min: 1000, max: 4999, color: 'text-red-500', hex: '#ef4444', bar: 'bg-red-500', glow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]' },
@@ -49,18 +81,18 @@ const getFandomTier = (lifetimeScore: number, isPremium: boolean = false) => {
 
   if (!isPremium && score >= 1000) {
     return {
-      currentTier: tiers[1], 
-      nextTier: { name: 'Flare', color: 'text-zinc-500', hex: '#71717a', isLocked: true },
+      currentTier: tiers[1],
+      nextTier: { name: 'Flare', color: 'text-zinc-500', hex: '#71717a', glow: '', isLocked: true },
       progressPercent: 100
     };
   }
 
-  const currentIndex = tiers.findIndex(t => score >= t.min && score <= t.max);
+  const currentIndex = tiers.findIndex(t => score >= (t.min ?? 0) && score <= (t.max ?? Infinity));
   const currentTier = tiers[currentIndex !== -1 ? currentIndex : 0];
   const nextTier = currentIndex < tiers.length - 1 ? tiers[currentIndex + 1] : null;
 
   let progressPercent = 100;
-  if (nextTier && !nextTier.isLocked) {
+  if (nextTier && !nextTier.isLocked && nextTier.min !== undefined && currentTier.min !== undefined) {
     progressPercent = Math.min(100, Math.max(0, ((score - currentTier.min) / (nextTier.min - currentTier.min)) * 100));
   }
 
@@ -79,7 +111,7 @@ const RenderCardAnimations = ({ anim, color }: { anim: string, color: string }) 
   if (!anim || anim === 'none') return null;
   const sBorder = { borderWidth: '0.4cqi', borderStyle: 'solid' };
   const dBorder = { borderWidth: '0.4cqi', borderStyle: 'dashed' };
-  
+
   return (
     <>
       {anim === 'orbit' && <div className="absolute rounded-full border-transparent pointer-events-none animate-[spin_3s_linear_infinite]" style={{ width: '130%', height: '130%', borderTopColor: color, borderRightColor: color, ...sBorder }} />}
@@ -124,10 +156,23 @@ const RenderCardAnimations = ({ anim, color }: { anim: string, color: string }) 
 
 export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
-  const [profileStats, setProfileStats] = useState({ 
-    total_hypes: 0, super_hypes: 0, quick_reacts: 0, chapters_read: 0, rank: "---", score: 0, shares: 0, creator_supports: 0 
+  const [profileStats, setProfileStats] = useState({
+    total_hypes: 0,
+    super_hypes: 0,
+    quick_reacts: 0,
+    chapters_read: 0,
+    rank: '---',
+    score: 0,
+    shares: 0,
+    creator_supports: 0
   });
-  const [userProfile, setUserProfile] = useState({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] });
+  const [userProfile, setUserProfile] = useState({
+    username: 'Reader',
+    avatarUrl: '',
+    cardSkin: '',
+    frameId: '',
+    topFive: [null, null, null, null, null]
+  });
   const [isFlipped, setIsFlipped] = useState(false);
   const [avatarFrames, setAvatarFrames] = useState<any[]>([]);
   const [activeSkins, setActiveSkins] = useState<any[]>([]);
@@ -138,61 +183,168 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
   useEffect(() => {
     if (isOpen) {
       window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
-      return () => window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: false }));
+      return () => {
+        window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: false }));
+      };
     }
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) { 
+    const orientationAny = (typeof screen !== 'undefined' ? screen.orientation : null) as any;
+    if (!isOpen) {
       setIsFlipped(false);
-      if (screen.orientation && screen.orientation.unlock) {
-        try { screen.orientation.unlock(); } catch (e) { /* ignore */ }
+      if (orientationAny && typeof orientationAny.unlock === 'function') {
+        try {
+          orientationAny.unlock();
+        } catch {
+          /* ignore */
+        }
       }
-      return; 
+      return;
     }
-    
-    if (screen.orientation && screen.orientation.lock) {
+
+    if (orientationAny && typeof orientationAny.lock === 'function') {
       try {
-        screen.orientation.lock('landscape').catch(() => {});
-      } catch (e) { console.error(e); }
+        orientationAny.lock('landscape').catch(() => {});
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     const fetchStatsAndRank = async () => {
       setIsLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
       if (!user) {
         setIsLoading(false);
         return;
       }
 
-      const { data: framesData } = await supabase.from('avatar_frames').select('*').eq('is_active', true);
-      if (framesData) setAvatarFrames(framesData);
+      const cleanEmail = String(user.email || '').trim().toLowerCase();
 
-      const { data: skinsData } = await supabase.from('card_skins').select('*').eq('is_active', true);
-      if (skinsData) setActiveSkins(skinsData);
+      // Fetch live ground-truth counts in parallel so the Hype Card is 100% accurate
+      const [
+        framesRes,
+        skinsRes,
+        profileRes,
+        allProfilesMetaRes,
+        hypesCountRes,
+        superHypesCountRes,
+        creatorHypesCountRes,
+        reactsCountRes,
+        commentsCountRes,
+        completedReadsCountRes,
+        historyReadsCountRes,
+        creatorLikesCountRes,
+        tipsByEmailRes,
+        shareEventsRes
+      ] = await Promise.all([
+        supabase.from('avatar_frames').select('*').eq('is_active', true),
+        supabase.from('card_skins').select('*').eq('is_active', true),
+        supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+        supabase.from('profiles').select('id, role, is_admin, email, linked_creator_name, fandom_score'),
+        supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id).neq('target_type', 'comment'),
+        supabase.from('super_hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('target_type', 'creator'),
+        supabase.from('page_reacts').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('series_comments').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('completed_reads').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('reading_history').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('creator_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        cleanEmail
+          ? supabase.from('creator_tips').select('*', { count: 'exact', head: true }).ilike('donor_email', cleanEmail)
+          : Promise.resolve({ count: 0 }),
+        supabase
+          .from('telemetry_events')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .ilike('event_type', '%share%')
+      ]);
 
-      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-      
-      let myRank: string | number = "---";
+      if (framesRes.data) setAvatarFrames(framesRes.data);
+      if (skinsRes.data) setActiveSkins(skinsRes.data);
 
-      const { data: myRankData } = await supabase.rpc('get_personal_rank', { target_user_id: user.id });
-      if (myRankData && myRankData.length > 0) {
-        myRank = Number(myRankData[0].rank);
-      }
-
+      const data = profileRes.data;
       if (data) {
-        setIsSubscriber(data.is_premium || false);
-        setProfileStats({ 
-          total_hypes: data.total_hypes || 0, 
-          super_hypes: data.super_hypes || 0, 
-          quick_reacts: data.quick_reacts || 0, 
-          chapters_read: data.chapters_read || 0, 
-          shares: data.shares || 0,
-          creator_supports: data.creator_supports || 0,
-          rank: myRank as string,
-          score: data.fandom_score || 0
+        const myScore = Number(data.fandom_score || 0);
+
+        // Compute Fan-Only Rank matching Leaderboard.tsx
+        const allProfiles = allProfilesMetaRes.data || [];
+        const myRole = String(data.role || 'reader').trim().toLowerCase();
+        const isCurrentUserStaffOrCreator =
+          Boolean(data.is_admin) ||
+          EXCLUDED_LEADERBOARD_ROLES.has(myRole) ||
+          EXCLUDED_STAFF_ADMIN_EMAILS.has(cleanEmail) ||
+          Boolean(String(data.linked_creator_name || '').trim());
+
+        let myRank: string | number = '---';
+        if (isCurrentUserStaffOrCreator) {
+          myRank = 'STAFF';
+        } else {
+          const higherFansCount = allProfiles.filter((p: any) => {
+            if (String(p.id) === String(user.id)) return false;
+            const r = String(p.role || 'reader').trim().toLowerCase();
+            const em = String(p.email || '').trim().toLowerCase();
+            const isExcluded =
+              Boolean(p.is_admin) ||
+              EXCLUDED_LEADERBOARD_ROLES.has(r) ||
+              EXCLUDED_STAFF_ADMIN_EMAILS.has(em) ||
+              Boolean(String(p.linked_creator_name || '').trim());
+            if (isExcluded) return false;
+            return Number(p.fandom_score || 0) > myScore;
+          }).length;
+          myRank = higherFansCount + 1;
+        }
+
+        // Ground-Truth Stat Reconciliation
+        const verifiedTotalHypes = Math.max(
+          Number(data.total_hypes || 0),
+          Number(hypesCountRes.count || 0)
+        );
+        const verifiedSuperHypes = Math.max(
+          Number(data.super_hypes || 0),
+          Number(superHypesCountRes.count || 0)
+        );
+        const verifiedCommentsAndReacts = Math.max(
+          Number(data.quick_reacts || 0),
+          Number(reactsCountRes.count || 0) + Number(commentsCountRes.count || 0)
+        );
+        const verifiedChaptersRead = Math.max(
+          Number(data.chapters_read || 0),
+          Number(completedReadsCountRes.count || 0),
+          Number(historyReadsCountRes.count || 0)
+        );
+        const verifiedShares = Math.max(
+          Number(data.shares || 0),
+          Number(shareEventsRes.count || 0)
+        );
+        const verifiedCreatorSupports = Math.max(
+          Number(data.creator_supports || 0),
+          Number(tipsByEmailRes.count || 0) +
+            Number(creatorHypesCountRes.count || 0) +
+            Number(creatorLikesCountRes.count || 0)
+        );
+
+        setIsSubscriber(Boolean(data.is_premium));
+        setProfileStats({
+          total_hypes: verifiedTotalHypes,
+          super_hypes: verifiedSuperHypes,
+          quick_reacts: verifiedCommentsAndReacts,
+          chapters_read: verifiedChaptersRead,
+          shares: verifiedShares,
+          creator_supports: verifiedCreatorSupports,
+          rank: String(myRank),
+          score: myScore
         });
-        setUserProfile({ username: data.username || 'Reader', avatarUrl: data.avatar_url || '', cardSkin: data.card_skin || '', frameId: data.avatar_frame_id || '', topFive: data.top_five || [null, null, null, null, null] });
+
+        setUserProfile({
+          username: data.username || 'Reader',
+          avatarUrl: data.avatar_url || '',
+          cardSkin: data.card_skin || '',
+          frameId: data.avatar_frame_id || '',
+          topFive: data.top_five || [null, null, null, null, null]
+        });
       }
       setIsLoading(false);
     };
@@ -213,7 +365,7 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
     icon_position: 'top-right'
   };
   const currentSkin = appliedSkin || defaultSkin;
-  
+
   const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score, isSubscriber);
 
   const handleUpgradeClick = (e: React.MouseEvent) => {
@@ -229,22 +381,21 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
 
   const cardContent = (
     <div className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden" onClick={onClose}>
-      
       <style>{`
         button[aria-label="Open Menu"], nav, .nav-pill { display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important; }
       `}</style>
 
-      <FeatureTutorialModal 
-        tutorialId="flex_hype_card" 
-        slides={hypeCardTutorialSlides} 
+      <FeatureTutorialModal
+        tutorialId="flex_hype_card"
+        slides={hypeCardTutorialSlides}
         forceOpen={forceTutorial}
         onClose={() => setForceTutorial(false)}
       />
 
       {/* FREE USER PREVIEW BANNER */}
       {!isSubscriber && !isLoading && (
-        <div 
-          onClick={(e) => e.stopPropagation()} 
+        <div
+          onClick={(e) => e.stopPropagation()}
           className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 z-[1000000] w-[94%] max-w-xl bg-zinc-950/95 border border-[#fe9a00] p-3 sm:p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.9)] flex items-center justify-between gap-3 animate-fade-in backdrop-blur-md"
         >
           <div className="flex items-center gap-3 min-w-0">
@@ -274,26 +425,26 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
         <TutorialHelpButton onClick={(e: any) => { e.stopPropagation(); setForceTutorial(true); }} />
       </div>
 
-      <button 
-        onClick={onClose} 
+      <button
+        onClick={onClose}
         className="absolute top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] p-3 text-zinc-500 hover:text-white transition-colors z-[999999] cursor-pointer"
       >
         <X className="w-8 h-8" />
       </button>
 
-      <div 
-        className="relative w-full max-w-5xl aspect-[1.58] portrait:w-auto portrait:h-[calc(100vw-48px)] portrait:max-w-[calc(100dvh-120px)] portrait:rotate-90 flex-shrink-0" 
+      <div
+        className="relative w-full max-w-5xl aspect-[1.58] portrait:w-auto portrait:h-[calc(100vw-48px)] portrait:max-w-[calc(100dvh-120px)] portrait:rotate-90 flex-shrink-0"
         style={{ perspective: '2000px', WebkitPerspective: '2000px' }}
       >
         {isLoading ? (
           <div className="absolute inset-0 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center animate-pulse shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-             <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
+            <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
           </div>
         ) : (
-          <div 
+          <div
             className="absolute inset-0 w-full h-full cursor-pointer will-change-transform"
-            style={{ 
-              transformStyle: 'preserve-3d', 
+            style={{
+              transformStyle: 'preserve-3d',
               WebkitTransformStyle: 'preserve-3d',
               transition: 'transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1)',
               transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
@@ -302,10 +453,10 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
             onClick={(e) => { e.stopPropagation(); setIsFlipped(!isFlipped); }}
           >
             {/* FRONT OF CARD */}
-            <div 
-              className="absolute inset-0 w-full h-full rounded-2xl bg-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden will-change-transform" 
-              style={{ 
-                backfaceVisibility: 'hidden', 
+            <div
+              className="absolute inset-0 w-full h-full rounded-2xl bg-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden will-change-transform"
+              style={{
+                backfaceVisibility: 'hidden',
                 WebkitBackfaceVisibility: 'hidden',
                 transform: 'rotateY(0deg)',
                 WebkitTransform: 'rotateY(0deg)'
@@ -314,13 +465,13 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
               <div className="w-full h-full relative" style={{ containerType: 'inline-size' }}>
                 <img src={currentSkin.image_url} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
                 <div className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }} />
-                
+
                 {currentSkin.show_icon !== false && (
-                  <img 
-                    src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png" 
-                    alt="Saturday AM Logo" 
+                  <img
+                    src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png"
+                    alt="Saturday AM Logo"
                     className="absolute z-20 object-contain drop-shadow-[0_0_10px_rgba(0,0,0,0.8)]"
-                    style={{ 
+                    style={{
                       width: '7cqi', height: '7cqi',
                       top: currentSkin.icon_position === 'top-left' || currentSkin.icon_position === 'top-right' || !currentSkin.icon_position ? '4cqi' : 'auto',
                       bottom: currentSkin.icon_position === 'bottom-left' || currentSkin.icon_position === 'bottom-right' ? '4cqi' : 'auto',
@@ -333,11 +484,11 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
             </div>
 
             {/* BACK OF CARD */}
-            <div 
-              className="absolute inset-0 w-full h-full rounded-2xl bg-zinc-950 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden will-change-transform" 
-              style={{ 
-                backfaceVisibility: 'hidden', 
-                WebkitBackfaceVisibility: 'hidden', 
+            <div
+              className="absolute inset-0 w-full h-full rounded-2xl bg-zinc-950 shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden will-change-transform"
+              style={{
+                backfaceVisibility: 'hidden',
+                WebkitBackfaceVisibility: 'hidden',
                 transform: 'rotateY(180deg)',
                 WebkitTransform: 'rotateY(180deg)'
               }}
@@ -348,21 +499,19 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
                   50% { opacity: 1; }
                 }
               `}</style>
-              
-              <div 
+
+              <div
                 className="absolute inset-0 z-0 pointer-events-none mix-blend-screen"
-                style={{ 
+                style={{
                   background: `radial-gradient(ellipse at 50% 100%, ${currentTier.hex}80 0%, transparent 85%)`,
                   animation: 'heavy-pulse 4s ease-in-out infinite'
-                }} 
+                }}
               />
-              
+
               <div className="absolute inset-0 pointer-events-none z-0" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }} />
-              
+
               <div className="w-full h-full relative flex flex-col justify-between z-10" style={{ containerType: 'inline-size', padding: '4cqi 5cqi' }}>
-                
                 <div className="relative z-10 flex flex-col h-full justify-between">
-                  
                   {/* HEADER */}
                   <div className="flex justify-between items-start border-b border-white/10 w-full min-w-0" style={{ paddingBottom: '2.5cqi', paddingRight: '2cqi' }}>
                     <div className="flex items-center min-w-0 flex-1" style={{ gap: '3cqi', width: '60%' }}>
@@ -393,13 +542,13 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
                             Monthly Rank
                           </span>
                           <span className="font-black italic text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] leading-none block" style={{ fontSize: '4.5cqi' }}>
-                            #{profileStats.rank}
+                            {profileStats.rank === 'STAFF' ? 'CREW' : `#${profileStats.rank}`}
                           </span>
                         </div>
                       </div>
 
                       <div className="relative w-full bg-zinc-900 rounded-full border border-white/10 overflow-hidden shadow-inner" style={{ height: '2cqi', marginTop: '1.5cqi' }}>
-                        <div 
+                        <div
                           className={`absolute top-0 left-0 h-full transition-all duration-1000 ease-out ${currentTier.bar} shadow-[0_0_1cqi_rgba(255,255,255,0.3)]`}
                           style={{ width: `${progressPercent}%` }}
                         />
@@ -432,7 +581,7 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
                     <div className="text-center flex-1 border-r border-white/5">
                       <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Hypes</p>
                       <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
-                        <div className="bg-[#fe9a00]" style={{ width: '2.5cqi', height: '2.5cqi', ...iconMaskStyle }} />
+                        <span className="inline-block bg-[#fe9a00]" style={{ width: '2.5cqi', height: '2.5cqi', ...iconMaskStyle }} />
                         {formatStat(profileStats.total_hypes)}
                       </p>
                     </div>
@@ -464,9 +613,9 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
                     <div className="flex w-full justify-between items-start" style={{ padding: '0 3cqi' }}>
                       {[0, 1, 2, 3, 4].map((i) => {
                         const slug = userProfile.topFive[i];
-                        const series = seriesList.find((s:any) => s.slug === slug);
+                        const series = seriesList.find((s: any) => s.slug === slug);
                         if (!series) {
-                           return (<div key={i} className="flex flex-col items-center" style={{ width: '16%' }}><div className="rounded-full border border-dashed border-zinc-700/50 bg-black/20 transition-all duration-300" style={{ width: '100%', aspectRatio: '1/1' }} /></div>);
+                          return (<div key={i} className="flex flex-col items-center" style={{ width: '16%' }}><div className="rounded-full border border-dashed border-zinc-700/50 bg-black/20 transition-all duration-300" style={{ width: '100%', aspectRatio: '1/1' }} /></div>);
                         }
                         const stickerImage = series.sticker_url || series.character_url || series.cover_url;
                         return (
@@ -487,7 +636,7 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
           </div>
         )}
       </div>
-      
+
       <p className="absolute bottom-8 md:bottom-12 text-zinc-500 font-bold uppercase tracking-widest animate-pulse flex items-center gap-2 pointer-events-none text-xs z-[999999]">
         <RotateCcw className="w-4 h-4" /> Tap anywhere on card to flip
       </p>

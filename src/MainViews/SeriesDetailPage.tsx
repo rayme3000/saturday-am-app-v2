@@ -11,12 +11,16 @@ import {
   PLUS_EARLY_ACCESS_MS
 } from '../oneshotWednesday';
 import { MangaReader } from './MangaReader';
-import { HypeButton } from '../Components/HypeButton'; 
+import { HypeButton } from '../Components/HypeButton';
 import { LikeButton } from '../Components/LikeButton';
 import { SeriesCommentsSection } from '../Components/SeriesCommentsSection';
-import { PromoModal } from '../Components/PromoModal'; 
+import { PromoModal } from '../Components/PromoModal';
 import { ShareModal } from '../Components/ShareModal';
-import { RewardedAdModal } from '../Components/RewardedAdModal';
+import {
+  RewardedAdModal,
+  isRewardedAdsFeatureEnabled,
+  syncRewardedAdsGlobalConfig
+} from '../Components/RewardedAdModal';
 import { useTelemetry } from '../Components/useTelemetry';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
@@ -89,10 +93,10 @@ const ContentRatingBadge = ({ rating }: { rating: string }) => {
     'Y': { label: 'Y', color: 'bg-blue-500 text-white', desc: 'Youth 10+' },
     'T': { label: 'T', color: 'bg-[#fe9a00] text-black', desc: 'Teen 13+' },
     'OT': { label: 'OT', color: 'bg-red-600 text-white', desc: 'Older Teen 16+' },
-    'M': { label: 'M', color: 'bg-black border border-red-600 text-red-600', desc: 'Mature 18+' },
+    'M': { label: 'M', color: 'bg-black border border-red-600 text-red-600', desc: 'Mature 18+' }
   };
 
-  const current = config[rating] || config['T']; 
+  const current = config[rating] || config['T'];
 
   return (
     <div className="flex items-center gap-2 mt-6 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-zinc-800/50 backdrop-blur-sm w-max mx-auto shadow-lg">
@@ -122,15 +126,18 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [readProgresses, setReadProgresses] = useState<any>({});
 
   const [chapterStats, setChapterStats] = useState<any>({});
+  const [seriesDirectHypes, setSeriesDirectHypes] = useState<number>(0);
+  const [seriesDirectLikes, setSeriesDirectLikes] = useState<number>(0);
+  const [chapterLikesTotal, setChapterLikesTotal] = useState<number>(0);
   const [readerClosedCount, setReaderClosedCount] = useState(0);
 
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium', message: string } | null>(null);
   const [isFavorited, setIsFavorited] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  
+
   const [seriesCharacters, setSeriesCharacters] = useState<any[]>([]);
   const [showAllChars, setShowAllChars] = useState(false);
-  
+
   const [collectedSignatures, setCollectedSignatures] = useState<Record<string, string>>({});
 
   const { trackEvent } = useTelemetry(currentUserId || undefined);
@@ -151,9 +158,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [visibleCount, setVisibleCount] = useState(10);
 
   const [showAdModal, setShowAdModal] = useState(false);
+  const [rewardedAdsEnabled, setRewardedAdsEnabled] = useState<boolean>(() =>
+    isRewardedAdsFeatureEnabled()
+  );
   const [targetChapter, setTargetChapter] = useState<any>(null);
   const [unlockedChapters, setUnlockedChapters] = useState<string[]>([]);
-  
+
   const [forceTutorial, setForceTutorial] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -164,6 +174,26 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const isCompletedRun = isCompletedRunSeries(localSeries, seriesList) || isCompletedRunSeries(series, seriesList);
   const isUnlockedForOneShotWednesday = isActiveOneShotWednesday(localSeries || series, seriesList);
   const currentWednesdayPick = getOneShotWednesdaySeries(seriesList);
+
+  useEffect(() => {
+    syncRewardedAdsGlobalConfig().then((res: { enabled: boolean }) => {
+      setRewardedAdsEnabled(res.enabled);
+    });
+    const handleConfigChange = (e: any) => {
+      if (typeof e?.detail?.enabled === 'boolean') {
+        setRewardedAdsEnabled(e.detail.enabled);
+      } else {
+        setRewardedAdsEnabled(isRewardedAdsFeatureEnabled());
+      }
+    };
+    window.addEventListener('rewardedAdsConfigChanged', handleConfigChange);
+    return () => window.removeEventListener('rewardedAdsConfigChanged', handleConfigChange);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -187,7 +217,27 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         });
       }
 
-      window.dispatchEvent(new Event('profileUpdated'));
+      // Also credit creator_supports & fandom_score on the user's profile
+      supabase.auth.getUser().then(async ({ data: { user } }) => {
+        if (user) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('creator_supports, fandom_score')
+            .eq('id', user.id)
+            .maybeSingle();
+          if (prof) {
+            await supabase
+              .from('profiles')
+              .update({
+                creator_supports: (prof.creator_supports || 0) + 1,
+                fandom_score: (prof.fandom_score || 0) + Math.max(10, returnedAmount * 2)
+              })
+              .eq('id', user.id);
+          }
+          window.dispatchEvent(new Event('profileUpdated'));
+        }
+      });
+
       window.history.replaceState({}, '', window.location.pathname);
     } else if (params.get('donation_status') === 'cancelled') {
       window.history.replaceState({}, '', window.location.pathname);
@@ -201,28 +251,13 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('donation_status') === 'success') {
-      const returnedCreator = params.get('creator') || 'the Creator';
-      const returnedAmount = Number(params.get('amount') || 5);
-      setDonationCreator({ name: returnedCreator, avatar_url: '' });
-      setDonationAmount(returnedAmount);
-      setDonationStep('success');
-      window.dispatchEvent(new Event('profileUpdated'));
-      window.history.replaceState({}, '', window.location.pathname);
-    } else if (params.get('donation_status') === 'cancelled') {
-      window.history.replaceState({}, '', window.location.pathname);
-    }
-  }, []);
-
   const scrollToSection = (e: React.MouseEvent | any, ref: React.RefObject<HTMLDivElement | null>, center: boolean = false) => {
-    if (e && e.stopPropagation) e.stopPropagation(); 
+    if (e && e.stopPropagation) e.stopPropagation();
     if (ref.current) {
       if (center) {
         ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else {
-        const yOffset = -50; 
+        const yOffset = -50;
         const y = ref.current.getBoundingClientRect().top + window.scrollY + yOffset;
         window.scrollTo({ top: y, behavior: 'smooth' });
       }
@@ -249,7 +284,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             .from('creator_signatures')
             .select('creator_name, signature_url')
             .in('creator_name', creatorsToFetch);
-          
+
           if (data && data.length > 0) {
             const freshSigs: Record<string, string> = {};
             data.forEach((row: any) => { freshSigs[row.creator_name] = row.signature_url; });
@@ -274,7 +309,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       if (user && localSeries) {
         setCurrentUserId(user.id);
         const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-        
+
         if (data?.favorites && data.favorites.includes(localSeries.slug)) {
           setIsFavorited(true);
         }
@@ -307,13 +342,20 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         { data: freshSeries },
         { data: chapterData },
         { data: creatorData },
-        { data: charData }
+        { data: charData },
+        seriesHypesRes,
+        seriesLikesRes
       ] = await Promise.all([
         supabase.from('series').select('*').eq('slug', targetSlug).single(),
         supabase.from('chapters').select('*').eq('series_slug', targetSlug).eq('is_published', true).order('chapter_number', { ascending: true }),
         supabase.from('series_creators').select('*').eq('series_slug', targetSlug).order('id', { ascending: true }),
-        supabase.from('series_characters').select('*').eq('series_slug', targetSlug).order('id', { ascending: true })
+        supabase.from('series_characters').select('*').eq('series_slug', targetSlug).order('id', { ascending: true }),
+        supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('target_type', 'series').eq('target_id', targetSlug),
+        supabase.from('series_likes').select('*', { count: 'exact', head: true }).eq('series_slug', targetSlug)
       ]);
+
+      setSeriesDirectHypes(Number(seriesHypesRes.count || 0));
+      setSeriesDirectLikes(Number(seriesLikesRes.count || 0));
 
       if (freshSeries) {
         setLocalSeries((prev: any) => ({
@@ -322,7 +364,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           home_section: freshSeries.home_section || prev?.home_section || series?.home_section
         }));
       }
-      
+
       if (chapterData) {
         const isPlus = userTier === 'premium' || isPremiumUser;
         const liveChapters = chapterData.filter((ch: any) =>
@@ -336,7 +378,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
         setNextScheduledChapter(upcomingChapters.length > 0 ? upcomingChapters[0] : null);
       }
-      
+
       if (creatorData && creatorData.length > 0) {
         setCreators(creatorData as any);
       } else if (freshSeries) {
@@ -352,7 +394,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           stripe_account_id: freshSeries.creator_stripe_account_id || ''
         }] as any);
       }
-    
+
       if (charData) setSeriesCharacters(charData as any);
     } catch (err) { console.error("Failed to load series details:", err); }
   }, [series, localSeries?.slug, userTier, isPremiumUser]);
@@ -393,10 +435,19 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     if (chapters.length === 0 || !localSeries?.slug) return;
     const fetchChapterStats = async () => {
       try {
-        const { data: statsData, error } = await supabase.rpc('get_series_chapter_stats', { p_series_slug: localSeries.slug });
+        const chapterIds = chapters.map(c => String(c.id));
+        const [{ data: statsData, error }, chapLikesRes] = await Promise.all([
+          supabase.rpc('get_series_chapter_stats', { p_series_slug: localSeries.slug }),
+          supabase.from('chapter_likes').select('*', { count: 'exact', head: true }).in('chapter_id', chapterIds)
+        ]);
+
+        setChapterLikesTotal(Number(chapLikesRes.count || 0));
+
         if (statsData && !error) {
           const newStats: any = {};
-          statsData.forEach((stat: any) => { newStats[stat.chapter_id] = { hypes: Number(stat.total_hypes), reacts: Number(stat.total_reacts) }; });
+          statsData.forEach((stat: any) => {
+            newStats[stat.chapter_id] = { hypes: Number(stat.total_hypes), reacts: Number(stat.total_reacts) };
+          });
           setChapterStats(newStats);
         }
       } catch (err) { console.error("Failed to fetch chapter stats:", err); }
@@ -416,7 +467,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
     const absoluteIndex = chapters.findIndex(c => c.id === chapterId);
     if (userTier === 'free') return !(absoluteIndex < 3 || absoluteIndex === chapters.length - 1);
-    return absoluteIndex !== 0; 
+    return absoluteIndex !== 0;
   };
 
   const openChapterInReader = async (chapter: any, initialPage = 0) => {
@@ -448,23 +499,24 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   const handleReadChapter = async (chapter: any, _absoluteIndex: number, initialPage = 0) => {
     const isInitiallyLocked = checkIsLocked(chapter.id);
-    const hasTempUnlock = unlockedChapters.includes(String(chapter.id));
+    const hasTempUnlock = rewardedAdsEnabled && unlockedChapters.includes(String(chapter.id));
 
     if (isInitiallyLocked && !hasTempUnlock) {
       setIsAutoLoading(false);
-      if (userTier === 'visitor') { 
-        setUpsellConfig({ 
-          type: 'visitor', 
+      if (userTier === 'visitor') {
+        setUpsellConfig({
+          type: 'visitor',
           message: isCompletedRun
             ? (isUnlockedForOneShotWednesday
                 ? "⚡ It's One-Shot Wednesday! Create a Free Account right now to read this entire Completed Run FREE for 24 hours!"
                 : "Completed Runs are exclusive to Saturday AM+ PLUS members (with 1 title unlocked every One-Shot Wednesday). Create a Free Account to get started!")
-            : "Create a Free Account to unlock Chapters 1-3, read the newest release, and unlock chapters with 15s spotlights!" 
-        }); 
-        return; 
+            : rewardedAdsEnabled
+            ? "Create a Free Account to unlock Chapters 1-3, read the newest release, and unlock chapters with 15s spotlights!"
+            : "Create a Free Account to unlock Chapters 1-3 and read the newest chapter release!"
+        });
+        return;
       }
 
-      // Completed Runs stay strictly behind the PLUS Vault paywall (except on One-Shot Wednesdays)
       if (isCompletedRun) {
         setUpsellConfig({
           type: 'premium',
@@ -473,7 +525,14 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         return;
       }
 
-      // Ongoing Series (Chapters 4+): Open the 15s Rewarded Ad Modal (or Upgrade to PLUS)
+      if (!rewardedAdsEnabled) {
+        setUpsellConfig({
+          type: 'premium',
+          message: "Upgrade to Saturday AM+ PLUS ($1.99/mo) to unlock the entire chapter vault and read without limits!"
+        });
+        return;
+      }
+
       setTargetChapter(chapter);
       setShowAdModal(true);
       return;
@@ -509,10 +568,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       const absoluteIndex = chapters.findIndex(c => String(c.id) === String(series.autoOpenChapterId));
       if (absoluteIndex !== -1) {
         const chapter = chapters[absoluteIndex];
-        if (chapter && chapter.id) { setTimeout(() => { handleReadChapter(chapter, absoluteIndex, series.autoOpenPage || 0); }, 100); } 
+        if (chapter && chapter.id) { setTimeout(() => { handleReadChapter(chapter, absoluteIndex, series.autoOpenPage || 0); }, 100); }
         else { setIsAutoLoading(false); }
       } else { setIsAutoLoading(false); }
-      setHasAutoOpened(true); 
+      setHasAutoOpened(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapters, series, hasAutoOpened]);
@@ -528,11 +587,16 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     const pageHypes = chapterStats[String(ch.id)]?.hypes || 0;
     return sum + (ch.hype_count || 0) + pageHypes;
   }, 0);
-  
+
   const aggregatedSeriesReacts = chapters.reduce((sum: number, ch: any) => {
     const pageReacts = chapterStats[String(ch.id)]?.reacts || 0;
     return sum + (ch.react_count || 0) + pageReacts;
   }, 0);
+
+  const verifiedSeriesInitialHypes = Math.max(
+    seriesDirectHypes,
+    Number(localSeries?.hype_count || 0)
+  );
 
   const triggerAwards = () => {
     setShowAwards(true);
@@ -554,7 +618,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       let currentFaves = data?.favorites || [];
       if (!Array.isArray(currentFaves)) currentFaves = [];
 
-      if (!previousState) { if (!currentFaves.includes(localSeries.slug)) currentFaves.push(localSeries.slug); } 
+      if (!previousState) { if (!currentFaves.includes(localSeries.slug)) currentFaves.push(localSeries.slug); }
       else { currentFaves = currentFaves.filter((slug: string) => slug !== localSeries.slug); }
 
       const { error } = await supabase.from('profiles').update({ favorites: currentFaves }).eq('id', currentUserId);
@@ -609,7 +673,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   const safeSynopsis = localSeries.synopsis || '';
 
-  const activeBannerPos = isMobile 
+  const activeBannerPos = isMobile
     ? (localSeries.banner_position_mobile || localSeries.banner_position_desktop || '50% 50%')
     : (localSeries.banner_position_desktop || '50% 50%');
 
@@ -627,10 +691,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   return (
     <div className="relative min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-transparent text-white">
-      
-      <FeatureTutorialModal 
-        tutorialId="series_page_icons" 
-        slides={seriesTutorialSlide} 
+
+      <FeatureTutorialModal
+        tutorialId="series_page_icons"
+        slides={seriesTutorialSlide}
         forceOpen={forceTutorial}
         onClose={() => setForceTutorial(false)}
       />
@@ -645,27 +709,29 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       <ShareModal isOpen={showShareModal} onClose={() => setShowShareModal(false)} series={localSeries} chapter={chapters.find(c => c.id === activeChapterId) || targetChapter} currentUser={{ id: currentUserId }} />
 
       {/* 15-SECOND REWARDED VIDEO / ANIMATED HOUSE AD MODAL */}
-      <RewardedAdModal
-        isOpen={showAdModal}
-        onClose={() => setShowAdModal(false)}
-        onRewardEarned={handleRewardEarnedUnlock}
-        onUpgradeClick={() => {
-          setShowAdModal(false);
-          if (onNavigate) onNavigate({ action: 'sub' });
-        }}
-        chapterNumber={targetChapter?.chapter_number}
-        seriesTitle={localSeries?.title}
-      />
+      {rewardedAdsEnabled && (
+        <RewardedAdModal
+          isOpen={showAdModal}
+          onClose={() => setShowAdModal(false)}
+          onRewardEarned={handleRewardEarnedUnlock}
+          onUpgradeClick={() => {
+            setShowAdModal(false);
+            if (onNavigate) onNavigate({ action: 'sub' });
+          }}
+          chapterNumber={targetChapter?.chapter_number}
+          seriesTitle={localSeries?.title}
+        />
+      )}
 
       {showPromo && (
-        <PromoModal 
-          userTier={userTier} 
-          onClose={() => setShowPromo(false)} 
+        <PromoModal
+          userTier={userTier}
+          onClose={() => setShowPromo(false)}
           onAction={() => {
             setShowPromo(false);
-            if (userTier === 'visitor') { if (onLoginClick) onLoginClick(); } 
+            if (userTier === 'visitor') { if (onLoginClick) onLoginClick(); }
             else { if (onNavigate) onNavigate({ action: 'sub' }); }
-          }} 
+          }}
         />
       )}
 
@@ -677,21 +743,21 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.type === 'visitor' ? 'Account Required' : 'PLUS Vault Exclusive'}</h2>
             <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
             {upsellConfig.type === 'visitor' ? (
-              <button 
-                onClick={() => { 
-                  setUpsellConfig(null); 
-                  if (onLoginClick) onLoginClick(); 
-                }} 
+              <button
+                onClick={() => {
+                  setUpsellConfig(null);
+                  if (onLoginClick) onLoginClick();
+                }}
                 className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors cursor-pointer shadow-[0_0_20px_rgba(254,154,0,0.3)]"
               >
                 Create Free Account
               </button>
             ) : (
-              <button 
-                onClick={() => { 
-                  setUpsellConfig(null); 
-                  if (onNavigate) onNavigate({ action: 'sub' }); 
-                }} 
+              <button
+                onClick={() => {
+                  setUpsellConfig(null);
+                  if (onNavigate) onNavigate({ action: 'sub' });
+                }}
                 className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors cursor-pointer shadow-[0_0_20px_rgba(254,154,0,0.3)]"
               >
                 Upgrade to PLUS ($1.99)
@@ -702,17 +768,17 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       )}
 
       {donationCreator && (
-        <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in" onClick={() => { if(donationStep === 'input') setDonationCreator(null); }}>
+        <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in" onClick={() => { if (donationStep === 'input') setDonationCreator(null); }}>
           <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative" onClick={e => e.stopPropagation()}>
-            
+
             {donationStep === 'input' && (
               <>
                 <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer"><X className="w-6 h-6" /></button>
                 <div className="p-6 sm:p-8 animate-fade-in">
                   <div className="flex flex-col items-center mb-6 text-center mt-2">
-                    <img 
-                      src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} 
-                      className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]" 
+                    <img
+                      src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`}
+                      className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]"
                       alt={donationCreator.name}
                       onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }}
                     />
@@ -722,7 +788,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
                   <div className="grid grid-cols-4 gap-2 mb-6">
                     {[5, 10, 15, 20].map((amount) => (
-                      <button 
+                      <button
                         key={amount}
                         onClick={() => setDonationAmount(amount)}
                         className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all cursor-pointer ${donationAmount === amount ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]' : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
@@ -733,7 +799,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   </div>
 
                   <div className="relative mb-6">
-                    <textarea 
+                    <textarea
                       value={fanmailText}
                       onChange={(e) => setFanmailText(e.target.value)}
                       placeholder="Write a private message to the creator..."
@@ -743,7 +809,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     <span className="absolute bottom-3 right-3 text-[9px] font-black uppercase tracking-widest text-zinc-600">{fanmailText.length}/250</span>
                   </div>
 
-                  <button 
+                  <button
                     onClick={handleProcessDonation}
                     className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
                   >
@@ -773,7 +839,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 <p className="text-xs sm:text-sm text-zinc-400 font-bold mb-8 leading-relaxed max-w-xs">
                   Your ${donationAmount} tip and fanmail have been sent directly to {donationCreator.name}. <span className="text-[#fe9a00]">Your Fandom Score has been boosted!</span>
                 </p>
-                <button 
+                <button
                   onClick={() => { setDonationCreator(null); setDonationStep('input'); }}
                   className="w-full py-4 bg-zinc-800 text-white font-black uppercase tracking-widest rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer"
                 >
@@ -792,30 +858,30 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         const hasPrev = currentIndex > 0;
 
         return (
-          <MangaReader 
-            pages={activePages} 
+          <MangaReader
+            pages={activePages}
             chapterId={activeChapterId}
             userId={currentUserId}
             isPremium={isPremiumUser}
             title={activeChapterData ? `Chapter ${activeChapterData.chapter_number} - ${activeChapterData.title || ''}` : ''}
             subtitle={localSeries.title}
-            initialPage={startPage} 
-            onClose={() => { window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } })); setIsReaderOpen(false); setActiveChapterId(null); setStartPage(0); setReaderClosedCount(c => c + 1); }} 
+            initialPage={startPage}
+            onClose={() => { window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } })); setIsReaderOpen(false); setActiveChapterId(null); setStartPage(0); setReaderClosedCount(c => c + 1); }}
             onHome={() => { window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } })); setIsReaderOpen(false); setActiveChapterId(null); setStartPage(0); setReaderClosedCount(c => c + 1); onBack(); }}
             onNext={() => { if (hasNext) handleReadChapter(chapters[currentIndex + 1], currentIndex + 1); }}
             onPrev={() => { if (hasPrev) handleReadChapter(chapters[currentIndex - 1], currentIndex - 1); }}
             hasNext={hasNext}
             hasPrev={hasPrev}
-            onNavigate={onNavigate} 
-            onHypeUpdate={null} 
+            onNavigate={onNavigate}
+            onHypeUpdate={null}
             onSupportCreator={(e: any) => {
               window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } }));
-              setIsReaderOpen(false); 
-              setActiveChapterId(null); 
-              setStartPage(0); 
+              setIsReaderOpen(false);
+              setActiveChapterId(null);
+              setStartPage(0);
               setReaderClosedCount(c => c + 1);
               setTimeout(() => {
-                scrollToSection(e || {stopPropagation:()=>{}}, creatorRef);
+                scrollToSection(e || { stopPropagation: () => {} }, creatorRef);
               }, 100);
             }}
           />
@@ -824,9 +890,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
       {/* DYNAMIC HERO BANNER WITH CROPPED OBJECT POSITION & SCALE */}
       <div className="sticky top-0 left-0 w-full h-[50vh] sm:h-[60vh] z-0 overflow-hidden bg-black">
-        <img 
-          src={localSeries.cover_url} 
-          className="w-full h-full object-cover opacity-60 transition-all duration-300 pointer-events-none" 
+        <img
+          src={localSeries.cover_url}
+          className="w-full h-full object-cover opacity-60 transition-all duration-300 pointer-events-none"
           alt="Hero Banner"
           style={{
             objectPosition: activeBannerPos,
@@ -835,23 +901,23 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent pointer-events-none" />
-        
+
         <div className="absolute top-4 sm:top-6 left-4 sm:left-6 z-20 flex items-center gap-2">
-          <button 
+          <button
             onClick={() => {
               if (window.history.length > 1) {
                 window.history.back();
               } else {
                 onBack();
               }
-            }} 
+            }}
             className="p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg cursor-pointer"
           >
             <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
           <TutorialHelpButton onClick={() => setForceTutorial(true)} />
         </div>
-        
+
         <button onClick={() => setShowShareModal(true)} className="absolute top-4 sm:top-6 right-[4.5rem] sm:right-24 z-20 p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-all shadow-lg group cursor-pointer">
           <Share2 className="w-5 h-5 sm:w-6 sm:h-6 group-hover:scale-110 transition-transform" />
         </button>
@@ -859,26 +925,26 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
       <div className="relative z-10 bg-black min-h-screen w-full overflow-x-hidden -mt-12 pt-12 [mask-image:linear-gradient(to_bottom,transparent,black_48px)]">
         <div className="px-6 pt-8 flex flex-col items-center w-full max-w-4xl mx-auto">
-          
+
           {/* DYNAMIC LOGO SCALING & OFFSET */}
-          <div 
+          <div
             className="flex items-center justify-center gap-4 transition-all duration-300 w-full"
             style={{
               marginBottom: `${Math.max(16, logoOffset)}px`
             }}
           >
             {localSeries.logo_url && (
-              <div 
+              <div
                 className="flex items-center justify-center transition-all duration-300"
                 style={{
                   transform: `scale(${logoScale / 100})`,
                   transformOrigin: 'center center'
                 }}
               >
-                <img 
-                  src={localSeries.logo_url} 
-                  alt="Logo" 
-                  className="w-full max-w-[280px] sm:max-w-[350px] h-auto object-contain drop-shadow-2xl" 
+                <img
+                  src={localSeries.logo_url}
+                  alt="Logo"
+                  className="w-full max-w-[280px] sm:max-w-[350px] h-auto object-contain drop-shadow-2xl"
                 />
               </div>
             )}
@@ -925,7 +991,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 .map(([sigName, sigUrl], i) => (
                   <div key={`sig-${i}`} className="flex flex-col items-center w-full max-w-[260px] sm:max-w-[340px] animate-fade-in-up">
                     <div className="w-full aspect-[2/1] flex items-center justify-center p-2 relative group cursor-pointer">
-                      <div 
+                      <div
                         className="w-full h-full bg-gradient-to-tr from-yellow-300 via-[#fe9a00] to-yellow-600 animate-gold-foil"
                         style={{
                           WebkitMaskImage: `url(${sigUrl})`,
@@ -966,20 +1032,20 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           </div>
 
           <div ref={actionsRef} className="flex flex-col items-center gap-4 mt-8 w-full max-w-sm mx-auto scroll-mt-32">
-            
+
             <div className="w-full flex flex-col gap-3 [&>button]:w-full [&>button]:justify-center">
-              <HypeButton 
+              <HypeButton
                 variant="series-main"
                 targetType="series"
                 targetId={localSeries.slug}
-                seriesSlug={localSeries.slug} 
-                userId={currentUserId} 
+                seriesSlug={localSeries.slug}
+                userId={currentUserId}
                 isPremium={isPremiumUser}
                 onRequirePremium={() => setUpsellConfig({ type: 'premium', message: "Hypes are a PLUS feature! Upgrade to support creators with ultra-visible hype." })}
                 onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create an account and upgrade to PLUS to drop Hypes!" })}
               />
-              <button 
-                onClick={(e) => scrollToSection(e, creatorRef)} 
+              <button
+                onClick={(e) => scrollToSection(e, creatorRef)}
                 className="flex items-center justify-center gap-3 w-full px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all bg-zinc-900 text-white border border-zinc-700 hover:bg-[#fe9a00] hover:border-[#fe9a00] hover:text-black shadow-lg cursor-pointer"
               >
                 <PenTool className="w-5 h-5" />
@@ -989,31 +1055,34 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
             <div className="flex items-start justify-center gap-4 sm:gap-8 w-full mt-4 px-2 sm:px-6 flex-nowrap shrink-0">
               <div className="flex flex-col items-center gap-2">
-                <HypeButton 
-                  targetType="series" 
-                  targetId={localSeries.slug} 
-                  userId={currentUserId} 
-                  initialCount={localSeries?.hype_count || 0} 
+                <HypeButton
+                  targetType="series"
+                  targetId={localSeries.slug}
+                  userId={currentUserId}
+                  initialCount={verifiedSeriesInitialHypes}
                   bonusCount={aggregatedSubHypes}
                   variant="icon"
                   onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype this series!" })}
                 />
                 <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Hypes</span>
               </div>
-              
+
               <div className="flex flex-col items-center gap-2">
-                <div className="relative p-2.5 sm:p-3 rounded-full transition-all duration-300 bg-black/40 backdrop-blur-md border border-white/5 shadow-xl flex items-center justify-center text-white/70">
-                   <Heart className="w-5 h-5 sm:w-6 sm:h-6 fill-red-500 text-red-500" />
-                   <div className="absolute -top-1 -right-2 bg-zinc-800 text-white text-[10px] font-black px-2 py-0.5 rounded-full border border-zinc-700 shadow-md transform scale-90 sm:scale-100">
-                     {aggregatedSeriesReacts}
-                   </div>
-                </div>
+                <LikeButton
+                  targetType="series"
+                  targetId={localSeries.slug}
+                  userId={currentUserId}
+                  initialCount={seriesDirectLikes}
+                  bonusCount={chapterLikesTotal + aggregatedSeriesReacts}
+                  variant="icon"
+                  onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like this series!" })}
+                />
                 <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Likes</span>
               </div>
 
               <div className="flex flex-col items-center gap-2">
-                <button 
-                  onClick={handleToggleFavorite} 
+                <button
+                  onClick={handleToggleFavorite}
                   className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 border shadow-xl flex items-center justify-center cursor-pointer ${isFavorited ? 'bg-[#fe9a00]/20 border-[#fe9a00]/30 text-[#fe9a00]' : 'bg-black/40 backdrop-blur-md hover:bg-black/60 border-white/5 text-white/70 hover:text-white'}`}
                   title={isFavorited ? "Saved to Faves" : "Add to Faves"}
                 >
@@ -1023,8 +1092,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               </div>
 
               <div className="flex flex-col items-center gap-2">
-                <button 
-                  onClick={(e) => scrollToSection(e, commentsRef)} 
+                <button
+                  onClick={(e) => scrollToSection(e, commentsRef)}
                   className="relative p-2.5 sm:p-3 rounded-full transition-all duration-300 bg-black/40 backdrop-blur-md hover:bg-black/60 border border-white/5 shadow-xl flex items-center justify-center cursor-pointer text-white/70 hover:text-white"
                   title="Discuss"
                 >
@@ -1050,7 +1119,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         </div>
 
         <div className="mt-4 px-4 sm:px-6 pb-12 w-full max-w-3xl mx-auto min-h-[40vh]">
-          
+
           {/* --- CHAPTERS CONTENT --- */}
           {activeTab === 'chapters' && (
             <div className="animate-fade-in">
@@ -1098,7 +1167,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   <span className="text-zinc-500 font-bold text-[10px] sm:text-xs uppercase tracking-widest">
                     {chapters.length} Chapters
                   </span>
-                  <button 
+                  <button
                     onClick={() => {
                       setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                       setVisibleCount(10);
@@ -1114,7 +1183,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               {displayedChapters.map((ch: any) => {
                 const absoluteIndex = chapters.findIndex(c => c.id === ch.id);
                 const actualProgress = readProgresses[String(ch.id)] || 0;
-                const hasTempUnlock = unlockedChapters.includes(String(ch.id));
+                const hasTempUnlock = rewardedAdsEnabled && unlockedChapters.includes(String(ch.id));
                 const isLocked = checkIsLocked(ch.id) && !hasTempUnlock;
                 const isEarlyAccess = isInPlusEarlyAccessWindow(ch.publish_at);
                 const showNewBadge = isNewRelease(ch.publish_at, ch.created_at);
@@ -1123,145 +1192,146 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 const displayReacts = (ch.react_count || 0) + pageReacts;
 
                 return (
-                <div key={ch.id} onClick={() => handleReadChapter(ch, absoluteIndex)} className="flex items-start sm:items-center gap-3 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
-                  
-                  <div className="relative overflow-hidden rounded-lg min-w-[80px] w-20 h-20 sm:min-w-[128px] sm:w-32 sm:h-32 flex-shrink-0">
-                    <img
-                      src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`}
-                      className={`w-full h-full object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`}
-                      style={{
-                        objectPosition: ch.thumbnail_position || '50% 50%',
-                        transform: `scale(${(ch.thumbnail_scale || 100) / 100})`
-                      }}
-                      alt="Thumbnail"
-                    />
-                    <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
-                    {isLocked && (
-                      <div className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-black/80 backdrop-blur-md border border-zinc-700 p-1 sm:p-1.5 rounded-md">
-                        <Lock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-zinc-400" />
-                      </div>
-                    )}
-                    {isEarlyAccess ? (
-                      <div className="absolute top-1 right-1 z-20 bg-gradient-to-r from-purple-600 to-[#fe9a00] text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(168,85,247,0.8)] animate-pulse pointer-events-none">
-                        ⚡ 12H EARLY
-                      </div>
-                    ) : showNewBadge && (
-                      <div className="absolute top-1 right-1 z-20 bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
-                        NEW!
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="flex flex-col sm:flex-row sm:items-center flex-1 min-w-0 gap-3 sm:gap-4 w-full">
-                    <div className="flex-1 min-w-0 w-full">
-                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
-                        <p className={`text-[9px] sm:text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
-                        {isEarlyAccess ? (
-                          <span className="bg-purple-600/30 border border-purple-400 text-purple-200 text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
-                            ⚡ PLUS 12H EARLY ACCESS
-                          </span>
-                        ) : showNewBadge && (
-                          <span className="bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
-                            NEW!
-                          </span>
-                        )}
-                        
-                        <div className="flex items-center gap-1.5 sm:gap-2">
-                          <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-900/80 border border-zinc-800 px-1.5 sm:px-2 py-0.5 rounded-full cursor-default">
-                             <Heart className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-500 fill-red-500" />
-                             <span className="text-[8px] sm:text-[9px] text-zinc-300 font-bold">{displayReacts}</span>
+                  <div key={ch.id} onClick={() => handleReadChapter(ch, absoluteIndex)} className="flex items-start sm:items-center gap-3 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
+
+                    <div className="relative overflow-hidden rounded-lg min-w-[80px] w-20 h-20 sm:min-w-[128px] sm:w-32 sm:h-32 flex-shrink-0">
+                      <img
+                        src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`}
+                        className={`w-full h-full object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`}
+                        style={{
+                          objectPosition: ch.thumbnail_position || '50% 50%',
+                          transform: `scale(${(ch.thumbnail_scale || 100) / 100})`
+                        }}
+                        alt="Thumbnail"
+                      />
+                      <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
+                      {isLocked && (
+                        <div className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-black/80 backdrop-blur-md border border-zinc-700 p-1 sm:p-1.5 rounded-md">
+                          <Lock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-zinc-400" />
+                        </div>
+                      )}
+                      {isEarlyAccess ? (
+                        <div className="absolute top-1 right-1 z-20 bg-gradient-to-r from-purple-600 to-[#fe9a00] text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(168,85,247,0.8)] animate-pulse pointer-events-none">
+                          ⚡ 12H EARLY
+                        </div>
+                      ) : showNewBadge && (
+                        <div className="absolute top-1 right-1 z-20 bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+                          NEW!
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center flex-1 min-w-0 gap-3 sm:gap-4 w-full">
+                      <div className="flex-1 min-w-0 w-full">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
+                          <p className={`text-[9px] sm:text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
+                          {isEarlyAccess ? (
+                            <span className="bg-purple-600/30 border border-purple-400 text-purple-200 text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
+                              ⚡ PLUS 12H EARLY ACCESS
+                            </span>
+                          ) : showNewBadge && (
+                            <span className="bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
+                              NEW!
+                            </span>
+                          )}
+
+                          <div className="flex items-center gap-1.5 sm:gap-2">
+                            <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-900/80 border border-zinc-800 px-1.5 sm:px-2 py-0.5 rounded-full cursor-default">
+                              <Heart className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-500 fill-red-500" />
+                              <span className="text-[8px] sm:text-[9px] text-zinc-300 font-bold">{displayReacts}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      
-                      <h3 className={`font-bold text-sm sm:text-lg mb-1.5 sm:mb-2 leading-snug break-words pr-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
-                      {hasTempUnlock && (
-                        <span className="text-green-500 text-[9px] font-black uppercase tracking-widest mt-1 block">
-                          Unlocked (24h)
-                        </span>
-                      )}
-                      
-                      {userTier !== 'visitor' && (
-                        <div className="flex flex-col gap-1 w-full max-w-[150px] sm:max-w-[200px] mt-1">
-                           <div className="flex items-center gap-2">
-                             <div className="flex-1 h-1 sm:h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                               <div 
-                                 className="h-full bg-[#fe9a00] rounded-full transition-all duration-500" 
-                                 style={{ width: `${isLocked ? 0 : actualProgress}%` }} 
-                               />
-                             </div>
-                             <span className="text-[8px] sm:text-[10px] font-black text-zinc-500">{isLocked ? 0 : actualProgress}%</span>
-                           </div>
-                           {actualProgress === 100 && !isLocked && (
-                             <span className="text-[8px] sm:text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
-                           )}
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto mt-1 sm:mt-0 border-t border-zinc-800/50 sm:border-0 pt-2 sm:pt-0">
-                      <div className="flex items-center gap-1 sm:gap-2">
-                        
-                        <div onClick={(e) => e.stopPropagation()}>
-                           <HypeButton 
-                             targetType="chapter" 
-                             targetId={ch.id}
-                             seriesSlug={localSeries.slug} 
-                             userId={currentUserId} 
-                             variant="chapter-hype-icon"
-                             onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype chapters!" })}
-                           />
-                        </div>
 
-                        <div onClick={(e) => e.stopPropagation()}>
-                          <LikeButton 
-                            targetType="chapter" 
-                            targetId={ch.id} 
-                            userId={currentUserId} 
-                            variant="chapter-action-icon" 
-                            onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like chapters!" })} 
-                          />
-                        </div>
-
-                        <button 
-                          onClick={(e) => scrollToSection(e, commentsRef)} 
-                          className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer"
-                          title="Jump to Comments"
-                        >
-                          <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
-                        </button>
-                        <button 
-                          onClick={(e) => scrollToSection(e, creatorRef)} 
-                          className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer"
-                          title="Jump to Creator"
-                        >
-                          <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
-                        </button>
-                      </div>
-
-                      <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full transition-colors flex-shrink-0 ml-auto sm:ml-0 ${isLocked ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-800 group-hover:bg-[#fe9a00]'}`}>
-                        {isLocked ? (
-                           <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-zinc-600" />
-                        ) : (
-                           <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white group-hover:text-black transition-colors ml-0.5 sm:ml-1" />
+                        <h3 className={`font-bold text-sm sm:text-lg mb-1.5 sm:mb-2 leading-snug break-words pr-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
+                        {hasTempUnlock && (
+                          <span className="text-green-500 text-[9px] font-black uppercase tracking-widest mt-1 block">
+                            Unlocked (24h)
+                          </span>
                         )}
+
+                        {userTier !== 'visitor' && (
+                          <div className="flex flex-col gap-1 w-full max-w-[150px] sm:max-w-[200px] mt-1">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1 sm:h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-[#fe9a00] rounded-full transition-all duration-500"
+                                  style={{ width: `${isLocked ? 0 : actualProgress}%` }}
+                                />
+                              </div>
+                              <span className="text-[8px] sm:text-[10px] font-black text-zinc-500">{isLocked ? 0 : actualProgress}%</span>
+                            </div>
+                            {actualProgress === 100 && !isLocked && (
+                              <span className="text-[8px] sm:text-[10px] font-black text-[#fe9a00] uppercase tracking-widest">Complete!</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto mt-1 sm:mt-0 border-t border-zinc-800/50 sm:border-0 pt-2 sm:pt-0">
+                        <div className="flex items-center gap-1 sm:gap-2">
+
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <HypeButton
+                              targetType="chapter"
+                              targetId={ch.id}
+                              seriesSlug={localSeries.slug}
+                              userId={currentUserId}
+                              variant="chapter-hype-icon"
+                              onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype chapters!" })}
+                            />
+                          </div>
+
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <LikeButton
+                              targetType="chapter"
+                              targetId={ch.id}
+                              userId={currentUserId}
+                              variant="chapter-action-icon"
+                              onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like chapters!" })}
+                            />
+                          </div>
+
+                          <button
+                            onClick={(e) => scrollToSection(e, commentsRef)}
+                            className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer"
+                            title="Jump to Comments"
+                          >
+                            <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+                          </button>
+                          <button
+                            onClick={(e) => scrollToSection(e, creatorRef)}
+                            className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer"
+                            title="Jump to Creator"
+                          >
+                            <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
+                          </button>
+                        </div>
+
+                        <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full transition-colors flex-shrink-0 ml-auto sm:ml-0 ${isLocked ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-800 group-hover:bg-[#fe9a00]'}`}>
+                          {isLocked ? (
+                            <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-zinc-600" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white group-hover:text-black transition-colors ml-0.5 sm:ml-1" />
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              )})}
-              
+                );
+              })}
+
               {chapters.length === 0 && <div className="text-center py-16 text-zinc-500 font-bold tracking-widest text-xs uppercase">No chapters uploaded yet.</div>}
 
               {visibleCount < chapters.length && (
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
-                  <button 
+                  <button
                     onClick={() => setVisibleCount(prev => prev + 25)}
                     className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-900 border border-zinc-700 text-white text-[10px] font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors cursor-pointer"
                   >
                     Load Next 25 Chapters
                   </button>
-                  <button 
+                  <button
                     onClick={() => setVisibleCount(chapters.length)}
                     className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-950 border border-zinc-800 text-zinc-500 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors cursor-pointer"
                   >
@@ -1279,11 +1349,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 {seriesCharacters.slice(0, showAllChars ? undefined : 8).map((char, i) => (
                   <div key={i} className="flex flex-col items-center bg-zinc-900/50 rounded-xl overflow-hidden border border-zinc-800">
                     <div className="w-full aspect-square bg-zinc-800 relative">
-                      <img 
-                        src={char.headshot_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'} 
-                        alt={char.name} 
+                      <img
+                        src={char.headshot_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'}
+                        alt={char.name}
                         onError={(e) => { e.currentTarget.src = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'; }}
-                        className="w-full h-full object-cover" 
+                        className="w-full h-full object-cover"
                       />
                       {char.is_mc && <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-10 uppercase">MC</div>}
                     </div>
@@ -1299,7 +1369,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   {showAllChars ? '- Show Less' : '+ See More Characters'}
                 </button>
               )}
-              <button 
+              <button
                 onClick={() => onNavigate({ action: 'characters' })}
                 className="w-full bg-zinc-900 border border-zinc-700 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors mt-4 cursor-pointer"
               >
@@ -1308,33 +1378,33 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             </div>
           )}
         </div>
-        
+
         <div ref={commentsRef} className="w-full max-w-3xl mx-auto pt-8">
-          <SeriesCommentsSection 
+          <SeriesCommentsSection
             {...({
               seriesSlug: localSeries?.slug,
               currentUser: currentUserId ? { id: currentUserId, tier: userTier } : null,
-              onRequireAuth: () => setUpsellConfig({ 
-                type: 'visitor', 
-                message: "Create a Free Account to join the community discussion and share your thoughts!" 
+              onRequireAuth: () => setUpsellConfig({
+                type: 'visitor',
+                message: "Create a Free Account to join the community discussion and share your thoughts!"
               })
             } as any)}
-          />     
+          />
         </div>
 
         <div ref={creatorRef} className="pb-24 px-6 w-full max-w-3xl mx-auto scroll-mt-24">
           <div className="border-t border-zinc-800 pt-12 flex flex-col items-center gap-16">
             {creators.map((c: any, index) => {
-              const safeName = c.name || 'Creator'; 
+              const safeName = c.name || 'Creator';
               const creatorId = c.id || c.name;
               return (
                 <div key={index} className="flex flex-col items-center text-center w-full max-w-lg bg-zinc-900/30 p-8 rounded-2xl border border-zinc-800/50 shadow-xl">
                   <div className="flex flex-col items-center gap-4 mb-6">
                     <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-zinc-700 overflow-hidden border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.3)]">
-                      <img 
-                        src={(c.avatar_url && c.avatar_url !== 'null') ? c.avatar_url : `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} 
-                        alt={safeName} 
-                        className="w-full h-full object-cover" 
+                      <img
+                        src={(c.avatar_url && c.avatar_url !== 'null') ? c.avatar_url : `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`}
+                        alt={safeName}
+                        className="w-full h-full object-cover"
                         onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }}
                       />
                     </div>
@@ -1344,26 +1414,26 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     </div>
                   </div>
                   <p className="text-sm sm:text-base text-zinc-300 leading-relaxed mb-8">{c.bio || '...'}</p>
-                  
-                  <button 
+
+                  <button
                     onClick={() => {
                       setDonationCreator(c);
                       setDonationStep('input');
                       setDonationAmount(5);
                       setFanmailText('');
-                    }} 
+                    }}
                     className="flex items-center justify-center gap-2 w-full max-w-xs mx-auto mb-3 bg-[#fe9a00] text-black px-8 py-3.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-widest hover:bg-white transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] hover:shadow-[0_0_30px_rgba(255,255,255,0.5)] hover:-translate-y-1 cursor-pointer"
                   >
                     <Heart className="w-4 h-4 fill-black" /> Support {safeName.split(' ')[0]}
                   </button>
 
                   <div className="w-full max-w-xs mx-auto mb-8 [&_button]:w-full [&_button]:justify-center">
-                    <HypeButton 
-                      targetType="creator" 
-                      targetId={creatorId} 
-                      userId={currentUserId} 
-                      variant="default" 
-                      onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" })} 
+                    <HypeButton
+                      targetType="creator"
+                      targetId={creatorId}
+                      userId={currentUserId}
+                      variant="default"
+                      onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" })}
                     />
                   </div>
 
@@ -1371,15 +1441,15 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     {c.twitter_url && <a href={c.twitter_url} target="_blank" rel="noreferrer" className="flex-1 max-w-[140px] text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-4 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]">Twitter</a>}
                     {c.instagram_url && <a href={c.instagram_url} target="_blank" rel="noreferrer" className="flex-1 max-w-[140px] text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-4 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]">Instagram</a>}
                   </div>
-                  
+
                 </div>
               );
             })}
           </div>
 
           <div className="flex justify-center mt-24 border-t border-zinc-800/50 pt-12">
-            <button 
-              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} 
+            <button
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
               className="flex flex-col items-center gap-2 group cursor-pointer"
             >
               <div className="p-3 bg-zinc-900 border border-zinc-700 rounded-full group-hover:bg-[#fe9a00] group-hover:border-[#fe9a00] transition-colors shadow-lg">

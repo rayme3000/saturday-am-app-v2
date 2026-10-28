@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { X, Share2, Copy, CheckCircle2, Image as ImageIcon } from 'lucide-react';
-import { supabase } from '../supabase';
+import { supabase, trackTelemetry } from '../supabase';
 
 const MAX_DAILY_REWARDED_SHARES = 3;
 
@@ -15,11 +15,11 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
 
   const targetSlug = series?.slug || 'app';
   const trackingParams = currentUser?.id ? `?ref=${currentUser.id}&slug=${targetSlug}` : '';
-  const baseTargetUrl = isAppShare 
+  const baseTargetUrl = isAppShare
     ? `https://www.mangahype.com/${trackingParams}`
     : `https://www.mangahype.com/series/${series.slug}${trackingParams}`;
-  
-  const finalShareUrl = targetImage 
+
+  const finalShareUrl = targetImage
     ? `https://www.mangahype.com/share?panel=${encodeURIComponent(targetImage)}&target=${encodeURIComponent(baseTargetUrl)}`
     : baseTargetUrl;
 
@@ -36,6 +36,12 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
   // Anti-Exploit Share Point Awarder:
   // Max 1 reward per unique target per day, capped at MAX_DAILY_REWARDED_SHARES (3) per day
   const awardSharePoints = async () => {
+    trackTelemetry('share', {
+      series_slug: targetSlug,
+      chapter_id: chapter?.id || null,
+      share_type: targetImage ? 'panel' : 'link'
+    });
+
     if (!currentUser?.id || isAwardingRef.current) return;
 
     const todayKey = new Date().toISOString().split('T')[0];
@@ -79,7 +85,7 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
         window.dispatchEvent(new Event('profileUpdated'));
       }
     } catch (e) {
-      console.error("Error awarding share points:", e);
+      console.error('Error awarding share points:', e);
     } finally {
       isAwardingRef.current = false;
     }
@@ -98,17 +104,17 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
     <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={onClose}>
       <div className="bg-zinc-950 border border-zinc-800 p-6 sm:p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
         <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
-        
+
         <div className="w-16 h-16 bg-[#fe9a00]/10 border border-[#fe9a00]/30 rounded-full flex items-center justify-center mb-4 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
           {targetImage ? <ImageIcon className="w-8 h-8 text-[#fe9a00]" /> : <Share2 className="w-8 h-8 text-[#fe9a00]" />}
         </div>
-        
+
         <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
-          {targetImage ? "Share Manga Panel" : "Spread the Hype"}
+          {targetImage ? 'Share Manga Panel' : 'Spread the Hype'}
         </h2>
         <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed mb-4">
-          {targetImage 
-            ? "This panel is too epic to keep to yourself! Share it with your followers." 
+          {targetImage
+            ? 'This panel is too epic to keep to yourself! Share it with your followers.'
             : `Share this ${isAppShare ? 'app' : 'series'} with your friends and fellow manga fans!`}
         </p>
 
@@ -119,7 +125,7 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
         )}
 
         <div className="flex flex-col gap-3 w-full">
-          
+
           <div className="relative w-full h-40 mb-2 rounded-xl overflow-hidden border border-zinc-800 bg-black">
             <img src={previewImage} className="w-full h-full object-contain opacity-80" alt="Link Preview" />
             <div className="absolute inset-0 flex flex-col justify-end p-2 bg-gradient-to-t from-black to-transparent pointer-events-none">
@@ -127,10 +133,10 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
             </div>
           </div>
 
-          <a 
-            href={bskyLink} 
-            target="_blank" 
-            rel="noopener noreferrer" 
+          <a
+            href={bskyLink}
+            target="_blank"
+            rel="noopener noreferrer"
             onClick={awardSharePoints}
             className="w-full flex items-center justify-center gap-3 bg-[#0560FF] text-white font-black uppercase tracking-widest py-3 rounded-xl hover:opacity-80 transition-opacity cursor-pointer"
           >
@@ -140,10 +146,10 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
             Bluesky
           </a>
 
-          <a 
-            href={threadsLink} 
-            target="_blank" 
-            rel="noopener noreferrer" 
+          <a
+            href={threadsLink}
+            target="_blank"
+            rel="noopener noreferrer"
             onClick={awardSharePoints}
             className="w-full flex items-center justify-center gap-3 bg-zinc-900 border border-zinc-700 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white hover:text-black transition-all group cursor-pointer"
           >
@@ -153,19 +159,19 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
             Threads
           </a>
 
-          <a 
-            href={fbLink} 
-            target="_blank" 
-            rel="noopener noreferrer" 
+          <a
+            href={fbLink}
+            target="_blank"
+            rel="noopener noreferrer"
             onClick={awardSharePoints}
             className="w-full flex items-center justify-center gap-3 bg-[#1877F2] text-white font-black uppercase tracking-widest py-3 rounded-xl hover:opacity-80 transition-opacity cursor-pointer"
           >
             <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
-              <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+              <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
             </svg>
             Facebook
           </a>
-          
+
           <button onClick={handleCopy} className="w-full mt-2 bg-black border border-[#fe9a00] text-[#fe9a00] font-black uppercase tracking-widest py-3 rounded-xl hover:bg-[#fe9a00] hover:text-black transition-all flex items-center justify-center gap-2 cursor-pointer">
             {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             {copied ? 'Link Copied!' : 'Copy Link'}

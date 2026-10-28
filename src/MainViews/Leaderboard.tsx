@@ -20,14 +20,93 @@ const EXCLUDED_STAFF_ADMIN_EMAILS = new Set([
   'demetrene.billups@gmail.com',
   'publisher@saturday-am.com',
   'rayme3000@gmail.com',
-  'saturdayam.writer@gmail.com'
+  'saturdayam.writer@gmail.com',
+  'dropkickanimation@gmail.com',
+  'fsimmonds4@gmail.com'
+]);
+
+const EXCLUDED_TEST_STAFF_IDS = new Set([
+  'abaf26d1-c0d6-4d70-bbbe-9e1784366257', // AMAPPTEST1
+  '53bf553c-425a-4d1c-978f-e6bc93910099', // AMAPPTEST2
+  'c1bc4936-b192-45bb-a5c7-57900d24a030', // AMAPPTEST3
+  '35c470b1-df48-4aa1-bd1c-68a0eb26ee92', // AMAPPTEST5
+  '203b25d6-7c80-4161-9a13-debd7299982c', // AMAPPTEST6
+  '79cf838d-a214-4d87-a036-b62328547840', // AMTEST5
+  '829bc0be-6b8e-42cf-ab61-54624c785c69', // Freeaccount3000
+  '6aa6e204-59eb-4444-8fc5-f95d628c16ab'  // rayme3000
+]);
+
+const EXCLUDED_TEST_STAFF_USERNAMES = new Set([
+  'sano2026',
+  'freemium3000',
+  'freeaccount3000',
+  'rayme3000',
+  'fred@saturday.a',
+  'fredtest1',
+  'fred_test_2',
+  'billsup2000',
+  'amapptest1',
+  'amapptest2',
+  'amapptest3',
+  'amapptest4',
+  'amapptest5',
+  'amapptest6',
+  'amtest5',
+  'erick pedrucci',
+  'franksimmonds',
+  'jeyodin',
+  'odunzeoguguo',
+  'oscar fong',
+  'stefanoromano',
+  'whyt manga'
+]);
+
+// Generic placeholder names that should never occupy a named Top 10 Supporters slot
+const GENERIC_PLACEHOLDER_USERNAMES = new Set([
+  '',
+  'saturday fan',
+  'unnamed reader',
+  'reader',
+  'user',
+  'anonymous',
+  'null',
+  'undefined'
 ]);
 
 const EXCLUDED_LEADERBOARD_ROLES = new Set([
   'creator',
   'core_creator',
-  'staff'
+  'staff',
+  'influencer',
+  'admin',
+  'moderator'
 ]);
+
+const isExcludedStaffOrTestAccount = (p: any): boolean => {
+  if (!p) return false;
+  const uid = String(p.id || p.user_id || '').trim();
+  const role = String(p.role || 'reader').trim().toLowerCase();
+  const email = String(p.email || '').trim().toLowerCase();
+  const username = String(p.username || '').trim().toLowerCase();
+  const hasLinkedCreator = Boolean(String(p.linked_creator_name || '').trim());
+
+  return (
+    Boolean(p.is_admin) ||
+    hasLinkedCreator ||
+    EXCLUDED_TEST_STAFF_IDS.has(uid) ||
+    EXCLUDED_LEADERBOARD_ROLES.has(role) ||
+    EXCLUDED_STAFF_ADMIN_EMAILS.has(email) ||
+    EXCLUDED_TEST_STAFF_USERNAMES.has(username) ||
+    username.includes('test') ||
+    email.includes('test')
+  );
+};
+
+const hasValidUniqueFanUsername = (p: any): boolean => {
+  const uname = String(p?.username || '').trim().toLowerCase();
+  if (!uname || GENERIC_PLACEHOLDER_USERNAMES.has(uname)) return false;
+  return true;
+};
 
 export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
   const { seriesList = [] } = useSeriesData();
@@ -39,7 +118,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
   const [big3, setBig3] = useState<any[]>([]);
   const [big3Creators, setBig3Creators] = useState<any[]>([]);
   const [userRank, setUserRank] = useState<any>(null);
-  
+
   const [topSeries, setTopSeries] = useState<any[]>([]);
   const [topCreators, setTopCreators] = useState<any[]>([]);
   const [topCharacters, setTopCharacters] = useState<any[]>([]);
@@ -56,20 +135,14 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         lastSaturday.setHours(0, 0, 0, 0);
         const lastSaturdayIso = lastSaturday.toISOString();
 
-        // 0. FETCH CREATOR, STAFF & ADMIN USER IDS TO EXCLUDE FROM ALL LEADERBOARD CALCULATIONS
+        // 0. FETCH ALL PROFILES TO FILTER STAFF/CREATORS/TESTS AND COMPUTE PURE FAN LEADERBOARD
         const { data: allProfilesMeta } = await supabase
           .from('profiles')
-          .select('id, role, is_admin, email');
+          .select('id, username, avatar_url, avatar_frame_id, is_premium, fandom_score, quick_reacts, chapters_read, total_hypes, super_hypes, role, is_admin, email, linked_creator_name');
 
-        const excludedUserIds = new Set<string>();
+        const excludedUserIds = new Set<string>(EXCLUDED_TEST_STAFF_IDS);
         (allProfilesMeta || []).forEach((p: any) => {
-          const role = String(p.role || 'reader').trim().toLowerCase();
-          const email = String(p.email || '').trim().toLowerCase();
-          if (
-            Boolean(p.is_admin) ||
-            EXCLUDED_LEADERBOARD_ROLES.has(role) ||
-            EXCLUDED_STAFF_ADMIN_EMAILS.has(email)
-          ) {
+          if (isExcludedStaffOrTestAccount(p)) {
             excludedUserIds.add(String(p.id));
           }
         });
@@ -80,119 +153,114 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           return !excludedUserIds.has(String(uid));
         };
 
-        // 1. TOP SUPPORTERS: RPC WITH AUTOMATIC LIFETIME BACKFILL (FAN-ONLY)
-        let finalFans: any[] = [];
+        // 1. TOP 10 SUPPORTERS: PURE FANS ONLY, DEDUPLICATED BY USERNAME, SYNCED TO FANDOM SCORE
+        const seenUsernames = new Set<string>();
+        const seenIds = new Set<string>();
+        const finalFans: any[] = [];
+
+        const tryAddFanCandidate = (candidate: any) => {
+          if (!candidate) return;
+          const cid = String(candidate.id || candidate.user_id || '').trim();
+          const rawName = String(candidate.username || '').trim();
+          const lowerName = rawName.toLowerCase();
+          const score = Number(candidate.score ?? candidate.fandom_score ?? 0);
+
+          if (!cid || seenIds.has(cid) || excludedUserIds.has(cid)) return;
+          if (isExcludedStaffOrTestAccount(candidate)) return;
+          if (!hasValidUniqueFanUsername(candidate)) return;
+          if (seenUsernames.has(lowerName)) return;
+          if (score <= 0) return;
+
+          seenIds.add(cid);
+          seenUsernames.add(lowerName);
+          finalFans.push({
+            id: cid,
+            username: rawName,
+            avatar_url: candidate.avatar_url || '',
+            frame_id: candidate.frame_id || candidate.avatar_frame_id || 'none',
+            is_premium: Boolean(candidate.is_premium),
+            score
+          });
+        };
 
         try {
           const { data: topFans, error: fansError } = await supabase.rpc('fetch_top_ten_fans');
-          if (topFans && !fansError && topFans.length > 0) {
-            finalFans = topFans
-              .filter((f: any) => !excludedUserIds.has(String(f.id || f.user_id)))
-              .map((f: any, i: number) => ({
-                ...f,
-                rank: i + 1,
-                score: Number(f.score || 0)
-              }));
+          if (topFans && !fansError && Array.isArray(topFans)) {
+            topFans.forEach(tryAddFanCandidate);
           }
         } catch (rpcErr) {
-          console.warn("fetch_top_ten_fans RPC unavailable, falling back to profiles", rpcErr);
+          console.warn('fetch_top_ten_fans RPC unavailable, using verified profiles list', rpcErr);
         }
 
-        // Backfill remaining slots from fan-only profiles if fewer than 10
-        if (finalFans.length < 10) {
-          const existingIds = new Set(finalFans.map(f => String(f.id || f.user_id)));
-          const slotsNeeded = 10 - finalFans.length;
-
-          const { data: fallbackProfiles } = await supabase
-            .from('profiles')
-            .select('id, username, avatar_url, avatar_frame_id, is_premium, fandom_score, quick_reacts, chapters_read, role, is_admin, email')
-            .order('fandom_score', { ascending: false })
-            .limit(slotsNeeded + existingIds.size + excludedUserIds.size + 25);
-
-          if (fallbackProfiles) {
-            const filtered = fallbackProfiles
-              .filter((p: any) => {
-                const pid = String(p.id);
-                if (existingIds.has(pid) || excludedUserIds.has(pid)) return false;
-                const r = String(p.role || 'reader').trim().toLowerCase();
-                const em = String(p.email || '').trim().toLowerCase();
-                if (p.is_admin || EXCLUDED_LEADERBOARD_ROLES.has(r) || EXCLUDED_STAFF_ADMIN_EMAILS.has(em)) {
-                  return false;
-                }
-                return true;
-              })
-              .slice(0, slotsNeeded)
-              .map((p: any, idx: number) => ({
-                id: p.id,
-                username: p.username || 'Saturday Fan',
-                avatar_url: p.avatar_url || '',
-                frame_id: p.avatar_frame_id || 'none',
-                is_premium: p.is_premium || false,
-                score: p.fandom_score || 0,
-                rank: finalFans.length + idx + 1
-              }));
-
-            finalFans = [...finalFans, ...filtered];
-          }
+        // Backfill from allProfilesMeta sorted by fandom_score DESC so we always have up to 10 unique named Pure Fans
+        const sortedProfileCandidates = [...(allProfilesMeta || [])].sort(
+          (a: any, b: any) => Number(b.fandom_score || 0) - Number(a.fandom_score || 0)
+        );
+        for (const p of sortedProfileCandidates) {
+          if (finalFans.length >= 10) break;
+          tryAddFanCandidate(p);
         }
+
+        // Sort final unique fans by score descending
+        finalFans.sort((a, b) => b.score - a.score);
 
         const formattedTop10 = finalFans.slice(0, 10).map((fan: any, index: number) => {
           let rankClass = 'C-Class Rank';
           if (index < 3) rankClass = 'S-Class Rank';
           else if (index < 6) rankClass = 'A-Class Rank';
           else if (index < 9) rankClass = 'B-Class Rank';
-          return { 
-            ...fan, 
+          return {
+            ...fan,
             rank: index + 1,
-            class: rankClass, 
-            score: Number(fan.score || fan.fandom_score || 0) 
+            class: rankClass,
+            score: Number(fan.score || 0)
           };
         });
 
         setSuperFans(formattedTop10);
 
-        // 2. PERSONAL USER RANK (Fan-Only Ranking)
+        // 2. PERSONAL USER RANK (Fan-Only Ranking, Deduplicated by Username)
         if (currentUser?.id) {
-          const currentRole = String(currentUser?.role || 'reader').trim().toLowerCase();
-          const currentEmail = String(currentUser?.email || '').trim().toLowerCase();
+          const myProfile = (allProfilesMeta || []).find(
+            (p: any) => String(p.id) === String(currentUser.id)
+          );
           const isCurrentUserExcluded =
-            Boolean(currentUser?.is_admin) ||
-            EXCLUDED_LEADERBOARD_ROLES.has(currentRole) ||
-            EXCLUDED_STAFF_ADMIN_EMAILS.has(currentEmail) ||
+            isExcludedStaffOrTestAccount(currentUser) ||
+            (myProfile && isExcludedStaffOrTestAccount(myProfile)) ||
             excludedUserIds.has(String(currentUser.id));
 
           if (isCurrentUserExcluded) {
             setUserRank({
               rank: null,
               isExcludedStaffOrCreator: true,
-              score: Number(currentUser.fandom_score || 0),
+              score: Number(myProfile?.fandom_score ?? currentUser.fandom_score ?? 0),
               class: 'Official Creator / Staff'
             });
           } else {
-            const { data: myProfile } = await supabase
-              .from('profiles')
-              .select('fandom_score')
-              .eq('id', currentUser.id)
-              .maybeSingle();
-
             const myScore = Number(myProfile?.fandom_score ?? currentUser.fandom_score ?? 0);
+            const higherUniqueNames = new Set<string>();
 
-            const { data: higherProfiles } = await supabase
-              .from('profiles')
-              .select('id')
-              .gt('fandom_score', myScore);
+            (allProfilesMeta || []).forEach((p: any) => {
+              if (String(p.id) === String(currentUser.id)) return;
+              if (excludedUserIds.has(String(p.id)) || isExcludedStaffOrTestAccount(p)) return;
+              if (!hasValidUniqueFanUsername(p)) return;
+              if (Number(p.fandom_score || 0) > myScore) {
+                higherUniqueNames.add(String(p.username).trim().toLowerCase());
+              }
+            });
 
-            const higherFanCount = (higherProfiles || []).filter(
-              (p: any) => !excludedUserIds.has(String(p.id))
-            ).length;
-
-            const myRank = higherFanCount + 1;
+            const myRank = higherUniqueNames.size + 1;
             let myClass = 'C-Class Rank';
             if (myRank <= 3) myClass = 'S-Class Rank';
-            else if (myRank <= 10) myClass = 'A-Class Rank';
-            else if (myRank <= 50) myClass = 'B-Class Rank';
+            else if (myRank <= 6) myClass = 'A-Class Rank';
+            else if (myRank <= 9) myClass = 'B-Class Rank';
 
-            setUserRank({ rank: myRank, score: myScore, class: myClass, isExcludedStaffOrCreator: false });
+            setUserRank({
+              rank: myRank,
+              score: myScore,
+              class: myClass,
+              isExcludedStaffOrCreator: false
+            });
           }
         }
 
@@ -205,7 +273,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
         if (seriesList.length > 0) {
           const hypeCounts: Record<string, number> = {};
-          superHypes.forEach((h: any) => { 
+          superHypes.forEach((h: any) => {
             if (h.series_slug) {
               hypeCounts[h.series_slug] = (hypeCounts[h.series_slug] || 0) + 10;
             }
@@ -250,11 +318,11 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
           const weeklyRankedSeries = [...seriesList]
             .filter((s: any) => !s.is_hidden)
-            .map((s: any) => ({ 
-              ...s, 
+            .map((s: any) => ({
+              ...s,
               hypeScore: Math.max(seriesWeeklyMap[s.slug] || 0, s.weekly_hype || 0)
             }))
-            .sort((a, b) => b.hypeScore - a.hypeScore);
+            .sort((a: any, b: any) => b.hypeScore - a.hypeScore);
 
           setTopSeries(weeklyRankedSeries.slice(0, 5));
         }
@@ -269,16 +337,16 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         const allCreatorsData = allCreatorsDataRes.data;
         if (allCreatorsData) {
           const creatorHypeCounts: Record<string, number> = {};
-          (allCreatorHypesRes.data || []).filter(isFanActivity).forEach((h: any) => { 
-            creatorHypeCounts[h.target_id] = (creatorHypeCounts[h.target_id] || 0) + 5; 
+          (allCreatorHypesRes.data || []).filter(isFanActivity).forEach((h: any) => {
+            creatorHypeCounts[h.target_id] = (creatorHypeCounts[h.target_id] || 0) + 5;
           });
           (allCreatorLikesRes.data || []).filter(isFanActivity).forEach((l: any) => {
             creatorHypeCounts[l.creator_id] = (creatorHypeCounts[l.creator_id] || 0) + 1;
           });
-          
+
           const uniqueCreatorsMap = new Map();
-          allCreatorsData.forEach((c: any) => { 
-            if (!uniqueCreatorsMap.has(c.name)) uniqueCreatorsMap.set(c.name, c); 
+          allCreatorsData.forEach((c: any) => {
+            if (!uniqueCreatorsMap.has(c.name)) uniqueCreatorsMap.set(c.name, c);
           });
 
           const rankedCreators = Array.from(uniqueCreatorsMap.values())
@@ -299,19 +367,19 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         const allCharsData = allCharsDataRes.data;
         if (allCharsData) {
           const charHypeCounts: Record<string, number> = {};
-          (allCharHypesRes.data || []).filter(isFanActivity).forEach((h: any) => { 
-            charHypeCounts[String(h.target_id)] = (charHypeCounts[String(h.target_id)] || 0) + 5; 
+          (allCharHypesRes.data || []).filter(isFanActivity).forEach((h: any) => {
+            charHypeCounts[String(h.target_id)] = (charHypeCounts[String(h.target_id)] || 0) + 5;
           });
           (allCharLikesRes.data || []).filter(isFanActivity).forEach((l: any) => {
             charHypeCounts[String(l.character_id)] = (charHypeCounts[String(l.character_id)] || 0) + 1;
           });
-          
+
           const rankedChars = allCharsData
             .map((c: any) => {
               const sTitle = seriesList.find((s: any) => s.slug === c.series_slug)?.title || 'Unknown Series';
               return { ...c, series_title: sTitle, hypeScore: charHypeCounts[String(c.id)] || 0 };
             })
-            .sort((a: any, b: any) => b.hypeScore - a.hypeScore)
+            .sort((a, b) => b.hypeScore - a.hypeScore)
             .slice(0, 5);
 
           setTopCharacters(rankedChars);
@@ -326,11 +394,11 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         ]);
 
         const chapterInteractionCounts: Record<string, number> = {};
-        (chapterHypesRes.data || []).filter(isFanActivity).forEach((h: any) => { 
-          if (h.target_id) chapterInteractionCounts[h.target_id] = (chapterInteractionCounts[h.target_id] || 0) + 5; 
+        (chapterHypesRes.data || []).filter(isFanActivity).forEach((h: any) => {
+          if (h.target_id) chapterInteractionCounts[h.target_id] = (chapterInteractionCounts[h.target_id] || 0) + 5;
         });
-        (chapterLikesRes.data || []).filter(isFanActivity).forEach((l: any) => { 
-          if (l.chapter_id) chapterInteractionCounts[l.chapter_id] = (chapterInteractionCounts[l.chapter_id] || 0) + 2; 
+        (chapterLikesRes.data || []).filter(isFanActivity).forEach((l: any) => {
+          if (l.chapter_id) chapterInteractionCounts[l.chapter_id] = (chapterInteractionCounts[l.chapter_id] || 0) + 2;
         });
         (chapterReactsRes.data || []).filter(isFanActivity).forEach((r: any) => {
           if (r.chapter_id) chapterInteractionCounts[r.chapter_id] = (chapterInteractionCounts[r.chapter_id] || 0) + 2;
@@ -340,24 +408,24 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         });
 
         const trendingChapIds = Object.keys(chapterInteractionCounts);
-        
+
         if (trendingChapIds.length > 0) {
           const { data: chapsData } = await supabase
             .from('chapters')
             .select('id, title, chapter_number, series_slug, thumbnail_url')
             .in('id', trendingChapIds);
-            
+
           if (chapsData) {
             const rankedChaps = chapsData.map((c: any) => {
               const sData = seriesList.find((s: any) => s.slug === c.series_slug);
-              return { 
-                ...c, 
-                series_title: sData?.title || 'Unknown Series', 
+              return {
+                ...c,
+                series_title: sData?.title || 'Unknown Series',
                 cover_url: sData?.cover_url,
-                hypeScore: chapterInteractionCounts[c.id] || 0 
+                hypeScore: chapterInteractionCounts[c.id] || 0
               };
             }).sort((a: any, b: any) => b.hypeScore - a.hypeScore);
-            
+
             setTopWeeklyChapters(rankedChaps.slice(0, 3));
           }
         } else {
@@ -367,7 +435,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
         // 8. MONTHLY BIG 3 CREATORS (Fan-Only Hypes)
         if (allCreatorsData) {
           const combinedCreatorScores: Record<string, number> = {};
-          
+
           const { data: monthlyCreatorHypes } = await supabase
             .from('hypes')
             .select('target_id, user_id')
@@ -389,19 +457,19 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
           });
 
           const uniqueCreatorMap = new Map();
-          allCreatorsData.forEach((c: any) => { 
-            if (!uniqueCreatorMap.has(c.name)) uniqueCreatorMap.set(c.name, c); 
+          allCreatorsData.forEach((c: any) => {
+            if (!uniqueCreatorMap.has(c.name)) uniqueCreatorMap.set(c.name, c);
           });
-          
+
           const rankedBig3Creators = Array.from(uniqueCreatorMap.values())
             .map((c: any) => ({ ...c, hypeScore: combinedCreatorScores[c.name] || 0 }))
             .sort((a, b) => b.hypeScore - a.hypeScore);
-            
+
           setBig3Creators(rankedBig3Creators.slice(0, 3));
         }
 
       } catch (error) {
-        console.error("Error fetching leaderboard:", error);
+        console.error('Error fetching leaderboard:', error);
       } finally {
         setIsLoading(false);
       }
@@ -418,59 +486,63 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
   const LeaderboardCategory = ({ title, subtitle, items, type = 'series' }: { title: string, subtitle: string, items: any[], type?: 'series' | 'creator' | 'character' | 'chapter' }) => (
     <div className="bg-zinc-900/40 border border-zinc-800 rounded-2xl p-4 sm:p-5 mb-6 animate-fade-in">
-       <div className="flex justify-between items-end mb-4 border-b border-zinc-800/50 pb-3 px-2">
-         <h3 className="text-lg sm:text-xl font-black italic uppercase text-white flex items-center gap-2">
-           {type === 'chapter' && <BookOpen className="w-5 h-5 text-[#fe9a00]" />}
-           {type === 'series' && <Library className="w-5 h-5 text-[#fe9a00]" />}
-           {type === 'character' && <User className="w-5 h-5 text-[#fe9a00]" />}
-           {type === 'creator' && <PenTool className="w-5 h-5 text-[#fe9a00]" />}
-           {title}
-         </h3>
-         <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest">{subtitle}</span>
-       </div>
-       
-       <div className="flex flex-col gap-3">
-          {items.length > 0 ? items.map((item: any, index: number) => (
-            <div 
-              key={index} 
-              onClick={(e) => type === 'series' && handleRouteToSeries(e, item)}
-              className={`flex items-center gap-4 bg-black/40 p-3 rounded-xl border transition-colors ${type === 'series' ? 'cursor-pointer hover:border-zinc-600 border-zinc-800/50' : 'border-zinc-800/30'}`}
-            >
-               <span className={`text-xl sm:text-2xl font-black italic w-6 sm:w-8 text-center shrink-0 ${index === 0 ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]' : index === 1 ? 'text-zinc-400' : index === 2 ? 'text-amber-700' : 'text-zinc-600'}`}>
-                  {index + 1}
-               </span>
-               <div className={`w-12 h-12 sm:w-14 sm:h-14 overflow-hidden bg-zinc-800 shrink-0 border border-zinc-700 shadow-md ${type === 'character' ? 'rounded-full' : 'rounded-lg'}`}>
-                  <img src={
-                    type === 'creator' ? (item.avatar_url || `https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg`) :
-                    type === 'character' ? (item.headshot_url || 'https://via.placeholder.com/150') :
-                    (item.thumbnail_url || item.sticker_url || item.cover_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg')
-                  } className="w-full h-full object-cover" alt="" />
-               </div>
-               <div className="flex flex-col flex-1 min-w-0">
-                  <span className="font-black text-white uppercase text-sm truncate">
-                    {type === 'creator' || type === 'character' ? item.name : 
-                     type === 'chapter' ? `Ch. ${item.chapter_number} - ${item.title}` : item.title}
-                  </span>
-                  {type === 'creator' && item.role && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.role}</span>}
-                  {type === 'character' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.series_title}</span>}
-                  {type === 'series' && item.creator_name && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.creator_name}</span>}
-                  {type === 'chapter' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.series_title}</span>}
-               </div>
+      <div className="flex justify-between items-end mb-4 border-b border-zinc-800/50 pb-3 px-2">
+        <h3 className="text-lg sm:text-xl font-black italic uppercase text-white flex items-center gap-2">
+          {type === 'chapter' && <BookOpen className="w-5 h-5 text-[#fe9a00]" />}
+          {type === 'series' && <Library className="w-5 h-5 text-[#fe9a00]" />}
+          {type === 'character' && <User className="w-5 h-5 text-[#fe9a00]" />}
+          {type === 'creator' && <PenTool className="w-5 h-5 text-[#fe9a00]" />}
+          {title}
+        </h3>
+        <span className="text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest">{subtitle}</span>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {items.length > 0 ? items.map((item: any, index: number) => (
+          <div
+            key={index}
+            onClick={(e) => type === 'series' && handleRouteToSeries(e, item)}
+            className={`flex items-center gap-4 bg-black/40 p-3 rounded-xl border transition-colors ${type === 'series' ? 'cursor-pointer hover:border-zinc-600 border-zinc-800/50' : 'border-zinc-800/30'}`}
+          >
+            <span className={`text-xl sm:text-2xl font-black italic w-6 sm:w-8 text-center shrink-0 ${index === 0 ? 'text-yellow-500 drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]' : index === 1 ? 'text-zinc-400' : index === 2 ? 'text-amber-700' : 'text-zinc-600'}`}>
+              {index + 1}
+            </span>
+            <div className={`w-12 h-12 sm:w-14 sm:h-14 overflow-hidden bg-zinc-800 shrink-0 border border-zinc-700 shadow-md ${type === 'character' ? 'rounded-full' : 'rounded-lg'}`}>
+              <img
+                src={
+                  type === 'creator' ? (item.avatar_url || `https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg`) :
+                  type === 'character' ? (item.headshot_url || 'https://via.placeholder.com/150') :
+                  (item.thumbnail_url || item.sticker_url || item.cover_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg')
+                }
+                className="w-full h-full object-cover"
+                alt=""
+              />
             </div>
-          )) : (
-            <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest text-center py-8">
-              No rankings data yet for this category.
-            </p>
-          )}
-       </div>
+            <div className="flex flex-col flex-1 min-w-0">
+              <span className="font-black text-white uppercase text-sm truncate">
+                {type === 'creator' || type === 'character' ? item.name :
+                 type === 'chapter' ? `Ch. ${item.chapter_number} - ${item.title}` : item.title}
+              </span>
+              {type === 'creator' && item.role && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.role}</span>}
+              {type === 'character' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.series_title}</span>}
+              {type === 'series' && item.creator_name && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.creator_name}</span>}
+              {type === 'chapter' && item.series_title && <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5 truncate">{item.series_title}</span>}
+            </div>
+          </div>
+        )) : (
+          <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest text-center py-8">
+            No rankings data yet for this category.
+          </p>
+        )}
+      </div>
     </div>
   );
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-32">
-      <FeatureTutorialModal 
-        tutorialId="leaderboards_guide" 
-        slides={leaderboardTutorialSlides} 
+      <FeatureTutorialModal
+        tutorialId="leaderboards_guide"
+        slides={leaderboardTutorialSlides}
         forceOpen={forceTutorial}
         onClose={() => setForceTutorial(false)}
       />
@@ -498,7 +570,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
               <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest text-left truncate">Live Global Rankings</span>
             </div>
           </div>
-          
+
           <div className="hidden sm:flex flex-col items-center absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 drop-shadow-lg pointer-events-none z-0 w-max">
             <h1 className="text-3xl font-black italic uppercase tracking-tighter text-[#fe9a00] flex items-center gap-2 text-center">
               <Trophy className="w-8 h-8 shrink-0" /> Leaderboard
@@ -527,8 +599,8 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-6 relative z-10">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
-             <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
-             <span className="text-[10px] text-[#fe9a00] font-black uppercase tracking-widest animate-pulse">Calculating Scores...</span>
+            <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin"></div>
+            <span className="text-[10px] text-[#fe9a00] font-black uppercase tracking-widest animate-pulse">Calculating Scores...</span>
           </div>
         ) : (
           <>
@@ -538,7 +610,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white">Weekly Polls</h2>
                   <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-1">Resets Every Saturday at 12:00 AM • Fan Votes Only</p>
                 </div>
-                
+
                 <LeaderboardCategory title="Most Hype Chapters" items={topWeeklyChapters} subtitle="Chapter Engagement" type="chapter" />
                 <LeaderboardCategory title="Most Hype Series" items={topSeries} subtitle="Overall Hypes" type="series" />
                 <LeaderboardCategory title="Most Hype Characters" items={topCharacters} subtitle="Fan Favorites" type="character" />
@@ -556,7 +628,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
                   {big3.length === 3 ? (
                     <div className="flex items-end justify-center gap-4 sm:gap-8 w-full px-2 mt-8">
-                      <button 
+                      <button
                         type="button"
                         className="flex flex-col items-center w-[30%] opacity-90 hover:opacity-100 transition-all hover:-translate-y-2 group cursor-pointer bg-transparent border-none p-0 focus:outline-none"
                         onClick={(e) => handleRouteToSeries(e, big3[1])}
@@ -570,7 +642,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                         </div>
                       </button>
 
-                      <button 
+                      <button
                         type="button"
                         className="flex flex-col items-center w-[35%] z-30 hover:-translate-y-4 transition-all group pb-8 cursor-pointer relative bg-transparent border-none p-0 focus:outline-none"
                         onClick={(e) => handleRouteToSeries(e, big3[0])}
@@ -584,7 +656,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                         </div>
                       </button>
 
-                      <button 
+                      <button
                         type="button"
                         className="flex flex-col items-center w-[30%] opacity-90 hover:opacity-100 transition-all hover:-translate-y-2 group cursor-pointer bg-transparent border-none p-0 focus:outline-none"
                         onClick={(e) => handleRouteToSeries(e, big3[2])}
@@ -600,7 +672,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                     </div>
                   ) : (
                     <div className="text-center py-12 border border-zinc-800 rounded-xl bg-black/40 w-full max-w-lg pointer-events-none mt-8">
-                       <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">Not enough data to calculate The Big 3 yet.</p>
+                      <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">Not enough data to calculate The Big 3 yet.</p>
                     </div>
                   )}
                 </div>
@@ -641,7 +713,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                     </div>
                   ) : (
                     <div className="text-center py-12 border border-zinc-800 rounded-xl bg-black/40 w-full max-w-lg pointer-events-none mt-8">
-                       <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">Not enough data to calculate The Big 3 Creators yet.</p>
+                      <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">Not enough data to calculate The Big 3 Creators yet.</p>
                     </div>
                   )}
                 </div>
@@ -654,7 +726,7 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                   <h2 className="text-xl font-black italic uppercase tracking-tighter text-white flex items-center gap-2 pointer-events-none">
                     <Zap className="w-5 h-5 text-[#fe9a00]" /> Top 10 Supporters
                   </h2>
-                  <span className="text-[9px] text-zinc-500 font-bold tracking-widest uppercase pointer-events-none">Fans & Readers Only • Updates Weekly</span>
+                  <span className="text-[9px] text-zinc-500 font-bold tracking-widest uppercase pointer-events-none">Pure Fans Only • Synced to Fandom Score</span>
                 </div>
 
                 <div className="flex flex-col gap-3">
@@ -672,11 +744,11 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                           {fan.is_premium && <span className="text-[7px] bg-purple-900/30 text-purple-400 border border-purple-900 px-1.5 py-0.5 rounded uppercase font-black tracking-widest">Pro</span>}
                         </div>
                         <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-400 mt-0.5 flex items-center gap-1">
-                          <Activity className="w-3 h-3 text-[#fe9a00]" /> Active Supporter
+                          <Activity className="w-3 h-3 text-[#fe9a00]" /> {(fan.score || 0).toLocaleString()} Fandom Pts
                         </span>
                       </div>
                       <div className="hidden sm:flex flex-col items-end pl-4 border-l border-zinc-800">
-                         <span className={`text-[10px] font-black uppercase tracking-widest ${fan.rank <= 3 ? 'text-yellow-500' : 'text-zinc-500'}`}>{fan.class}</span>
+                        <span className={`text-[10px] font-black uppercase tracking-widest ${fan.rank <= 3 ? 'text-yellow-500' : 'text-zinc-500'}`}>{fan.class}</span>
                       </div>
                     </div>
                   )) : (
@@ -697,7 +769,9 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                             Creator / Staff Account (Unranked — Fan-Only Leaderboard)
                           </span>
                         ) : (
-                          <span className="text-xl font-black italic uppercase text-white tracking-wider">#{userRank.rank}</span>
+                          <span className="text-xl font-black italic uppercase text-white tracking-wider">
+                            #{userRank.rank} <span className="text-xs text-[#fe9a00] ml-2">({(userRank.score || 0).toLocaleString()} PTS)</span>
+                          </span>
                         )}
                       </div>
                     </div>
@@ -705,9 +779,9 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                 )}
               </div>
             )}
-            
+
             <div className="mt-12 mb-8 border-t border-zinc-800 pt-8">
-              <button 
+              <button
                 onClick={onBack}
                 className="w-full max-w-sm mx-auto py-4 bg-zinc-900 border border-zinc-800 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
