@@ -93,7 +93,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
     autoNotify: true,
     publishDate: toLocalDateString(),
     publishTime: '12:00',
-    creators: [{ role: 'Creator', name: '', bio: '', flagCode1: '', flagCode2: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
+    creators: [{ id: undefined as any, created_at: undefined as any, role: 'Creator', name: '', bio: '', flagCode1: '', flagCode2: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
     characters: [] as any[] 
   });
 
@@ -116,7 +116,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                 flagCode1: flags[0]?.trim() || '', 
                 flagCode2: flags[1]?.trim() || '', 
                 avatar: c.avatar_url, bio: c.bio, twitter: c.twitter_url, 
-                instagram: c.instagram_url, supportLink: c.support_url
+                instagram: c.instagram_url, supportLink: c.support_url,
+                created_at: c.created_at
               });
             }
           }
@@ -147,7 +148,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           autoNotify: true,
           publishDate: toLocalDateString(),
           publishTime: '12:00',
-          creators: [{ role: 'Creator', name: '', flagCode1: '', flagCode2: '', avatar: '', bio: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
+          creators: [{ id: undefined, created_at: undefined, role: 'Creator', name: '', flagCode1: '', flagCode2: '', avatar: '', bio: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
           characters: [] 
         });
       } else {
@@ -164,6 +165,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
             loadedCreators = creatorData.map(c => {
               const flags = (c.flag_code || '').split(',');
               return { 
+                id: c.id,
+                created_at: c.created_at,
                 role: c.role || 'Creator', name: c.name || '', 
                 flagCode1: flags[0]?.trim() || '', 
                 flagCode2: flags[1]?.trim() || '', 
@@ -174,6 +177,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           } else { 
             const flags = (selectedSeries.flag_code || '').split(',');
             loadedCreators = [{ 
+              id: undefined,
+              created_at: selectedSeries.created_at,
               role: 'Creator', name: selectedSeries.creator_name || '', 
               flagCode1: flags[0]?.trim() || '', 
               flagCode2: flags[1]?.trim() || '', 
@@ -346,37 +351,104 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
 
       if (seriesError) throw seriesError;
 
+      // Preserve existing creator created_at timestamps so editing a series doesn't mark old creators as "new"
+      const { data: prevCreatorRows } = await supabase
+        .from('series_creators')
+        .select('name, created_at')
+        .eq('series_slug', activeSlug);
+      const prevCreatorTimeMap = new Map<string, string>();
+      (prevCreatorRows || []).forEach((r: any) => {
+        if (r.name && r.created_at) {
+          prevCreatorTimeMap.set(r.name.trim().toLowerCase(), r.created_at);
+        }
+      });
+
       const { error: deleteError } = await supabase.from('series_creators').delete().eq('series_slug', activeSlug);
       if (deleteError) throw deleteError;
 
-      const { error: insertError } = await supabase.from('series_creators').insert(formData.creators.map(c => ({ 
-        series_slug: activeSlug, role: c.role || 'Creator', name: c.name, 
-        flag_code: [c.flagCode1, c.flagCode2].filter(Boolean).join(','), 
-        bio: c.bio, 
-        avatar_url: c.avatar,
-        twitter_url: c.twitter, instagram_url: c.instagram, 
-        support_url: c.supportLink, 
-        is_visible: c.is_visible !== false 
-      })));
+      const nowIso = new Date().toISOString();
+      const { error: insertError } = await supabase.from('series_creators').insert(formData.creators.map(c => {
+        const cleanLower = (c.name || '').trim().toLowerCase();
+        const preservedCreatedAt = c.created_at || prevCreatorTimeMap.get(cleanLower) || nowIso;
+        return { 
+          series_slug: activeSlug, role: c.role || 'Creator', name: c.name, 
+          flag_code: [c.flagCode1, c.flagCode2].filter(Boolean).join(','), 
+          bio: c.bio, 
+          avatar_url: c.avatar,
+          twitter_url: c.twitter, instagram_url: c.instagram, 
+          support_url: c.supportLink, 
+          is_visible: c.is_visible !== false,
+          created_at: preservedCreatedAt
+        };
+      }));
       if (insertError) throw insertError;
 
-      const { error: deleteCharError } = await supabase.from('series_characters').delete().eq('series_slug', activeSlug);
-      if (deleteCharError) throw deleteCharError;
+      // Preserve existing character IDs and created_at timestamps so Character Hypes, Likes, and dates remain intact!
+      const { data: existingCharRows } = await supabase
+        .from('series_characters')
+        .select('id, created_at')
+        .eq('series_slug', activeSlug);
 
-      if (formData.characters.length > 0) {
-        const charPayload = formData.characters.map(c => {
-           const { id, fullbody_url, ...rest } = c; 
-           return { ...rest, alt_forms: c.alt_forms || [], series_slug: activeSlug };
-        });
-        const { error: insertCharError } = await supabase.from('series_characters').insert(charPayload);
-        if (insertCharError) throw insertCharError;
+      const keptCharIds = new Set(
+        formData.characters.map((c: any) => c.id).filter(Boolean).map((id: any) => String(id))
+      );
+      const charIdsToDelete = (existingCharRows || [])
+        .map((r: any) => String(r.id))
+        .filter((id: string) => !keptCharIds.has(id));
+
+      if (charIdsToDelete.length > 0) {
+        const { error: deleteCharError } = await supabase
+          .from('series_characters')
+          .delete()
+          .in('id', charIdsToDelete);
+        if (deleteCharError) throw deleteCharError;
       }
 
-      // Sync automated New Series Drop notification if enabled and not hidden
+      if (formData.characters.length > 0) {
+        const existingCharsPayload = formData.characters
+          .filter((c: any) => Boolean(c.id))
+          .map((c: any) => {
+            const { fullbody_url, ...rest } = c;
+            return {
+              ...rest,
+              alt_forms: c.alt_forms || [],
+              series_slug: activeSlug,
+              created_at: c.created_at || nowIso
+            };
+          });
+
+        const newCharsPayload = formData.characters
+          .filter((c: any) => !c.id)
+          .map((c: any) => {
+            const { id, fullbody_url, ...rest } = c;
+            return {
+              ...rest,
+              alt_forms: c.alt_forms || [],
+              series_slug: activeSlug,
+              created_at: nowIso
+            };
+          });
+
+        if (existingCharsPayload.length > 0) {
+          const { error: upsertCharError } = await supabase
+            .from('series_characters')
+            .upsert(existingCharsPayload, { onConflict: 'id' });
+          if (upsertCharError) throw upsertCharError;
+        }
+
+        if (newCharsPayload.length > 0) {
+          const { error: insertCharError } = await supabase
+            .from('series_characters')
+            .insert(newCharsPayload);
+          if (insertCharError) throw insertCharError;
+        }
+      }
+
+      // Sync automated New Series Drop notification if enabled (or if creating a brand-new series) and not hidden
       const notifKey = `series_${activeSlug}`;
       if (formData.isHidden) {
         await supabase.from('app_notifications').delete().eq('source_key', notifKey);
-      } else if (formData.autoNotify) {
+      } else if (formData.autoNotify || targetSeries === 'new') {
         const effectiveReleaseIso = publishTimestamp || new Date().toISOString();
         await supabase.from('app_notifications').upsert(
           [
@@ -655,7 +727,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           </div>
         )}
         
-        {/* HERO BANNER SECTION: CLEAN DRAG/ZOOM CROP WINDOW (NO SLIDERS) */}
+        {/* HERO BANNER SECTION */}
         <div className="border-b border-zinc-800 pb-6">
            <div className="flex items-center justify-between mb-4">
              <h3 className="font-bold text-[#fe9a00] uppercase text-xs">Series Hero Banner</h3>
@@ -770,7 +842,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           </div>
         </div>
         
-        {/* LOGO & CHARACTER RENDER SECTION: VISUAL CROP WINDOW */}
+        {/* LOGO & CHARACTER RENDER SECTION */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-zinc-800 pb-6">
            <div className="flex flex-col gap-4">
              <div className="flex items-center justify-between mb-2">
@@ -900,7 +972,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
                )}
                <button onClick={() => { 
                  if (formData.creators.length > 1 && !window.confirm("Are you sure you want to remove this co-creator?")) return;
-                 const nc = formData.creators.length > 1 ? [formData.creators[0]] : [...formData.creators, { role: 'Co-creator', name: '', bio: '', flagCode1: '', flagCode2: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }]; 
+                 const nc = formData.creators.length > 1 ? [formData.creators[0]] : [...formData.creators, { id: undefined, created_at: undefined, role: 'Co-creator', name: '', bio: '', flagCode1: '', flagCode2: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }]; 
                  handleInputChange('creators', nc); 
                }} className="text-[10px] font-bold tracking-widest uppercase bg-zinc-800 px-3 py-2 rounded hover:bg-[#fe9a00] hover:text-black transition-colors cursor-pointer">
                  {formData.creators.length > 1 ? '- Remove Co-creator' : '+ Add Co-creator'}
@@ -1062,7 +1134,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
               const isCustomHeight = char.height && !HEIGHT_PRESETS.includes(char.height);
               
               return (
-              <div key={i} className="bg-black border border-zinc-800 rounded-xl overflow-hidden">
+              <div key={char.id || i} className="bg-black border border-zinc-800 rounded-xl overflow-hidden">
                 <div 
                   onClick={() => setExpandedCharIndex(expandedCharIndex === i ? null : i)}
                   className="flex items-center justify-between p-4 bg-zinc-900/50 cursor-pointer hover:bg-zinc-900 transition-colors"

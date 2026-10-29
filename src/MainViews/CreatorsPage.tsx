@@ -7,7 +7,6 @@ import { HypeLoader } from '../Components/HypeLoader';
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
 // Built-in Stripe Connect account map + fallback resolver
-// Empty string ('') routes donations directly to Saturday AM's main Stripe account
 export const CREATOR_STRIPE_CONNECT_MAP: Record<string, string> = {
   'raymond brown': 'acct_1US3pv2d62PnIfST',
   'rayme3000': 'acct_1US3pv2d62PnIfST',
@@ -50,7 +49,6 @@ export const normalizeCreatorKey = (rawName?: string): string => {
 export const resolveCreatorStripeAccountId = (creatorName?: string, dbStripeId?: string): string => {
   const lower = normalizeCreatorKey(creatorName);
 
-  // Guard: If the creator is explicitly set to '' (Saturday AM default), do not use an accidental DB ID
   if (lower && lower in CREATOR_STRIPE_CONNECT_MAP && CREATOR_STRIPE_CONNECT_MAP[lower] === '') {
     return '';
   }
@@ -70,7 +68,6 @@ export const resolveCreatorStripeAccountId = (creatorName?: string, dbStripeId?:
     }
   }
 
-  // Empty string instructs the Edge Function to process the charge directly into Saturday AM's main Stripe account
   return '';
 };
 
@@ -92,6 +89,9 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'works-desc' | 'role-asc'>('name-asc');
+
+  // Deep-link highlight state when arriving from a "Meet the Creator" notification
+  const [highlightedCreator, setHighlightedCreator] = useState<string | null>(null);
 
   // Donation State
   const [donationCreator, setDonationCreator] = useState<CreatorProfile | null>(null);
@@ -135,8 +135,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
         const seriesMap = new Map<string, any>();
         (seriesData || []).forEach(s => seriesMap.set(s.slug, s));
 
-        // Track visibility per normalized creator key:
-        // If a creator has at least one row with is_visible !== false, keep them visible!
         const visibilityMap = new Map<string, boolean>();
         (creatorRows || []).forEach((row: any) => {
           if (!row.name) return;
@@ -226,6 +224,33 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
     fetchCatalog();
   }, []);
 
+  // Auto-jump to creator when arriving from a "Meet the Creator" notification
+  useEffect(() => {
+    if (loading || creators.length === 0) return;
+    const targetName = sessionStorage.getItem('am_target_creator');
+    if (!targetName) return;
+
+    sessionStorage.removeItem('am_target_creator');
+    const cleanTarget = normalizeCreatorKey(targetName);
+    const matched = creators.find(
+      c =>
+        normalizeCreatorKey(c.name) === cleanTarget ||
+        normalizeCreatorKey(c.name).includes(cleanTarget) ||
+        cleanTarget.includes(normalizeCreatorKey(c.name))
+    );
+
+    if (matched) {
+      setExpandedBios(prev => ({ ...prev, [matched.name]: true }));
+      setHighlightedCreator(matched.name);
+      setTimeout(() => {
+        const el = document.getElementById(`creator-card-${normalizeCreatorKey(matched.name)}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+    }
+  }, [loading, creators]);
+
   const processedCreators = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     const result = creators.filter(c =>
@@ -258,7 +283,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
     setDonationStep('processing');
 
-    // Resolve Connect ID if available; otherwise empty string routes funds directly to Saturday AM's default Stripe account
     const targetStripeAccountId = resolveCreatorStripeAccountId(
       donationCreator.name,
       donationCreator.stripe_account_id
@@ -353,12 +377,21 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
         <div className="flex flex-col gap-4">
           {processedCreators.map((creator) => {
             const isBioExpanded = !!expandedBios[creator.name];
+            const isHighlighted = highlightedCreator === creator.name;
             const bioText = creator.bio || 'Official creator for Saturday AM titles.';
 
             return (
               <div 
                 key={creator.name}
-                className="bg-zinc-950/70 border border-zinc-800/80 rounded-xl p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 shadow-lg hover:border-zinc-700 transition-all backdrop-blur-sm"
+                id={`creator-card-${normalizeCreatorKey(creator.name)}`}
+                onClick={() => {
+                  if (isHighlighted) setHighlightedCreator(null);
+                }}
+                className={`bg-zinc-950/70 border rounded-xl p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 shadow-lg transition-all backdrop-blur-sm ${
+                  isHighlighted
+                    ? 'border-[#fe9a00] ring-2 ring-[#fe9a00]/50 shadow-[0_0_35px_rgba(254,154,0,0.4)]'
+                    : 'border-zinc-800/80 hover:border-zinc-700'
+                }`}
               >
                 {/* Left Section: Avatar & Creator Details */}
                 <div className="flex items-start gap-4 flex-1 min-w-0 md:max-w-[400px] lg:max-w-[440px]">

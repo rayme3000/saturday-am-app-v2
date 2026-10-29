@@ -350,6 +350,18 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
     };
   }, [fetchUserStats]);
 
+  // Auto-open Customize Loadout modal on specific tab ('card', 'art', or 'frame') when arriving from a notification
+  useEffect(() => {
+    const requestedTab = sessionStorage.getItem('am_open_loadout_tab');
+    if (!requestedTab || !isLoggedIn) return;
+
+    sessionStorage.removeItem('am_open_loadout_tab');
+    setTempProfile({ ...userProfile });
+    setActiveTab(requestedTab);
+    setSelectingSlot(null);
+    setIsEditing(true);
+  }, [isLoggedIn, userProfile]);
+
   const openEditor = (targetTab = 'faves', slotIndex: number | null = null) => {
     if (!isLoggedIn) {
       const config = { title: 'Create a Free Account', message: 'Create a free account to customize your profile loadout, equip your favorite series, and track your stats!' };

@@ -53,7 +53,7 @@ const formatLoreChunks = (rawText?: string): string[] => {
   const paragraphs = clean.split(/\n+/).map(p => p.trim()).filter(Boolean);
   if (paragraphs.length > 1) return paragraphs;
 
-  const sentences = clean.match(/[^.!?]+[.!?]+(\s|$)\vert{}[^.!?]+$/g) || [clean];
+  const sentences = clean.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [clean];
   const chunks: string[] = [];
   for (let i = 0; i < sentences.length; i += 2) {
     const chunk = sentences.slice(i, i + 2).join(' ').trim();
@@ -138,6 +138,30 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
       return { ...c, series_title: s?.title || 'Unknown Series' };
     });
   }, [rawCharacters, seriesList]);
+
+  // Auto-open character dossier modal when arriving from a "New Character Unlocked!" notification
+  useEffect(() => {
+    if (isLoading || characters.length === 0) return;
+    const targetId = sessionStorage.getItem('am_target_character_id');
+    const targetName = sessionStorage.getItem('am_target_character_name');
+    if (!targetId && !targetName) return;
+
+    sessionStorage.removeItem('am_target_character_id');
+    sessionStorage.removeItem('am_target_character_name');
+
+    const matched = characters.find(
+      (c: any) =>
+        (targetId && String(c.id) === String(targetId)) ||
+        (targetName &&
+          String(c.name || '')
+            .trim()
+            .toLowerCase() === String(targetName).trim().toLowerCase())
+    );
+    if (matched) {
+      setSelectedChar(matched);
+      setActiveTab('combat');
+    }
+  }, [isLoading, characters]);
 
   const uniqueAffiliations = Array.from(new Set((characters || []).map(c => c?.element).filter(Boolean))).sort();
 

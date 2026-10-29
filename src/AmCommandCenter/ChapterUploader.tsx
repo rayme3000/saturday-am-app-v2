@@ -292,6 +292,36 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
       const { error: pagesError } = await supabase.from('pages').insert(pagePayload);
       if (pagesError) throw pagesError;
 
+      // Sync chapter notification into app_notifications when published or scheduled (or remove if reverted to draft)
+      if (currentChapterId && currentChapterId !== 'new') {
+        const notifKey = `chapter_${currentChapterId}`;
+        if (publishStatus) {
+          const parentSeries = seriesList.find((s: any) => s.slug === targetSeries);
+          const seriesTitle = parentSeries?.title || targetSeries;
+          const effectiveIso = publishTimestamp || new Date().toISOString();
+          await supabase.from('app_notifications').upsert(
+            [
+              {
+                source_key: notifKey,
+                title: 'New Chapter Drop!',
+                message: `${seriesTitle} • Chapter ${formData.chapterNumber}${
+                  formData.title ? `: "${formData.title}"` : ''
+                } is now live!`,
+                thumbnail_url:
+                  formData.thumbnailUrl || parentSeries?.cover_url || formData.pages[0] || null,
+                link_target: targetSeries,
+                publish_at: effectiveIso,
+                created_at: effectiveIso
+              }
+            ],
+            { onConflict: 'source_key' }
+          );
+        } else {
+          await supabase.from('app_notifications').delete().eq('source_key', notifKey);
+        }
+      }
+
+      window.dispatchEvent(new Event('seriesUpdated'));
       alert(`SUCCESS! Chapter ${formData.chapterNumber} has been ${publishStatus ? 'PUBLISHED' : 'SAVED AS DRAFT'}.`);
       setTargetChapter(currentChapterId); 
       setRefreshKey(prev => prev + 1);
@@ -311,9 +341,11 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
     }
     
     try {
+      await supabase.from('app_notifications').delete().eq('source_key', `chapter_${chapterId}`);
       await supabase.from('chapters').delete().eq('id', chapterId);
       if (targetChapter === chapterId) setTargetChapter('new'); 
       setRefreshKey(prev => prev + 1);
+      window.dispatchEvent(new Event('seriesUpdated'));
     } catch (error: any) { alert('Failed: ' + error.message); }
   };
 
@@ -329,11 +361,38 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
     try {
       const { error } = await supabase.from('chapters').update({ is_published: newStatus }).eq('id', chapterId);
       if (error) throw error;
+
+      const notifKey = `chapter_${chapterId}`;
+      if (!newStatus) {
+        await supabase.from('app_notifications').delete().eq('source_key', notifKey);
+      } else {
+        const chObj = existingChapters.find(c => c.id === chapterId);
+        const parentSeries = seriesList.find((s: any) => s.slug === targetSeries);
+        const seriesTitle = parentSeries?.title || targetSeries;
+        const effectiveIso = chObj?.publish_at || new Date().toISOString();
+        await supabase.from('app_notifications').upsert(
+          [
+            {
+              source_key: notifKey,
+              title: 'New Chapter Drop!',
+              message: `${seriesTitle} • Chapter ${chapterNum}${
+                chObj?.title ? `: "${chObj.title}"` : ''
+              } is now live!`,
+              thumbnail_url: chObj?.thumbnail_url || parentSeries?.cover_url || null,
+              link_target: targetSeries,
+              publish_at: effectiveIso,
+              created_at: effectiveIso
+            }
+          ],
+          { onConflict: 'source_key' }
+        );
+      }
       
       setExistingChapters(prev => prev.map(ch => ch.id === chapterId ? { ...ch, is_published: newStatus } : ch));
       if (targetChapter === chapterId) {
         setFormData(prev => ({ ...prev, isPublished: newStatus }));
       }
+      window.dispatchEvent(new Event('seriesUpdated'));
     } catch (error: any) {
       alert("Failed to update status: " + error.message);
     }
@@ -363,12 +422,21 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
 
     setIsSaving(true);
     try {
+      const idsToUnpublish = chaptersToProcess.map(c => c.id);
       const { error } = await supabase
         .from('chapters')
         .update({ is_published: false })
-        .in('id', chaptersToProcess.map(c => c.id));
+        .in('id', idsToUnpublish);
 
       if (error) throw error;
+
+      await supabase
+        .from('app_notifications')
+        .delete()
+        .in(
+          'source_key',
+          idsToUnpublish.map(id => `chapter_${id}`)
+        );
       
       setRefreshKey(prev => prev + 1);
       
@@ -377,6 +445,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
       }
       
       setSelectedChapters([]);
+      window.dispatchEvent(new Event('seriesUpdated'));
       alert(`Successfully reverted ${chaptersToProcess.length} chapter(s) to drafts!`);
     } catch (error: any) {
       alert("Failed to bulk unpublish: " + error.message);
