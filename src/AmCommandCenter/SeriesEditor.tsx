@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Monitor, Smartphone, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown, Crop, Bell, ArrowRight } from 'lucide-react';
+import { Monitor, Smartphone, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown, Crop, Bell, ArrowRight, Zap } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
-import { getOneShotWednesdaySeries } from '../oneshotWednesday';
+import {
+  getOneShotWednesdaySeries,
+  isInOneShotDebutWindow,
+  getOneShotFreeCountdown
+} from '../oneshotWednesday';
 
 const COUNTRY_CODES = [
   { code: 'US', name: 'United States' }, { code: 'GB', name: 'United Kingdom' }, { code: 'JP', name: 'Japan' },
@@ -19,7 +23,7 @@ const COUNTRY_CODES = [
   { code: 'SA', name: 'Saudi Arabia' }, { code: 'AE', name: 'United Arab Emirates' }, { code: 'IL', name: 'Israel' }, { code: 'AR', name: 'Argentina' },
   { code: 'CL', name: 'Chile' }, { code: 'CO', name: 'Colombia' }, { code: 'PE', name: 'Peru' }, { code: 'VE', name: 'Venezuela' },
   { code: 'JM', name: 'Jamaica' }, { code: 'PR', name: 'Puerto Rico' }, { code: 'Bahamas', name: 'Bahamas' }, { code: 'HT', name: 'Haiti' },
-  { code: 'HN', name: 'Honduras' }, { code: 'KW', name: 'Kuwait' }, { code: 'QA', name: 'Qatar' }, { code: 'BH', name: 'Bahrain' }, 
+  { code: 'HN', name: 'Honduras' }, { code: 'HU', name: 'Hungary' }, { code: 'KW', name: 'Kuwait' }, { code: 'QA', name: 'Qatar' }, { code: 'BH', name: 'Bahrain' }, 
   { code: 'OM', name: 'Oman' }, { code: 'DO', name: 'Dominican Republic' }, { code: 'CR', name: 'Costa Rica' }, { code: 'CU', name: 'Cuba' }, 
   { code: 'SV', name: 'El Salvador' }, { code: 'PA', name: 'Panama' }, { code: 'MG', name: 'Madagascar' }
 ].sort((a, b) => a.name.localeCompare(b.name));
@@ -72,6 +76,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
     synopsis: '', awards: '', hasAwards: false, 
     contentRating: 'T',
     homeSection: '',
+    oneShotDebut: false,
     isHidden: false,
     autoNotify: true,
     creators: [{ id: undefined as any, created_at: undefined as any, role: 'Creator', name: '', bio: '', flagCode1: '', flagCode2: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
@@ -124,6 +129,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           synopsis: '', awards: '', hasAwards: false, 
           contentRating: 'T', 
           homeSection: '',
+          oneShotDebut: false,
           isHidden: false,    
           autoNotify: true,
           creators: [{ id: undefined, created_at: undefined, role: 'Creator', name: '', flagCode1: '', flagCode2: '', avatar: '', bio: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
@@ -164,6 +170,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
             }]; 
           }
 
+          const currentlyInDebut = isInOneShotDebutWindow(selectedSeries, seriesList);
+
           setFormData({ 
             seriesTitle: selectedSeries.title || '', bannerUrl: selectedSeries.cover_url || '', 
             bannerPositionDesktop: selectedSeries.banner_position_desktop || '50% 50%',
@@ -181,6 +189,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
             hasAwards: selectedSeries.has_awards || false, 
             contentRating: selectedSeries.content_rating || 'T', 
             homeSection: selectedSeries.home_section || '',
+            oneShotDebut: currentlyInDebut,
             isHidden: selectedSeries.is_hidden || false,
             autoNotify: false,
             creators: loadedCreators,
@@ -292,8 +301,22 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       const primaryCreator = formData.creators[0]; 
 
       const existingSeriesObj = seriesList.find((s: any) => s.slug === activeSlug);
-      const publishTimestamp: string | null =
-        existingSeriesObj?.publish_at || new Date().toISOString();
+      const wasAlreadyInDebut = existingSeriesObj ? isInOneShotDebutWindow(existingSeriesObj, seriesList) : false;
+
+      const effectiveHomeSection = formData.oneShotDebut
+        ? 'Completed Runs'
+        : formData.homeSection || null;
+
+      let publishTimestamp: string | null = existingSeriesObj?.publish_at || new Date().toISOString();
+      if (formData.oneShotDebut) {
+        publishTimestamp = wasAlreadyInDebut && existingSeriesObj?.publish_at
+          ? existingSeriesObj.publish_at
+          : new Date().toISOString();
+      } else if (effectiveHomeSection === 'Completed Runs' && wasAlreadyInDebut) {
+        publishTimestamp = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (targetSeries === 'new' && effectiveHomeSection === 'Completed Runs' && !formData.oneShotDebut) {
+        publishTimestamp = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+      }
 
       const { error: seriesError } = await supabase.from('series').upsert({ 
         slug: activeSlug, title: formData.seriesTitle, synopsis: formData.synopsis, 
@@ -308,7 +331,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
         card_color: formData.cardColor, card_pattern: formData.cardPattern,
         awards: formData.hasAwards ? formData.awards : null, has_awards: formData.hasAwards, 
         content_rating: formData.contentRating, 
-        home_section: formData.homeSection || null,
+        home_section: effectiveHomeSection,
         is_hidden: formData.isHidden,
         publish_at: publishTimestamp,
         creator_name: primaryCreator.name, 
@@ -319,6 +342,18 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       }, { onConflict: 'slug' });
 
       if (seriesError) throw seriesError;
+
+      // CRITICAL FOR ONE-SHOT DEBUT: Immediately set all chapters of this One-Shot to is_published=true and publish_at=NOW
+      // so Free users can see and read the chapter immediately without waiting for a future scheduled date!
+      if (formData.oneShotDebut) {
+        await supabase
+          .from('chapters')
+          .update({
+            is_published: true,
+            publish_at: publishTimestamp
+          })
+          .eq('series_slug', activeSlug);
+      }
 
       // Preserve existing creator created_at timestamps so editing a series doesn't mark old creators as "new"
       const { data: prevCreatorRows } = await supabase
@@ -417,13 +452,15 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       const notifKey = `series_${activeSlug}`;
       if (formData.isHidden) {
         await supabase.from('app_notifications').delete().eq('source_key', notifKey);
-      } else if (formData.autoNotify || targetSeries === 'new') {
-        const effectiveReleaseIso = publishTimestamp || new Date().toISOString();
+      } else if (formData.autoNotify || targetSeries === 'new' || (formData.oneShotDebut && !wasAlreadyInDebut)) {
+        const effectiveReleaseIso = new Date().toISOString();
         await supabase.from('app_notifications').upsert(
           [
             {
-              title: 'New Series Drop!',
-              message: `${formData.seriesTitle} is now on Saturday AM! Tap to start reading.`,
+              title: formData.oneShotDebut ? '⚡ Special One-Shot Debut (Free for 48H)!' : 'New Series Drop!',
+              message: formData.oneShotDebut
+                ? `Read "${formData.seriesTitle}" FREE for 48 hours before it enters the Saturday AM+ Vault!`
+                : `${formData.seriesTitle} is now on Saturday AM! Tap to start reading.`,
               thumbnail_url: formData.bannerUrl || formData.characterUrl || null,
               link_target: activeSlug,
               publish_at: effectiveReleaseIso,
@@ -436,7 +473,12 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       }
   
       window.dispatchEvent(new Event('seriesUpdated'));
-      alert(`SUCCESS! Series Saved.`);
+      window.dispatchEvent(new Event('vaultUpdated'));
+      alert(
+        formData.oneShotDebut
+          ? `SUCCESS! "${formData.seriesTitle}" and its chapters are now LIVE & FREE for 48 hours for all users, and added to the One-Shot Wednesday rotation!`
+          : `SUCCESS! Series Saved.`
+      );
       if (setIsDirty) setIsDirty(false);
     } catch (error: any) { 
       console.error("Database Save Error:", error);
@@ -498,6 +540,11 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
   };
 
   const currentWednesdaySpotlight = getOneShotWednesdaySeries(seriesList);
+  const selectedSeriesObj = seriesList.find((s: any) => s.slug === targetSeries);
+  const activeDebutRemaining =
+    selectedSeriesObj && isInOneShotDebutWindow(selectedSeriesObj, seriesList)
+      ? getOneShotFreeCountdown(selectedSeriesObj, seriesList)
+      : null;
 
   return (
     <div className="space-y-6 animate-fade-in-up pb-32 relative">
@@ -641,43 +688,92 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           </div>
         </div>
 
-        {/* COMPLETED RUNS (PLUS VAULT) & ONE-SHOT WEDNESDAY TOGGLE */}
-        <div className={`p-4 rounded-xl border transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
-          formData.homeSection === 'Completed Runs'
+        {/* COMPLETED RUNS (PLUS VAULT) & ONE-SHOT WEDNESDAY DEBUT (48H FREE UNLOCK) */}
+        <div className={`p-4 rounded-xl border transition-colors flex flex-col gap-4 ${
+          formData.oneShotDebut
+            ? 'bg-gradient-to-r from-[#fe9a00]/15 via-purple-950/25 to-black border-[#fe9a00]/60 shadow-[0_0_25px_rgba(254,154,0,0.12)]'
+            : formData.homeSection === 'Completed Runs'
             ? 'bg-purple-950/20 border-purple-500/50'
             : 'bg-black border-zinc-800'
         }`}>
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              checked={formData.homeSection === 'Completed Runs'}
-              onChange={(e) => {
-                const existingSeriesObj = seriesList.find((s: any) => s.slug === targetSeries);
-                const previousSection =
-                  existingSeriesObj?.home_section && existingSeriesObj.home_section !== 'Completed Runs'
-                    ? existingSeriesObj.home_section
-                    : '';
-                handleInputChange('homeSection', e.target.checked ? 'Completed Runs' : previousSection);
-              }}
-              className="accent-[#fe9a00] w-5 h-5 cursor-pointer"
-            />
-            <div>
-              <span className="text-xs font-black uppercase tracking-widest text-white block">
-                Completed Run (PLUS Vault & One-Shot Wednesdays)
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={formData.homeSection === 'Completed Runs' || formData.oneShotDebut}
+                onChange={(e) => {
+                  const isChecked = e.target.checked;
+                  const existingSeriesObj = seriesList.find((s: any) => s.slug === targetSeries);
+                  const previousSection =
+                    existingSeriesObj?.home_section && existingSeriesObj.home_section !== 'Completed Runs'
+                      ? existingSeriesObj.home_section
+                      : '';
+                  handleInputChange('homeSection', isChecked ? 'Completed Runs' : previousSection);
+                  if (!isChecked && formData.oneShotDebut) {
+                    handleInputChange('oneShotDebut', false);
+                  }
+                }}
+                className="accent-[#fe9a00] w-5 h-5 cursor-pointer shrink-0"
+              />
+              <div>
+                <span className="text-xs font-black uppercase tracking-widest text-white block">
+                  Completed Run (PLUS Vault & One-Shot Wednesdays)
+                </span>
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                  Locks all chapters to PLUS subscribers except when featured on One-Shot Wednesdays
+                </span>
+              </div>
+            </div>
+
+            <div className="text-left sm:text-right shrink-0">
+              <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] block">
+                Active / Next Wednesday Pick:
               </span>
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                Locks all chapters to PLUS subscribers except when featured on One-Shot Wednesdays
+              <span className="text-xs font-black text-white uppercase">
+                {currentWednesdaySpotlight?.title || 'None Assigned'}
               </span>
             </div>
           </div>
 
-          <div className="text-right shrink-0">
-            <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] block">
-              Active / Next Wednesday Pick:
-            </span>
-            <span className="text-xs font-black text-white uppercase">
-              {currentWednesdaySpotlight?.title || 'None Assigned'}
-            </span>
+          {/* ONE-SHOT WEDNESDAY DEBUT TOGGLE BUTTON (DEFAULT OFF • 48H FREE WINDOW -> AUTO VAULT + OSW ROTATION) */}
+          <div className="pt-3 border-t border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <Zap className={`w-4 h-4 shrink-0 mt-0.5 sm:mt-0 ${formData.oneShotDebut ? 'text-[#fe9a00] fill-[#fe9a00]' : 'text-zinc-500'}`} />
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-white">
+                    One-Shot Wednesday Debut (2-Day Free Unlock)
+                  </span>
+                  {activeDebutRemaining && (
+                    <span className="px-2 py-0.5 rounded bg-[#fe9a00]/20 border border-[#fe9a00]/50 text-[#fe9a00] text-[9px] font-mono font-black uppercase">
+                      ⏳ {activeDebutRemaining} Free Left
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] font-bold text-zinc-400 mt-0.5">
+                  Unlocks this series FREE for 48 hours on launch (any day of the week), then automatically locks it into the PLUS Vault and adds it to the One-Shot Wednesday rotation.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                const nextDebutState = !formData.oneShotDebut;
+                handleInputChange('oneShotDebut', nextDebutState);
+                if (nextDebutState) {
+                  handleInputChange('homeSection', 'Completed Runs');
+                }
+              }}
+              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer shrink-0 border ${
+                formData.oneShotDebut
+                  ? 'bg-[#fe9a00] text-black border-[#fe9a00] shadow-[0_0_20px_rgba(254,154,0,0.4)]'
+                  : 'bg-zinc-900 text-zinc-400 hover:text-white border-zinc-700'
+              }`}
+            >
+              <Zap className={`w-3.5 h-3.5 ${formData.oneShotDebut ? 'fill-black' : ''}`} />
+              {formData.oneShotDebut ? 'OSW Debut: ON (48h Free → Vault)' : 'OSW Debut: OFF'}
+            </button>
           </div>
         </div>
         

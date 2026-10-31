@@ -57,7 +57,7 @@ export interface TrackAssignment {
   dayType: TrackDayType;
   cadence: CadencePattern;
   chaptersPerDrop: number;
-  startWeekOffset: number; // 1 = Start Week 1 (This Week), 2 = Start Week 2, etc.
+  startWeekOffset: number; // 1 = Start Week 1 (Next Upcoming Drop), 2 = Start Week 2, etc.
   paused: boolean;
 }
 
@@ -70,7 +70,7 @@ export interface WildcardDrop {
   chapterIds: string[];
 }
 
-// Evaluates whether a given week number (1..N) is active for the selected Cadence Pattern (no 8-week ceiling!)
+// Evaluates whether a given week number (1..N) is active for the selected Cadence Pattern
 export const doesWeekMatchCadence = (
   weekNum: number,
   cadence: CadencePattern,
@@ -82,36 +82,38 @@ export const doesWeekMatchCadence = (
     case 'weekly':
       return true;
     case 'odd_weeks':
-      return weekNum % 2 === 1; // 1, 3, 5, 7, 9, 11...
+      return weekNum % 2 === 1;
     case 'even_weeks':
-      return weekNum % 2 === 0; // 2, 4, 6, 8, 10, 12...
+      return weekNum % 2 === 0;
     case 'launch_then_even':
-      // Drops on Week 1 (Launch Weekend alongside Odd series), then switches to Even weeks (2, 4, 6, 8, 10...)
       return weekNum === 1 || weekNum % 2 === 0;
     case 'launch_then_odd':
       return weekNum % 2 === 1;
     case 'first_3_then_monthly':
-      // Drops Weeks 1, 2, 3, then every 4th week thereafter (7, 11, 15, 19...)
       return weekNum <= 3 || (weekNum > 3 && (weekNum - 3) % 4 === 0);
     case 'monthly_w1':
-      // Every 4 weeks starting Week 1 (1, 5, 9, 13, 17...)
       return (weekNum - 1) % 4 === 0;
     case 'monthly_w4':
-      // Every 4 weeks starting Week 4 (4, 8, 12, 16, 20...)
       return weekNum % 4 === 0;
     default:
       return true;
   }
 };
 
-// Computes upcoming occurrences for MONDAY (1), WEDNESDAY (3), or SATURDAY (6) for as many weeks as needed
+// Computes upcoming future occurrences for MONDAY (1), WEDNESDAY (3), or SATURDAY (6).
+// If today is the target day AND it is already past 9:00 AM, it advances to next week so queued chapters don't accidentally get a past timestamp!
 export const getUpcomingDatesForDay = (
   dayType: TrackDayType,
   totalWeeks: number = 104
 ): { weekNum: number; dateStr: string; label: string }[] => {
   const targetDow = dayType === 'MONDAY' ? 1 : dayType === 'WEDNESDAY' ? 3 : 6;
+  const now = new Date();
   const cursor = new Date();
   cursor.setHours(0, 0, 0, 0);
+
+  if (cursor.getDay() === targetDow && now.getHours() >= 9) {
+    cursor.setDate(cursor.getDate() + 1);
+  }
 
   while (cursor.getDay() !== targetDow) {
     cursor.setDate(cursor.getDate() + 1);
@@ -138,7 +140,6 @@ export const getMatchingDropDatesForTrack = (
   requiredDrops: number
 ): { weekNum: number; dateStr: string; label: string }[] => {
   const needed = Math.max(8, requiredDrops + 4);
-  // Monthly cadences need ~4x weeks per drop, so generate plenty of weeks
   const weeksToGenerate = Math.max(52, needed * 5 + startWeekOffset);
   const allDates = getUpcomingDatesForDay(dayType, weeksToGenerate);
   return allDates.filter(d => doesWeekMatchCadence(d.weekNum, cadence, startWeekOffset));
@@ -155,7 +156,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
   const [saving, setSaving] = useState(false);
   const [autoQueueNotifs, setAutoQueueNotifs] = useState(true);
 
-  // Automated Release Tracks State
   const [trackAssignments, setTrackAssignments] = useState<TrackAssignment[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_TRACKS_KEY);
@@ -166,7 +166,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     return [];
   });
 
-  // Wildcard / Holiday / Binge Pack Drops
   const [wildcards, setWildcards] = useState<WildcardDrop[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_WILDCARDS_KEY);
@@ -180,17 +179,15 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
   const [showWildcardModal, setShowWildcardModal] = useState(false);
   const [wcTitle, setWcTitle] = useState('');
   const [wcDate, setWcDate] = useState(() => formatDateInput(new Date()));
-  const [wcTime, setWcTime] = useState('09:00');
+  const [wcTime] = useState('09:00');
   const [wcSeriesSlug, setWcSeriesSlug] = useState('');
   const [wcChapterCount, setWcChapterCount] = useState(6);
 
-  // Mode 2: Single-Series Chapter-by-Chapter Override State
   const [selectedSeriesSlug, setSelectedSeriesSlug] = useState<string>('');
   const [oneOffEdits, setOneOffEdits] = useState<
     Record<string, { date: string; time: string; isPublished: boolean }>
   >({});
 
-  // Persist track config to localStorage whenever modified
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_TRACKS_KEY, JSON.stringify(trackAssignments));
@@ -207,15 +204,14 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     }
   }, [wildcards]);
 
-  // A chapter is considered "Queued / Unreleased" if it is not yet published OR scheduled in the future
+  // A chapter is "Queued / Unreleased" ONLY if it is unpublished OR has a future publish_at date.
+  // Chapters with is_published=true and publish_at=null are already LIVE legacy chapters!
   const isChapterUnreleased = useCallback((ch: any) => {
     if (!ch.is_published) return true;
     if (ch.publish_at && new Date(ch.publish_at).getTime() > Date.now()) return true;
     return false;
   }, []);
 
-  // Automatically schedules all unreleased chapters for a given track assignment in Supabase
-  // so no chapter in an assigned series ever sits in "Vault Draft" status
   const syncSingleTrackToDatabase = useCallback(
     async (track: TrackAssignment, chaptersForSeries: any[]) => {
       if (track.paused) return 0;
@@ -295,9 +291,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
       if (error) throw error;
       const chaptersList = data || [];
 
-      // Determine active tracks (or auto-detect from existing scheduled chapters if none saved)
-      let currentTracks = trackAssignments;
-      if (currentTracks.length === 0 && chaptersList.length > 0) {
+      if (trackAssignments.length === 0 && chaptersList.length > 0) {
         const now = Date.now();
         const detectedBySeries = new Map<string, TrackDayType>();
 
@@ -336,43 +330,17 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
               paused: false
             });
           });
-          currentTracks = initial;
           setTrackAssignments(initial);
         }
       }
 
-      // Check if any active assigned series has leftover "Vault Draft" chapters (is_published=false or publish_at=null)
-      // and automatically promote them into the Scheduled queue!
-      let autoFixedAnyDrafts = false;
-      for (const track of currentTracks) {
-        if (track.paused) continue;
-        const sChaps = chaptersList.filter((c: any) => c.series_slug === track.seriesSlug);
-        const hasUnscheduledDrafts = sChaps.some(
-          (c: any) => !c.is_published || !c.publish_at
-        );
-        if (hasUnscheduledDrafts) {
-          await syncSingleTrackToDatabase(track, sChaps);
-          autoFixedAnyDrafts = true;
-        }
-      }
-
-      if (autoFixedAnyDrafts) {
-        const { data: refreshedData } = await supabase
-          .from('chapters')
-          .select('*')
-          .order('series_slug', { ascending: true })
-          .order('chapter_number', { ascending: true });
-        setAllChapters(refreshedData || chaptersList);
-        window.dispatchEvent(new Event('seriesUpdated'));
-      } else {
-        setAllChapters(chaptersList);
-      }
+      setAllChapters(chaptersList);
     } catch (err: any) {
       console.error('Error loading chapters for scheduler:', err.message);
     } finally {
       setLoading(false);
     }
-  }, [syncSingleTrackToDatabase, trackAssignments]);
+  }, [trackAssignments.length]);
 
   useEffect(() => {
     fetchAllChapters();
@@ -384,7 +352,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Group chapters by series_slug
   const chaptersBySeries = useMemo(() => {
     const map: Record<string, any[]> = {};
     allChapters.forEach((ch: any) => {
@@ -394,14 +361,12 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     return map;
   }, [allChapters]);
 
-  // --- ASSIGN SERIES TO A RELEASE TRACK (AND IMMEDIATELY SCHEDULE ITS CHAPTERS) ---
   const handleAddSeriesToTrack = async (dayType: TrackDayType, seriesSlug: string) => {
     if (!seriesSlug) return;
     if (trackAssignments.some(t => t.dayType === dayType && t.seriesSlug === seriesSlug)) {
       return alert('This series is already assigned to this track.');
     }
 
-    // Smart default cadence rules
     let defaultCadence: CadencePattern = 'weekly';
     let defaultChPerDrop = 1;
 
@@ -435,7 +400,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     const nextTracks = [...trackAssignments, newItem];
     setTrackAssignments(nextTracks);
 
-    // Immediately schedule all unreleased chapters for this series so none remain as Vault Drafts
     const seriesChaps = chaptersBySeries[seriesSlug] || [];
     if (seriesChaps.some(isChapterUnreleased)) {
       setSaving(true);
@@ -466,7 +430,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     setTrackAssignments(prev => prev.filter(t => t.id !== item.id));
   };
 
-  // --- 1-CLICK LAUNCH WEEKEND + ALTERNATING PRESET FOR APPLE BLACK & CLOCK STRIKER ---
   const handleApplyLaunchAlternatingPreset = () => {
     const abSeries = seriesList.find(
       (s: any) =>
@@ -498,7 +461,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
           id: `SATURDAY_${abSeries.slug}_ab`,
           seriesSlug: abSeries.slug,
           dayType: 'SATURDAY',
-          cadence: 'odd_weeks', // Drops Weeks 1, 3, 5, 7, 9, 11...
+          cadence: 'odd_weeks',
           chaptersPerDrop: 1,
           startWeekOffset: 1,
           paused: false
@@ -509,7 +472,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
           id: `SATURDAY_${csSeries.slug}_cs`,
           seriesSlug: csSeries.slug,
           dayType: 'SATURDAY',
-          cadence: 'launch_then_even', // Drops Week 1 (with Apple Black!), then Weeks 2, 4, 6, 8, 10...
+          cadence: 'launch_then_even',
           chaptersPerDrop: 1,
           startWeekOffset: 1,
           paused: false
@@ -521,7 +484,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     if (setIsDirty) setIsDirty(true);
   };
 
-  // --- SYNC & SAVE ALL ACTIVE TRACKS TO SUPABASE (SCHEDULES 100% OF QUEUED CHAPTERS) ---
   const handleSyncAllTracksToDatabase = async () => {
     const activeTracks = trackAssignments.filter(t => !t.paused);
     if (activeTracks.length === 0 && wildcards.length === 0) {
@@ -532,14 +494,12 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     try {
       let totalScheduledChapters = 0;
 
-      // 1. Process each active track assignment across its ENTIRE backlog (no 8-week cutoff)
       for (const track of activeTracks) {
         const seriesChaps = chaptersBySeries[track.seriesSlug] || [];
         const count = await syncSingleTrackToDatabase(track, seriesChaps);
         totalScheduledChapters += count;
       }
 
-      // 2. Process any Wildcard / Holiday Binge Drops
       for (const wc of wildcards) {
         const publishIso = toNineAmEstIso(wc.dateStr, wc.timeStr || '09:00');
         const matchedSeries = seriesList.find((s: any) => s.slug === wc.seriesSlug);
@@ -592,7 +552,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     }
   };
 
-  // --- CREATE WILDCARD / BINGE DROP ---
   const handleCreateWildcard = (e: React.FormEvent) => {
     e.preventDefault();
     if (!wcSeriesSlug || !wcDate) return alert('Select a series and date for the Wildcard drop.');
@@ -635,19 +594,36 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     }
     const chaps = chaptersBySeries[selectedSeriesSlug] || [];
     const initialEdits: Record<string, { date: string; time: string; isPublished: boolean }> = {};
-    chaps.forEach((c: any, idx: number) => {
-      // Default any unscheduled chapter to a future scheduled date & isPublished: true
-      const fallbackFuture = new Date();
-      fallbackFuture.setDate(fallbackFuture.getDate() + (idx + 1) * 7);
-
+    chaps.forEach((c: any) => {
       initialEdits[String(c.id)] = {
-        date: c.publish_at ? formatDateInput(new Date(c.publish_at)) : formatDateInput(fallbackFuture),
+        date: c.publish_at ? formatDateInput(new Date(c.publish_at)) : formatDateInput(new Date()),
         time: formatTimeInput(c.publish_at),
-        isPublished: true
+        isPublished: c.is_published !== false
       };
     });
     setOneOffEdits(initialEdits);
   }, [selectedSeriesSlug, chaptersBySeries]);
+
+  const handleInstantPushChapterLive = async (ch: any) => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('chapters')
+        .update({
+          is_published: true,
+          publish_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+        })
+        .eq('id', ch.id);
+      if (error) throw error;
+      window.dispatchEvent(new Event('seriesUpdated'));
+      window.dispatchEvent(new Event('vaultUpdated'));
+      await fetchAllChapters();
+    } catch (err: any) {
+      alert('Failed to push chapter live: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleSaveCustomChapterDates = async () => {
     if (!selectedSeriesSlug || currentSeriesChapters.length === 0) return;
@@ -702,7 +678,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     }
   };
 
-  // --- RENDER A SINGLE TRACK COLUMN (MONDAY, WEDNESDAY, OR SATURDAY) ---
   const renderTrackColumn = (
     dayType: TrackDayType,
     badgeLabel: string,
@@ -718,7 +693,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
         className={`bg-zinc-950 border ${accentBorder} rounded-2xl p-4 sm:p-5 flex flex-col justify-between space-y-4 shadow-xl`}
       >
         <div className="space-y-4">
-          {/* Column Header */}
           <div className="flex items-start justify-between gap-2 border-b border-zinc-800/80 pb-3.5">
             <div>
               <span
@@ -735,7 +709,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
             </span>
           </div>
 
-          {/* Quick-Preset Button on Saturday for Apple Black + Clock Striker Launch & Alternate */}
           {dayType === 'SATURDAY' && (
             <button
               type="button"
@@ -748,7 +721,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
             </button>
           )}
 
-          {/* Add Series Dropdown */}
           <div className="bg-zinc-900/60 border border-zinc-800/90 rounded-xl p-3">
             <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">
               + Assign Series to {dayType}s
@@ -774,7 +746,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
             </select>
           </div>
 
-          {/* Assigned Series Cards List */}
           <div className="space-y-3">
             {items.length === 0 ? (
               <div className="border border-dashed border-zinc-800 rounded-xl py-10 px-4 text-center text-[10px] font-black uppercase tracking-widest text-zinc-600">
@@ -790,7 +761,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                   .sort((a: any, b: any) => Number(a.chapter_number) - Number(b.chapter_number));
                 const liveCount = chaps.length - unreleasedChaps.length;
 
-                // Compute all upcoming drop dates needed to cover every chapter in the series queue
                 const countPerDrop = Math.max(1, item.chaptersPerDrop || 1);
                 const requiredDrops = Math.max(4, Math.ceil(unreleasedChaps.length / countPerDrop));
                 const upcomingDropDates = getMatchingDropDatesForTrack(
@@ -811,7 +781,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                         : 'bg-zinc-900/50 border-zinc-800'
                     }`}
                   >
-                    {/* TOP ROW: FULL SERIES TITLE */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <h4 className="text-sm font-black italic uppercase tracking-wide text-white leading-snug break-words">
@@ -843,7 +812,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                         </div>
                       </div>
 
-                      {/* Pause & Delete Buttons */}
                       <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
@@ -877,7 +845,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                       </div>
                     </div>
 
-                    {/* MIDDLE ROW: CADENCE / STAGGER SELECTOR + CHAPTERS PER DROP */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-zinc-800/80">
                       <div className="sm:col-span-2">
                         <label className="block text-[8px] font-black uppercase tracking-widest text-zinc-400 mb-1">
@@ -932,7 +899,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                       </div>
                     </div>
 
-                    {/* START WEEK OFFSET & UPCOMING CHAPTER SCHEDULE PREVIEW */}
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[9px]">
                       <div className="flex items-center gap-1.5">
                         <span className="font-black uppercase tracking-wider text-zinc-500">
@@ -982,8 +948,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
   };
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-lg max-w-7xl mx-auto animate-fade-in space-y-6">
-      {/* TOP VAULT BACKLOG PILL BAR */}
+    <div id="release-scheduler-root" className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-lg max-w-7xl mx-auto animate-fade-in space-y-6">
       <div className="bg-black border border-zinc-800 rounded-2xl p-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
           <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
@@ -1302,10 +1267,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                   time: '09:00',
                   isPublished: true
                 };
-                const isFuture =
-                  !ch.is_published ||
-                  (edit.date &&
-                    new Date(`${edit.date}T${edit.time || '09:00'}`).getTime() > Date.now());
+                const isFuture = isChapterUnreleased(ch);
 
                 return (
                   <div
@@ -1332,6 +1294,15 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                      {isFuture && (
+                        <button
+                          type="button"
+                          onClick={() => handleInstantPushChapterLive(ch)}
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-black text-[9px] font-black uppercase tracking-widest flex items-center gap-1 cursor-pointer"
+                        >
+                          <Zap className="w-3 h-3 fill-black" /> Push Live Now
+                        </button>
+                      )}
                       <input
                         type="date"
                         value={edit.date}

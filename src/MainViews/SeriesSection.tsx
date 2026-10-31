@@ -4,8 +4,10 @@ import { supabase } from '../supabase';
 import {
   isCompletedRunSeries,
   isActiveOneShotWednesday,
+  isInOneShotDebutWindow,
   isCurrentlyWednesdayEST,
   getWednesdayCountdownEST,
+  getOneShotFreeCountdown,
   getNextScheduledChapterBadge
 } from '../oneshotWednesday';
 
@@ -29,7 +31,7 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
   const scrollRef = useRef(null);
   const [localLikes, setLocalLikes] = useState<Record<string, boolean>>({});
   const [earliestNextDropMap, setEarliestNextDropMap] = useState<Record<string, string>>({});
-  const [countdownText, setCountdownText] = useState<string>(() => getWednesdayCountdownEST());
+  const [, setTickSecond] = useState<number>(0);
 
   // PLUS subscribers never see any One-Shot Wednesday countdowns, glows, or PLUS Vault tags
   const isPlusSubscriber = userTier === 'premium' || Boolean(currentUser?.is_premium);
@@ -74,31 +76,40 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
     };
   }, [seriesSlugs]);
 
-  // Automatically move the active One-Shot Wednesday title to the #1 position on Wednesdays for non-PLUS users
+  const hasAnyActiveFreeCompletedRun = useMemo(() => {
+    if (isPlusSubscriber || !series || series.length === 0) return false;
+    return series.some((s: any) => isActiveOneShotWednesday(s, series));
+  }, [series, isPlusSubscriber]);
+
+  // Automatically move any active One-Shot Wednesday or 48h Debut title to the #1 position for non-PLUS users
   const sortedSeries = useMemo(() => {
     if (!series || series.length === 0) return [];
-    if (isPlusSubscriber || title !== 'Completed Runs' || !isCurrentlyWednesdayEST()) {
+    if (isPlusSubscriber || (title !== 'Completed Runs' && !hasAnyActiveFreeCompletedRun)) {
       return series;
     }
 
     return [...series].sort((a: any, b: any) => {
+      const aIsDebut = isInOneShotDebutWindow(a, series);
+      const bIsDebut = isInOneShotDebutWindow(b, series);
+      if (aIsDebut && !bIsDebut) return -1;
+      if (!aIsDebut && bIsDebut) return 1;
+
       const aIsSpotlight = isActiveOneShotWednesday(a, series);
       const bIsSpotlight = isActiveOneShotWednesday(b, series);
       if (aIsSpotlight && !bIsSpotlight) return -1;
       if (!aIsSpotlight && bIsSpotlight) return 1;
       return 0;
     });
-  }, [series, isPlusSubscriber, title]);
+  }, [series, isPlusSubscriber, title, hasAnyActiveFreeCompletedRun]);
 
-  // Live 1-second countdown ticker (only runs on Wednesdays for non-PLUS users in Completed Runs)
+  // Live 1-second countdown ticker (runs whenever there is an active Wednesday OSW or 48h One-Shot Debut for non-PLUS users)
   useEffect(() => {
-    if (isPlusSubscriber || title !== 'Completed Runs' || !isCurrentlyWednesdayEST()) return;
-    setCountdownText(getWednesdayCountdownEST());
+    if (isPlusSubscriber || (!isCurrentlyWednesdayEST() && !hasAnyActiveFreeCompletedRun)) return;
     const interval = setInterval(() => {
-      setCountdownText(getWednesdayCountdownEST());
+      setTickSecond(prev => (prev + 1) % 60);
     }, 1000);
     return () => clearInterval(interval);
-  }, [isPlusSubscriber, title]);
+  }, [isPlusSubscriber, hasAnyActiveFreeCompletedRun]);
 
   useEffect(() => {
     if (!currentUser?.id || !seriesSlugs) return;
@@ -213,8 +224,10 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
         <div ref={scrollRef} className="flex overflow-x-auto gap-3 pb-4 pt-2 px-1 scroll-smooth snap-x no-scrollbar">
           {sortedSeries.map((s: any) => {
             const isCompleted = title === 'Completed Runs' || isCompletedRunSeries(s, series);
+            const is48hDebut = isCompleted && isInOneShotDebutWindow(s, series);
             const showFreeWednesdayCue = !isPlusSubscriber && isCompleted && isActiveOneShotWednesday(s, series);
             const showPlusVaultTag = !isPlusSubscriber && isCompleted && !showFreeWednesdayCue;
+            const cardCountdownText = showFreeWednesdayCue ? getOneShotFreeCountdown(s, series) : getWednesdayCountdownEST();
 
             const candidateFromParent = nextScheduledBySeries[s.slug] || s.next_chapter_publish_at || null;
             const candidateEarliest = earliestNextDropMap[s.slug] || null;
@@ -270,17 +283,17 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                     />
                   </div>
 
-                  {/* TOP BADGE: ONE-SHOT WEDNESDAY, PLUS VAULT, NEXT CH COUNTDOWN, OR NEW */}
+                  {/* TOP BADGE: ONE-SHOT DEBUT / WEDNESDAY, PLUS VAULT, NEXT CH COUNTDOWN, OR NEW */}
                   {showFreeWednesdayCue ? (
                     <div className="absolute top-1.5 left-1.5 right-8 z-40 flex flex-col gap-0.5 pointer-events-none">
                       <div className="bg-gradient-to-r from-[#fe9a00] via-yellow-400 to-[#fe9a00] text-black text-[7px] sm:text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded sm:rounded-b-none sm:rounded-t shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-0.5 sm:gap-1 w-max max-w-full">
                         <Zap className="w-2.5 h-2.5 fill-black shrink-0" />
-                        <span className="sm:hidden">FREE</span>
-                        <span className="hidden sm:inline truncate">FREE TODAY</span>
+                        <span className="sm:hidden">{is48hDebut ? 'DEBUT' : 'FREE'}</span>
+                        <span className="hidden sm:inline truncate">{is48hDebut ? '48H FREE DEBUT' : 'FREE TODAY'}</span>
                       </div>
                       <div className="hidden sm:flex bg-black/90 backdrop-blur-md border border-[#fe9a00] text-[#fe9a00] text-[8px] font-mono font-black uppercase tracking-tight px-1.5 py-0.5 rounded-b shadow-lg items-center gap-1 w-max max-w-full">
                         <Clock className="w-2.5 h-2.5 text-red-500 animate-spin shrink-0" style={{ animationDuration: '6s' }} />
-                        <span>{countdownText}</span>
+                        <span>{cardCountdownText}</span>
                       </div>
                     </div>
                   ) : showPlusVaultTag ? (
@@ -306,8 +319,8 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
 
                   {showFreeWednesdayCue && (
                     <div className="absolute bottom-0 inset-x-0 z-40 bg-gradient-to-r from-red-600 via-[#fe9a00] to-red-600 text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest py-1 px-1 text-center shadow-[0_-4px_12px_rgba(254,154,0,0.6)] pointer-events-none truncate">
-                      <span className="sm:hidden">READ FREE TODAY</span>
-                      <span className="hidden sm:inline">READ NOW • LOCKS AT MIDNIGHT!</span>
+                      <span className="sm:hidden">{is48hDebut ? 'FREE 48H DEBUT' : 'READ FREE TODAY'}</span>
+                      <span className="hidden sm:inline">{is48hDebut ? 'READ NOW • VAULTS IN 48H!' : 'READ NOW • LOCKS AT MIDNIGHT!'}</span>
                     </div>
                   )}
 
@@ -330,7 +343,7 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                   {showFreeWednesdayCue ? (
                     <div className="sm:hidden mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#fe9a00]/20 border border-[#fe9a00]/60 text-[#fe9a00] text-[8.5px] font-extrabold uppercase tracking-tight leading-tight whitespace-nowrap max-w-full">
                       <Clock className="w-2.5 h-2.5 shrink-0 text-[#fe9a00]" />
-                      <span className="truncate">{countdownText} LEFT</span>
+                      <span className="truncate">{cardCountdownText} LEFT</span>
                     </div>
                   ) : nextChapterCountdown ? (
                     <div className={`sm:hidden mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-extrabold uppercase tracking-tight leading-tight whitespace-nowrap max-w-full ${
@@ -347,10 +360,10 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                     </p>
                   )}
 
-                  {/* PC / TABLET (>=640px): Untouched original layout */}
+                  {/* PC / TABLET (>=640px): Original layout */}
                   <p className="hidden sm:block text-zinc-500 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5">
                     {showFreeWednesdayCue
-                      ? `⏳ ${countdownText} left`
+                      ? `⏳ ${cardCountdownText} left`
                       : nextChapterCountdown
                       ? `⏳ ${nextChapterCountdown.shortText}`
                       : (s.creator_name || 'Saturday AM')}

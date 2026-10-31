@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, MoveVertical, Edit2 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
@@ -17,7 +17,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
     const fetchLayoutData = async () => {
       const { data: slideData } = await supabase.from('hero_slides').select('*').order('id', { ascending: true });
       if (slideData && slideData.length > 0) {
-        setSlides(slideData.map(s => ({ id: s.id, desktop_url: s.desktop_url || '', mobile_url: s.mobile_url || '', linkType: s.link_type || 'series', linkTarget: s.link_target || '' })));
+        setSlides(slideData.map((s: any) => ({ id: s.id, desktop_url: s.desktop_url || '', mobile_url: s.mobile_url || '', linkType: s.link_type || 'series', linkTarget: s.link_target || '' })));
       } else {
         setSlides([{ id: Date.now(), linkType: 'series', linkTarget: '', desktop_url: '', mobile_url: '' }]);
       }
@@ -25,14 +25,18 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
       if (sectionData) {
         setSections(sectionData);
         const mapping: any = {};
-        sectionData.forEach(sec => { mapping[sec.title] = seriesList.filter(s => s.home_section === sec.title).sort((a, b) => (a.display_order || 99) - (b.display_order || 99)); });
+        sectionData.forEach((sec: any) => {
+          mapping[sec.title] = seriesList
+            .filter((s: any) => s.home_section === sec.title)
+            .sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99));
+        });
         setSectionSeries(mapping);
       }
       
       const { data: magData } = await supabase.from('magazines').select('*').order('publish_date', { ascending: false });
       if (magData) {
         setAvailableMagazines(magData);
-        setFeaturedMagazines(magData.filter(m => m.home_section === 'Featured').sort((a,b) => (a.display_order || 99) - (b.display_order || 99)));
+        setFeaturedMagazines(magData.filter((m: any) => m.home_section === 'Featured').sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99)));
       }
     };
     if (seriesList.length > 0) fetchLayoutData();
@@ -45,18 +49,18 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
   
   const removeSlide = (idToRemove: any) => {
     if (!window.confirm("Delete this hero slide?")) return;
-    setSlides(slides.filter(slide => slide.id !== idToRemove));
+    setSlides(slides.filter((slide: any) => slide.id !== idToRemove));
     if (setIsDirty) setIsDirty(true);
   };
 
   const updateSlide = (id: any, field: any, value: any) => {
-    setSlides(slides.map(slide => slide.id === id ? { ...slide, [field]: value } : slide));
+    setSlides(slides.map((slide: any) => slide.id === id ? { ...slide, [field]: value } : slide));
     if (setIsDirty) setIsDirty(true);
   };
   
   const createSection = () => {
     const title = window.prompt("Enter new section title:");
-    if (title && !sections.find(s => s.title === title)) { 
+    if (title && !sections.find((s: any) => s.title === title)) { 
       setSections([...sections, { title }]); 
       setSectionSeries({ ...sectionSeries, [title]: [] }); 
       if (setIsDirty) setIsDirty(true);
@@ -65,7 +69,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
 
   const removeSection = (titleToRemove: any) => {
     if (!window.confirm(`Delete the "${titleToRemove}" section?`)) return;
-    setSections(sections.filter(s => s.title !== titleToRemove));
+    setSections(sections.filter((s: any) => s.title !== titleToRemove));
     const newMapping = { ...sectionSeries }; delete newMapping[titleToRemove]; setSectionSeries(newMapping);
     if (setIsDirty) setIsDirty(true);
   };
@@ -73,9 +77,9 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
   const renameSection = (oldTitle: string) => {
     const newTitle = window.prompt(`Rename "${oldTitle}" to:`, oldTitle);
     if (!newTitle || newTitle === oldTitle) return;
-    if (sections.find(s => s.title === newTitle)) return alert("A section with that name already exists!");
+    if (sections.find((s: any) => s.title === newTitle)) return alert("A section with that name already exists!");
 
-    setSections(sections.map(s => s.title === oldTitle ? { ...s, title: newTitle } : s));
+    setSections(sections.map((s: any) => s.title === oldTitle ? { ...s, title: newTitle } : s));
     
     setSectionSeries((prev: any) => {
       const newMapping = { ...prev };
@@ -96,7 +100,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
 
   const handleAddSeries = (sectionTitle: any, seriesSlug: any) => {
     if (!seriesSlug) return;
-    const seriesToAdd = seriesList.find(s => s.slug === seriesSlug);
+    const seriesToAdd = seriesList.find((s: any) => s.slug === seriesSlug);
     if (!seriesToAdd || sectionSeries[sectionTitle]?.find((s: any) => s.slug === seriesSlug)) return;
     setSectionSeries({ ...sectionSeries, [sectionTitle]: [...(sectionSeries[sectionTitle] || []), seriesToAdd] });
     if (setIsDirty) setIsDirty(true);
@@ -118,7 +122,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
 
   const handleAddMagazine = (magId: any) => {
     if (!magId) return;
-    const magToAdd = availableMagazines.find(m => m.id.toString() === magId.toString());
+    const magToAdd = availableMagazines.find((m: any) => m.id.toString() === magId.toString());
     if (!magToAdd || featuredMagazines.find((m: any) => m.id === magToAdd.id)) return;
     setFeaturedMagazines([...featuredMagazines, magToAdd]);
     if (setIsDirty) setIsDirty(true);
@@ -144,20 +148,20 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
       const { error: slideErr } = await supabase.from('hero_slides').delete().not('id', 'is', null);
       if (slideErr) throw slideErr;
 
-      const validSlides = slides.filter(s => s.desktop_url || s.mobile_url).map(slide => ({ desktop_url: slide.desktop_url, mobile_url: slide.mobile_url, link_type: slide.linkType, link_target: slide.linkTarget }));
+      const validSlides = slides.filter((s: any) => s.desktop_url || s.mobile_url).map((slide: any) => ({ desktop_url: slide.desktop_url, mobile_url: slide.mobile_url, link_type: slide.linkType, link_target: slide.linkTarget }));
       if (validSlides.length > 0) await supabase.from('hero_slides').insert(validSlides);
       
       const { error: secErr } = await supabase.from('home_sections').delete().not('title', 'is', null);
       if (secErr) throw secErr;
 
-      const newSections = sections.map((sec, i) => ({ title: sec.title, display_order: i + 1 }));
+      const newSections = sections.map((sec: any, i: number) => ({ title: sec.title, display_order: i + 1 }));
       if (newSections.length > 0) await supabase.from('home_sections').insert(newSections);
 
       const updates: any[] = []; const activeSlugs = new Set();
       Object.entries(sectionSeries).forEach(([sectionTitle, seriesArr]: any) => {
         seriesArr.forEach((s: any, index: number) => { updates.push({ slug: s.slug, home_section: sectionTitle, display_order: index + 1 }); activeSlugs.add(s.slug); });
       });
-      seriesList.forEach(s => { if (s.home_section && s.home_section !== 'None' && !activeSlugs.has(s.slug)) updates.push({ slug: s.slug, home_section: 'None', display_order: 99 }); });
+      seriesList.forEach((s: any) => { if (s.home_section && s.home_section !== 'None' && !activeSlugs.has(s.slug)) updates.push({ slug: s.slug, home_section: 'None', display_order: 99 }); });
       
       for (const u of updates) { 
         const { error: upErr } = await supabase.from('series').update({ home_section: u.home_section, display_order: u.display_order }).eq('slug', u.slug); 
@@ -166,8 +170,8 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
 
       const magUpdates: any[] = [];
       featuredMagazines.forEach((m: any, i: number) => magUpdates.push({ id: m.id, home_section: 'Featured', display_order: i + 1 }));
-      availableMagazines.forEach(m => {
-        if (!featuredMagazines.find(f => f.id === m.id) && m.home_section === 'Featured') {
+      availableMagazines.forEach((m: any) => {
+        if (!featuredMagazines.find((f: any) => f.id === m.id) && m.home_section === 'Featured') {
           magUpdates.push({ id: m.id, home_section: 'None', display_order: 99 });
         }
       });
@@ -190,7 +194,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
           <button onClick={addSlide} className="text-[10px] font-bold bg-zinc-800 px-4 py-2 rounded hover:bg-[#fe9a00] hover:text-black transition-colors">+ Add Slide</button>
         </div>
         <div className="space-y-6">
-          {slides.map((slide, index) => (
+          {slides.map((slide: any, index: number) => (
             <div key={slide.id} className="bg-black border border-zinc-800 p-4 rounded-lg relative group">
               {slides.length > 1 && (<button onClick={() => removeSlide(slide.id)} className="absolute top-4 right-4 text-zinc-600 hover:text-red-500"><X className="w-4 h-4" /></button>)}
               <h4 className="text-[10px] font-bold text-[#fe9a00] mb-4 uppercase tracking-widest">Slide {index + 1}</h4>
@@ -215,7 +219,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
                   ) : (
                     <select value={slide.linkTarget} onChange={(e) => updateSlide(slide.id, 'linkTarget', e.target.value)} className="flex-1 bg-zinc-900 border border-zinc-700 rounded p-2 text-white text-xs focus:border-[#fe9a00]">
                       <option value="">-- Select Series --</option>
-                      {seriesList.map(s => (<option key={s.slug} value={s.slug}>{s.title}</option>))}
+                      {seriesList.map((s: any) => (<option key={s.slug} value={s.slug}>{s.title}</option>))}
                     </select>
                   )}
                 </div>
@@ -243,7 +247,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
             ))}
             <select onChange={(e) => { handleAddMagazine(e.target.value); e.target.value = ""; }} className="w-full bg-zinc-900 border border-zinc-700 border-dashed rounded p-2 text-zinc-400 text-xs mt-2 cursor-pointer focus:border-[#fe9a00] transition-colors">
               <option value="">+ Assign an Issue to the Top Lane...</option>
-              {availableMagazines.filter(m => !featuredMagazines.find(f => f.id === m.id)).map(m => (<option key={m.id} value={m.id}>{m.title}</option>))}
+              {availableMagazines.filter((m: any) => !featuredMagazines.find((f: any) => f.id === m.id)).map((m: any) => (<option key={m.id} value={m.id}>{m.title}</option>))}
             </select>
           </div>
         </div>
@@ -255,7 +259,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
           <button onClick={createSection} className="text-[10px] font-bold bg-[#fe9a00] text-black px-4 py-2 rounded hover:bg-white transition-colors">+ Create Section</button>
         </div>
         <div className="space-y-6">
-          {sections.map((sec, secIndex) => (
+          {sections.map((sec: any, secIndex: number) => (
             <div key={sec.title} className="bg-black border border-zinc-700 rounded-lg overflow-hidden">
               <div className="bg-zinc-800 p-3 flex justify-between items-center">
                 <div className="flex items-center gap-2">
@@ -283,7 +287,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty }: any) => {
                 ))}
                 <select onChange={(e) => { handleAddSeries(sec.title, e.target.value); e.target.value = ""; }} className="w-full bg-zinc-900 border border-zinc-700 border-dashed rounded p-2 text-zinc-400 text-xs mt-2 cursor-pointer focus:border-[#fe9a00] transition-colors">
                   <option value="">+ Assign a Series to {sec.title}...</option>
-                  {seriesList.filter(s => !sectionSeries[sec.title]?.find((existing: any) => existing.slug === s.slug)).map(s => (<option key={s.slug} value={s.slug}>{s.title}</option>))}
+                  {seriesList.filter((s: any) => !sectionSeries[sec.title]?.find((existing: any) => existing.slug === s.slug)).map((s: any) => (<option key={s.slug} value={s.slug}>{s.title}</option>))}
                 </select>
               </div>
             </div>

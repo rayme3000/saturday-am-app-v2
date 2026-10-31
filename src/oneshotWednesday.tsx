@@ -1,6 +1,7 @@
 // src/oneshotWednesday.ts
 
 export const PLUS_EARLY_ACCESS_MS = 12 * 60 * 60 * 1000; // 12 Hours in milliseconds
+export const ONESHOT_DEBUT_WINDOW_MS = 2 * 24 * 60 * 60 * 1000; // 48 Hours (2 Days) in milliseconds
 
 export const isCompletedRunSeries = (series: any, seriesList?: any[]): boolean => {
   if (!series) return false;
@@ -15,11 +16,75 @@ export const isCompletedRunSeries = (series: any, seriesList?: any[]): boolean =
     .trim()
     .toLowerCase();
 
+  const titleLower = String(series.title ?? matchedFromList?.title ?? '').toLowerCase();
+  const slugLower = String(series.slug ?? matchedFromList?.slug ?? '').toLowerCase();
+
   return (
     Boolean(series.is_completed_run) ||
     effectiveHomeSection === 'completed runs' ||
-    effectiveHomeSection === 'completed run'
+    effectiveHomeSection === 'completed run' ||
+    titleLower.includes('oneshot') ||
+    titleLower.includes('one-shot') ||
+    slugLower.includes('oneshot') ||
+    slugLower.includes('one-shot')
   );
+};
+
+// Helper: Finds the valid 48-hour debut start timestamp (checks publish_at, updated_at, and created_at)
+export const getOneShotDebutStartMs = (series: any, seriesList?: any[]): number | null => {
+  if (!series || !isCompletedRunSeries(series, seriesList)) return null;
+
+  const matchedFromList = seriesList?.find(
+    (s: any) => s.slug && series.slug && String(s.slug).toLowerCase() === String(series.slug).toLowerCase()
+  );
+
+  const now = Date.now();
+  const candidates = [
+    series.publish_at,
+    matchedFromList?.publish_at,
+    series.created_at,
+    matchedFromList?.created_at,
+    series.updated_at,
+    matchedFromList?.updated_at
+  ].filter(Boolean);
+
+  for (const iso of candidates) {
+    const ms = new Date(iso).getTime();
+    if (!isNaN(ms)) {
+      const elapsed = now - ms;
+      // If timestamp is in the past within 48 hours, it's an active 48-hour debut!
+      if (elapsed >= -60000 && elapsed < ONESHOT_DEBUT_WINDOW_MS) {
+        return ms;
+      }
+    }
+  }
+
+  return null;
+};
+
+// Checks if a Completed Run / One-Shot is currently inside its 48-hour (2-Day) "One-Shot Wednesday Debut" free window
+export const isInOneShotDebutWindow = (series: any, seriesList?: any[]): boolean => {
+  return getOneShotDebutStartMs(series, seriesList) !== null;
+};
+
+// Returns live countdown string ("47h 12m 05s") for either an active 48h Debut Window OR Wednesday 11:59:59 PM EST
+export const getOneShotFreeCountdown = (series?: any, seriesList?: any[]): string => {
+  const debutStartMs = series ? getOneShotDebutStartMs(series, seriesList) : null;
+  if (debutStartMs !== null) {
+    const debutEndMs = debutStartMs + ONESHOT_DEBUT_WINDOW_MS;
+    const diffMs = Math.max(0, debutEndMs - Date.now());
+
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+
+    const h = String(hours).padStart(2, '0');
+    const m = String(minutes).padStart(2, '0');
+    const s = String(seconds).padStart(2, '0');
+    return `${h}h ${m}m ${s}s`;
+  }
+
+  return getWednesdayCountdownEST();
 };
 
 // Checks if it is currently Wednesday in US Eastern Time (America/New_York)
@@ -80,8 +145,16 @@ export const getOneShotWednesdaySeries = (seriesList: any[]): any | null => {
   return completedRuns[activeIndex];
 };
 
+// Returns true if the series is unlocked for free today (either via 48h One-Shot Debut OR Wednesday OSW rotation)
 export const isActiveOneShotWednesday = (series: any, seriesList: any[]): boolean => {
   if (!series || !isCompletedRunSeries(series, seriesList)) return false;
+
+  // 1. Check if the series is inside its 48-hour "One-Shot Wednesday Debut" window (any day of the week)
+  if (isInOneShotDebutWindow(series, seriesList)) {
+    return true;
+  }
+
+  // 2. Otherwise check if today is Wednesday EST and this series is the weekly OSW spotlight
   if (!isCurrentlyWednesdayEST()) return false;
   const spotlight = getOneShotWednesdaySeries(seriesList);
   return Boolean(spotlight && spotlight.slug === series.slug);
