@@ -1,24 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Monitor, Smartphone, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown, Crop, Calendar, Bell } from 'lucide-react';
+import { Monitor, Smartphone, Trash2, Eye, EyeOff, Plus, ChevronDown, ChevronUp, User, X, ArrowUp, ArrowDown, Crop, Bell, ArrowRight } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { getOneShotWednesdaySeries } from '../oneshotWednesday';
-
-const toLocalDateString = (isoString?: string | null) => {
-  const d = isoString ? new Date(isoString) : new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const toLocalTimeString = (isoString?: string | null) => {
-  if (!isoString) return '12:00';
-  const d = new Date(isoString);
-  const hours = String(d.getHours()).padStart(2, '0');
-  const mins = String(d.getMinutes()).padStart(2, '0');
-  return `${hours}:${mins}`;
-};
 
 const COUNTRY_CODES = [
   { code: 'US', name: 'United States' }, { code: 'GB', name: 'United Kingdom' }, { code: 'JP', name: 'Japan' },
@@ -89,10 +73,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
     contentRating: 'T',
     homeSection: '',
     isHidden: false,
-    isScheduled: false,
     autoNotify: true,
-    publishDate: toLocalDateString(),
-    publishTime: '12:00',
     creators: [{ id: undefined as any, created_at: undefined as any, role: 'Creator', name: '', bio: '', flagCode1: '', flagCode2: '', avatar: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
     characters: [] as any[] 
   });
@@ -144,10 +125,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           contentRating: 'T', 
           homeSection: '',
           isHidden: false,    
-          isScheduled: false,
           autoNotify: true,
-          publishDate: toLocalDateString(),
-          publishTime: '12:00',
           creators: [{ id: undefined, created_at: undefined, role: 'Creator', name: '', flagCode1: '', flagCode2: '', avatar: '', bio: '', instagram: '', twitter: '', supportLink: '', is_visible: true }],
           characters: [] 
         });
@@ -186,8 +164,6 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
             }]; 
           }
 
-          const isFutureScheduled = Boolean(selectedSeries.publish_at && new Date(selectedSeries.publish_at).getTime() > Date.now());
-          
           setFormData({ 
             seriesTitle: selectedSeries.title || '', bannerUrl: selectedSeries.cover_url || '', 
             bannerPositionDesktop: selectedSeries.banner_position_desktop || '50% 50%',
@@ -206,10 +182,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
             contentRating: selectedSeries.content_rating || 'T', 
             homeSection: selectedSeries.home_section || '',
             isHidden: selectedSeries.is_hidden || false,
-            isScheduled: isFutureScheduled,
             autoNotify: false,
-            publishDate: toLocalDateString(selectedSeries.publish_at),
-            publishTime: toLocalTimeString(selectedSeries.publish_at),
             creators: loadedCreators,
             characters: charData || [] 
           });
@@ -319,12 +292,8 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
       const primaryCreator = formData.creators[0]; 
 
       const existingSeriesObj = seriesList.find((s: any) => s.slug === activeSlug);
-      let publishTimestamp: string | null = existingSeriesObj?.publish_at || null;
-      if (formData.isScheduled) {
-        publishTimestamp = new Date(`${formData.publishDate}T${formData.publishTime}`).toISOString();
-      } else if (targetSeries === 'new' && !publishTimestamp) {
-        publishTimestamp = new Date().toISOString();
-      }
+      const publishTimestamp: string | null =
+        existingSeriesObj?.publish_at || new Date().toISOString();
 
       const { error: seriesError } = await supabase.from('series').upsert({ 
         slug: activeSlug, title: formData.seriesTitle, synopsis: formData.synopsis, 
@@ -639,7 +608,7 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
           </div>
         </div>
 
-        {/* VISIBILITY, SCHEDULING & AUTO-NOTIFICATION */}
+        {/* VISIBILITY, AUTO-NOTIFICATION & RELEASE SCHEDULER HANDOFF */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className={`p-4 rounded-xl border transition-colors flex items-center justify-between ${formData.isHidden ? 'bg-red-900/10 border-red-900/50' : 'bg-black border-zinc-800'}`}>
             <div className="flex items-center gap-3">
@@ -661,16 +630,14 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
               <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">Notify Fans on Launch</span>
             </label>
 
-            <label className="flex items-center gap-2 cursor-pointer bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-700">
-              <input
-                type="checkbox"
-                checked={formData.isScheduled}
-                onChange={(e) => handleInputChange('isScheduled', e.target.checked)}
-                className="accent-[#fe9a00]"
-              />
-              <Calendar className="w-3.5 h-3.5 text-[#fe9a00]" />
-              <span className="text-[10px] font-black text-zinc-300 uppercase">Schedule Launch</span>
-            </label>
+            <button
+              type="button"
+              onClick={() => document.getElementById('release-scheduler-tab-trigger')?.click()}
+              className="text-[9px] font-black uppercase tracking-widest bg-zinc-900 text-zinc-300 hover:bg-[#fe9a00] hover:text-black border border-zinc-700 hover:border-[#fe9a00] transition-colors px-3 py-1.5 rounded-lg flex items-center gap-1.5 cursor-pointer shrink-0"
+              title="Manage chapter release dates and syndication in Release Scheduler"
+            >
+              Release Scheduler <ArrowRight className="w-3 h-3" />
+            </button>
           </div>
         </div>
 
@@ -713,19 +680,6 @@ export const SeriesEditor = ({ Dropzone, ThumbnailCropperModal, setIsDirty }: an
             </span>
           </div>
         </div>
-
-        {formData.isScheduled && (
-          <div className="bg-black border border-[#fe9a00]/40 p-4 rounded-xl grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1.5">Series Launch Date</label>
-              <input type="date" value={formData.publishDate} onChange={(e) => handleInputChange('publishDate', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded p-2.5 text-white text-xs" />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1.5">Series Launch Time</label>
-              <input type="time" value={formData.publishTime} onChange={(e) => handleInputChange('publishTime', e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded p-2.5 text-white text-xs" />
-            </div>
-          </div>
-        )}
         
         {/* HERO BANNER SECTION */}
         <div className="border-b border-zinc-800 pb-6">

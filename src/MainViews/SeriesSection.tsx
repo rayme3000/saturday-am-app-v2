@@ -28,12 +28,51 @@ const isNewItem = (createdAt: string | undefined) => {
 export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userTier, nextScheduledBySeries = {}, onRequireAuth }: any) => {
   const scrollRef = useRef(null);
   const [localLikes, setLocalLikes] = useState<Record<string, boolean>>({});
+  const [earliestNextDropMap, setEarliestNextDropMap] = useState<Record<string, string>>({});
   const [countdownText, setCountdownText] = useState<string>(() => getWednesdayCountdownEST());
 
   // PLUS subscribers never see any One-Shot Wednesday countdowns, glows, or PLUS Vault tags
   const isPlusSubscriber = userTier === 'premium' || Boolean(currentUser?.is_premium);
 
   const seriesSlugs = useMemo(() => series?.map((s: any) => s.slug).join(',') || '', [series]);
+
+  // Fetch the SOONEST (minimum) future publish_at per series directly so a later queued chapter never overwrites this week's drop
+  useEffect(() => {
+    if (!seriesSlugs) return;
+    const slugs = seriesSlugs.split(',').filter(Boolean);
+    if (slugs.length === 0) return;
+
+    const fetchEarliestDrops = async () => {
+      const nowIso = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('chapters')
+        .select('series_slug, publish_at, chapter_number')
+        .in('series_slug', slugs)
+        .gt('publish_at', nowIso)
+        .order('publish_at', { ascending: true });
+
+      if (error || !data) return;
+
+      const earliestMap: Record<string, string> = {};
+      data.forEach((row: any) => {
+        if (!row.series_slug || !row.publish_at) return;
+        if (!earliestMap[row.series_slug]) {
+          earliestMap[row.series_slug] = row.publish_at;
+        } else if (new Date(row.publish_at).getTime() < new Date(earliestMap[row.series_slug]).getTime()) {
+          earliestMap[row.series_slug] = row.publish_at;
+        }
+      });
+      setEarliestNextDropMap(earliestMap);
+    };
+
+    fetchEarliestDrops();
+    window.addEventListener('seriesUpdated', fetchEarliestDrops);
+    window.addEventListener('vaultUpdated', fetchEarliestDrops);
+    return () => {
+      window.removeEventListener('seriesUpdated', fetchEarliestDrops);
+      window.removeEventListener('vaultUpdated', fetchEarliestDrops);
+    };
+  }, [seriesSlugs]);
 
   // Automatically move the active One-Shot Wednesday title to the #1 position on Wednesdays for non-PLUS users
   const sortedSeries = useMemo(() => {
@@ -104,10 +143,8 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
     const currentlyLiked = localLikes[seriesSlug];
     const newLikedState = !currentlyLiked;
     
-    // Optimistic UI update instantly locks the heart in place without waiting for the DB
     setLocalLikes(prev => ({ ...prev, [seriesSlug]: newLikedState }));
 
-    // Floating background task for DB and Scoring
     const syncWithDatabase = async () => {
       try {
         if (currentlyLiked) {
@@ -176,11 +213,19 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
         <div ref={scrollRef} className="flex overflow-x-auto gap-3 pb-4 pt-2 px-1 scroll-smooth snap-x no-scrollbar">
           {sortedSeries.map((s: any) => {
             const isCompleted = title === 'Completed Runs' || isCompletedRunSeries(s, series);
-            // Only activate One-Shot Wednesday visual cues for non-PLUS users
             const showFreeWednesdayCue = !isPlusSubscriber && isCompleted && isActiveOneShotWednesday(s, series);
             const showPlusVaultTag = !isPlusSubscriber && isCompleted && !showFreeWednesdayCue;
 
-            const nextDropIso = nextScheduledBySeries[s.slug] || s.next_chapter_publish_at || null;
+            const candidateFromParent = nextScheduledBySeries[s.slug] || s.next_chapter_publish_at || null;
+            const candidateEarliest = earliestNextDropMap[s.slug] || null;
+            let nextDropIso = candidateEarliest || candidateFromParent;
+            if (candidateEarliest && candidateFromParent) {
+              nextDropIso =
+                new Date(candidateEarliest).getTime() <= new Date(candidateFromParent).getTime()
+                  ? candidateEarliest
+                  : candidateFromParent;
+            }
+
             const nextChapterCountdown = !isCompleted ? getNextScheduledChapterBadge(nextDropIso, isPlusSubscriber) : null;
 
             return (
@@ -196,7 +241,6 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
 
-                  {/* Extra ambient inner glow for the active Wednesday One-Shot (Non-PLUS only) */}
                   {showFreeWednesdayCue && (
                     <div className="absolute inset-0 bg-gradient-to-t from-[#fe9a00]/30 via-transparent to-[#fe9a00]/20 z-10 pointer-events-none animate-pulse" />
                   )}
@@ -234,7 +278,6 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                         <span className="sm:hidden">FREE</span>
                         <span className="hidden sm:inline truncate">FREE TODAY</span>
                       </div>
-                      {/* Hidden on mobile (<640px) so it doesn't cover the cover art, since the timer is already below the card title! */}
                       <div className="hidden sm:flex bg-black/90 backdrop-blur-md border border-[#fe9a00] text-[#fe9a00] text-[8px] font-mono font-black uppercase tracking-tight px-1.5 py-0.5 rounded-b shadow-lg items-center gap-1 w-max max-w-full">
                         <Clock className="w-2.5 h-2.5 text-red-500 animate-spin shrink-0" style={{ animationDuration: '6s' }} />
                         <span>{countdownText}</span>
@@ -261,7 +304,6 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                     )
                   )}
 
-                  {/* BOTTOM URGENCY RIBBON FOR ACTIVE WEDNESDAY ONE-SHOT (NON-PLUS ONLY) */}
                   {showFreeWednesdayCue && (
                     <div className="absolute bottom-0 inset-x-0 z-40 bg-gradient-to-r from-red-600 via-[#fe9a00] to-red-600 text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest py-1 px-1 text-center shadow-[0_-4px_12px_rgba(254,154,0,0.6)] pointer-events-none truncate">
                       <span className="sm:hidden">READ FREE TODAY</span>
@@ -283,7 +325,30 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                   }`}>
                     {s.title}
                   </h3>
-                  <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5">
+
+                  {/* MOBILE (<640px): High-contrast, non-truncated timer pill */}
+                  {showFreeWednesdayCue ? (
+                    <div className="sm:hidden mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#fe9a00]/20 border border-[#fe9a00]/60 text-[#fe9a00] text-[8.5px] font-extrabold uppercase tracking-tight leading-tight whitespace-nowrap max-w-full">
+                      <Clock className="w-2.5 h-2.5 shrink-0 text-[#fe9a00]" />
+                      <span className="truncate">{countdownText} LEFT</span>
+                    </div>
+                  ) : nextChapterCountdown ? (
+                    <div className={`sm:hidden mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-extrabold uppercase tracking-tight leading-tight whitespace-nowrap max-w-full ${
+                      nextChapterCountdown.isSoon
+                        ? 'bg-[#fe9a00] text-black shadow-[0_0_10px_rgba(254,154,0,0.5)]'
+                        : 'bg-[#fe9a00]/15 border border-[#fe9a00]/50 text-[#fe9a00]'
+                    }`}>
+                      <Clock className="w-2.5 h-2.5 shrink-0" />
+                      <span className="truncate">{nextChapterCountdown.shortText}</span>
+                    </div>
+                  ) : (
+                    <p className="sm:hidden text-zinc-500 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5">
+                      {s.creator_name || 'Saturday AM'}
+                    </p>
+                  )}
+
+                  {/* PC / TABLET (>=640px): Untouched original layout */}
+                  <p className="hidden sm:block text-zinc-500 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5">
                     {showFreeWednesdayCue
                       ? `⏳ ${countdownText} left`
                       : nextChapterCountdown

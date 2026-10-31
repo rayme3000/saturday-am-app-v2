@@ -159,14 +159,6 @@ export const HomePage = ({
   }, [latestChapters, seriesList, nowTick, isPlusSubscriber]);
 
   // --- SELF-SYNCING NOTIFICATIONS ENGINE ---
-  // Automatically syncs:
-  // 1. Explicit rows from `app_notifications` (verified against live series/chapters)
-  // 2. Live Chapters (`visibleLatestChapters`) & New Series (`seriesList`)
-  // 3. New Creators Added ("Meet the Creator!" -> jumps to creator on CreatorsPage)
-  // 4. New Characters Added ("New Character Unlocked!" -> opens dossier modal on CharacterRoster)
-  // 5. New Card Skins, New Avatars, and New Border Frames (-> opens UserProfile loadout tab)
-  // 6. One-Shot Wednesdays (OSW Wednesdays)
-  // 7. Friday Reminders for Saturday 12-Hour Early Access
   const visibleNotifications = useMemo(() => {
     const chaptersById = new Map<string, any>();
     latestChapters.forEach((ch: any) => {
@@ -576,8 +568,8 @@ export const HomePage = ({
             .from('chapters')
             .select('*')
             .eq('is_published', true)
-            .order('created_at', { ascending: false })
-            .limit(200),
+            .order('chapter_number', { ascending: true })
+            .limit(2000),
           supabase.from('series_creators').select('*').order('id', { ascending: false }).limit(30),
           supabase.from('series_characters').select('*').order('id', { ascending: false }).limit(30)
         ]);
@@ -632,9 +624,11 @@ export const HomePage = ({
     };
 
     window.addEventListener('seriesUpdated', handleSeriesOrChaptersUpdated);
+    window.addEventListener('vaultUpdated', handleSeriesOrChaptersUpdated);
     document.addEventListener('visibilitychange', handleVisibilityRefresh);
     return () => {
       window.removeEventListener('seriesUpdated', handleSeriesOrChaptersUpdated);
+      window.removeEventListener('vaultUpdated', handleSeriesOrChaptersUpdated);
       document.removeEventListener('visibilitychange', handleVisibilityRefresh);
     };
   }, []);
