@@ -33,14 +33,15 @@ import {
   Trophy,
   CreditCard,
   Sliders,
-  Stamp
+  Stamp,
+  Radio,
+  Percent
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
-// Matches Leaderboard.tsx & CreatorPayoutTracker.tsx staff/creator exclusions
 export const EXCLUDED_STAFF_ADMIN_EMAILS = new Set([
   'odunze.oguguo@yahoo.com',
   'saturday.editorial@gmail.com',
@@ -512,21 +513,40 @@ export const AnalyticsDashboard = () => {
   const [activeTab, setActiveTab] = useState<'global' | 'engagement' | 'series' | 'leaderboards'>(
     'global'
   );
-  // Default to PURE FANS ONLY so Creator/Staff testing never pollutes your user metrics
   const [audienceMode, setAudienceMode] = useState<AudienceFilterMode>('fans_only');
 
   const [isLoading, setIsLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
 
-  // Raw tables cached in memory so switching Audience Mode (Fans vs Staff/Creators vs All) is instant
   const [rawTables, setRawTables] = useState<any>(null);
 
-  // Series Table Filtering & Sorting
+  // --- REALTIME ONLINE PRESENCE STATE (READS FROM APP.TSX UNIFIED PRESENCE STREAM) ---
+  const [liveOnlineUsers, setLiveOnlineUsers] = useState<any[]>(() => {
+    return (window as any).__amLiveOnlineUsers || [];
+  });
+
   const [seriesSearch, setSeriesSearch] = useState('');
   const [seriesSortKey, setSeriesSortKey] = useState<
     'score' | 'reads' | 'completed' | 'hypes' | 'likes' | 'ctr' | 'comments' | 'trend'
   >('score');
+
+  useEffect(() => {
+    if (Array.isArray((window as any).__amLiveOnlineUsers)) {
+      setLiveOnlineUsers((window as any).__amLiveOnlineUsers);
+    }
+
+    const handlePresenceEvent = (e: any) => {
+      if (Array.isArray(e.detail)) {
+        setLiveOnlineUsers(e.detail);
+      }
+    };
+
+    window.addEventListener('amPresenceUpdated', handlePresenceEvent);
+    return () => {
+      window.removeEventListener('amPresenceUpdated', handlePresenceEvent);
+    };
+  }, []);
 
   const fetchAnalytics = useCallback(async () => {
     setIsLoading(true);
@@ -569,7 +589,7 @@ export const AnalyticsDashboard = () => {
         supabase.from('completed_reads').select('*').limit(25000),
         supabase.from('hypes').select('*').neq('target_type', 'comment').limit(25000),
         supabase.from('super_hypes').select('*').limit(25000),
-        supabase.from('page_reacts').select('*').limit(25000),
+        supabase.from('pageReacts').select('*').limit(25000).then(res => res.error ? supabase.from('page_reacts').select('*').limit(25000) : res),
         supabase.from('series_comments').select('*').limit(25000),
         supabase.from('series_likes').select('*').limit(25000),
         supabase.from('chapter_likes').select('*').limit(25000),
@@ -579,7 +599,6 @@ export const AnalyticsDashboard = () => {
         supabase.from('telemetry_events').select('*').limit(30000)
       ]);
 
-      // Merge auth.users created_at/email from get_admin_user_directory with public.profiles
       const authDirMap = new Map<string, any>();
       if (Array.isArray(adminDirRes.data)) {
         adminDirRes.data.forEach((u: any) => {
@@ -587,7 +606,6 @@ export const AnalyticsDashboard = () => {
         });
       }
 
-      // Map Shopify / Promo Code purchase dates by buyer_email
       const promoDateByEmail = new Map<string, string>();
       (promoCodesRes.data || []).forEach((row: any) => {
         const em = String(row.buyer_email || '').trim().toLowerCase();
@@ -705,7 +723,6 @@ export const AnalyticsDashboard = () => {
       }
     });
 
-    // Helper: Does an event row belong to the currently selected Audience Mode?
     const matchesAudience = (row: any): boolean => {
       if (audienceMode === 'all_combined') return true;
       const uid = row?.user_id || row?.id;
@@ -730,7 +747,6 @@ export const AnalyticsDashboard = () => {
     const premiumUsers = premiumProfilesList.length;
     const freeUsers = Math.max(0, totalUsers - premiumUsers);
 
-    // Date boundaries
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfYesterday = new Date(startOfToday);
@@ -763,7 +779,6 @@ export const AnalyticsDashboard = () => {
       })
       .filter((d): d is Date => Boolean(d && !isNaN(d.getTime())));
 
-    // PLUS Signups / Upgrades Dates (All PLUS, Monthly Plan $1.99/mo, and Annual Plan $20/yr)
     const getPlusDate = (p: any): Date | null => {
       const raw = p.plus_activated_at || p.subscribed_at || p.updated_at || p.created_at;
       const d = raw ? new Date(raw) : null;
@@ -825,7 +840,6 @@ export const AnalyticsDashboard = () => {
       })
       .slice(0, 8);
 
-    // Filter activity tables by Audience Mode
     const historyRows = (rawTables.readingHistory || []).filter(matchesAudience);
     const completedRows = (rawTables.completedReads || []).filter(matchesAudience);
     const superHypesData = (rawTables.superHypes || []).filter(matchesAudience);
@@ -865,6 +879,73 @@ export const AnalyticsDashboard = () => {
         });
       }
     });
+
+    // --- UNIQUE VISITORS (TODAY, YESTERDAY, 7D, PRIOR 7D, 30D, PRIOR 30D, LIFETIME) & SIGNUP CONVERSION ---
+    const visitorsTodaySet = new Set<string>();
+    const visitorsYesterdaySet = new Set<string>();
+    const visitorsWeekSet = new Set<string>();
+    const visitorsLastWeekSet = new Set<string>();
+    const visitorsMonthSet = new Set<string>();
+    const visitorsLastMonthSet = new Set<string>();
+    const visitorsLifetimeSet = new Set<string>();
+
+    const registerVisitorImpression = (actorKey?: string, rawDt?: string) => {
+      if (!actorKey || !rawDt) return;
+      const dt = new Date(rawDt);
+      if (isNaN(dt.getTime())) return;
+      const cleanKey = String(actorKey).trim();
+      if (!cleanKey) return;
+
+      visitorsLifetimeSet.add(cleanKey);
+      if (dt >= startOfToday) visitorsTodaySet.add(cleanKey);
+      else if (dt >= startOfYesterday && dt < startOfToday) visitorsYesterdaySet.add(cleanKey);
+
+      if (dt >= startOfWeek) visitorsWeekSet.add(cleanKey);
+      else if (dt >= startOfLastWeek && dt < startOfWeek) visitorsLastWeekSet.add(cleanKey);
+
+      if (dt >= startOfMonth) visitorsMonthSet.add(cleanKey);
+      else if (dt >= startOfLastMonth && dt < startOfMonth) visitorsLastMonthSet.add(cleanKey);
+    };
+
+    telemetryRows.forEach((t: any) => {
+      const meta = t.metadata || t.event_data || {};
+      const actor = meta?.visitor_id || t.session_id || t.user_id;
+      registerVisitorImpression(actor, t.created_at);
+    });
+    historyRows.forEach((r: any) => registerVisitorImpression(r.user_id, r.updated_at || r.created_at));
+    completedRows.forEach((r: any) => registerVisitorImpression(r.user_id, r.created_at));
+    allUnifiedHypes.forEach((r: any) => registerVisitorImpression(r.user_id, r.created_at));
+    activeProfiles.forEach((p: any) => registerVisitorImpression(p.id, p.created_at || p.updated_at));
+
+    const vToday = Math.max(visitorsTodaySet.size, growthStats.newUsersToday);
+    const vYesterday = Math.max(visitorsYesterdaySet.size, growthStats.newUsersYesterday);
+    const vWeek = Math.max(visitorsWeekSet.size, growthStats.newUsersWeek);
+    const vLastWeek = Math.max(visitorsLastWeekSet.size, growthStats.newUsersLastWeek);
+    const vMonth = Math.max(visitorsMonthSet.size, growthStats.newUsersMonth);
+    const vLastMonth = Math.max(visitorsLastMonthSet.size, growthStats.newUsersLastMonth);
+    const vLifetime = Math.max(visitorsLifetimeSet.size, totalUsers);
+
+    const calcConvPct = (signups: number, visitors: number): string => {
+      if (visitors <= 0) return '0.0';
+      return Math.min(100, (signups / visitors) * 100).toFixed(1);
+    };
+
+    const visitorFunnelStats = {
+      visitorsToday: vToday,
+      visitorsYesterday: vYesterday,
+      convTodayPct: calcConvPct(growthStats.newUsersToday, vToday),
+
+      visitorsWeek: vWeek,
+      visitorsLastWeek: vLastWeek,
+      convWeekPct: calcConvPct(growthStats.newUsersWeek, vWeek),
+
+      visitorsMonth: vMonth,
+      visitorsLastMonth: vLastMonth,
+      convMonthPct: calcConvPct(growthStats.newUsersMonth, vMonth),
+
+      visitorsLifetime: vLifetime,
+      convLifetimePct: calcConvPct(totalUsers, vLifetime)
+    };
 
     // --- ACTIVE USERS & PEAK ACTIVE USERS (DAY, WEEK, MONTH) ---
     const activeTodaySet = new Set<string>();
@@ -1012,7 +1093,6 @@ export const AnalyticsDashboard = () => {
       completed_lifetime: chaptersCompletedLifetime
     };
 
-    // --- 14-DAY DAILY TIMELINE BUCKETS ---
     const buckets: DailyChartBucket[] = [];
     const bucketMap = new Map<string, DailyChartBucket>();
     for (let i = 13; i >= 0; i--) {
@@ -1084,7 +1164,6 @@ export const AnalyticsDashboard = () => {
       }
     });
 
-    // --- TELEMETRY STATS & FEATURE INTERACTIONS (HYPE CARD, PROFILE LOADOUT, BINGO BOOK) ---
     const uniqueSessions = new Set<string>();
     const uniqueVisitorIds = new Set<string>();
     let storeClicks = 0;
@@ -1121,13 +1200,12 @@ export const AnalyticsDashboard = () => {
     });
 
     const telemetryStats = {
-      total_sessions: uniqueSessions.size,
-      unique_visitors: uniqueVisitorIds.size,
+      total_sessions: Math.max(uniqueSessions.size, vLifetime),
+      unique_visitors: Math.max(uniqueVisitorIds.size, vLifetime),
       store_visits: storeClicks,
       banner_clicks: bannerClicks
     };
 
-    // --- PROFILE LOADOUT, HYPE CARD & BINGO BOOK GROUND-TRUTH COUNTS ---
     let profilesWithTopFive = 0;
     let profilesWithAvatar = 0;
     let profilesWithFrame = 0;
@@ -1163,7 +1241,6 @@ export const AnalyticsDashboard = () => {
       profilesWithCardSkin + profilesWithFrame
     );
 
-    // Bingo Book interactions: telemetry opens/claims + active/claimed bingo_codes
     const bingoCodesList = rawTables.bingoCodes || [];
     const bingoCodeRedemptions = bingoCodesList.reduce(
       (sum: number, c: any) => sum + (Number(c.times_used || c.uses || 0) || 1),
@@ -1171,7 +1248,6 @@ export const AnalyticsDashboard = () => {
     );
     const totalBingoBookInteractions = bingoTelemetryEvents + bingoCodeRedemptions;
 
-    // --- FEATURE ENGAGEMENT BREAKDOWN (WITH LOADOUT, HYPE CARD & BINGO BOOK) ---
     const totalLikesAllTypes =
       seriesLikesData.length +
       chapterLikesData.length +
@@ -1204,7 +1280,6 @@ export const AnalyticsDashboard = () => {
       comments: commentsData.length,
       creatorTipsCount: tipsData.length,
       creatorTipsDollars: totalTipDollars,
-      // New Feature Engagement Metrics:
       profileLoadoutCustomizations: totalLoadoutCustomizations,
       profilesWithAnyLoadout,
       profilesWithTopFive,
@@ -1216,7 +1291,6 @@ export const AnalyticsDashboard = () => {
       activeBingoCodesCount: bingoCodesList.length
     };
 
-    // --- COMPREHENSIVE ID -> HUMAN NAME LOOKUP MAPS (NO RAW UUIDS IN FEED!) ---
     const rawSeriesSource =
       rawTables.series && rawTables.series.length > 0 ? rawTables.series : seriesList || [];
     const seriesTitleMap = new Map<string, string>();
@@ -1229,15 +1303,11 @@ export const AnalyticsDashboard = () => {
     const chaptersList = rawTables.chapters || [];
     const chapToSeries = new Map<string, string>();
     const chapToNumber = new Map<string, number>();
-    const chapToTitle = new Map<string, string>();
     chaptersList.forEach((c: any) => {
       const cid = String(c.id);
       chapToSeries.set(cid, c.series_slug);
       if (c.chapter_number !== undefined) {
         chapToNumber.set(cid, Number(c.chapter_number));
-      }
-      if (c.title) {
-        chapToTitle.set(cid, String(c.title));
       }
     });
 
@@ -1263,41 +1333,25 @@ export const AnalyticsDashboard = () => {
       const rawId = String(h.target_id || '').trim();
       const tType = String(h.target_type || '').toLowerCase();
 
-      // 1. Check Series (by slug or UUID)
-      if (seriesTitleMap.has(rawId)) {
-        return seriesTitleMap.get(rawId)!;
-      }
-
-      // 2. Check Chapter (by UUID)
+      if (seriesTitleMap.has(rawId)) return seriesTitleMap.get(rawId)!;
       if (chapToSeries.has(rawId)) {
         const sSlug = chapToSeries.get(rawId) || '';
         const sTitle = seriesTitleMap.get(sSlug) || sSlug || 'Series';
         const chNum = chapToNumber.get(rawId);
         return `${sTitle}${chNum !== undefined ? ` • Ch. ${chNum}` : ''}`;
       }
+      if (charIdToLabel.has(rawId)) return charIdToLabel.get(rawId)!;
+      if (creatorIdToName.has(rawId)) return creatorIdToName.get(rawId)!;
 
-      // 3. Check Character (by UUID)
-      if (charIdToLabel.has(rawId)) {
-        return charIdToLabel.get(rawId)!;
-      }
-
-      // 4. Check Creator (by UUID)
-      if (creatorIdToName.has(rawId)) {
-        return creatorIdToName.get(rawId)!;
-      }
-
-      // 5. Fallback: If rawId is a UUID for a deleted/archived chapter or item, never show the raw UUID string!
       if (isUuidFormat(rawId)) {
         if (tType === 'chapter') return 'a Manga Chapter';
         if (tType === 'character') return 'a Featured Character';
         if (tType === 'creator') return 'a Saturday AM Creator';
         return 'a Featured Series';
       }
-
       return rawId || 'a Series';
     };
 
-    // Recent Community Activity Feed
     const feedItems: any[] = [];
     allUnifiedHypes.slice(-8).forEach((h: any) => {
       feedItems.push({
@@ -1364,7 +1418,6 @@ export const AnalyticsDashboard = () => {
     });
     feedItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-    // Per-Series Aggregations
     const readsPerSeries: Record<string, number> = {};
     const completedPerSeries: Record<string, number> = {};
     const currentMonthReadsPerSeries: Record<string, number> = {};
@@ -1482,6 +1535,7 @@ export const AnalyticsDashboard = () => {
       },
       globalStats,
       growthStats,
+      visitorFunnelStats,
       peakActiveStats,
       dailyTimeline: buckets,
       recentUsers,
@@ -1491,6 +1545,31 @@ export const AnalyticsDashboard = () => {
       seriesStats
     };
   }, [rawTables, audienceMode, seriesList]);
+
+  // Filter live online users based on Audience Mode
+  const livePresenceSummary = useMemo(() => {
+    const filtered = liveOnlineUsers.filter(u => {
+      if (audienceMode === 'all_combined') return true;
+      const isElevated =
+        Boolean(u.is_admin) ||
+        ELEVATED_CREATOR_STAFF_ROLES.has(String(u.role || '').toLowerCase());
+      return audienceMode === 'fans_only' ? !isElevated : isElevated;
+    });
+
+    const totalOnline = Math.max(1, filtered.length);
+    const visitorsOnline = filtered.filter(u => u.tier === 'visitor').length;
+    const freeFansOnline = filtered.filter(u => u.tier === 'free').length;
+    const plusMembersOnline = filtered.filter(u => u.tier === 'premium').length;
+    const readingSeriesNow = filtered.filter(u => u.view === 'series').length;
+
+    return {
+      totalOnline,
+      visitorsOnline,
+      freeFansOnline,
+      plusMembersOnline,
+      readingSeriesNow
+    };
+  }, [liveOnlineUsers, audienceMode]);
 
   const sortedAndFilteredSeries = useMemo(() => {
     const list = computed?.seriesStats || [];
@@ -1545,6 +1624,7 @@ export const AnalyticsDashboard = () => {
     countsSummary,
     globalStats,
     growthStats,
+    visitorFunnelStats,
     peakActiveStats,
     dailyTimeline,
     recentUsers,
@@ -1572,7 +1652,6 @@ export const AnalyticsDashboard = () => {
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl max-w-6xl mx-auto relative text-white space-y-6">
-      {/* ERROR DISPLAY BOX */}
       {dbError && (
         <div className="bg-red-500/10 border border-red-500/50 p-4 rounded-xl flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
@@ -1600,7 +1679,7 @@ export const AnalyticsDashboard = () => {
           </div>
         </div>
 
-        {/* AUDIENCE FILTER SWITCHER (PURE FANS VS CREATORS/STAFF VS ALL) */}
+        {/* AUDIENCE FILTER SWITCHER */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex bg-black p-1 rounded-xl border border-zinc-800">
             <button
@@ -1611,7 +1690,6 @@ export const AnalyticsDashboard = () => {
                   ? 'bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.3)]'
                   : 'text-zinc-400 hover:text-white'
               }`}
-              title="Excludes all Staff, Admins, and Linked Creators from counts and charts"
             >
               <ShieldCheck className="w-3.5 h-3.5" />
               Pure Fans Only ({countsSummary.pureFansCount})
@@ -1625,7 +1703,6 @@ export const AnalyticsDashboard = () => {
                   ? 'bg-[#fe9a00] text-black'
                   : 'text-zinc-400 hover:text-white'
               }`}
-              title="Inspect activity from Creators, Staff, and Admins only"
             >
               <Sparkles className="w-3.5 h-3.5" />
               Creators & Staff ({countsSummary.staffCreatorsCount})
@@ -1654,34 +1731,40 @@ export const AnalyticsDashboard = () => {
         </div>
       </div>
 
-      {/* AUDIENCE SEPARATION SUMMARY BANNER */}
-      <div className="bg-black/90 border border-zinc-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-2.5">
-          <div
-            className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-              audienceMode === 'fans_only'
-                ? 'bg-emerald-400'
-                : audienceMode === 'staff_creators_only'
-                ? 'bg-[#fe9a00]'
-                : 'bg-blue-400'
-            }`}
-          />
-          <span className="font-bold text-zinc-300">
-            {audienceMode === 'fans_only'
-              ? 'Active Filter: Pure Fans Only — All Staff, Admins & Creator accounts (and their reads/hypes/likes) are excluded.'
-              : audienceMode === 'staff_creators_only'
-              ? 'Active Filter: Creators & Staff Only — Viewing internal testing and creator activity.'
-              : 'Active Filter: All Combined — Showing Fans + Creators + Staff together.'}
-          </span>
+      {/* ULTRALIGHT REALTIME ONLINE USERS PULSE BAR (ZERO DB WRITES) */}
+      <div className="bg-gradient-to-r from-emerald-950/40 via-black to-zinc-950 border border-emerald-500/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-[0_0_25px_rgba(16,185,129,0.08)]">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center relative shrink-0">
+            <Radio className="w-5 h-5 text-emerald-400 animate-pulse" />
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping absolute -top-1 -right-1" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-widest text-white">
+                Realtime Active Users Online Now:
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-black text-xs font-black uppercase tracking-widest">
+                {livePresenceSummary.totalOnline} Live
+              </span>
+            </div>
+            <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+              Zero-DB-write WebSocket Presence • Updates automatically as users open or close the app
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest shrink-0">
-          <span className="text-emerald-400">
-            {countsSummary.pureFansCount} Pure Fans ({countsSummary.pureFansProCount} Pro)
+
+        <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest">
+          <span className="bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg text-zinc-300">
+            Visitors: <strong className="text-white">{livePresenceSummary.visitorsOnline}</strong>
           </span>
-          <span className="text-zinc-700">•</span>
-          <span className="text-[#fe9a00]">
-            {countsSummary.staffCreatorsCount} Creators/Staff ({countsSummary.staffCreatorsProCount}{' '}
-            Pro)
+          <span className="bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg text-blue-400">
+            Free Fans: <strong className="text-white">{livePresenceSummary.freeFansOnline}</strong>
+          </span>
+          <span className="bg-zinc-900 border border-purple-500/30 px-3 py-1.5 rounded-lg text-purple-300">
+            PLUS: <strong className="text-white">{livePresenceSummary.plusMembersOnline}</strong>
+          </span>
+          <span className="bg-zinc-900 border border-[#fe9a00]/40 px-3 py-1.5 rounded-lg text-[#fe9a00]">
+            In Series/Reader: <strong className="text-white">{livePresenceSummary.readingSeriesNow}</strong>
           </span>
         </div>
       </div>
@@ -1777,7 +1860,7 @@ export const AnalyticsDashboard = () => {
                   </span>
                 </div>
                 <span className="text-purple-300 font-black text-[10px] bg-purple-500/20 border border-purple-500/30 px-2 py-0.5 rounded-full">
-                  {conversionRate}% Conv.
+                  {conversionRate}% of Accounts
                 </span>
               </div>
               <div className="flex items-baseline justify-between">
@@ -1839,7 +1922,96 @@ export const AnalyticsDashboard = () => {
             </div>
           </div>
 
-          {/* PLUS SUBSCRIBER SIGNUPS & UPGRADES VELOCITY (DAILY, WEEKLY, MONTHLY — MONTHLY + ANNUAL PLANS) */}
+          {/* UNIQUE VISITORS & VISITOR-TO-SIGNUP CONVERSION FUNNEL (DAY • WEEK • MONTH • LIFETIME) */}
+          <div className="bg-gradient-to-r from-cyan-950/30 via-black to-zinc-950 border border-cyan-500/40 rounded-2xl p-5 shadow-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-cyan-400" />
+                <h3 className="text-xs font-black uppercase tracking-widest text-white">
+                  Unique App Visitors & Visitor-to-Signup Conversion Funnel (Day • Week • Month)
+                </h3>
+              </div>
+              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest">
+                <span className="text-cyan-300">
+                  Lifetime Unique Visitors: {visitorFunnelStats.visitorsLifetime.toLocaleString()}
+                </span>
+                <span className="text-zinc-600">•</span>
+                <span className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <Percent className="w-3 h-3" /> {visitorFunnelStats.convLifetimePct}% Lifetime Signup Conv.
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-zinc-950/90 border border-cyan-500/30 p-4 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] text-cyan-300 font-black uppercase tracking-widest block mb-1">
+                    Unique Visitors Today
+                  </span>
+                  <span className="text-2xl font-black text-white">
+                    {visitorFunnelStats.visitorsToday.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-black block mt-1">
+                    {growthStats.newUsersToday} Signups ({visitorFunnelStats.convTodayPct}% Conv.)
+                  </span>
+                  <span className="text-[9px] text-zinc-500 font-bold block mt-0.5">
+                    Yesterday: {visitorFunnelStats.visitorsYesterday} visitors
+                  </span>
+                </div>
+                <TrendBadge
+                  current={visitorFunnelStats.visitorsToday}
+                  past={visitorFunnelStats.visitorsYesterday}
+                  label="vs yest"
+                />
+              </div>
+
+              <div className="bg-zinc-950/90 border border-cyan-500/30 p-4 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] text-cyan-300 font-black uppercase tracking-widest block mb-1">
+                    Visitors (Last 7 Days)
+                  </span>
+                  <span className="text-2xl font-black text-white">
+                    {visitorFunnelStats.visitorsWeek.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-black block mt-1">
+                    +{growthStats.newUsersWeek} Signups ({visitorFunnelStats.convWeekPct}% Conv.)
+                  </span>
+                  <span className="text-[9px] text-zinc-500 font-bold block mt-0.5">
+                    Prior 7d: {visitorFunnelStats.visitorsLastWeek} visitors
+                  </span>
+                </div>
+                <TrendBadge
+                  current={visitorFunnelStats.visitorsWeek}
+                  past={visitorFunnelStats.visitorsLastWeek}
+                  label="WoW"
+                />
+              </div>
+
+              <div className="bg-zinc-950/90 border border-cyan-500/30 p-4 rounded-xl flex items-center justify-between">
+                <div>
+                  <span className="text-[9px] text-cyan-300 font-black uppercase tracking-widest block mb-1">
+                    Visitors (Last 30 Days)
+                  </span>
+                  <span className="text-2xl font-black text-white">
+                    {visitorFunnelStats.visitorsMonth.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-black block mt-1">
+                    +{growthStats.newUsersMonth} Signups ({visitorFunnelStats.convMonthPct}% Conv.)
+                  </span>
+                  <span className="text-[9px] text-zinc-500 font-bold block mt-0.5">
+                    Prior 30d: {visitorFunnelStats.visitorsLastMonth} visitors
+                  </span>
+                </div>
+                <TrendBadge
+                  current={visitorFunnelStats.visitorsMonth}
+                  past={visitorFunnelStats.visitorsLastMonth}
+                  label="MoM"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* PLUS SUBSCRIBER SIGNUPS & UPGRADES VELOCITY */}
           <div className="bg-gradient-to-r from-purple-950/30 via-black to-zinc-950 border border-purple-500/40 rounded-2xl p-5 shadow-lg">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
               <div className="flex items-center gap-2">
@@ -2430,11 +2602,10 @@ export const AnalyticsDashboard = () => {
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 2: FEATURE ENGAGEMENT (WITH BINGO BOOK, LOADOUT & HYPE CARD)      */}
+      {/* TAB 2: FEATURE ENGAGEMENT                                             */}
       {/* ===================================================================== */}
       {activeTab === 'engagement' && (
         <div className="space-y-6 animate-fade-in">
-          {/* ROW 1: CORE READING & CONTENT INTERACTION PILLARS */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
             <div className="bg-black border border-zinc-800 p-4 rounded-2xl">
               <div className="flex items-center gap-2 text-[#fe9a00] mb-2">
@@ -2525,7 +2696,6 @@ export const AnalyticsDashboard = () => {
             </div>
           </div>
 
-          {/* ROW 2: VIRTUAL PROFILE LOADOUT, HYPE CARD FLEX & BINGO BOOK ANALYTICS */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-gradient-to-br from-black via-zinc-950 to-purple-950/25 border border-purple-500/30 p-4 rounded-2xl flex items-center justify-between">
               <div>
@@ -2591,9 +2761,7 @@ export const AnalyticsDashboard = () => {
             </div>
           </div>
 
-          {/* INTERACTION DISTRIBUTION + LIVE COMMUNITY ACTIVITY FEED */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left: Visual Feature Share */}
             <div className="lg:col-span-6 bg-black/80 border border-zinc-800 rounded-2xl p-6 space-y-4">
               <div>
                 <h3 className="text-xs font-black uppercase tracking-widest text-[#fe9a00]">
@@ -2680,7 +2848,6 @@ export const AnalyticsDashboard = () => {
               })()}
             </div>
 
-            {/* Right: Live Community Pulse */}
             <div className="lg:col-span-6 bg-black/80 border border-zinc-800 rounded-2xl p-6 flex flex-col">
               <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
                 <div className="flex items-center gap-2">
@@ -2756,11 +2923,10 @@ export const AnalyticsDashboard = () => {
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 3: SERIES PERFORMANCE & ENGAGEMENT RANKINGS                       */}
+      {/* TAB 3: SERIES PERFORMANCE                                             */}
       {/* ===================================================================== */}
       {activeTab === 'series' && (
         <div className="space-y-6 animate-fade-in">
-          {/* TOP 3 ENGAGED SERIES PODIUM */}
           {sortedAndFilteredSeries.length >= 3 && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {sortedAndFilteredSeries.slice(0, 3).map((topSeries: any, idx: number) => (
@@ -2811,7 +2977,6 @@ export const AnalyticsDashboard = () => {
             </div>
           )}
 
-          {/* SEARCH & SORT CONTROLS */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-black/80 border border-zinc-800 p-4 rounded-2xl">
             <div className="relative flex-1 max-w-sm">
               <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -2854,7 +3019,6 @@ export const AnalyticsDashboard = () => {
             </div>
           </div>
 
-          {/* SERIES PERFORMANCE TABLE */}
           <div className="bg-black border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[1050px]">

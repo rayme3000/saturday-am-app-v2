@@ -47,15 +47,20 @@ export const normalizeCreatorKey = (rawName?: string): string => {
 };
 
 export const resolveCreatorStripeAccountId = (creatorName?: string, dbStripeId?: string): string => {
-  const lower = normalizeCreatorKey(creatorName);
+  const cleanDb = String(dbStripeId || '').trim();
 
-  if (lower && lower in CREATOR_STRIPE_CONNECT_MAP && CREATOR_STRIPE_CONNECT_MAP[lower] === '') {
+  // 1. If the Command Center explicitly reverted this creator to Saturday AM house routing, honor that first!
+  if (cleanDb.toUpperCase() === 'SATURDAY_AM' || cleanDb.toUpperCase() === 'NONE') {
     return '';
   }
 
-  const cleanDb = String(dbStripeId || '').trim();
-  if (cleanDb.startsWith('acct_')) return cleanDb;
+  // 2. If the Command Center saved a valid Stripe Connect ID in Supabase, it ALWAYS wins over hardcoded defaults!
+  if (cleanDb.startsWith('acct_')) {
+    return cleanDb;
+  }
 
+  // 3. Fallback to built-in map if no database value is set yet
+  const lower = normalizeCreatorKey(creatorName);
   if (!lower) return '';
 
   if (lower in CREATOR_STRIPE_CONNECT_MAP) {

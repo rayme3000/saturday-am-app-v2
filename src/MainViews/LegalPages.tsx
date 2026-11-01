@@ -60,7 +60,7 @@ export const LegalPages = ({ onBack }: any) => {
           {activeTab === 'privacy' && (
             <div className="animate-fade-in">
               <h2>Privacy Policy & Data Disclosures</h2>
-              <p>Last Updated: October 2026</p>
+              <p>Last Updated: November 2026</p>
 
               <div className="mt-8 space-y-8">
                 <section>
@@ -116,7 +116,7 @@ export const LegalPages = ({ onBack }: any) => {
           {activeTab === 'terms' && (
             <div className="animate-fade-in">
               <h2>Terms of Service</h2>
-              <p>Last Updated: October 2026</p>
+              <p>Last Updated: November 2026</p>
 
               <div className="mt-8 space-y-8">
                 <section>
@@ -143,12 +143,19 @@ export const LegalPages = ({ onBack }: any) => {
                 </section>
 
                 <section>
-                  <h3 className="text-[#fe9a00] text-lg mb-2">5. Intellectual Property</h3>
-                  <p>All manga series, characters, artwork, logos, and digital assets within the App are protected by copyright and trademark laws and are owned by Saturday AM and its respective creators. Unauthorized scraping, redistribution, or use of any Saturday AM content to train artificial intelligence models is strictly prohibited.</p>
+                  <h3 className="text-[#fe9a00] text-lg mb-2">5. Copyright Complaints & Repeat Infringers</h3>
+                  <p>Saturday AM respects intellectual property rights and expects all users and creators to do the same. Users and creators agree not to submit, upload, or distribute copyrighted material, artwork, characters, stories, logos, or other protected works without the necessary authorization.</p>
+                  <p className="mt-3">Saturday AM may investigate notices of alleged infringement, remove or disable access to disputed content, restrict monetization, suspend accounts, and terminate repeat infringers in accordance with applicable law and its intellectual property policies. Users and creators acknowledge that Saturday AM may disclose relevant account information and submission records when reasonably necessary to investigate intellectual property complaints, respond to lawful requests, or comply with applicable legal obligations, including the Digital Millennium Copyright Act (DMCA). Anyone who knowingly submits false or misleading copyright complaints may be subject to account restrictions or termination.</p>
                 </section>
 
                 <section>
-                  <h3 className="text-[#fe9a00] text-lg mb-2">6. Binding Arbitration & Class-Action Waiver</h3>
+                  <h3 className="text-[#fe9a00] text-lg mb-2">6. Artificial Intelligence & Derivative Content</h3>
+                  <p>Users and creators must comply with Saturday AM's policies regarding AI-generated, AI-assisted, and AI-modified content. Creators remain responsible for ensuring that all submitted content complies with applicable intellectual property laws and does not unlawfully reproduce, imitate, or misappropriate another creator's protected work, characters, artwork, or other intellectual property.</p>
+                  <p className="mt-3">Saturday AM may require disclosure of material AI-generated or AI-assisted elements and may restrict, label, demonetize, or remove content that violates its AI content policies. No user, creator, or third party may use Saturday AM's platform, creator content, or other users' intellectual property to train, develop, or improve artificial intelligence systems without the applicable rights holder's express authorization and written permission from Saturday AM. Saturday AM does not guarantee that AI-generated material qualifies for copyright protection or exclusive rights.</p>
+                </section>
+
+                <section>
+                  <h3 className="text-[#fe9a00] text-lg mb-2">7. Binding Arbitration & Class-Action Waiver</h3>
                   <p className="uppercase text-xs text-zinc-300 border border-zinc-800 bg-zinc-900/60 p-4 rounded-xl">
                     PLEASE READ CAREFULLY: EXCEPT WHERE PROHIBITED BY LAW, YOU AND SATURDAY AM AGREE THAT ANY DISPUTE, CLAIM, OR CONTROVERSY ARISING OUT OF OR RELATING TO THESE TERMS OR THE APP SHALL BE RESOLVED SOLELY THROUGH BINDING INDIVIDUAL ARBITRATION AND NOT IN A CLASS, REPRESENTATIVE, OR CONSOLIDATED ACTION OR PROCEEDING. YOU EXPRESSLY WAIVE ANY RIGHT TO PARTICIPATE IN A CLASS-ACTION LAWSUIT OR CLASS-WIDE ARBITRATION.
                   </p>
@@ -160,18 +167,19 @@ export const LegalPages = ({ onBack }: any) => {
           {activeTab === 'dmca_ai' && (
             <div className="animate-fade-in">
               <h2>DMCA Safe Harbor, AI Disclosure & Safety Policy</h2>
-              <p>Last Updated: October 2026</p>
+              <p>Last Updated: November 2026</p>
 
               <div className="mt-8 space-y-8">
                 <section>
-                  <h3 className="text-[#fe9a00] text-lg mb-2">1. Artificial Intelligence (AI) Transparency Disclosure</h3>
+                  <h3 className="text-[#fe9a00] text-lg mb-2">1. Artificial Intelligence (AI) Transparency & Derivative Content Policy</h3>
                   <p><strong>Automated Comment Moderation:</strong> Saturday AM utilizes automated profanity filters and AI-assisted moderation (`moderate-comments`) to screen user-submitted community comments and Smart Reactions for hate speech, harassment, and spam to keep our community safe.</p>
-                  <p className="mt-3"><strong>Human-Created Manga & No AI Training on User Data:</strong> Saturday AM celebrates human creators. We do <strong>not</strong> use your personal data, comments, fan mail, or creator artwork to train proprietary or third-party generative AI models. Any automated recommendations or moderation outputs are provided "AS-IS" without warranty.</p>
+                  <p className="mt-3"><strong>Human-Created Manga & No AI Scraping:</strong> Saturday AM celebrates human creators. Neither users nor third parties may scrape or use Saturday AM's platform, creator content, or intellectual property to train, develop, or improve artificial intelligence systems without the applicable rights holder's express authorization and Saturday AM's written consent.</p>
+                  <p className="mt-3"><strong>Creator AI Disclosures:</strong> Creators must disclose any AI-generated or AI-assisted elements in submitted works and remain solely responsible for ensuring submissions do not unlawfully reproduce or misappropriate third-party works. Saturday AM reserves the right to restrict, label, demonetize, or remove content that violates its AI policies, and makes no guarantee that AI-generated material qualifies for copyright protection.</p>
                 </section>
 
                 <section>
-                  <h3 className="text-[#fe9a00] text-lg mb-2">2. DMCA Copyright Safe Harbor Notice (17 U.S.C. § 512)</h3>
-                  <p>Saturday AM respects the intellectual property rights of others and complies with the Digital Millennium Copyright Act (DMCA). We maintain a strict repeat-infringer termination policy. If you believe that any content or user-submitted material on the App infringes your copyright, please send a written DMCA takedown notice containing:</p>
+                  <h3 className="text-[#fe9a00] text-lg mb-2">2. DMCA Copyright Safe Harbor Notice (17 U.S.C. § 512) & Repeat Infringers</h3>
+                  <p>Saturday AM respects the intellectual property rights of others and complies with the Digital Millennium Copyright Act (DMCA). We maintain a strict repeat-infringer termination policy and reserve the right to remove disputed content, restrict monetization, and disclose relevant submission records when reasonably necessary to resolve intellectual property claims. If you believe that any content on the App infringes your copyright, please send a written DMCA takedown notice containing:</p>
                   <ul className="list-disc pl-5 mt-2 space-y-2 text-sm font-bold text-zinc-400">
                     <li>Identification of the copyrighted work claimed to have been infringed;</li>
                     <li>Identification of the material that is claimed to be infringing and its location in the App;</li>

@@ -12,29 +12,50 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
   if (!isOpen) return null;
 
   const isAppShare = !series;
-
   const targetSlug = series?.slug || 'app';
-  const trackingParams = currentUser?.id ? `?ref=${currentUser.id}&slug=${targetSlug}` : '';
-  const baseTargetUrl = isAppShare
-    ? `https://www.mangahype.com/${trackingParams}`
-    : `https://www.mangahype.com/series/${series.slug}${trackingParams}`;
+
+  // Build clean, crawlable deep-link query parameters
+  const queryParams = new URLSearchParams();
+  if (!isAppShare && series?.slug) {
+    queryParams.set('series', series.slug);
+  }
+  if (chapter?.id) {
+    queryParams.set('chapter', String(chapter.id));
+  }
+  if (currentUser?.id) {
+    queryParams.set('invited_by', String(currentUser.id));
+  }
+
+  const queryString = queryParams.toString();
+  const baseTargetUrl = queryString
+    ? `https://www.mangahype.com/?${queryString}`
+    : 'https://www.mangahype.com/';
+
+  const shareTitle = isAppShare
+    ? 'Saturday AM - Manga Hype'
+    : `${series.title}${chapter ? ` • Chapter ${chapter.chapter_number}` : ''} | Saturday AM`;
+
+  const shareCreator = series?.creator_name || 'Saturday AM';
+  const previewImage =
+    targetImage ||
+    series?.cover_url ||
+    series?.character_url ||
+    'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20load%20screen.jpg';
 
   const finalShareUrl = targetImage
-    ? `https://www.mangahype.com/share?panel=${encodeURIComponent(targetImage)}&target=${encodeURIComponent(baseTargetUrl)}`
+    ? `https://www.mangahype.com/share?panel=${encodeURIComponent(targetImage)}&title=${encodeURIComponent(shareTitle)}&creator=${encodeURIComponent(shareCreator)}&target=${encodeURIComponent(baseTargetUrl)}`
     : baseTargetUrl;
 
   const chapterText = chapter ? `Chapter ${chapter.chapter_number} of ` : '';
   const shareText = isAppShare
     ? `I'm reading the best diverse manga on the Saturday AM app! Join me here:`
-    : `I'm reading ${chapterText}${series.title} on the Saturday AM app! Read it here:`;
+    : `I'm reading ${chapterText}${series.title} on Saturday AM Manga Hype! Read it here:`;
 
   const encodedText = encodeURIComponent(`${shareText}\n\n${finalShareUrl}`);
   const bskyLink = `https://bsky.app/intent/compose?text=${encodedText}`;
   const threadsLink = `https://www.threads.net/intent/post?text=${encodedText}`;
   const fbLink = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(finalShareUrl)}`;
 
-  // Anti-Exploit Share Point Awarder:
-  // Max 1 reward per unique target per day, capped at MAX_DAILY_REWARDED_SHARES (3) per day
   const awardSharePoints = async () => {
     trackTelemetry('share', {
       series_slug: targetSlug,
@@ -55,7 +76,6 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
       rewardedTargets = [];
     }
 
-    // Block point farming if user already shared this exact item today or hit the daily cap
     if (rewardedTargets.includes(targetIdentifier) || rewardedTargets.length >= MAX_DAILY_REWARDED_SHARES) {
       return;
     }
@@ -98,8 +118,6 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const previewImage = targetImage || "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20load%20screen.jpg";
-
   return (
     <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={onClose}>
       <div className="bg-zinc-950 border border-zinc-800 p-6 sm:p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
@@ -125,7 +143,6 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
         )}
 
         <div className="flex flex-col gap-3 w-full">
-
           <div className="relative w-full h-40 mb-2 rounded-xl overflow-hidden border border-zinc-800 bg-black">
             <img src={previewImage} className="w-full h-full object-contain opacity-80" alt="Link Preview" />
             <div className="absolute inset-0 flex flex-col justify-end p-2 bg-gradient-to-t from-black to-transparent pointer-events-none">

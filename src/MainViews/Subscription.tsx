@@ -1,279 +1,310 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Check, Zap, Star, Flame, CreditCard, X, Loader2, RefreshCcw, BookOpen, Trophy, AlertTriangle, Tag, Key, MapPin, Phone, Calendar, User, Sparkles, Clock, MessageSquare, Shield } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabase';
+import { HypeButton } from '../Components/HypeButton';
+import { Search, Heart, PenTool, X, CheckCircle2, ArrowUpDown } from 'lucide-react';
 import { HypeLoader } from '../Components/HypeLoader';
-import { checkIsAdminUser } from '../App';
 
-export const NORMAL_MONTHLY_PRICE = 2.99;
-export const PROMO_MONTHLY_PRICE = 1.99;
-export const NORMAL_ANNUAL_PRICE = 35.99;
-export const PROMO_ANNUAL_PRICE = 20.00;
+const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
-const COUNTRY_OPTIONS = [
-  "United States",
-  "United Kingdom",
-  "Canada",
-  "Australia",
-  "New Zealand",
-  "Ireland",
-  "Mexico",
-  "Brazil",
-  "France",
-  "Germany",
-  "Italy",
-  "Spain",
-  "Japan",
-  "South Korea",
-  "India",
-  "Philippines",
-  "Nigeria",
-  "South Africa",
-  "Other"
-];
-
-const isPoBoxAddress = (address: string): boolean => {
-  const poBoxRegex = /\b(?:p\.?\s*o\.?\s*box|post\s*office\s*box|postal\s*box|pobox)\b/i;
-  return poBoxRegex.test(address);
+// Built-in Stripe Connect account map + fallback resolver
+export const CREATOR_STRIPE_CONNECT_MAP: Record<string, string> = {
+  'raymond brown': 'acct_1US3pv2d62PnIfST',
+  'rayme3000': 'acct_1US3pv2d62PnIfST',
+  'rayme3000@gmail.com': 'acct_1US3pv2d62PnIfST',
+  'oscar fong': 'acct_1USWwtGzA2Qad5v8',
+  'odunze oguguo': 'acct_1USiRECvtW3bYdhU',
+  'whyt manga': 'acct_1USiRECvtW3bYdhU',
+  'odunze oguguo (whyt manga)': 'acct_1USiRECvtW3bYdhU',
+  'erick pedrucci': 'acct_1USUE8GnNL3tCg0x',
+  'eric pedrucci': 'acct_1USUE8GnNL3tCg0x',
+  'erick perducci': 'acct_1USUE8GnNL3tCg0x',
+  'eric perducci': 'acct_1USUE8GnNL3tCg0x',
+  'stefano romano': 'acct_1USU8mKGryTzf1Ck',
+  'dropkickanimation': 'acct_1USU8mKGryTzf1Ck',
+  'dropkickanimation@gmail.com': 'acct_1USU8mKGryTzf1Ck',
+  'jeyodin': 'acct_1USMJFGv39K92CFY',
+  'frank simmonds': 'acct_1USDbD1EcQ1S1MjY',
+  'effessart': 'acct_1USDbD1EcQ1S1MjY',
+  'fsimmonds4@gmail.com': 'acct_1USDbD1EcQ1S1MjY',
+  'austin harvey-younis': 'acct_1UT6TNK9op8GbFK7',
+  'austin harvey younis': 'acct_1UT6TNK9op8GbFK7',
+  'saturday.editorial@gmail.com': 'acct_1UT6TNK9op8GbFK7',
+  'frederick l. jones': '',
+  'vee': ''
 };
 
-// COPPA Age Verification Helper: Returns true if the date of birth is less than 13 years ago
-const isUnderThirteen = (dobString: string): boolean => {
-  if (!dobString) return false;
-  const dob = new Date(dobString);
-  if (isNaN(dob.getTime())) return false;
-  const today = new Date();
-  let age = today.getFullYear() - dob.getFullYear();
-  const monthDiff = today.getMonth() - dob.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
-    age--;
+export const normalizeCreatorKey = (rawName?: string): string => {
+  const clean = String(rawName || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  if (
+    clean === 'eric pedrucci' ||
+    clean === 'erick perducci' ||
+    clean === 'eric perducci' ||
+    clean === 'erick pedrucci'
+  ) {
+    return 'erick pedrucci';
   }
-  return age < 13;
+  return clean;
 };
 
-interface ReferralPartnerInfo {
-  valid: boolean;
-  partner_id?: string;
-  partner_name?: string;
-  role?: 'creator' | 'staff' | 'influencer';
-  code?: string;
-  commission_dollars?: number;
-  trial_days?: number;
+export const resolveCreatorStripeAccountId = (creatorName?: string, dbStripeId?: string): string => {
+  const cleanDb = String(dbStripeId || '').trim();
+
+  // 1. If the Command Center explicitly reverted this creator to Saturday AM house routing, honor that first!
+  if (cleanDb.toUpperCase() === 'SATURDAY_AM' || cleanDb.toUpperCase() === 'NONE') {
+    return '';
+  }
+
+  // 2. If the Command Center saved a valid Stripe Connect ID in Supabase, it ALWAYS wins over hardcoded defaults!
+  if (cleanDb.startsWith('acct_')) {
+    return cleanDb;
+  }
+
+  // 3. Fallback to built-in map if no database value is set yet
+  const lower = normalizeCreatorKey(creatorName);
+  if (!lower) return '';
+
+  if (lower in CREATOR_STRIPE_CONNECT_MAP) {
+    return CREATOR_STRIPE_CONNECT_MAP[lower];
+  }
+
+  for (const [key, acctId] of Object.entries(CREATOR_STRIPE_CONNECT_MAP)) {
+    if (acctId && key.length > 4 && (lower.includes(key) || key.includes(lower))) {
+      return acctId;
+    }
+  }
+
+  return '';
+};
+
+interface CreatorProfile {
+  name: string;
+  role: string;
+  bio: string;
+  avatar_url: string;
+  flag_codes: string[];
+  twitter_url?: string;
+  instagram_url?: string;
+  support_url?: string;
+  stripe_account_id?: string;
+  works: any[];
 }
 
-export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any) => {
-  const [showModal, setShowModal] = useState(false);
-  const [checkoutStep, setCheckoutStep] = useState<'plan' | 'processing' | 'success'>('plan');
-  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
-  const [showDowngradeConfirm, setShowDowngradeConfirm] = useState(false);
-  const [cancellingSub, setCancellingSub] = useState(false);
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const [isAdminOrLocal, setIsAdminOrLocal] = useState(false);
-  
-  const [, setStripeKey] = useState<string | null>(null);
+export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => {
+  const [creators, setCreators] = useState<CreatorProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'works-desc' | 'role-asc'>('name-asc');
 
-  // --- SUBSCRIBER REQUIRED MEMBER DETAILS ---
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [streetAddress, setStreetAddress] = useState('');
-  const [country, setCountry] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [agreedToAutoRenew, setAgreedToAutoRenew] = useState(false);
-  const [formError, setFormError] = useState('');
+  // Deep-link highlight state when arriving from a "Meet the Creator" notification
+  const [highlightedCreator, setHighlightedCreator] = useState<string | null>(null);
 
-  // --- REDEMPTION & PROMO CODE STATE (AUTO-FILLS FROM SHOPIFY MAGIC LINK) ---
-  const [redeemCode, setRedeemCode] = useState(() => localStorage.getItem('auto_fill_premium_code') || '');
-  const [redeeming, setRedeeming] = useState(false);
-  const [alertConfig, setAlertConfig] = useState<{ type: 'success' | 'error', title: string, message: string } | null>(null);
+  // Donation State
+  const [donationCreator, setDonationCreator] = useState<CreatorProfile | null>(null);
+  const [donationAmount, setDonationAmount] = useState<number>(5);
+  const [fanmailText, setFanmailText] = useState('');
+  const [donationStep, setDonationStep] = useState<'input' | 'processing' | 'success'>('input');
+  const [expandedBios, setExpandedBios] = useState<Record<string, boolean>>({});
 
-  // --- CREATOR / STAFF / INFLUENCER REFERRAL CODE STATE (ANNUAL ONLY + 3-DAY FREE TRIAL) ---
-  const [promoCode, setPromoCode] = useState(() => localStorage.getItem('am_referral_code') || '');
-  const [promoStatus, setPromoStatus] = useState<'applied' | 'invalid' | null>(null);
-  const [checkingPromo, setCheckingPromo] = useState(false);
-  const [appliedReferral, setAppliedReferral] = useState<ReferralPartnerInfo | null>(null);
-
-  const isPremium = userTier === 'premium';
-
-  const verifyReferralCode = async (rawCode: string) => {
-    const clean = rawCode.trim().toUpperCase();
-    if (!clean) return;
-    setCheckingPromo(true);
-    try {
-      const { data, error } = await supabase.rpc('lookup_referral_partner', { p_code: clean });
-      if (!error && data?.valid) {
-        setAppliedReferral(data);
-        setPromoStatus('applied');
-        setSelectedPlan('yearly'); // Referral codes are strictly Annual-only!
-        localStorage.setItem('am_referral_code', clean);
-      } else {
-        setAppliedReferral(null);
-        setPromoStatus('invalid');
-      }
-    } catch {
-      setAppliedReferral(null);
-      setPromoStatus('invalid');
-    } finally {
-      setCheckingPromo(false);
-    }
-  };
-
+  // Check if returning from a successful Stripe Donation Checkout
   useEffect(() => {
-    const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
     const params = new URLSearchParams(window.location.search);
-    const urlRef = params.get('ref') || params.get('referral') || params.get('vip');
-    if (urlRef) {
-      const cleanRef = urlRef.trim().toUpperCase();
-      setPromoCode(cleanRef);
-      verifyReferralCode(cleanRef);
-    } else {
-      const savedRef = localStorage.getItem('am_referral_code');
-      if (savedRef) {
-        verifyReferralCode(savedRef);
-      }
+    if (params.get('donation_status') === 'success') {
+      const returnedCreator = params.get('creator') || 'the Creator';
+      const returnedAmount = Number(params.get('amount') || 5);
+      setDonationCreator({
+        name: returnedCreator,
+        role: 'Creator',
+        bio: '',
+        avatar_url: '',
+        flag_codes: [],
+        works: []
+      });
+      setDonationAmount(returnedAmount);
+      setDonationStep('success');
+      window.dispatchEvent(new Event('profileUpdated'));
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('donation_status') === 'cancelled') {
+      window.history.replaceState({}, '', window.location.pathname);
     }
-
-    const savedMagicCode = localStorage.getItem('auto_fill_premium_code');
-    if (savedMagicCode) {
-      setRedeemCode(savedMagicCode);
-    }
-
-    const fetchInitialData = async () => {
-      const { data: settingsData } = await supabase.from('app_settings').select('stripe_public_key').eq('id', 1).maybeSingle();
-      if (settingsData?.stripe_public_key) setStripeKey(settingsData.stripe_public_key);
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('first_name, last_name, country, county, date_of_birth, street_address, phone_number, is_admin, email')
-          .eq('id', user.id)
-          .maybeSingle();
-
-        setIsAdminOrLocal(isLocalhost || checkIsAdminUser(profile, user.email));
-
-        if (profile) {
-          setFirstName(profile.first_name || user.user_metadata?.first_name || '');
-          setLastName(profile.last_name || user.user_metadata?.last_name || '');
-          setCountry(profile.country || profile.county || user.user_metadata?.country || user.user_metadata?.county || '');
-          setDateOfBirth(profile.date_of_birth || user.user_metadata?.date_of_birth || '');
-          setStreetAddress(profile.street_address || user.user_metadata?.street_address || '');
-          setPhoneNumber(profile.phone_number || user.user_metadata?.phone_number || '');
-        }
-      } else {
-        setIsAdminOrLocal(isLocalhost);
-      }
-    };
-    fetchInitialData();
   }, []);
 
-  const handleSubscribeClick = async (planChoice?: 'monthly' | 'yearly') => {
-    if (appliedReferral?.valid) {
-      setSelectedPlan('yearly');
-    } else if (planChoice) {
-      setSelectedPlan(planChoice);
-    }
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      onLoginClick();
-      return;
-    }
-    setFormError('');
-    setCheckoutStep('plan');
-    setShowModal(true);
-  };
+  useEffect(() => {
+    const fetchCatalog = async () => {
+      setLoading(true);
+      try {
+        const [{ data: seriesData }, { data: creatorRows }] = await Promise.all([
+          supabase.from('series').select('*').eq('is_hidden', false),
+          supabase.from('series_creators').select('*').order('id', { ascending: true })
+        ]);
 
-  const handleApplyPromo = () => {
-    verifyReferralCode(promoCode);
-  };
+        const seriesMap = new Map<string, any>();
+        (seriesData || []).forEach(s => seriesMap.set(s.slug, s));
 
-  const handleClearPromo = () => {
-    setPromoCode('');
-    setPromoStatus(null);
-    setAppliedReferral(null);
-    localStorage.removeItem('am_referral_code');
-  };
+        const visibilityMap = new Map<string, boolean>();
+        (creatorRows || []).forEach((row: any) => {
+          if (!row.name) return;
+          const key = normalizeCreatorKey(row.name);
+          const rowVisible = row.is_visible !== false;
+          if (!visibilityMap.has(key)) {
+            visibilityMap.set(key, rowVisible);
+          } else if (rowVisible) {
+            visibilityMap.set(key, true);
+          }
+        });
 
-  const validateAndSaveMemberDetails = async (userId: string) => {
-    const cleanFirst = firstName.trim();
-    const cleanLast = lastName.trim();
-    const cleanAddress = streetAddress.trim();
-    const cleanCountry = country.trim();
-    const cleanDob = dateOfBirth.trim();
-    const cleanPhone = phoneNumber.trim();
+        const creatorMap = new Map<string, CreatorProfile>();
 
-    if (!cleanFirst || !cleanLast || !cleanAddress || !cleanCountry || !cleanDob || !cleanPhone) {
-      throw new Error("Please complete all required subscriber fields (First Name, Last Name, Street Address, Country, Date of Birth, and Phone Number).");
-    }
+        (creatorRows || []).forEach((row: any) => {
+          if (!row.name) return;
+          const key = normalizeCreatorKey(row.name);
+          if (visibilityMap.get(key) === false) return;
 
-    if (isUnderThirteen(cleanDob)) {
-      throw new Error("You must be at least 13 years old to subscribe to Saturday AM Manga Hype PLUS.");
-    }
+          const displayName = key === 'erick pedrucci' ? 'Erick Pedrucci' : row.name.trim().replace(/\s+/g, ' ');
+          const matchedSeries = seriesMap.get(row.series_slug);
+          const resolvedStripeId = resolveCreatorStripeAccountId(
+            displayName,
+            row.stripe_account_id || matchedSeries?.creator_stripe_account_id
+          );
 
-    if (isPoBoxAddress(cleanAddress)) {
-      throw new Error("P.O. Boxes are not permitted for prize shipping. Please enter a physical residential or street address.");
-    }
+          if (!creatorMap.has(key)) {
+            const rawFlags = (row.flag_code || matchedSeries?.flag_code || '')
+              .split(',')
+              .map((f: string) => f.trim())
+              .filter(Boolean);
 
-    if (!agreedToAutoRenew) {
-      throw new Error("Please check the box confirming the auto-renewal and 1-click cancellation terms before continuing to Stripe.");
-    }
+            creatorMap.set(key, {
+              name: displayName,
+              role: row.role || 'Creator',
+              bio: row.bio || matchedSeries?.creator_bio || '',
+              avatar_url: row.avatar_url || matchedSeries?.creator_avatar || '',
+              flag_codes: Array.from(new Set(rawFlags)),
+              twitter_url: row.twitter_url || matchedSeries?.creator_twitter || '',
+              instagram_url: row.instagram_url || matchedSeries?.creator_instagram || '',
+              support_url: row.support_url || matchedSeries?.creator_support_link || '',
+              stripe_account_id: resolvedStripeId,
+              works: matchedSeries ? [matchedSeries] : []
+            });
+          } else {
+            const existing = creatorMap.get(key)!;
+            if (matchedSeries && !existing.works.some(w => w.slug === matchedSeries.slug)) {
+              existing.works.push(matchedSeries);
+            }
+            if (!existing.bio && row.bio) existing.bio = row.bio;
+            if (!existing.avatar_url && row.avatar_url) existing.avatar_url = row.avatar_url;
+            if (!existing.twitter_url && row.twitter_url) existing.twitter_url = row.twitter_url;
+            if (!existing.instagram_url && row.instagram_url) existing.instagram_url = row.instagram_url;
+            if (!existing.stripe_account_id && resolvedStripeId) existing.stripe_account_id = resolvedStripeId;
+          }
+        });
 
-    const effectivePlan = appliedReferral?.valid ? 'yearly' : selectedPlan;
+        (seriesData || []).forEach((s: any) => {
+          if (!s.creator_name) return;
+          const key = normalizeCreatorKey(s.creator_name);
+          if (visibilityMap.get(key) === false || creatorMap.has(key)) return;
 
-    const { error: updateErr } = await supabase
-      .from('profiles')
-      .update({
-        first_name: cleanFirst,
-        last_name: cleanLast,
-        street_address: cleanAddress,
-        phone_number: cleanPhone,
-        country: cleanCountry,
-        county: cleanCountry,
-        date_of_birth: cleanDob,
-        referred_by_code: appliedReferral?.valid ? appliedReferral.code : null,
-        referred_plan: effectivePlan
-      })
-      .eq('id', userId);
+          const displayName = key === 'erick pedrucci' ? 'Erick Pedrucci' : s.creator_name.trim().replace(/\s+/g, ' ');
+          const rawFlags = (s.flag_code || '').split(',').map((f: string) => f.trim()).filter(Boolean);
+          creatorMap.set(key, {
+            name: displayName,
+            role: 'Creator',
+            bio: s.creator_bio || '',
+            avatar_url: s.creator_avatar || '',
+            flag_codes: rawFlags,
+            twitter_url: s.creator_twitter || '',
+            instagram_url: s.creator_instagram || '',
+            support_url: s.creator_support_link || '',
+            stripe_account_id: resolveCreatorStripeAccountId(displayName, s.creator_stripe_account_id),
+            works: [s]
+          });
+        });
 
-    if (updateErr) {
-      throw new Error("Could not save subscriber details: " + updateErr.message);
-    }
-
-    return {
-      firstName: cleanFirst,
-      lastName: cleanLast,
-      country: cleanCountry,
-      dateOfBirth: cleanDob
+        setCreators(Array.from(creatorMap.values()));
+      } catch (err) {
+        console.error("Failed to load creators:", err);
+      } finally {
+        setLoading(false);
+      }
     };
-  };
 
-  // --- REAL STRIPE CHECKOUT INTEGRATION ---
-  const handleStripeCheckout = async () => {
-    setFormError('');
-    setCheckoutLoading(true);
+    fetchCatalog();
+  }, []);
+
+  // Auto-jump to creator when arriving from a "Meet the Creator" notification
+  useEffect(() => {
+    if (loading || creators.length === 0) return;
+    const targetName = sessionStorage.getItem('am_target_creator');
+    if (!targetName) return;
+
+    sessionStorage.removeItem('am_target_creator');
+    const cleanTarget = normalizeCreatorKey(targetName);
+    const matched = creators.find(
+      c =>
+        normalizeCreatorKey(c.name) === cleanTarget ||
+        normalizeCreatorKey(c.name).includes(cleanTarget) ||
+        cleanTarget.includes(normalizeCreatorKey(c.name))
+    );
+
+    if (matched) {
+      setExpandedBios(prev => ({ ...prev, [matched.name]: true }));
+      setHighlightedCreator(matched.name);
+      setTimeout(() => {
+        const el = document.getElementById(`creator-card-${normalizeCreatorKey(matched.name)}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+    }
+  }, [loading, creators]);
+
+  const processedCreators = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    const result = creators.filter(c =>
+      !q ||
+      c.name.toLowerCase().includes(q) ||
+      c.role.toLowerCase().includes(q) ||
+      c.works.some(w => w.title?.toLowerCase().includes(q))
+    );
+
+    return result.sort((a, b) => {
+      if (sortBy === 'name-asc') return a.name.localeCompare(b.name);
+      if (sortBy === 'name-desc') return b.name.localeCompare(a.name);
+      if (sortBy === 'works-desc') return b.works.length - a.works.length;
+      if (sortBy === 'role-asc') return (a.role || '').localeCompare(b.role || '');
+      return 0;
+    });
+  }, [creators, searchQuery, sortBy]);
+
+  const handleProcessDonation = async () => {
     const { data: { user } } = await supabase.auth.getUser();
+    const activeUserId = currentUser?.id || user?.id;
 
-    if (!user) {
-      setCheckoutLoading(false);
-      onLoginClick();
+    if (!activeUserId) {
+      if (onLoginClick) onLoginClick();
+      setDonationCreator(null);
       return;
     }
+
+    if (!donationCreator) return;
+
+    setDonationStep('processing');
+
+    const targetStripeAccountId = resolveCreatorStripeAccountId(
+      donationCreator.name,
+      donationCreator.stripe_account_id
+    );
 
     try {
-      const memberDetails = await validateAndSaveMemberDetails(user.id);
-      const effectivePlan = appliedReferral?.valid ? 'yearly' : selectedPlan;
-
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
         body: {
-          type: 'subscription',
-          userId: user.id,
-          userEmail: user.email,
+          type: 'donation',
+          userId: activeUserId,
+          userEmail: user?.email || currentUser?.email,
           returnUrl: window.location.origin,
-          plan: effectivePlan,
-          referralCode: appliedReferral?.valid ? appliedReferral.code : '',
-          referralRole: appliedReferral?.valid ? appliedReferral.role : '',
-          referralPartnerName: appliedReferral?.valid ? appliedReferral.partner_name : '',
-          ...memberDetails
+          creatorName: donationCreator.name,
+          stripeAccountId: targetStripeAccountId,
+          amountDollars: donationAmount,
+          fanmail: fanmailText.trim(),
+          seriesSlug: donationCreator.works?.[0]?.slug || ''
         }
       });
 
@@ -286,919 +317,293 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         throw new Error("No checkout URL returned from Stripe.");
       }
     } catch (err: any) {
-      setFormError(err.message || "Unable to reach Stripe Checkout.");
-      setCheckoutLoading(false);
+      alert("Unable to start Stripe Tip Checkout: " + err.message);
+      setDonationStep('input');
     }
   };
-
-  // Simulated upgrade retained strictly for Admin / Localhost testing
-  const handleDevUpgrade = async () => {
-    setFormError('');
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      onLoginClick();
-      return;
-    }
-
-    try {
-      await validateAndSaveMemberDetails(user.id);
-      setCheckoutStep('processing');
-      await supabase.from('profiles').update({
-        is_premium: true,
-        subscription_status: 'active',
-        super_hypes_left: 3,
-        hypes_remaining: 3,
-        referred_by_code: appliedReferral?.valid ? appliedReferral.code : null,
-        referred_plan: appliedReferral?.valid ? 'yearly' : selectedPlan
-      }).eq('id', user.id);
-      window.dispatchEvent(new CustomEvent('profileUpdated'));
-      
-      setTimeout(() => {
-        setCheckoutStep('success');
-      }, 1500);
-    } catch (err: any) {
-      setFormError(err.message);
-    }
-  };
-
-  // Real Stripe Cancellation + Automatic Profile Downgrade (Preserving All Stats!)
-  const handleCancelAndDowngrade = async () => {
-    setCancellingSub(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // 1. Cancel any active recurring subscription in Stripe for this user
-      await supabase.functions.invoke('create-checkout-session', {
-        body: {
-          type: 'cancel_subscription',
-          userId: user.id,
-          userEmail: user.email
-        }
-      }).catch(() => {});
-
-      // 2. Downgrade Pro flag & reset weekly hype allowance to 1 (All Fandom Points, Hypes, Reads & Bingo Book remain intact!)
-      await supabase
-        .from('profiles')
-        .update({
-          is_premium: false,
-          subscription_status: 'canceled',
-          super_hypes_left: 1,
-          hypes_remaining: 1
-        })
-        .eq('id', user.id);
-
-      window.dispatchEvent(new CustomEvent('profileUpdated'));
-      setShowDowngradeConfirm(false);
-      setAlertConfig({
-        type: 'success',
-        title: 'Subscription Canceled',
-        message: 'Your recurring Saturday AM Manga Hype PLUS Subscription has been canceled and your account is now on the Standard Free plan. All of your Fandom Points, stats, and Bingo Book signatures remain saved!'
-      });
-    } catch (err: any) {
-      setAlertConfig({
-        type: 'error',
-        title: 'Cancellation Error',
-        message: err.message || 'Could not cancel subscription.'
-      });
-    } finally {
-      setCancellingSub(false);
-    }
-  };
-
-  // --- UNIFIED CODE VALIDATOR & REDEEMER (Supports Shopify Codes + Influencer Claim Code AMPARTNER26) ---
-  const handleRedeemCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!redeemCode.trim()) return;
-
-    setRedeeming(true);
-    const cleanCode = redeemCode.trim().toUpperCase();
-
-    try {
-      // Check if this is the Influencer Partner Activation Code ('AMPARTNER26' or 'AMINFLUENCER')
-      if (cleanCode === 'AMPARTNER26' || cleanCode === 'AMINFLUENCER') {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          localStorage.setItem('auto_fill_premium_code', cleanCode);
-          setRedeeming(false);
-          if (onLoginClick) onLoginClick();
-          return;
-        }
-
-        const { data: partnerRes, error: partnerErr } = await supabase.rpc('claim_influencer_partner_role', {
-          p_code: cleanCode
-        });
-
-        if (partnerErr) throw partnerErr;
-        if (partnerRes?.valid) {
-          localStorage.removeItem('auto_fill_premium_code');
-          window.dispatchEvent(new Event('profileUpdated'));
-          setAlertConfig({
-            type: 'success',
-            title: 'Influencer Studio Unlocked!',
-            message: `Welcome to the Saturday AM Partner Program! Your Referral Code (${partnerRes.referral_code}) & QR Code are now live inside Creator Studio in the main menu.`
-          });
-          setRedeemCode('');
-          setTimeout(() => {
-            window.location.reload();
-          }, 2500);
-          return;
-        }
-      }
-
-      let isValidCode = false;
-      let isAlreadyUsed = false;
-      let matchedSource: 'rpc_status' | 'ledger' | 'validate_rpc' | 'promo_table' | null = null;
-      let promoRowData: any = null;
-
-      const { data: codeStatus, error: statusError } = await supabase.rpc('check_premium_code_status', {
-        code_to_test: cleanCode
-      });
-
-      if (!statusError && (codeStatus === 'VALID' || codeStatus === 'UNUSED' || codeStatus === true)) {
-        isValidCode = true;
-        matchedSource = 'rpc_status';
-      } else if (!statusError && codeStatus === 'USED') {
-        isAlreadyUsed = true;
-      }
-
-      if (!isValidCode && !isAlreadyUsed) {
-        const { data: ledgerData } = await supabase.rpc('fetch_premium_ledger');
-        if (Array.isArray(ledgerData)) {
-          const foundInLedger = ledgerData.find(
-            (item: any) => String(item.code || '').trim().toUpperCase() === cleanCode
-          );
-          if (foundInLedger) {
-            if (foundInLedger.is_used) {
-              isAlreadyUsed = true;
-            } else {
-              isValidCode = true;
-              matchedSource = 'ledger';
-            }
-          }
-        }
-      }
-
-      if (!isValidCode && !isAlreadyUsed) {
-        const { data: valRes, error: valErr } = await supabase.rpc('validate_access_code', {
-          p_code: cleanCode
-        });
-        if (!valErr && valRes?.valid) {
-          isValidCode = true;
-          matchedSource = 'validate_rpc';
-        }
-      }
-
-      if (!isValidCode && !isAlreadyUsed) {
-        const { data: promoRow } = await supabase
-          .from('promo_codes')
-          .select('*')
-          .ilike('code', cleanCode)
-          .maybeSingle();
-
-        if (promoRow) {
-          const isExpired = promoRow.expires_at && new Date() > new Date(promoRow.expires_at);
-          const isDepleted = promoRow.max_uses && promoRow.times_used >= promoRow.max_uses;
-          if (isExpired || isDepleted) {
-            isAlreadyUsed = true;
-          } else {
-            isValidCode = true;
-            matchedSource = 'promo_table';
-            promoRowData = promoRow;
-          }
-        }
-      }
-
-      if (isAlreadyUsed) {
-        setAlertConfig({
-          type: 'error',
-          title: 'Code Used',
-          message: 'This premium code has already been redeemed or has expired.'
-        });
-        setRedeeming(false);
-        return;
-      }
-
-      if (!isValidCode) {
-        setAlertConfig({
-          type: 'error',
-          title: 'Invalid Code',
-          message: 'This access code is invalid. Please check and try again.'
-        });
-        setRedeeming(false);
-        return;
-      }
-
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        localStorage.setItem('auto_fill_premium_code', cleanCode);
-        setRedeeming(false);
-        if (onLoginClick) onLoginClick();
-        return;
-      }
-
-      if (matchedSource === 'rpc_status' || matchedSource === 'ledger') {
-        await supabase.rpc('redeem_premium_code', { promo_code: cleanCode });
-      } else if (matchedSource === 'validate_rpc') {
-        await supabase.rpc('redeem_access_code', { p_code: cleanCode, p_user_id: user.id });
-      } else if (matchedSource === 'promo_table' && promoRowData) {
-        await supabase
-          .from('promo_codes')
-          .update({ times_used: (promoRowData.times_used || 0) + 1 })
-          .eq('id', promoRowData.id);
-      }
-
-      const { error: profileUpdateErr } = await supabase
-        .from('profiles')
-        .update({ is_premium: true, subscription_status: 'active', super_hypes_left: 3, hypes_remaining: 3 })
-        .eq('id', user.id);
-
-      if (profileUpdateErr) {
-        throw profileUpdateErr;
-      }
-
-      localStorage.removeItem('auto_fill_premium_code');
-      window.dispatchEvent(new Event('profileUpdated'));
-      setAlertConfig({
-        type: 'success',
-        title: 'PLUS Unlocked!',
-        message: 'Success! 1-Year Saturday AM Manga Hype PLUS Access has been applied to your account.'
-      });
-      setRedeemCode('');
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
-    } catch (err: any) {
-      setAlertConfig({
-        type: 'error',
-        title: 'Redemption Error',
-        message: err.message || 'An error occurred while redeeming your code.'
-      });
-    } finally {
-      setRedeeming(false);
-    }
-  };
-
-  const trialEndDateString = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
 
   return (
-    <div className="min-h-screen bg-black text-white relative pb-24 font-sans">
+    <div className="min-h-screen bg-transparent text-white pb-32 pt-6 px-4 max-w-5xl mx-auto">
       
-      <div className="fixed inset-0 z-[0] pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/20 via-black to-[#fe9a00]/10" />
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay" />
-      </div>
-
-      <div className="sticky top-0 z-50 bg-black/80 backdrop-blur-xl px-4 pt-6 pb-4 border-b border-white/10">
-        <button onClick={onBack} className="mb-4 flex items-center gap-2 text-zinc-400 hover:text-white transition-colors cursor-pointer">
-          <ArrowLeft className="w-5 h-5" />
-          <span className="text-[10px] font-black uppercase tracking-widest">Back to App</span>
-        </button>
-        <h1 className="text-3xl font-black italic uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400">
-          Membership
-        </h1>
-      </div>
-
-      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 pt-8">
-        
-        <div className="text-center mb-12 animate-fade-in-up">
-          {/* GLOWING OFFICIAL SATURDAY AM HYPE ICON */}
-          <div className="inline-flex items-center justify-center p-4 bg-[#fe9a00]/15 rounded-full border-2 border-[#fe9a00]/60 mb-6 shadow-[0_0_45px_rgba(254,154,0,0.6)] relative">
-            <div className="absolute inset-0 rounded-full bg-[#fe9a00]/25 blur-xl animate-pulse pointer-events-none" />
-            <HypeLoader text="" className="w-14 h-14 relative z-10" fullScreen={false} />
+      {/* Sticky Header with Title, Search, and Sort */}
+      <div className="sticky top-0 z-40 bg-black/85 backdrop-blur-xl pb-4 pt-2 mb-6 border-b border-zinc-800 rounded-b-2xl px-2">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-4 pr-16 sm:pr-20">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <PenTool className="w-4 h-4 text-[#fe9a00]" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00]">Spotlight</span>
+            </div>
+            <h1 className="text-3xl font-black italic uppercase tracking-tighter text-white">
+              Creators Roster
+            </h1>
           </div>
-
-          <h2 className="text-4xl md:text-5xl font-black italic uppercase tracking-tighter mb-4 drop-shadow-lg">
-            Read Without <span className="text-[#fe9a00]">Limits.</span>
-          </h2>
-          <p className="text-zinc-400 text-sm md:text-base font-bold max-w-2xl mx-auto leading-relaxed">
-            Upgrade to a <span className="text-white">Saturday AM Manga Hype PLUS Subscription</span> to unlock the entire manga vault, get 12-hour early access to new chapter drops, and dominate the global leaderboards with exclusive Super Hypes.
-          </p>
+          <span className="text-zinc-500 font-bold text-xs uppercase tracking-widest">
+            {processedCreators.length} Visionaries
+          </span>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-          
-          <div className="bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-3xl p-6 sm:p-8 flex flex-col relative overflow-hidden">
-            <div className="mb-8">
-              <h3 className="text-2xl font-black italic uppercase text-zinc-300 mb-2">Standard</h3>
-              <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-black text-white">Free</span>
-              </div>
-              <p className="text-zinc-500 text-xs font-bold mt-3">Perfect for casual readers.</p>
-            </div>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+            <input
+              type="text"
+              placeholder="Search by creator name or manga..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-zinc-900/90 backdrop-blur-sm border border-zinc-800 text-white pl-10 pr-4 py-2.5 rounded-xl text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
+            />
+          </div>
 
-            <div className="space-y-4 mb-8 flex-1">
-              <div className="flex items-start gap-3">
-                <Check className="w-5 h-5 text-zinc-500 shrink-0" />
-                <span className="text-sm font-bold text-zinc-300">Read the first 3 chapters & newest release of active series</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <Check className="w-5 h-5 text-zinc-500 shrink-0" />
-                <span className="text-sm font-bold text-zinc-300">24-hour free access to featured One-Shot Wednesdays</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <Check className="w-5 h-5 text-zinc-500 shrink-0" />
-                <span className="text-sm font-bold text-zinc-300">Standard Profile tracking and loadout</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <Check className="w-5 h-5 text-zinc-500 shrink-0" />
-                <span className="text-sm font-bold text-zinc-300">Participate in Global Leaderboards</span>
-              </div>
-            </div>
-
-            <button 
-              disabled 
-              className="w-full py-4 bg-zinc-800 text-zinc-500 font-black uppercase tracking-widest rounded-xl cursor-not-allowed"
+          <div className="flex items-center gap-2 bg-zinc-900/90 border border-zinc-800 px-3 py-1 rounded-xl">
+            <ArrowUpDown className="w-4 h-4 text-[#fe9a00] shrink-0" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              aria-label="Sort creators"
+              className="bg-transparent text-white text-xs font-black uppercase tracking-wider py-1.5 focus:outline-none cursor-pointer"
             >
-              {isPremium ? 'Included in PLUS' : 'Current Plan'}
-            </button>
-          </div>
-
-          <div className="bg-gradient-to-b from-purple-900/40 to-black backdrop-blur-xl border border-purple-500/50 rounded-3xl p-6 sm:p-8 flex flex-col relative overflow-hidden shadow-[0_0_50px_rgba(168,85,247,0.15)] transform md:-translate-y-4">
-            <div className="absolute top-0 right-0 bg-gradient-to-r from-[#fe9a00] to-yellow-500 text-black text-[10px] font-black uppercase tracking-widest py-1.5 px-4 rounded-bl-xl z-10">
-              Most Popular
-            </div>
-            <div className="absolute -top-24 -right-24 w-48 h-48 bg-purple-600/30 rounded-full blur-3xl pointer-events-none" />
-
-            <div className="mb-6 pt-3 sm:pt-0 relative z-10">
-              <h3 className="text-xl sm:text-2xl font-black italic uppercase text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-[#fe9a00] mb-4 flex items-center gap-2 leading-tight pr-16 sm:pr-0">
-                Saturday AM Manga Hype PLUS <Zap className="w-5 h-5 text-[#fe9a00] shrink-0" />
-              </h3>
-
-              {/* MOBILE-SAFE PLAN SWITCHER ON MAIN CARD (NO OVERLAPPING TEXT) */}
-              <div className="grid grid-cols-2 gap-2 sm:gap-2.5 p-1.5 bg-black/80 border border-zinc-800 rounded-2xl mb-5">
-                <button
-                  type="button"
-                  disabled={Boolean(appliedReferral?.valid)}
-                  onClick={() => setSelectedPlan('monthly')}
-                  className={`py-3 px-2.5 sm:px-3.5 rounded-xl text-left transition-all border flex flex-col justify-between ${
-                    appliedReferral?.valid
-                      ? 'opacity-40 cursor-not-allowed border-transparent'
-                      : selectedPlan === 'monthly'
-                      ? 'bg-[#fe9a00]/15 border-[#fe9a00] text-white shadow-[0_0_15px_rgba(254,154,0,0.2)] cursor-pointer'
-                      : 'bg-transparent border-transparent text-zinc-400 hover:text-white cursor-pointer'
-                  }`}
-                >
-                  <div className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-zinc-400 leading-tight">
-                    Monthly Plan
-                  </div>
-                  <div className="mt-1.5 flex flex-col sm:flex-row sm:items-baseline sm:gap-1.5">
-                    <span className="text-[10px] sm:text-xs font-bold text-zinc-500 line-through leading-none">
-                      $2.99
-                    </span>
-                    <span className="text-base sm:text-lg font-black text-white leading-tight whitespace-nowrap">
-                      $1.99<span className="text-[10px] font-bold text-zinc-400">/mo</span>
-                    </span>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedPlan('yearly')}
-                  className={`py-3 px-2.5 sm:px-3.5 rounded-xl text-left transition-all cursor-pointer border relative flex flex-col justify-between ${
-                    selectedPlan === 'yearly'
-                      ? 'bg-purple-500/20 border-purple-400 text-white shadow-[0_0_15px_rgba(168,85,247,0.25)]'
-                      : 'bg-transparent border-transparent text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  <span className="absolute -top-2.5 right-2 bg-[#fe9a00] text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-md whitespace-nowrap">
-                    Save 44%
-                  </span>
-                  <div className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-purple-300 leading-tight">
-                    Annual Plan
-                  </div>
-                  <div className="mt-1.5 flex flex-col sm:flex-row sm:items-baseline sm:gap-1.5">
-                    <span className="text-[10px] sm:text-xs font-bold text-zinc-500 line-through leading-none">
-                      $35.99
-                    </span>
-                    <span className="text-base sm:text-lg font-black text-white leading-tight whitespace-nowrap">
-                      $20.00<span className="text-[10px] font-bold text-zinc-400">/yr</span>
-                    </span>
-                  </div>
-                </button>
-              </div>
-
-              {/* MAIN PRICE DISPLAY WITH STRIKETHROUGH */}
-              <div className="flex items-baseline gap-2.5 flex-wrap">
-                <span className="text-xl font-black text-zinc-500 line-through">
-                  {selectedPlan === 'yearly' ? '$35.99' : '$2.99'}
-                </span>
-                <span className="text-4xl font-black text-white">
-                  {selectedPlan === 'yearly' ? '$20.00' : '$1.99'}
-                </span>
-                <span className="text-zinc-400 font-bold text-xs">
-                  {selectedPlan === 'yearly' ? '/ year (auto-renews)' : '/ month (auto-renews)'}
-                </span>
-              </div>
-
-              {appliedReferral?.valid ? (
-                <div className="mt-3 bg-emerald-500/15 border border-emerald-500/40 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 shrink-0" />
-                    <span>Code {appliedReferral.code}: 3-Day Free Trial + Annual Plan</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleClearPromo}
-                    className="text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white cursor-pointer"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ) : (
-                <p className="text-purple-300 text-xs font-bold mt-2">
-                  Cancel anytime in 1 click inside Settings.
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-4 mb-8 flex-1 relative z-10">
-              <div className="flex items-start gap-3">
-                <Check className="w-5 h-5 text-[#fe9a00] shrink-0" />
-                <span className="text-sm font-bold text-white">Unlock & binge the <span className="text-[#fe9a00]">Entire Manga Vault & Completed Runs</span></span>
-              </div>
-              <div className="flex items-start gap-3">
-                <Clock className="w-5 h-5 text-[#fe9a00] shrink-0" />
-                <span className="text-sm font-bold text-white">Get <span className="text-[#fe9a00]">12-Hour Early Access</span> to all new chapter drops</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <Trophy className="w-5 h-5 text-yellow-400 shrink-0" />
-                <span className="text-sm font-bold text-white">Gain extra fandom points to become Super Fan of the month and win monthly prizes</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <MessageSquare className="w-5 h-5 text-emerald-400 shrink-0" />
-                <span className="text-sm font-bold text-white">Unlock <span className="text-emerald-400">custom realtime smart comments</span></span>
-              </div>
-              <div className="flex items-start gap-3">
-                <Star className="w-5 h-5 text-purple-400 shrink-0" />
-                <span className="text-sm font-bold text-white">Equip exclusive Animated Avatar Frames</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <CreditCard className="w-5 h-5 text-purple-400 shrink-0" />
-                <span className="text-sm font-bold text-white">Customize your digital AM Crew Card skin</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <Flame className="w-5 h-5 text-red-400 shrink-0" />
-                <span className="text-sm font-bold text-white">Drop <span className="text-red-400">Super Hypes</span> to boost series rankings</span>
-              </div>
-              <div className="flex items-start gap-3">
-                <BookOpen className="w-5 h-5 text-purple-400 shrink-0" />
-                <span className="text-sm font-bold text-white">Collect digital autographs in the Bingo Book</span>
-              </div>
-              <div className="flex items-start gap-3 pt-1">
-                <Sparkles className="w-5 h-5 text-[#fe9a00] shrink-0" />
-                <span className="text-sm font-black italic uppercase tracking-wider text-[#fe9a00]">And more...</span>
-              </div>
-            </div>
-
-            {isPremium ? (
-              <div className="space-y-3 relative z-10">
-                <button disabled className="w-full py-4 bg-purple-600/20 border border-purple-500 text-purple-400 font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-2">
-                  <Check className="w-5 h-5" /> Active PLUS Subscription
-                </button>
-                <div className="flex items-center justify-between gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => handleSubscribeClick(selectedPlan)}
-                    className="text-[#fe9a00] hover:underline text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer"
-                  >
-                    Open Checkout / Update Info
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowDowngradeConfirm(true)}
-                    className="text-zinc-500 hover:text-red-400 text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1 cursor-pointer"
-                  >
-                    <RefreshCcw className="w-3 h-3" /> Cancel / Downgrade (1-Click)
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button 
-                onClick={() => handleSubscribeClick(selectedPlan)}
-                className="w-full py-4 font-black uppercase tracking-widest rounded-xl transition-all duration-300 bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black shadow-[0_0_20px_rgba(254,154,0,0.4)] hover:shadow-[0_0_30px_rgba(255,255,255,0.6)] hover:scale-105 cursor-pointer relative z-10"
-              >
-                {appliedReferral?.valid
-                  ? 'Start 3-Day Free Trial ($20/yr after)'
-                  : selectedPlan === 'yearly'
-                  ? 'Upgrade to PLUS ($20/yr)'
-                  : 'Upgrade to PLUS ($1.99/mo)'}
-              </button>
-            )}
+              <option value="name-asc" className="bg-zinc-950 text-white">Name: A-Z</option>
+              <option value="name-desc" className="bg-zinc-950 text-white">Name: Z-A</option>
+              <option value="works-desc" className="bg-zinc-950 text-white">Most Titles</option>
+              <option value="role-asc" className="bg-zinc-950 text-white">Role</option>
+            </select>
           </div>
         </div>
-
-        {/* --- STORE CODE & PARTNER REDEMPTION (FIXED MOBILE OVERLAP) --- */}
-        <div className="max-w-4xl mx-auto mt-8 bg-zinc-900/50 backdrop-blur-md border border-zinc-800 rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row items-center gap-6 shadow-xl relative overflow-hidden">
-           <div className="absolute top-0 right-0 w-32 h-32 bg-[#fe9a00]/10 rounded-bl-full blur-2xl pointer-events-none" />
-           <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shrink-0 z-10">
-             <Key className="w-8 h-8 text-[#fe9a00]" />
-           </div>
-           <div className="flex-1 text-center md:text-left z-10">
-             <h3 className="text-xl font-black italic uppercase text-white mb-2">Redeem Store or Partner Code</h3>
-             <p className="text-xs font-bold text-zinc-400 max-w-md mx-auto md:mx-0">Have a 12-character premium code from the Shopify store or an official Partner Activation Key? Enter it here to unlock your benefits.</p>
-           </div>
-           <form onSubmit={handleRedeemCode} className="w-full md:w-auto flex-shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 mt-2 md:mt-0 z-10">
-             <input 
-                type="text" 
-                placeholder="XXXX-XXXX-XXXX" 
-                value={redeemCode}
-                onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
-                className="w-full sm:w-56 bg-black border border-zinc-700 text-[#fe9a00] font-black tracking-widest text-sm px-4 py-3.5 rounded-xl focus:outline-none focus:border-[#fe9a00] transition-colors placeholder:font-normal placeholder:tracking-widest placeholder:text-zinc-600 text-center"
-                required
-             />
-             <button 
-                type="submit" 
-                disabled={redeeming || !redeemCode.trim()}
-                className="py-3.5 px-6 bg-zinc-800 rounded-xl flex items-center justify-center text-white hover:bg-[#fe9a00] hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-black text-xs uppercase tracking-widest cursor-pointer shrink-0"
-             >
-                {redeeming ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Redeem'}
-             </button>
-           </form>
-        </div>
-
       </div>
 
-      {showDowngradeConfirm && (
-        <div className="fixed inset-0 z-[7000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in">
-          <div className="w-full max-w-sm bg-zinc-900 border border-red-500/50 rounded-3xl shadow-2xl p-6 sm:p-8 flex flex-col items-center text-center relative">
-            <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center border-2 border-red-500 mb-6">
-              <AlertTriangle className="w-8 h-8 text-red-500" />
-            </div>
-            <h3 className="text-xl font-black italic uppercase text-white mb-2">Cancel Subscription?</h3>
-            <p className="text-xs text-zinc-400 font-bold mb-8 leading-relaxed">
-              This will cancel your recurring Saturday AM Manga Hype PLUS Subscription billing and switch your account back to the Standard Free tier. <span className="text-[#fe9a00]">All of your Fandom Points, leaderboard stats, and Bingo Book signatures will remain saved!</span>
-            </p>
-            <div className="w-full flex gap-3">
-              <button 
-                disabled={cancellingSub}
-                onClick={() => setShowDowngradeConfirm(false)}
-                className="flex-1 py-3 bg-zinc-800 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer"
-              >
-                Keep PLUS
-              </button>
-              <button 
-                disabled={cancellingSub}
-                onClick={handleCancelAndDowngrade}
-                className="flex-1 py-3 bg-red-600 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-red-500 transition-colors shadow-[0_0_15px_rgba(220,38,38,0.4)] flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                {cancellingSub ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Confirm Cancel'}
-              </button>
-            </div>
-          </div>
+      {/* Unified Large Hype Flame Loader */}
+      {loading ? (
+        <HypeLoader text="Loading Talent..." />
+      ) : processedCreators.length === 0 ? (
+        <div className="text-center text-zinc-500 py-16 font-bold uppercase tracking-widest text-xs border-2 border-dashed border-zinc-800 rounded-2xl bg-black/40">
+          No creators found matching "{searchQuery}".
         </div>
-      )}
+      ) : (
+        <div className="flex flex-col gap-4">
+          {processedCreators.map((creator) => {
+            const isBioExpanded = !!expandedBios[creator.name];
+            const isHighlighted = highlightedCreator === creator.name;
+            const bioText = creator.bio || 'Official creator for Saturday AM titles.';
 
-      {showModal && (
-        <div className="fixed inset-0 z-[6000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in">
-          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative max-h-[92vh]">
-            
-            <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-purple-500 via-[#fe9a00] to-purple-500" />
-            
-            <button onClick={() => setShowModal(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer">
-              <X className="w-6 h-6" />
-            </button>
-
-            <div className="p-6 sm:p-8 overflow-y-auto no-scrollbar">
-              {checkoutStep === 'plan' && (
-                <div className="animate-fade-in">
-                  <div className="flex items-center gap-2 mb-5 pr-8">
-                    <span className="bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded shrink-0">Stripe Secure</span>
-                    <h3 className="text-base sm:text-lg font-black italic uppercase text-white leading-tight">Saturday AM Manga Hype PLUS Subscription</h3>
+            return (
+              <div 
+                key={creator.name}
+                id={`creator-card-${normalizeCreatorKey(creator.name)}`}
+                onClick={() => {
+                  if (isHighlighted) setHighlightedCreator(null);
+                }}
+                className={`bg-zinc-950/70 border rounded-xl p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 shadow-lg transition-all backdrop-blur-sm ${
+                  isHighlighted
+                    ? 'border-[#fe9a00] ring-2 ring-[#fe9a00]/50 shadow-[0_0_35px_rgba(254,154,0,0.4)]'
+                    : 'border-zinc-800/80 hover:border-zinc-700'
+                }`}
+              >
+                {/* Left Section: Avatar & Creator Details */}
+                <div className="flex items-start gap-4 flex-1 min-w-0 md:max-w-[400px] lg:max-w-[440px]">
+                  <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-[#fe9a00] overflow-hidden flex-shrink-0 bg-zinc-900 shadow-[0_0_12px_rgba(254,154,0,0.25)]">
+                    <img
+                      src={creator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`}
+                      alt={creator.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }}
+                    />
                   </div>
 
-                  {/* PLAN SELECTOR WITH STRIKETHROUGH NORMAL PRICE & REFERRAL LOCK */}
-                  <div className="grid grid-cols-2 gap-3 mb-5">
-                    <div 
-                      onClick={() => {
-                        if (!appliedReferral?.valid) setSelectedPlan('monthly');
-                      }}
-                      className={`p-3.5 rounded-xl border-2 transition-all ${
-                        appliedReferral?.valid
-                          ? 'border-zinc-800 bg-black/40 opacity-45 cursor-not-allowed'
-                          : selectedPlan === 'monthly'
-                          ? 'border-[#fe9a00] bg-[#fe9a00]/10 cursor-pointer'
-                          : 'border-zinc-800 bg-black hover:border-zinc-600 cursor-pointer'
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-1 gap-0.5">
-                        <span className="font-black uppercase tracking-widest text-xs text-white">Monthly</span>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-zinc-500 line-through text-[10px] font-bold">$2.99</span>
-                          <span className="font-black text-[#fe9a00] text-sm">$1.99</span>
-                        </div>
-                      </div>
-                      <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest">
-                        {appliedReferral?.valid ? 'Referral is Annual Only' : 'Billed monthly'}
-                      </p>
-                    </div>
-
-                    <div 
-                      onClick={() => setSelectedPlan('yearly')}
-                      className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all relative ${selectedPlan === 'yearly' ? 'border-purple-500 bg-purple-500/10' : 'border-zinc-800 bg-black hover:border-zinc-600'}`}
-                    >
-                      <span className="bg-purple-500 text-white text-[7px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest inline-block mb-1">
-                        {appliedReferral?.valid ? '3-DAY TRIAL' : 'Save 44%'}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-base sm:text-lg font-black italic uppercase tracking-tight text-white truncate">
+                        {creator.name}
+                      </h2>
+                      {creator.flag_codes.map((flag) => (
+                        <img
+                          key={flag}
+                          src={`https://flagcdn.com/${flag.toLowerCase()}.svg`}
+                          alt={flag}
+                          className="w-4 h-2.5 rounded-[1px] opacity-90 inline-block shadow-sm"
+                        />
+                      ))}
+                      <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] bg-[#fe9a00]/10 px-2 py-0.5 rounded-full border border-[#fe9a00]/20 ml-1">
+                        {creator.role}
                       </span>
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-1 gap-0.5">
-                        <span className="font-black uppercase tracking-widest text-xs text-white">Yearly</span>
-                        <span className="font-black text-purple-400 text-sm flex items-baseline gap-1">
-                          <span className="text-zinc-500 line-through text-[10px] font-bold">$35.99</span>
-                          <span>$20.00</span>
-                        </span>
-                      </div>
-                      <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest">
-                        {appliedReferral?.valid ? '3 Days Free, then $20/yr' : 'Billed yearly'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* SUBSCRIBER CONTACT & PRIZE SHIPPING DETAILS */}
-                  <div className="bg-black/60 border border-zinc-800 rounded-2xl p-4 mb-5 space-y-3">
-                    <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5" /> Member & Prize Shipping Info
-                      </span>
-                      <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-500">Required • 13+ • No P.O. Boxes</span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1">First Name *</label>
-                        <input
-                          type="text"
-                          placeholder="First Name"
-                          value={firstName}
-                          onChange={(e) => setFirstName(e.target.value)}
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00]"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1">Last Name *</label>
-                        <input
-                          type="text"
-                          placeholder="Last Name"
-                          value={lastName}
-                          onChange={(e) => setLastName(e.target.value)}
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00]"
-                          required
-                        />
-                      </div>
-                    </div>
+                    <p className={`text-xs text-zinc-400 mt-1.5 leading-relaxed font-medium ${!isBioExpanded ? 'line-clamp-2 sm:line-clamp-3' : ''}`}>
+                      {bioText}
+                    </p>
+                    {bioText.length > 160 && (
+                      <button
+                        onClick={() => setExpandedBios(prev => ({ ...prev, [creator.name]: !isBioExpanded }))}
+                        className="text-[#fe9a00] text-[9px] font-black uppercase tracking-widest hover:text-white transition-colors mt-0.5 cursor-pointer"
+                      >
+                        {isBioExpanded ? '- Less' : '+ Bio'}
+                      </button>
+                    )}
 
-                    <div>
-                      <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-[#fe9a00]" /> Physical Street Address (No P.O. Boxes) *
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="123 Manga Way, Apt 4B, City, State, ZIP"
-                        value={streetAddress}
-                        onChange={(e) => {
-                          setStreetAddress(e.target.value);
-                          if (formError) setFormError('');
-                        }}
-                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00]"
-                        required
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                      <div>
-                        <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1">Country *</label>
-                        <select
-                          value={country}
-                          onChange={(e) => setCountry(e.target.value)}
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
-                          required
+                    <div className="flex items-center gap-3 mt-2">
+                      {creator.twitter_url && (
+                        <a
+                          href={creator.twitter_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-[#fe9a00] transition-colors"
                         >
-                          <option value="" disabled>Select Country</option>
-                          {COUNTRY_OPTIONS.map((c) => (
-                            <option key={c} value={c}>{c}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
-                          <Calendar className="w-3 h-3 text-[#fe9a00]" /> Date of Birth (13+) *
-                        </label>
-                        <input
-                          type="date"
-                          value={dateOfBirth}
-                          onChange={(e) => setDateOfBirth(e.target.value)}
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00]"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[9px] font-bold uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
-                          <Phone className="w-3 h-3 text-[#fe9a00]" /> Phone Number *
-                        </label>
-                        <input
-                          type="tel"
-                          placeholder="+1 (555) 000-0000"
-                          value={phoneNumber}
-                          onChange={(e) => setPhoneNumber(e.target.value)}
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-2 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00]"
-                          required
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* CREATOR / STAFF / INFLUENCER REFERRAL CODE (ANNUAL ONLY + 3-DAY FREE TRIAL) */}
-                  <div className="mb-4">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <Tag className="w-3.5 h-3.5 text-[#fe9a00]" />
-                        <span className="text-[9px] font-black text-zinc-300 uppercase tracking-widest">
-                          Creator / Influencer Referral Code (Unlocks 3-Day Free Trial on Annual)
-                        </span>
-                      </div>
-                      {appliedReferral?.valid && (
-                        <button
-                          type="button"
-                          onClick={handleClearPromo}
-                          className="text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white cursor-pointer"
+                          Twitter
+                        </a>
+                      )}
+                      {creator.instagram_url && (
+                        <a
+                          href={creator.instagram_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-[#fe9a00] transition-colors"
                         >
-                          Clear
-                        </button>
+                          Instagram
+                        </a>
                       )}
                     </div>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text" 
-                        placeholder="Enter Creator or Partner Code..." 
-                        value={promoCode}
-                        onChange={(e) => {
-                          setPromoCode(e.target.value.toUpperCase());
-                          setPromoStatus(null);
-                        }}
-                        className="flex-1 bg-black border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-[#fe9a00] font-black uppercase tracking-wider focus:outline-none focus:border-[#fe9a00]"
-                      />
-                      <button 
-                        type="button"
-                        onClick={handleApplyPromo}
-                        disabled={!promoCode.trim() || checkingPromo || promoStatus === 'applied'}
-                        className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${promoStatus === 'applied' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-zinc-800 text-white hover:bg-[#fe9a00] hover:text-black disabled:opacity-50'}`}
-                      >
-                        {checkingPromo ? <Loader2 className="w-4 h-4 animate-spin" /> : promoStatus === 'applied' ? <Check className="w-4 h-4" /> : 'Apply'}
-                      </button>
-                    </div>
-                    {promoStatus === 'applied' && appliedReferral?.valid && (
-                      <div className="mt-2 p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-700/50 text-emerald-300 text-[10px] font-bold leading-relaxed">
-                        <strong className="uppercase tracking-wider text-emerald-400">3-Day Free Trial Unlocked ({appliedReferral.partner_name}):</strong> $0.00 due today! Valid on the Annual Saturday AM Manga Hype PLUS Subscription ($20.00/yr after 3-day trial; credit card required at checkout).
-                      </div>
-                    )}
-                    {promoStatus === 'invalid' && (
-                      <p className="text-red-400 text-[9px] font-black mt-1.5 uppercase tracking-widest">
-                        Invalid referral code. Please check the spelling and try again.
-                      </p>
-                    )}
                   </div>
+                </div>
 
-                  {/* FTC NEGATIVE OPTION / AUTO-RENEWAL & FREE TRIAL DISCLOSURE BOX */}
-                  <div className="mb-4 p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl space-y-2.5">
-                    <div className="flex items-start gap-2.5">
-                      <input
-                        type="checkbox"
-                        id="ftcAutoRenewConsent"
-                        checked={agreedToAutoRenew}
-                        onChange={(e) => {
-                          setAgreedToAutoRenew(e.target.checked);
-                          if (formError) setFormError('');
-                        }}
-                        className="mt-0.5 w-4 h-4 accent-[#fe9a00] bg-black border-zinc-700 rounded cursor-pointer shrink-0"
-                      />
-                      <label htmlFor="ftcAutoRenewConsent" className="text-[10px] text-zinc-300 font-bold leading-relaxed cursor-pointer select-none">
-                        {appliedReferral?.valid ? (
-                          <>
-                            <span className="text-[#fe9a00] font-black uppercase">3-Day Free Trial &amp; Auto-Renewal Terms:</span> I understand I will be charged <strong>$0.00 today</strong> for my <strong>Saturday AM Manga Hype PLUS Subscription</strong> trial. Unless I cancel before <strong>{trialEndDateString}</strong> (72 hours), my payment method will automatically be charged <strong>$20.00/year</strong> and annually thereafter. I can cancel anytime in <strong>1 click</strong> inside <strong>Settings &rarr; Cancel Subscription</strong>.
-                          </>
-                        ) : selectedPlan === 'yearly' ? (
-                          <>
-                            <span className="text-[#fe9a00] font-black uppercase">Auto-Renewal Terms:</span> I authorize Saturday AM to charge my payment method <strong>$20.00 today</strong> and <strong>$20.00/year</strong> automatically each year for my <strong>Saturday AM Manga Hype PLUS Subscription</strong> until I cancel. I can cancel anytime in <strong>1 click</strong> inside <strong>Settings &rarr; Cancel Subscription</strong>.
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-[#fe9a00] font-black uppercase">Auto-Renewal Terms:</span> I authorize Saturday AM to charge my payment method <strong>$1.99 today</strong> and <strong>$1.99/month</strong> automatically each month for my <strong>Saturday AM Manga Hype PLUS Subscription</strong> until I cancel. I can cancel anytime in <strong>1 click</strong> inside <strong>Settings &rarr; Cancel Subscription</strong>.
-                          </>
+                {/* Center / Right Section: Expanded Works Strip */}
+                {creator.works.length > 0 && (
+                  <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-1 shrink-0 max-w-full md:max-w-[320px] lg:max-w-[420px]">
+                    <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 hidden xl:block shrink-0">
+                      Works
+                    </span>
+                    {creator.works.map((work) => (
+                      <div
+                        key={work.slug || work.id}
+                        onClick={() => onNavigate(work)}
+                        className="w-12 h-16 sm:w-14 sm:h-20 relative rounded-md overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-[#fe9a00] transition-all cursor-pointer group/work shadow-md flex-shrink-0"
+                        title={work.title}
+                      >
+                        <img
+                          src={work.character_url || work.cover_url}
+                          alt={work.title}
+                          className="w-full h-full object-cover object-top origin-top group-hover/work:scale-105 transition-transform"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
+                        {work.logo_url && (
+                          <img
+                            src={work.logo_url}
+                            alt={work.title}
+                            className="absolute bottom-1 inset-x-0.5 max-h-5 object-contain mx-auto pointer-events-none"
+                          />
                         )}
-                      </label>
-                    </div>
-                    <div className="flex items-center justify-between text-[9px] text-zinc-500 font-bold pt-1 border-t border-zinc-900">
-                      <span className="flex items-center gap-1"><Shield className="w-3 h-3 text-[#fe9a00]" /> PCI-DSS Tokenized via Stripe</span>
-                      <button
-                        type="button"
-                        onClick={() => { setShowModal(false); onNavigate({ action: 'legal' }); }}
-                        className="text-zinc-400 hover:text-[#fe9a00] underline cursor-pointer"
-                      >
-                        View Full Terms &amp; Privacy Policy
-                      </button>
-                    </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Right Action Buttons */}
+                <div className="flex flex-row md:flex-col items-center gap-2.5 shrink-0 w-full md:w-36 border-t md:border-t-0 border-zinc-800/80 pt-3 md:pt-0">
+                  <div className="flex-1 md:flex-initial w-full [&_button]:w-full [&_button]:justify-center [&_button]:py-2.5 [&_button]:px-3 [&_button]:gap-1.5 [&_button]:text-[10px]">
+                    <HypeButton
+                      targetType="creator"
+                      targetId={creator.name}
+                      userId={currentUser?.id}
+                      isPremium={Boolean(currentUser?.is_premium)}
+                      variant="default"
+                      onRequireAuth={() => onLoginClick && onLoginClick()}
+                    />
                   </div>
 
-                  {formError && (
-                    <div className="mb-4 p-3 bg-red-950/60 border border-red-700 rounded-xl text-red-300 text-xs font-bold leading-relaxed">
-                      {formError}
-                    </div>
-                  )}
-
-                  {/* REAL STRIPE CHECKOUT BUTTON */}
-                  <button 
-                    onClick={handleStripeCheckout}
-                    disabled={checkoutLoading}
-                    className="w-full py-4 bg-gradient-to-r from-[#fe9a00] to-yellow-500 text-black font-black uppercase tracking-widest rounded-xl hover:from-white hover:to-white transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] disabled:opacity-50 cursor-pointer"
+                  <button
+                    onClick={() => {
+                      setDonationCreator(creator);
+                      setDonationStep('input');
+                      setDonationAmount(5);
+                      setFanmailText('');
+                    }}
+                    className="flex-1 md:flex-initial w-full py-2.5 px-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase text-[10px] tracking-widest rounded-full transition-all flex items-center justify-center gap-1.5 shadow-[0_0_12px_rgba(254,154,0,0.25)] hover:scale-105 cursor-pointer whitespace-nowrap"
                   >
-                    {checkoutLoading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" /> Saving & Connecting to Stripe...
-                      </>
-                    ) : appliedReferral?.valid ? (
-                      <>
-                        Start 3-Day Free Trial ($0 Today, Then $20/yr) <ArrowLeft className="w-4 h-4 rotate-180" />
-                      </>
-                    ) : (
-                      <>
-                        {selectedPlan === 'yearly' ? 'Pay with Stripe ($20.00/yr)' : 'Pay with Stripe ($1.99/mo)'} <ArrowLeft className="w-4 h-4 rotate-180" />
-                      </>
-                    )}
-                  </button>
-
-                  {/* Dev Simulation Fallback — Strictly hidden from regular public users! */}
-                  {isAdminOrLocal && (
-                    <button 
-                      onClick={handleDevUpgrade}
-                      className="w-full mt-3 py-2 text-zinc-500 hover:text-zinc-300 font-bold uppercase tracking-widest text-[9px] transition-colors cursor-pointer"
-                    >
-                      Simulate Payment (Admin / Dev Sandbox Only)
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {checkoutStep === 'processing' && (
-                <div className="py-12 flex flex-col items-center justify-center animate-fade-in text-center">
-                  <Loader2 className="w-12 h-12 text-[#fe9a00] animate-spin mb-4" />
-                  <h3 className="text-lg font-black uppercase tracking-widest text-white mb-2">Processing</h3>
-                  <p className="text-xs text-zinc-400 font-bold">Contacting secure payment gateway...</p>
-                </div>
-              )}
-
-              {checkoutStep === 'success' && (
-                <div className="py-8 flex flex-col items-center justify-center animate-fade-in text-center">
-                  <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center border-2 border-emerald-500 mb-6 shadow-[0_0_30px_rgba(168,85,247,0.3)]">
-                    <Check className="w-10 h-10 text-emerald-400" />
-                  </div>
-                  <h3 className="text-2xl font-black italic uppercase text-white mb-2">Welcome to PLUS</h3>
-                  <p className="text-sm text-zinc-400 font-bold mb-8 leading-relaxed">
-                    Your Saturday AM Manga Hype PLUS Subscription is active! You now have unlimited access to the entire Saturday AM ecosystem.
-                  </p>
-                  <button 
-                    onClick={() => { setShowModal(false); onNavigate({ action: 'profile' }); }}
-                    className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors cursor-pointer"
-                  >
-                    Customize Your Profile
+                    <Heart className="w-3.5 h-3.5 fill-black shrink-0" />
+                    <span>Support</span>
                   </button>
                 </div>
-              )}
-
-            </div>
-          </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* --- IN-APP ALERT MODAL FOR REDEMPTION --- */}
-      {alertConfig && (
-        <div className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setAlertConfig(null)}>
-          <div className={`bg-zinc-950 border ${alertConfig.type === 'error' ? 'border-red-900/50' : 'border-[#fe9a00]/50'} p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative`} onClick={e => e.stopPropagation()}>
-            <button onClick={() => setAlertConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer">
-              <X className="w-5 h-5" />
-            </button>
-            <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-6 ${alertConfig.type === 'error' ? 'bg-red-900/20 border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]' : 'bg-[#fe9a00]/20 border border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.3)]'}`}>
-              {alertConfig.type === 'error' ? <AlertTriangle className="w-8 h-8 text-red-500" /> : <Check className="w-8 h-8 text-[#fe9a00]" />}
-            </div>
-            <h2 className="text-xl font-black italic uppercase tracking-tighter text-white mb-2">
-              {alertConfig.title}
-            </h2>
-            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
-              {alertConfig.message}
-            </p>
-            <button 
-              onClick={() => setAlertConfig(null)} 
-              className={`w-full font-black uppercase tracking-widest py-3 rounded transition-colors cursor-pointer ${alertConfig.type === 'error' ? 'bg-red-600 text-white hover:bg-red-500' : 'bg-[#fe9a00] text-black hover:bg-white shadow-[0_0_15px_rgba(254,154,0,0.3)]'}`}
-            >
-              Okay
-            </button>
+      {/* Donation / Fanmail Modal */}
+      {donationCreator && (
+        <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in" onClick={() => { if (donationStep === 'input') setDonationCreator(null); }}>
+          <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative" onClick={e => e.stopPropagation()}>
+            {donationStep === 'input' && (
+              <>
+                <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer">
+                  <X className="w-6 h-6" />
+                </button>
+                <div className="p-6 sm:p-8 animate-fade-in">
+                  <div className="flex flex-col items-center mb-6 text-center mt-2">
+                    <img 
+                      src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} 
+                      className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]" 
+                      alt={donationCreator.name}
+                      onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }}
+                    />
+                    <h3 className="text-xl font-black italic uppercase text-white leading-tight">Support {donationCreator.name}</h3>
+                    <p className="text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1">100% of your tip goes directly to the creator</p>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2 mb-6">
+                    {[5, 10, 15, 20].map((amount) => (
+                      <button 
+                        key={amount}
+                        onClick={() => setDonationAmount(amount)}
+                        className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all cursor-pointer ${donationAmount === amount ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]' : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
+                      >
+                        ${amount}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative mb-6">
+                    <textarea 
+                      value={fanmailText}
+                      onChange={(e) => setFanmailText(e.target.value)}
+                      placeholder="Write private fanmail to the creator..."
+                      maxLength={250}
+                      className="w-full bg-black border border-zinc-800 text-white text-xs px-4 py-3 pb-8 rounded-xl focus:outline-none focus:border-[#fe9a00] transition-colors resize-none h-24 font-medium"
+                    />
+                    <span className="absolute bottom-3 right-3 text-[9px] font-black uppercase tracking-widest text-zinc-600">{fanmailText.length}/250</span>
+                  </div>
+
+                  <button 
+                    onClick={handleProcessDonation}
+                    className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
+                  >
+                    Donate ${donationAmount} via Stripe
+                  </button>
+                </div>
+              </>
+            )}
+
+            {donationStep === 'processing' && (
+              <div className="py-16 flex flex-col items-center justify-center animate-fade-in text-center">
+                <HypeLoader text="Connecting to Stripe Checkout..." className="w-16 h-16" fullScreen={false} />
+              </div>
+            )}
+
+            {donationStep === 'success' && (
+              <div className="py-12 px-6 flex flex-col items-center justify-center animate-fade-in text-center">
+                <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center border-2 border-emerald-500 mb-6 shadow-[0_0_30px_rgba(16,185,129,0.3)]">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+                </div>
+                <h3 className="text-2xl font-black italic uppercase text-white mb-2">Thank You!</h3>
+                <p className="text-xs sm:text-sm text-zinc-400 font-bold mb-8 leading-relaxed max-w-xs">
+                  Your ${donationAmount} tip and fanmail have been delivered to {donationCreator.name}. <span className="text-[#fe9a00]">Your Fandom Score has been boosted!</span>
+                </p>
+                <button 
+                  onClick={() => { setDonationCreator(null); setDonationStep('input'); }}
+                  className="w-full py-4 bg-zinc-800 text-white font-black uppercase tracking-widest rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer"
+                >
+                  Back to Creators
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -8,12 +8,45 @@ import { HouseAdBuilder } from './HouseAdBuilder';
 import { AvatarMaker } from './AvatarMaker';
 import { StickerMaker } from './StickerMaker';
 import { CardSkinMaker } from './CardSkinMaker';
-import { FrameMaker } from './FrameMaker'; 
+import { FrameMaker } from './FrameMaker';
 import { ModerationDashboard } from './ModerationDashboard';
 import { UserManager } from './UserManager';
 import { CreatorPayoutTracker } from './CreatorPayoutTracker';
+import { resolveCreatorStripeAccountId } from '../MainViews/CreatorsPage';
 import { supabase } from '../supabase';
-import { Bell, Send, BookOpen, Star, Sparkles, Newspaper, Key, Trash2, Mic, PenTool, XCircle, Link as LinkIcon, LineChart, CreditCard, Flame, Gift, Settings2, Users, ShieldAlert, Download, Loader2, Eye, EyeOff, Search, Tag, ArrowUpDown, Mail, MapPin, Phone, Calendar } from 'lucide-react';
+import {
+  Bell,
+  Send,
+  BookOpen,
+  Star,
+  Sparkles,
+  Newspaper,
+  Key,
+  Trash2,
+  Mic,
+  PenTool,
+  XCircle,
+  CreditCard,
+  Flame,
+  Gift,
+  Settings2,
+  Users,
+  ShieldAlert,
+  Download,
+  Loader2,
+  Eye,
+  EyeOff,
+  Search,
+  Tag,
+  Link2,
+  Copy,
+  Check,
+  DollarSign,
+  UserX,
+  Lock,
+  Layers,
+  Upload
+} from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
 const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
@@ -21,7 +54,7 @@ const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (hasUnsavedChanges) {
         e.preventDefault();
-        e.returnValue = ''; 
+        e.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
@@ -29,161 +62,830 @@ const useUnsavedWarning = (hasUnsavedChanges: boolean) => {
   }, [hasUnsavedChanges]);
 };
 
-// --- GLOBAL CREATOR VISIBILITY MANAGER ---
-const CreatorVisibilityManager = () => {
+export const isCreatorInviteRow = (row: any): boolean => {
+  if (!row) return false;
+  const code = String(row.code || '').toUpperCase();
+  const orderNum = String(row.order_number || '');
+  const tier = String(row.tier || '');
+  return (
+    code.startsWith('SAM-CR-') ||
+    orderNum.startsWith('CREATOR_INVITE:') ||
+    tier.startsWith('creator_invite:')
+  );
+};
+
+export const parseCreatorInviteMeta = (row: any): { creatorName: string; role: string } => {
+  const orderNum = String(row?.order_number || '');
+  if (orderNum.startsWith('CREATOR_INVITE:')) {
+    const parts = orderNum.split(':');
+    return {
+      creatorName: parts[1] || row?.buyer_name || 'Creator',
+      role: parts[2] || 'creator'
+    };
+  }
+  const tier = String(row?.tier || '');
+  if (tier.startsWith('creator_invite:')) {
+    const parts = tier.split(':');
+    return {
+      creatorName: parts[1] || row?.buyer_name || 'Creator',
+      role: parts[2] || 'creator'
+    };
+  }
+  return {
+    creatorName: row?.buyer_name || 'Creator',
+    role: 'creator'
+  };
+};
+
+const CreatorManagerHub = () => {
+  const [subTab, setSubTab] = useState<'directory' | 'onboarding' | 'payouts'>('directory');
   const [creators, setCreators] = useState<any[]>([]);
+  const [creatorUsers, setCreatorUsers] = useState<any[]>([]);
+  const [inviteLinks, setInviteLinks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [updatingName, setUpdatingName] = useState<string | null>(null);
 
-  const fetchCreators = async () => {
+  const [editingStripeCreator, setEditingStripeCreator] = useState<string | null>(null);
+  const [stripeInputVal, setStripeInputVal] = useState('');
+  const [showRawStripeInput, setShowRawStripeInput] = useState(false);
+  const [savingStripe, setSavingStripe] = useState(false);
+
+  const [inviteCreatorName, setInviteCreatorName] = useState('');
+  const [inviteRole, setInviteRole] = useState<'creator' | 'core_creator' | 'staff'>('creator');
+  const [inviteExpireDays] = useState(14);
+  const [creatingInvite, setCreatingInvite] = useState(false);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  const fetchCreatorManagerData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
-        .from('series_creators')
-        .select('*')
-        .order('name', { ascending: true });
+      const [
+        { data: creatorRows },
+        { data: seriesRows },
+        { data: profileRows },
+        { data: promoRows }
+      ] = await Promise.all([
+        supabase.from('series_creators').select('*').order('name', { ascending: true }),
+        supabase.from('series').select('slug, title, creator_name, creator_stripe_account_id'),
+        supabase
+          .from('profiles')
+          .select('id, username, email, role, linked_creator_name, is_premium, creator_terms_accepted_at'),
+        supabase.from('promo_codes').select('*').order('created_at', { ascending: false })
+      ]);
 
-      if (data) {
-        const unique = new Map<string, any>();
-        data.forEach((row: any) => {
-          if (!row.name) return;
-          const key = row.name.trim();
-          if (!unique.has(key)) {
-            unique.set(key, {
-              name: key,
-              role: row.role || 'Creator',
-              avatar_url: row.avatar_url,
-              is_visible: row.is_visible !== false,
-              series_slugs: [row.series_slug]
-            });
-          } else {
-            const existing = unique.get(key)!;
-            if (row.is_visible === false) existing.is_visible = false;
-            if (!existing.series_slugs.includes(row.series_slug)) {
-              existing.series_slugs.push(row.series_slug);
-            }
+      const seriesStripeBySlug = new Map<string, string>();
+      (seriesRows || []).forEach((s: any) => {
+        if (s.slug && s.creator_stripe_account_id) {
+          seriesStripeBySlug.set(s.slug, s.creator_stripe_account_id);
+        }
+      });
+
+      const unique = new Map<string, any>();
+      (creatorRows || []).forEach((row: any) => {
+        if (!row.name) return;
+        const key = row.name.trim();
+        const normKey = key.toLowerCase();
+        const dbStripe =
+          row.stripe_account_id || seriesStripeBySlug.get(row.series_slug) || '';
+        const effectiveStripeId = resolveCreatorStripeAccountId(key, dbStripe);
+
+        if (!unique.has(normKey)) {
+          unique.set(normKey, {
+            name: key,
+            role: row.role || 'Creator',
+            avatar_url: row.avatar_url,
+            email: row.email || '',
+            is_visible: row.is_visible !== false,
+            series_slugs: row.series_slug ? [row.series_slug] : [],
+            has_direct_payout: Boolean(effectiveStripeId && effectiveStripeId.startsWith('acct_')),
+            db_stripe_id: dbStripe || ''
+          });
+        } else {
+          const existing = unique.get(normKey)!;
+          if (row.is_visible === false) existing.is_visible = false;
+          if (row.series_slug && !existing.series_slugs.includes(row.series_slug)) {
+            existing.series_slugs.push(row.series_slug);
           }
-        });
-        setCreators(Array.from(unique.values()));
-      }
+          if (effectiveStripeId && effectiveStripeId.startsWith('acct_')) {
+            existing.has_direct_payout = true;
+          }
+          if (dbStripe && !existing.db_stripe_id) {
+            existing.db_stripe_id = dbStripe;
+          }
+          if (!existing.avatar_url && row.avatar_url) {
+            existing.avatar_url = row.avatar_url;
+          }
+        }
+      });
+
+      setCreators(Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name)));
+      setCreatorUsers(
+        (profileRows || []).filter(
+          (p: any) =>
+            (p.role && p.role !== 'reader' && p.role !== 'revoked_creator') ||
+            Boolean(String(p.linked_creator_name || '').trim())
+        )
+      );
+      setInviteLinks((promoRows || []).filter(isCreatorInviteRow));
     } catch (err) {
-      console.error(err);
+      console.error('Error loading Creator Manager:', err);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchCreators();
   }, []);
 
-  const handleToggle = async (creator: any) => {
+  useEffect(() => {
+    fetchCreatorManagerData();
+  }, [fetchCreatorManagerData]);
+
+  const handleToggleVisibility = async (creator: any) => {
     const nextState = !creator.is_visible;
     setUpdatingName(creator.name);
-
     try {
       const { error } = await supabase
         .from('series_creators')
         .update({ is_visible: nextState })
         .ilike('name', creator.name.trim());
-
       if (error) throw error;
-      setCreators(prev => prev.map(c => c.name === creator.name ? { ...c, is_visible: nextState } : c));
+      setCreators(prev =>
+        prev.map(c => (c.name === creator.name ? { ...c, is_visible: nextState } : c))
+      );
     } catch (err: any) {
-      alert("Failed to update visibility: " + err.message);
+      alert('Failed to update visibility: ' + err.message);
     } finally {
       setUpdatingName(null);
     }
   };
 
-  const filtered = useMemo(() => {
+  const handleSaveStripeAccount = async (creator: any, customIdToSave: string) => {
+    const cleanId = customIdToSave.trim();
+    if (cleanId && !cleanId.startsWith('acct_')) {
+      return alert('Stripe Connect Account IDs must start with "acct_" (e.g. acct_1US3pv2d62PnIfST).');
+    }
+
+    const dbValue = cleanId ? cleanId : 'SATURDAY_AM';
+
+    setSavingStripe(true);
+    try {
+      const { error: scErr } = await supabase
+        .from('series_creators')
+        .update({ stripe_account_id: dbValue })
+        .ilike('name', creator.name.trim());
+
+      if (scErr) throw scErr;
+
+      if (Array.isArray(creator.series_slugs) && creator.series_slugs.length > 0) {
+        await supabase
+          .from('series')
+          .update({ creator_stripe_account_id: dbValue })
+          .in('slug', creator.series_slugs);
+      }
+
+      setEditingStripeCreator(null);
+      setStripeInputVal('');
+      setShowRawStripeInput(false);
+      await fetchCreatorManagerData();
+      alert(
+        cleanId
+          ? `Updated! ${creator.name} is now set to Payments: Direct.`
+          : `Reverted! ${creator.name} is now set to Payments: Saturday AM.`
+      );
+    } catch (err: any) {
+      alert(
+        'Failed to save Stripe Connect ID (run the 2-line SQL snippet in Supabase to add stripe_account_id to series_creators): ' +
+          err.message
+      );
+    } finally {
+      setSavingStripe(false);
+    }
+  };
+
+  const handleRevokeStudioAccess = async (profileUser: any, alsoRemovePlus: boolean) => {
+    const displayLabel =
+      profileUser.linked_creator_name || profileUser.username || profileUser.email;
+    const msg = alsoRemovePlus
+      ? `Revoke Creator Studio access AND remove complimentary PLUS status for "${displayLabel}" (${profileUser.email})?`
+      : `Revoke Creator Studio access for "${displayLabel}" (${profileUser.email})? They will lose Creator Studio access immediately and must re-accept Terms if re-invited.`;
+
+    if (!window.confirm(msg)) return;
+
+    setUpdatingName(profileUser.id);
+    try {
+      const patch: Record<string, any> = {
+        role: 'revoked_creator',
+        linked_creator_name: null
+      };
+      if (alsoRemovePlus) {
+        patch.is_premium = false;
+        patch.super_hypes_left = 1;
+        patch.hypes_remaining = 1;
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ ...patch, creator_terms_accepted_at: null })
+        .eq('id', profileUser.id);
+
+      if (error) {
+        const { error: fallbackErr } = await supabase
+          .from('profiles')
+          .update(patch)
+          .eq('id', profileUser.id);
+        if (fallbackErr) throw fallbackErr;
+      }
+
+      await fetchCreatorManagerData();
+      alert(`Creator Studio access revoked for ${displayLabel}.`);
+    } catch (err: any) {
+      alert('Failed to revoke access: ' + err.message);
+    } finally {
+      setUpdatingName(null);
+    }
+  };
+
+  const handleCreateOnboardingInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanCreator = inviteCreatorName.trim();
+    if (!cleanCreator) return alert('Please select or type the creator name.');
+
+    setCreatingInvite(true);
+    try {
+      const randA = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const randB = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const code = `SAM-CR-${randA}-${randB}`;
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + Number(inviteExpireDays || 14));
+
+      const fullPayload = {
+        code,
+        tier: 'premium',
+        max_uses: 1,
+        times_used: 0,
+        expires_at: expiresAt.toISOString(),
+        order_number: `CREATOR_INVITE:${cleanCreator}:${inviteRole}`,
+        buyer_name: cleanCreator
+      };
+
+      const { error } = await supabase.from('promo_codes').insert([fullPayload]);
+
+      if (error) {
+        const { error: fallbackErr } = await supabase.from('promo_codes').insert([
+          {
+            code,
+            tier: 'premium',
+            max_uses: 1,
+            times_used: 0,
+            expires_at: expiresAt.toISOString()
+          }
+        ]);
+        if (fallbackErr) throw fallbackErr;
+      }
+
+      setInviteCreatorName('');
+      await fetchCreatorManagerData();
+    } catch (err: any) {
+      alert('Error generating creator invite: ' + err.message);
+    } finally {
+      setCreatingInvite(false);
+    }
+  };
+
+  const handleDeleteInvite = async (id: string) => {
+    if (!window.confirm('Revoke and delete this Creator Onboarding invite link?')) return;
+    await supabase.from('promo_codes').delete().eq('id', id);
+    fetchCreatorManagerData();
+  };
+
+  const copyText = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedToken(key);
+    setTimeout(() => setCopiedToken(null), 2000);
+  };
+
+  const filteredCreators = useMemo(() => {
     const q = search.toLowerCase().trim();
     if (!q) return creators;
-    return creators.filter(c => c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q));
-  }, [creators, search]);
+    return creators.filter(c => {
+      if (c.name.toLowerCase().includes(q) || c.role.toLowerCase().includes(q)) return true;
+      if (c.email && String(c.email).toLowerCase().includes(q)) return true;
+      const hasMatchingStudioAccount = creatorUsers.some(
+        u =>
+          (String(u.linked_creator_name || '').toLowerCase() === c.name.toLowerCase() ||
+            String(u.username || '').toLowerCase() === c.name.toLowerCase()) &&
+          (String(u.email || '').toLowerCase().includes(q) ||
+            String(u.username || '').toLowerCase().includes(q))
+      );
+      return hasMatchingStudioAccount;
+    });
+  }, [creators, creatorUsers, search]);
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-4xl animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-zinc-800 pb-4">
-        <div className="flex items-center gap-3">
-          <Users className="w-6 h-6 text-[#fe9a00]" />
-          <div>
-            <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Creator Directory</h2>
-            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">Toggle creator visibility across the app & Bingo Book</p>
-          </div>
-        </div>
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-900 border border-zinc-800 p-3 rounded-2xl">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setSubTab('directory')}
+            className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+              subTab === 'directory'
+                ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" /> Directory, Routing & Access ({creators.length})
+          </button>
 
-        <div className="relative w-full sm:w-64">
-          <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search creator..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-black border border-zinc-700 text-white pl-9 pr-3 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00]"
-          />
+          <button
+            type="button"
+            onClick={() => setSubTab('onboarding')}
+            className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+              subTab === 'onboarding'
+                ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+            }`}
+          >
+            <Link2 className="w-3.5 h-3.5" /> Creator Onboarding Invites ({inviteLinks.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab('payouts')}
+            className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+              subTab === 'payouts'
+                ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+            }`}
+          >
+            <DollarSign className="w-3.5 h-3.5" /> Payouts, Referrals & Dev Ledger
+          </button>
         </div>
       </div>
 
-      {loading ? (
-        <div className="py-12 flex justify-center items-center text-zinc-500 text-xs font-bold uppercase tracking-widest">
-          <Loader2 className="w-6 h-6 animate-spin text-[#fe9a00] mr-2" /> Loading Creators...
-        </div>
-      ) : filtered.length === 0 ? (
-        <p className="text-zinc-500 text-sm font-bold italic py-8 text-center">No creators found.</p>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[550px] overflow-y-auto custom-scrollbar pr-2">
-          {filtered.map((c) => {
-            const isUpdating = updatingName === c.name;
-
-            return (
-              <div 
-                key={c.name}
-                className={`p-4 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
-                  c.is_visible 
-                    ? 'bg-black border-zinc-800' 
-                    : 'bg-red-950/20 border-red-900/40'
-                }`}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-zinc-800 border border-zinc-700 overflow-hidden shrink-0">
-                    <img 
-                      src={c.avatar_url || 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'} 
-                      alt={c.name} 
-                      className="w-full h-full object-cover"
-                      onError={(e) => { e.currentTarget.src = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'; }}
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <h4 className="font-black text-xs uppercase tracking-wider text-white truncate">{c.name}</h4>
-                    <span className="text-[9px] text-[#fe9a00] font-bold uppercase tracking-widest block truncate">{c.role}</span>
-                  </div>
+      {subTab === 'directory' && (
+        <div className="space-y-6">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <Users className="w-6 h-6 text-[#fe9a00]" />
+                <div>
+                  <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
+                    Creator Directory & Donation Routing
+                  </h2>
+                  <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+                    Manage roster visibility and wire Stripe Connect payout routing (Masked as Direct vs. Saturday AM)
+                  </p>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleToggle(c)}
-                  disabled={isUpdating}
-                  className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-all shrink-0 ${
-                    c.is_visible
-                      ? 'bg-green-950/40 border border-green-800 text-green-400 hover:bg-green-900/60'
-                      : 'bg-red-900/30 border border-red-800 text-red-400 hover:bg-red-900/50'
-                  }`}
-                >
-                  {isUpdating ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : c.is_visible ? (
-                    <><Eye className="w-3 h-3" /> Visible</>
-                  ) : (
-                    <><EyeOff className="w-3 h-3" /> Hidden</>
-                  )}
-                </button>
               </div>
-            );
-          })}
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="search"
+                  name="creator_directory_search_filter"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  placeholder="Search creator..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full bg-black border border-zinc-700 text-white pl-9 pr-3 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00]"
+                />
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="py-12 flex justify-center items-center text-zinc-500 text-xs font-bold uppercase tracking-widest">
+                <Loader2 className="w-6 h-6 animate-spin text-[#fe9a00] mr-2" /> Loading Creators...
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto custom-scrollbar pr-1">
+                {filteredCreators.map(c => {
+                  const isUpdating = updatingName === c.name;
+                  const isEditingThisStripe = editingStripeCreator === c.name;
+                  const linkedAccounts = creatorUsers.filter(
+                    u =>
+                      String(u.linked_creator_name || '').toLowerCase() === c.name.toLowerCase() ||
+                      String(u.username || '').toLowerCase() === c.name.toLowerCase()
+                  );
+
+                  return (
+                    <div
+                      key={c.name}
+                      className={`p-4 rounded-xl border flex flex-col justify-between gap-3 transition-colors ${
+                        c.is_visible ? 'bg-black border-zinc-800' : 'bg-red-950/20 border-red-900/40'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          {/* Hard-locked 48x48px circle so high-res creator portraits never blow up the card */}
+                          <div
+                            className="w-12 h-12 rounded-full bg-zinc-800 border-2 border-[#fe9a00]/60 overflow-hidden shrink-0 flex items-center justify-center"
+                            style={{ width: 48, height: 48, minWidth: 48, minHeight: 48 }}
+                          >
+                            <img
+                              src={
+                                c.avatar_url ||
+                                'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg'
+                              }
+                              alt={c.name}
+                              className="w-full h-full object-cover block"
+                              style={{ width: 48, height: 48, maxWidth: 48, maxHeight: 48 }}
+                              onError={e => {
+                                e.currentTarget.src =
+                                  'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/creator-avatar.jpg';
+                              }}
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-black text-xs uppercase tracking-wider text-white truncate">
+                              Creator: {c.name}
+                            </h4>
+                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                              <span
+                                className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${
+                                  c.has_direct_payout
+                                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-400'
+                                    : 'bg-[#fe9a00]/15 border-[#fe9a00]/40 text-[#fe9a00]'
+                                }`}
+                              >
+                                Payments: {c.has_direct_payout ? 'Direct' : 'Saturday AM'}
+                              </span>
+                              <span className="text-[9px] text-zinc-500 font-bold uppercase">
+                                {c.role}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isEditingThisStripe) {
+                                setEditingStripeCreator(null);
+                                setStripeInputVal('');
+                              } else {
+                                setEditingStripeCreator(c.name);
+                                setStripeInputVal('');
+                                setShowRawStripeInput(false);
+                              }
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-[#fe9a00] text-zinc-300 hover:text-black border border-zinc-700 text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer"
+                            title="Assign or update Stripe Connect Account ID without exposing it"
+                          >
+                            <Lock className="w-3 h-3 inline mr-1" />
+                            {c.has_direct_payout ? 'Routing' : '+ Direct ID'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleVisibility(c)}
+                            disabled={isUpdating}
+                            className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-1 transition-all cursor-pointer ${
+                              c.is_visible
+                                ? 'bg-green-950/40 border border-green-800 text-green-400 hover:bg-green-900/60'
+                                : 'bg-red-900/30 border border-red-800 text-red-400 hover:bg-red-900/50'
+                            }`}
+                          >
+                            {isUpdating ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : c.is_visible ? (
+                              <>
+                                <Eye className="w-3 h-3" /> Visible
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="w-3 h-3" /> Hidden
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {isEditingThisStripe && (
+                        <div className="bg-zinc-950 border border-[#fe9a00]/40 rounded-xl p-3 space-y-2.5 animate-fade-in">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
+                              Set Stripe Connect ID (Masked for Security)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setShowRawStripeInput(!showRawStripeInput)}
+                              className="text-[9px] font-bold text-zinc-400 hover:text-white uppercase cursor-pointer"
+                            >
+                              {showRawStripeInput ? 'Hide Input' : 'Show Input'}
+                            </button>
+                          </div>
+
+                          <div className="flex gap-2">
+                            {/* Uses type="text" + WebkitTextSecurity so Chrome never triggers password autofill into the search box */}
+                            <input
+                              type="text"
+                              name={`stripe_connect_acct_${c.name.replace(/\s+/g, '_')}`}
+                              autoComplete="off"
+                              data-lpignore="true"
+                              data-1p-ignore="true"
+                              placeholder="Paste acct_... Stripe Connect ID"
+                              value={stripeInputVal}
+                              onChange={e => setStripeInputVal(e.target.value)}
+                              style={
+                                showRawStripeInput
+                                  ? undefined
+                                  : ({ WebkitTextSecurity: 'disc' } as React.CSSProperties)
+                              }
+                              className="flex-1 bg-black border border-zinc-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-[#fe9a00]"
+                            />
+                            <button
+                              type="button"
+                              disabled={savingStripe || !stripeInputVal.trim()}
+                              onClick={() => handleSaveStripeAccount(c, stripeInputVal)}
+                              className="px-3 py-1.5 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-[9px] rounded-lg cursor-pointer disabled:opacity-40"
+                            >
+                              {savingStripe ? '...' : 'Set Direct'}
+                            </button>
+                          </div>
+
+                          {c.has_direct_payout && (
+                            <div className="flex justify-end pt-1">
+                              <button
+                                type="button"
+                                disabled={savingStripe}
+                                onClick={() => handleSaveStripeAccount(c, '')}
+                                className="text-[9px] font-black uppercase tracking-widest text-amber-400 hover:text-amber-300 cursor-pointer"
+                              >
+                                Revert Routing to Saturday AM
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {linkedAccounts.length > 0 && (
+                        <div className="pt-2 border-t border-zinc-800/80 flex flex-col gap-1.5">
+                          {linkedAccounts.map(acc => (
+                            <div
+                              key={acc.id}
+                              className="flex flex-wrap items-center justify-between gap-2 bg-zinc-900/70 px-2.5 py-1.5 rounded-lg text-[10px]"
+                            >
+                              <span className="text-zinc-300 font-bold truncate">
+                                Studio User: <strong className="text-white">{acc.username}</strong> ({acc.email})
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRevokeStudioAccess(acc, false)}
+                                  className="px-2 py-1 rounded bg-red-950/60 hover:bg-red-600 text-red-400 hover:text-white border border-red-800/60 text-[8px] font-black uppercase tracking-widest cursor-pointer"
+                                  title="Remove Creator Studio access (Keep PLUS reading access)"
+                                >
+                                  Revoke Studio
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRevokeStudioAccess(acc, true)}
+                                  className="px-2 py-1 rounded bg-red-900/40 hover:bg-red-500 text-red-300 hover:text-white text-[8px] font-black uppercase tracking-widest cursor-pointer"
+                                  title="Revoke both Creator Studio AND PLUS access"
+                                >
+                                  Revoke Studio + PLUS
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg">
+            <div className="flex items-center justify-between mb-4 border-b border-zinc-800 pb-3">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
+                  <UserX className="w-4 h-4 text-[#fe9a00]" /> Active Creator Studio Accounts ({creatorUsers.length})
+                </h3>
+                <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                  Instantly revoke Creator Studio & monetization access for any account below
+                </p>
+              </div>
+            </div>
+
+            {creatorUsers.length === 0 ? (
+              <p className="text-xs text-zinc-500 font-bold italic py-6 text-center">
+                No accounts currently hold Creator Studio access.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {creatorUsers.map(u => (
+                  <div
+                    key={u.id}
+                    className="bg-black border border-zinc-800 rounded-xl p-3.5 flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-white truncate">
+                          {u.linked_creator_name || u.username}
+                        </span>
+                        <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                          {u.role || 'creator'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-zinc-400 font-bold truncate mt-0.5">
+                        {u.email}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleRevokeStudioAccess(u, false)}
+                        className="px-2.5 py-1.5 rounded-lg bg-red-950/50 hover:bg-red-600 text-red-400 hover:text-white border border-red-900/50 text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer"
+                      >
+                        Revoke Studio
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRevokeStudioAccess(u, true)}
+                        className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-red-700 text-zinc-400 hover:text-white border border-zinc-700 text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer"
+                        title="Also downgrade from PLUS to Standard Free"
+                      >
+                        + Remove PLUS
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
+
+      {subTab === 'onboarding' && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg space-y-6">
+          <div className="flex items-center gap-3 border-b border-zinc-800 pb-4">
+            <Link2 className="w-6 h-6 text-[#fe9a00]" />
+            <div>
+              <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
+                One-Time Creator Onboarding Links & Codes
+              </h2>
+              <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+                Send a single-use magic link to new creators — grants PLUS + Creator Studio access after they sign the mandatory Terms & Conditions
+              </p>
+            </div>
+          </div>
+
+          <form
+            onSubmit={handleCreateOnboardingInvite}
+            className="bg-black border border-[#fe9a00]/40 rounded-xl p-5 grid grid-cols-1 md:grid-cols-4 gap-4 items-end"
+          >
+            <div className="md:col-span-2">
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">
+                Creator Full Name (Links to their Series & Studio) *
+              </label>
+              <input
+                type="text"
+                list="onboarding-creators-datalist"
+                required
+                placeholder="Select or type creator name (e.g. Raymond Brown)..."
+                value={inviteCreatorName}
+                onChange={e => setInviteCreatorName(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-xs font-bold text-white focus:outline-none focus:border-[#fe9a00]"
+              />
+              <datalist id="onboarding-creators-datalist">
+                {creators.map(c => (
+                  <option key={c.name} value={c.name} />
+                ))}
+              </datalist>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">
+                Studio Role Tier
+              </label>
+              <select
+                value={inviteRole}
+                onChange={e => setInviteRole(e.target.value as any)}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-3 text-xs font-bold text-white focus:outline-none focus:border-[#fe9a00] cursor-pointer"
+              >
+                <option value="creator">Creator ($5 Annual Ref)</option>
+                <option value="core_creator">Core Creator ($10 Ref)</option>
+                <option value="staff">Staff ($10 Ref)</option>
+              </select>
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                disabled={creatingInvite || !inviteCreatorName.trim()}
+                className="w-full py-3.5 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer disabled:opacity-40"
+              >
+                {creatingInvite ? 'Generating...' : '+ Create 1-Use Invite'}
+              </button>
+            </div>
+          </form>
+
+          <div className="space-y-3">
+            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400">
+              Generated Creator Onboarding Invites ({inviteLinks.length})
+            </h3>
+            {inviteLinks.length === 0 ? (
+              <p className="text-xs text-zinc-500 font-bold italic py-8 text-center bg-black rounded-xl border border-zinc-800">
+                No creator invite links generated yet.
+              </p>
+            ) : (
+              inviteLinks.map(inv => {
+                const { creatorName: cName, role: cRole } = parseCreatorInviteMeta(inv);
+                const isUsed = Number(inv.times_used || 0) >= Number(inv.max_uses || 1);
+                const magicUrl = `${window.location.origin}/?creator_invite=${encodeURIComponent(
+                  inv.code
+                )}`;
+
+                return (
+                  <div
+                    key={inv.id}
+                    className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                      isUsed ? 'bg-zinc-950 border-zinc-800 opacity-75' : 'bg-black border-[#fe9a00]/40'
+                    }`}
+                  >
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-black uppercase text-white">
+                          Creator: {cName}
+                        </span>
+                        <span className="text-[9px] font-mono font-black text-[#fe9a00] bg-zinc-900 border border-zinc-700 px-2 py-0.5 rounded">
+                          {inv.code}
+                        </span>
+                        <span
+                          className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${
+                            isUsed
+                              ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-400'
+                              : 'bg-[#fe9a00]/15 border-[#fe9a00]/40 text-[#fe9a00]'
+                          }`}
+                        >
+                          {isUsed ? 'REDEEMED & TERMS SIGNED' : 'UNUSED (1-TIME LINK)'}
+                        </span>
+                        <span className="text-[9px] text-zinc-500 font-bold uppercase">
+                          Role: {cRole}
+                        </span>
+                      </div>
+
+                      {!isUsed ? (
+                        <p className="text-[11px] font-mono text-zinc-400 truncate">{magicUrl}</p>
+                      ) : (
+                        <p className="text-[10px] text-emerald-400 font-bold">
+                          Signed by: {inv.buyer_name || cName}{' '}
+                          {inv.buyer_email ? `(${inv.buyer_email})` : ''}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {!isUsed && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => copyText(magicUrl, `link_${inv.id}`)}
+                            className="px-3 py-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-[9px] rounded-lg flex items-center gap-1.5 cursor-pointer"
+                          >
+                            {copiedToken === `link_${inv.id}` ? (
+                              <>
+                                <Check className="w-3.5 h-3.5" /> Copied Link
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5" /> Copy Magic Link
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => copyText(inv.code, `code_${inv.id}`)}
+                            className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase tracking-widest text-[9px] rounded-lg flex items-center gap-1.5 cursor-pointer"
+                          >
+                            {copiedToken === `code_${inv.id}` ? 'Copied!' : 'Copy Code'}
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteInvite(inv.id)}
+                        className="p-2 text-zinc-500 hover:text-red-500 rounded-lg cursor-pointer"
+                        title="Delete Invite"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {subTab === 'payouts' && <CreatorPayoutTracker />}
     </div>
   );
 };
@@ -194,9 +896,9 @@ const HypeManager = ({ setIsDirty }: any) => {
     free_allowance: 1,
     premium_allowance: 3,
     refill_period: 'weekly',
-    shop_multiplier: 10,
+    shop_multiplier: 10
   });
-  
+
   const [airdrop, setAirdrop] = useState({ amount: 0, target: 'specific', username: '' });
   const [isSaving, setIsSaving] = useState(false);
   const [isBlasting, setIsBlasting] = useState(false);
@@ -212,7 +914,7 @@ const HypeManager = ({ setIsDirty }: any) => {
           free_allowance: data.free_hype_allowance ?? data.free_tier_hypes ?? 1,
           premium_allowance: data.premium_hype_allowance ?? data.premium_tier_hypes ?? 3,
           refill_period: data.hype_refill_period || 'weekly',
-          shop_multiplier: data.shop_hype_multiplier ?? 10,
+          shop_multiplier: data.shop_hype_multiplier ?? 10
         });
       }
     };
@@ -225,12 +927,18 @@ const HypeManager = ({ setIsDirty }: any) => {
   };
 
   const handleSaveSettings = async (forceSyncNow: boolean) => {
-    if (forceSyncNow && !window.confirm(`This will instantly overwrite everyone's current hype balance to ${settings.free_allowance} (Standard) and ${settings.premium_allowance} (Pro). Proceed?`)) return;
+    if (
+      forceSyncNow &&
+      !window.confirm(
+        `This will instantly overwrite everyone's current hype balance to ${settings.free_allowance} (Standard) and ${settings.premium_allowance} (Pro). Proceed?`
+      )
+    )
+      return;
 
     setIsSaving(true);
-    
-    const { error: settingsError } = await supabase.from('app_settings').upsert({ 
-      id: 1, 
+
+    const { error: settingsError } = await supabase.from('app_settings').upsert({
+      id: 1,
       free_hype_allowance: settings.free_allowance,
       premium_hype_allowance: settings.premium_allowance,
       free_tier_hypes: settings.free_allowance,
@@ -238,66 +946,95 @@ const HypeManager = ({ setIsDirty }: any) => {
       hype_refill_period: settings.refill_period,
       shop_hype_multiplier: settings.shop_multiplier
     });
-    
+
     if (settingsError) {
-      alert("Error saving Hype settings: " + settingsError.message);
+      alert('Error saving Hype settings: ' + settingsError.message);
       setIsSaving(false);
       return;
     }
 
     if (forceSyncNow) {
       try {
-        await supabase.from('profiles').update({ hypes_remaining: settings.free_allowance }).eq('is_premium', false);
-        await supabase.from('profiles').update({ hypes_remaining: settings.premium_allowance }).eq('is_premium', true);
-        alert(`SUCCESS! Rules saved and all user wallets synced to ${settings.free_allowance} (Free) / ${settings.premium_allowance} (Pro).`);
+        await supabase
+          .from('profiles')
+          .update({ hypes_remaining: settings.free_allowance })
+          .eq('is_premium', false);
+        await supabase
+          .from('profiles')
+          .update({ hypes_remaining: settings.premium_allowance })
+          .eq('is_premium', true);
+        alert(
+          `SUCCESS! Rules saved and all user wallets synced to ${settings.free_allowance} (Free) / ${settings.premium_allowance} (Pro).`
+        );
       } catch (err: any) {
-        alert("Error syncing user balances: " + err.message);
+        alert('Error syncing user balances: ' + err.message);
       }
     } else {
-      alert("Hype Rules Updated! They will apply automatically on the next scheduled refill.");
+      alert('Hype Rules Updated! They will apply automatically on the next scheduled refill.');
     }
-    
+
     setIsDirty(false);
     setIsSaving(false);
   };
 
   const handleAirdrop = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (airdrop.amount <= 0) return alert("Amount must be greater than zero.");
-    if (!window.confirm(`Are you sure you want to blast ${airdrop.amount} Hypes to ${airdrop.target === 'all' ? 'EVERYONE' : airdrop.username}?`)) return;
-    
+    if (airdrop.amount <= 0) return alert('Amount must be greater than zero.');
+    if (
+      !window.confirm(
+        `Are you sure you want to blast ${airdrop.amount} Hypes to ${
+          airdrop.target === 'all' ? 'EVERYONE' : airdrop.username
+        }?`
+      )
+    )
+      return;
+
     setIsBlasting(true);
     try {
       if (airdrop.target === 'all') {
-        const { error } = await supabase.rpc('airdrop_hypes_global', { hype_amount: airdrop.amount });
+        const { error } = await supabase.rpc('airdrop_hypes_global', {
+          hype_amount: airdrop.amount
+        });
         if (error) throw error;
       } else {
-        const { data: user, error: fetchErr } = await supabase.from('profiles').select('id, hypes_remaining').ilike('username', airdrop.username.trim()).maybeSingle();
-        if (fetchErr || !user) throw new Error("User not found!");
-        
-        const { error: updateErr } = await supabase.from('profiles').update({ hypes_remaining: (user.hypes_remaining || 0) + airdrop.amount }).eq('id', user.id);
+        const { data: user, error: fetchErr } = await supabase
+          .from('profiles')
+          .select('id, hypes_remaining')
+          .ilike('username', airdrop.username.trim())
+          .maybeSingle();
+        if (fetchErr || !user) throw new Error('User not found!');
+
+        const { error: updateErr } = await supabase
+          .from('profiles')
+          .update({ hypes_remaining: (user.hypes_remaining || 0) + airdrop.amount })
+          .eq('id', user.id);
         if (updateErr) throw updateErr;
       }
-      alert("Hypes Airdropped Successfully!");
+      alert('Hypes Airdropped Successfully!');
       setAirdrop({ amount: 0, target: 'specific', username: '' });
     } catch (err: any) {
-      alert("Error dropping hypes: " + err.message);
+      alert('Error dropping hypes: ' + err.message);
     }
     setIsBlasting(false);
   };
 
   const handleLeaderboardReset = async () => {
     if (leaderboardResetConfirm !== 'RESET LEADERBOARDS') return;
-    if (!window.confirm("WARNING: You are about to wipe all current weekly leaderboard progress. This cannot be undone. Are you absolutely sure?")) return;
-    
+    if (
+      !window.confirm(
+        'WARNING: You are about to wipe all current weekly leaderboard progress. This cannot be undone. Are you absolutely sure?'
+      )
+    )
+      return;
+
     setIsResettingLeaderboards(true);
     try {
       const { error } = await supabase.rpc('reset_leaderboards');
       if (error) throw error;
-      alert("SUCCESS: All leaderboards have been wiped clean.");
+      alert('SUCCESS: All leaderboards have been wiped clean.');
       setLeaderboardResetConfirm('');
     } catch (err: any) {
-      alert("Leaderboard Reset Failed: " + err.message);
+      alert('Leaderboard Reset Failed: ' + err.message);
     }
     setIsResettingLeaderboards(false);
   };
@@ -306,7 +1043,9 @@ const HypeManager = ({ setIsDirty }: any) => {
     <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-lg animate-fade-in-up max-w-4xl">
       <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
         <Flame className="w-6 h-6 text-[#fe9a00]" />
-        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Hype Economy</h2>
+        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
+          Hype Economy
+        </h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -314,33 +1053,38 @@ const HypeManager = ({ setIsDirty }: any) => {
           <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
             <Settings2 className="w-4 h-4 text-[#fe9a00]" /> Allowance Rules
           </h3>
-          
           <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Standard Refill Amount (Weekly)</label>
-            <input 
-              type="number" min="0" 
-              value={settings.free_allowance} 
-              onChange={(e) => handleChange('free_allowance', Number(e.target.value))}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">
+              Standard Refill Amount (Weekly)
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={settings.free_allowance}
+              onChange={e => handleChange('free_allowance', Number(e.target.value))}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none"
             />
           </div>
-
           <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Pro Refill Amount (Weekly)</label>
-            <input 
-              type="number" min="0" 
-              value={settings.premium_allowance} 
-              onChange={(e) => handleChange('premium_allowance', Number(e.target.value))}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">
+              Pro Refill Amount (Weekly)
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={settings.premium_allowance}
+              onChange={e => handleChange('premium_allowance', Number(e.target.value))}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none"
             />
           </div>
-
           <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Refill Schedule</label>
-            <select 
-              value={settings.refill_period} 
-              onChange={(e) => handleChange('refill_period', e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors cursor-pointer"
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">
+              Refill Schedule
+            </label>
+            <select
+              value={settings.refill_period}
+              onChange={e => handleChange('refill_period', e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none cursor-pointer"
             >
               <option value="weekly">Every Saturday (Weekly)</option>
               <option value="monthly">1st of the Month (Monthly)</option>
@@ -354,101 +1098,126 @@ const HypeManager = ({ setIsDirty }: any) => {
             <CreditCard className="w-4 h-4 text-[#fe9a00]" /> Commerce Multipliers
           </h3>
           <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-relaxed">
-            Set the reward ratio for Shopify merch purchases. (Requires active Shopify Webhook).
+            Set the reward ratio for Shopify merch purchases.
           </p>
           <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Bonus Hypes per $1 Spent</label>
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">
+              Bonus Hypes per $1 Spent
+            </label>
             <div className="flex items-center gap-3">
-              <input 
-                type="number" min="0" 
-                value={settings.shop_multiplier} 
-                onChange={(e) => handleChange('shop_multiplier', Number(e.target.value))}
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-[#fe9a00] text-xl font-black focus:border-[#fe9a00] outline-none transition-colors"
+              <input
+                type="number"
+                min="0"
+                value={settings.shop_multiplier}
+                onChange={e => handleChange('shop_multiplier', Number(e.target.value))}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-[#fe9a00] text-xl font-black focus:border-[#fe9a00] outline-none"
               />
-              <span className="text-zinc-500 font-black uppercase tracking-widest text-xs">Hypes</span>
+              <span className="text-zinc-500 font-black uppercase tracking-widest text-xs">
+                Hypes
+              </span>
             </div>
           </div>
         </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 mb-8">
-        <button onClick={() => handleSaveSettings(false)} disabled={isSaving} className="flex-1 bg-zinc-800 text-white hover:text-black border border-zinc-700 font-black uppercase tracking-widest py-4 rounded-xl hover:bg-[#fe9a00] transition-colors shadow-lg">
+        <button
+          onClick={() => handleSaveSettings(false)}
+          disabled={isSaving}
+          className="flex-1 bg-zinc-800 text-white hover:text-black border border-zinc-700 font-black uppercase tracking-widest py-4 rounded-xl hover:bg-[#fe9a00] transition-colors cursor-pointer"
+        >
           {isSaving ? 'UPDATING...' : 'Save Rules (Future)'}
         </button>
-        <button onClick={() => handleSaveSettings(true)} disabled={isSaving} className="flex-1 bg-[#fe9a00] text-black border border-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-xl hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">
+        <button
+          onClick={() => handleSaveSettings(true)}
+          disabled={isSaving}
+          className="flex-1 bg-[#fe9a00] text-black border border-[#fe9a00] font-black uppercase tracking-widest py-4 rounded-xl hover:bg-white transition-colors cursor-pointer"
+        >
           {isSaving ? 'UPDATING...' : 'Save & Sync All Instantly'}
         </button>
       </div>
 
-      <form onSubmit={handleAirdrop} className="bg-black p-6 rounded-xl border border-[#fe9a00]/30 shadow-[0_0_30px_rgba(254,154,0,0.1)] mb-8">
+      <form
+        onSubmit={handleAirdrop}
+        className="bg-black p-6 rounded-xl border border-[#fe9a00]/30 mb-8"
+      >
         <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-6">
           <Gift className="w-4 h-4" /> Live Event & Prize Airdrop
         </h3>
-        
         <div className="flex flex-col md:flex-row gap-6 mb-6">
           <div className="flex-1">
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Hype Amount</label>
-            <input 
-              type="number" min="1" required
-              value={airdrop.amount} 
-              onChange={(e) => setAirdrop(prev => ({ ...prev, amount: Number(e.target.value) }))}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-[#fe9a00] text-xl font-black focus:border-[#fe9a00] outline-none transition-colors"
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">
+              Hype Amount
+            </label>
+            <input
+              type="number"
+              min="1"
+              required
+              value={airdrop.amount}
+              onChange={e => setAirdrop(prev => ({ ...prev, amount: Number(e.target.value) }))}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-[#fe9a00] text-xl font-black focus:border-[#fe9a00] outline-none"
             />
           </div>
-
           <div className="flex-1">
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Target Audience</label>
-            <select 
-              value={airdrop.target} 
-              onChange={(e) => setAirdrop(prev => ({ ...prev, target: e.target.value }))}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-4 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors cursor-pointer"
+            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">
+              Target Audience
+            </label>
+            <select
+              value={airdrop.target}
+              onChange={e => setAirdrop(prev => ({ ...prev, target: e.target.value }))}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-4 text-white text-sm font-bold focus:border-[#fe9a00] outline-none cursor-pointer"
             >
               <option value="specific">Specific User (Prize Winner)</option>
               <option value="all">Global (All Registered Users)</option>
             </select>
           </div>
-
           {airdrop.target === 'specific' && (
-            <div className="flex-1 animate-fade-in">
-              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Winner Username</label>
-              <input 
-                type="text" required
-                value={airdrop.username} 
-                onChange={(e) => setAirdrop(prev => ({ ...prev, username: e.target.value }))}
+            <div className="flex-1">
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">
+                Winner Username
+              </label>
+              <input
+                type="text"
+                required
+                value={airdrop.username}
+                onChange={e => setAirdrop(prev => ({ ...prev, username: e.target.value }))}
                 placeholder="Enter exact username..."
-                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-4 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-4 text-white text-sm font-bold focus:border-[#fe9a00] outline-none"
               />
             </div>
           )}
         </div>
-
-        <button type="submit" disabled={isBlasting} className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black font-black uppercase tracking-widest text-sm py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] disabled:opacity-50">
-          <Send className="w-5 h-5" />{isBlasting ? 'Blasting...' : 'Blast Hypes Now'}
+        <button
+          type="submit"
+          disabled={isBlasting}
+          className="w-full flex items-center justify-center gap-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-sm py-4 rounded-xl transition-all cursor-pointer"
+        >
+          <Send className="w-5 h-5" />
+          {isBlasting ? 'Blasting...' : 'Blast Hypes Now'}
         </button>
       </form>
 
-      {/* Leaderboards Kill Switch */}
-      <div className="bg-red-950/20 border border-red-900/50 p-6 rounded-xl relative overflow-hidden flex flex-col md:flex-row items-center gap-6">
-        <div className="flex-1 relative z-10">
+      <div className="bg-red-950/20 border border-red-900/50 p-6 rounded-xl flex flex-col md:flex-row items-center gap-6">
+        <div className="flex-1">
           <h3 className="text-sm font-black text-red-500 uppercase tracking-widest flex items-center gap-2 border-b border-red-900/50 pb-3 mb-3">
             <XCircle className="w-4 h-4" /> Reset Leaderboards
           </h3>
           <p className="text-[10px] font-bold text-red-400/80 uppercase tracking-widest leading-relaxed">
-            This wipes all aggregated hype tracking across Series, Creators, Chapters, and Characters for the current cycle.
+            Wipes all aggregated hype tracking across Series, Creators, Chapters, and Characters for the current cycle.
           </p>
         </div>
-        <div className="flex flex-col gap-3 relative z-10 w-full md:w-auto min-w-[250px]">
-          <input 
-            type="text" 
+        <div className="flex flex-col gap-3 w-full md:w-auto min-w-[250px]">
+          <input
+            type="text"
             placeholder="Type 'RESET LEADERBOARDS'"
             value={leaderboardResetConfirm}
-            onChange={(e) => setLeaderboardResetConfirm(e.target.value)}
-            className="w-full bg-black border border-red-900/50 rounded-lg p-4 text-red-500 text-[10px] font-black tracking-widest focus:border-red-500 outline-none text-center transition-colors placeholder:text-red-900/40"
+            onChange={e => setLeaderboardResetConfirm(e.target.value)}
+            className="w-full bg-black border border-red-900/50 rounded-lg p-4 text-red-500 text-[10px] font-black tracking-widest text-center"
           />
-          <button 
+          <button
             onClick={handleLeaderboardReset}
             disabled={leaderboardResetConfirm !== 'RESET LEADERBOARDS' || isResettingLeaderboards}
-            className="w-full py-3 bg-red-600 text-white font-black uppercase tracking-widest rounded-lg hover:bg-red-500 transition-colors shadow-[0_0_20px_rgba(220,38,38,0.3)] disabled:opacity-50 flex items-center justify-center text-xs"
+            className="w-full py-3 bg-red-600 text-white font-black uppercase tracking-widest rounded-lg hover:bg-red-500 transition-colors disabled:opacity-50 text-xs cursor-pointer"
           >
             {isResettingLeaderboards ? 'WIPING...' : 'WIPE LEADERBOARDS'}
           </button>
@@ -458,289 +1227,44 @@ const HypeManager = ({ setIsDirty }: any) => {
   );
 };
 
-// --- THIRD-PARTY INTEGRATIONS EDITOR ---
-const IntegrationsManager = ({ setIsDirty }: any) => {
-  const [settings, setSettings] = useState({
-    stripe_public_key: '',
-    shopify_domain: '',
-    admob_id: '',
-    applixr_id: '',
-    google_analytics_id: '',
-    meta_pixel_id: '',
-    tiktok_pixel_id: '',
-    openai_api_key: '',
-    resend_api_key: '',
-    moderator_emails: '',
-    moderator_email_mode: 'flagged_only'
-  });
-  const [isSaving, setIsSaving] = useState(false);
-
-  useEffect(() => {
-    const fetchSettings = async () => {
-      const { data } = await supabase.from('app_settings').select('*').eq('id', 1).maybeSingle();
-      if (data) {
-        setSettings({
-          stripe_public_key: data.stripe_public_key || '',
-          shopify_domain: data.shopify_domain || '',
-          admob_id: data.admob_id || '',
-          applixr_id: data.applixr_id || '',
-          google_analytics_id: data.google_analytics_id || '',
-          meta_pixel_id: data.meta_pixel_id || '',
-          tiktok_pixel_id: data.tiktok_pixel_id || '',
-          openai_api_key: data.openai_api_key || '',
-          resend_api_key: data.resend_api_key || '',
-          moderator_emails: data.moderator_emails ? data.moderator_emails.join(', ') : '',
-          moderator_email_mode: data.moderator_email_mode || 'flagged_only'
-        });
-      }
-    };
-    fetchSettings();
-  }, []);
-
-  const handleChange = (field: string, value: string) => {
-    setSettings(prev => ({ ...prev, [field]: value }));
-    setIsDirty(true);
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    
-    const emailsArray = settings.moderator_emails
-      .split(',')
-      .map(e => e.trim())
-      .filter(e => e.length > 0);
-
-    const payloadToSave = { 
-      id: 1, 
-      ...settings,
-      moderator_emails: emailsArray 
-    };
-
-    const { error } = await supabase.from('app_settings').upsert(payloadToSave);
-    setIsSaving(false);
-    if (error) alert("Error saving integrations: " + error.message);
-    else { alert("Integrations Updated Successfully!"); setIsDirty(false); }
-  };
-
-  return (
-    <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-lg animate-fade-in-up max-w-4xl">
-      <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
-        <LinkIcon className="w-6 h-6 text-[#fe9a00]" />
-        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Third-Party Integrations</h2>
-      </div>
-
-      <div className="bg-[#fe9a00]/10 p-6 rounded-xl border border-[#fe9a00]/30 mb-8 space-y-6">
-        <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-[#fe9a00]/30 pb-3">
-          <ShieldAlert className="w-4 h-4" /> AI Moderation & Email Alerts
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Moderator Emails (Comma Separated)</label>
-            <input 
-              type="text" 
-              placeholder="admin@saturdayam.com, mod2@saturdayam.com" 
-              value={settings.moderator_emails} 
-              onChange={(e) => handleChange('moderator_emails', e.target.value)}
-              className="w-full bg-black border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Email Dispatch Mode</label>
-            <select 
-              value={settings.moderator_email_mode} 
-              onChange={(e) => handleChange('moderator_email_mode', e.target.value)}
-              className="w-full bg-black border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors cursor-pointer"
-            >
-              <option value="flagged_only">Flagged Comments Only (Recommended)</option>
-              <option value="all">All Comments (Flagged & Clean)</option>
-              <option value="clean_only">Non-Flagged Comments Only</option>
-              <option value="off">Muted (Off)</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">OpenAI API Key (Context Moderation)</label>
-            <input 
-              type="password" 
-              placeholder="sk-..." 
-              value={settings.openai_api_key} 
-              onChange={(e) => handleChange('openai_api_key', e.target.value)}
-              className="w-full bg-black border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Resend API Key (Email Alerts)</label>
-            <input 
-              type="password" 
-              placeholder="re_..." 
-              value={settings.resend_api_key} 
-              onChange={(e) => handleChange('resend_api_key', e.target.value)}
-              className="w-full bg-black border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-6">
-        <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
-          <CreditCard className="w-4 h-4 text-[#fe9a00]" /> E-Commerce & Ads
-        </h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Stripe Publishable Key</label>
-            <input 
-              type="text" 
-              placeholder="pk_live_..." 
-              value={settings.stripe_public_key} 
-              onChange={(e) => handleChange('stripe_public_key', e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Shopify Store URL (Live Feed)</label>
-            <input 
-              type="text" 
-              placeholder="shopsaturdayam.com" 
-              value={settings.shopify_domain} 
-              onChange={(e) => handleChange('shopify_domain', e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">AdMob App ID</label>
-            <input 
-              type="text" 
-              placeholder="ca-app-pub-..." 
-              value={settings.admob_id} 
-              onChange={(e) => handleChange('admob_id', e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Applixr Tag ID</label>
-            <input 
-              type="text" 
-              placeholder="Enter Applixr ID..." 
-              value={settings.applixr_id} 
-              onChange={(e) => handleChange('applixr_id', e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-6">
-        <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
-          <LineChart className="w-4 h-4 text-[#fe9a00]" /> Analytics & Pixels
-        </h3>
-
-        <div>
-          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Google Analytics (G-Tag / GAM ID)</label>
-          <input 
-            type="text" 
-            placeholder="G-XXXXXXXXXX" 
-            value={settings.google_analytics_id} 
-            onChange={(e) => handleChange('google_analytics_id', e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
-          />
-        </div>
-
-        <div>
-          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Meta (Facebook) Pixel ID</label>
-          <input 
-            type="text" 
-            placeholder="Enter your Meta Pixel ID..." 
-            value={settings.meta_pixel_id} 
-            onChange={(e) => handleChange('meta_pixel_id', e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
-          />
-        </div>
-
-        <div>
-          <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">TikTok Pixel ID</label>
-          <input 
-            type="text" 
-            placeholder="Enter your TikTok Pixel ID..." 
-            value={settings.tiktok_pixel_id} 
-            onChange={(e) => handleChange('tiktok_pixel_id', e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-white text-sm font-bold focus:border-[#fe9a00] outline-none transition-colors"
-          />
-        </div>
-      </div>
-
-      <button onClick={handleSave} disabled={isSaving} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-4 rounded-xl hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)]">
-        {isSaving ? 'UPDATING...' : 'Save Integrations'}
-      </button>
-    </div>
-  );
-};
-
-type LedgerSortOption =
-  | 'date_desc'
-  | 'date_asc'
-  | 'name_asc'
-  | 'name_desc'
-  | 'email_asc'
-  | 'email_desc'
-  | 'code_asc'
-  | 'code_desc';
-
-// --- CONSOLIDATED 1-YEAR ANNUAL PRO CODE MANAGER (BATCH + CUSTOM BRANDED + SHOPIFY) ---
 const PromoCodeManager = () => {
   const [batchCodes, setBatchCodes] = useState<any[]>([]);
   const [brandedCodes, setBrandedCodes] = useState<any[]>([]);
-
-  // 1. Batch Generator State
   const [batchSize, setBatchSize] = useState<number | ''>('');
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchMessage, setBatchMessage] = useState('');
-
-  // 2. Custom-Branded Annual Code State
   const [customCode, setCustomCode] = useState('');
   const [maxUses, setMaxUses] = useState(1);
   const [expireDays, setExpireDays] = useState(365);
   const [isCreatingCustom, setIsCreatingCustom] = useState(false);
-
-  // 3. Unified Ledger Filter, Sort & Distribution State (Default: Newest Purchase First)
   const [ledgerFilter, setLedgerFilter] = useState<'all' | 'batch' | 'branded'>('all');
   const [ledgerSearch, setLedgerSearch] = useState('');
-  const [ledgerSort, setLedgerSort] = useState<LedgerSortOption>('date_desc');
   const [pendingSold, setPendingSold] = useState<Record<string, boolean>>({});
   const [isSavingLedger, setIsSavingLedger] = useState(false);
 
   const fetchAllAnnualCodes = async () => {
     const { data: pData } = await supabase.rpc('fetch_premium_ledger');
     if (pData) setBatchCodes(pData);
-
     const { data: cData } = await supabase
       .from('promo_codes')
       .select('*')
       .order('created_at', { ascending: false });
-    if (cData) setBrandedCodes(cData);
+    if (cData) {
+      setBrandedCodes(cData.filter((r: any) => !isCreatorInviteRow(r)));
+    }
   };
 
   useEffect(() => {
     fetchAllAnnualCodes();
   }, []);
 
-  // --- BATCH CSV GENERATION ---
   const downloadCSV = (codes: { generated_code: string }[]) => {
-    const csvContent = "data:text/csv;charset=utf-8,"
-      + "Premium Code\n"
-      + codes.map(c => c.generated_code).join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `Premium_Codes_${new Date().toISOString().split('T')[0]}.csv`);
+    const csvContent =
+      'data:text/csv;charset=utf-8,Premium Code\n' +
+      codes.map(c => c.generated_code).join('\n');
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute('download', `Premium_Codes_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -750,18 +1274,14 @@ const PromoCodeManager = () => {
     if (!batchSize || batchSize <= 0) return;
     setBatchLoading(true);
     setBatchMessage('');
-
     const { data, error } = await supabase.rpc('generate_premium_codes', {
       batch_size: Number(batchSize)
     });
-
     if (error) {
-      console.error(error);
       setBatchMessage(`Error: ${error.message}`);
       setBatchLoading(false);
       return;
     }
-
     if (data && data.length > 0) {
       downloadCSV(data);
       setBatchMessage(`Successfully generated ${data.length} codes! CSV downloaded.`);
@@ -771,7 +1291,6 @@ const PromoCodeManager = () => {
     setBatchLoading(false);
   };
 
-  // --- CUSTOM-BRANDED 1-YEAR CODE CREATION ---
   const generateBrandedSuggestion = () => {
     const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
     setCustomCode(`SATAM-PRO-${suffix}`);
@@ -780,25 +1299,21 @@ const PromoCodeManager = () => {
   const handleCreateCustomAnnual = async (e: React.FormEvent) => {
     e.preventDefault();
     const clean = customCode.trim().toUpperCase().replace(/\s+/g, '-');
-    if (!clean) return alert("Please enter a custom-branded code.");
-
+    if (!clean) return alert('Please enter a custom-branded code.');
     setIsCreatingCustom(true);
-
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + Number(expireDays || 365));
-
-    const { error } = await supabase.from('promo_codes').insert([{
-      code: clean,
-      tier: 'premium',
-      max_uses: Number(maxUses) || 1,
-      expires_at: expiresAt.toISOString()
-    }]);
-
+    const { error } = await supabase.from('promo_codes').insert([
+      {
+        code: clean,
+        tier: 'premium',
+        max_uses: Number(maxUses) || 1,
+        expires_at: expiresAt.toISOString()
+      }
+    ]);
     setIsCreatingCustom(false);
-
-    if (error) {
-      alert("Error creating custom annual code: " + error.message);
-    } else {
+    if (error) alert('Error creating custom annual code: ' + error.message);
+    else {
       alert(`Custom 1-Year Pro Code "${clean}" created!`);
       setCustomCode('');
       setMaxUses(1);
@@ -816,7 +1331,6 @@ const PromoCodeManager = () => {
   const handleSaveLedger = async () => {
     const changes = Object.entries(pendingSold);
     if (changes.length === 0) return;
-
     setIsSavingLedger(true);
     for (const [code, is_sold] of changes) {
       await supabase.rpc('update_premium_code_sold', { p_code: code, p_is_sold: is_sold });
@@ -826,70 +1340,19 @@ const PromoCodeManager = () => {
     setIsSavingLedger(false);
   };
 
-  const hasPendingChanges = Object.keys(pendingSold).length > 0;
-
-  const filteredBatchCodes = useMemo(() => {
-    const q = ledgerSearch.trim().toUpperCase();
-    const base = !q
-      ? batchCodes
-      : batchCodes.filter(c => String(c.code || '').toUpperCase().includes(q));
-
-    return [...base].sort((a, b) => {
-      const timeA = a.created_at ? new Date(a.created_at).getTime() : (a.redeemed_at ? new Date(a.redeemed_at).getTime() : 0);
-      const timeB = b.created_at ? new Date(b.created_at).getTime() : (b.redeemed_at ? new Date(b.redeemed_at).getTime() : 0);
-      switch (ledgerSort) {
-        case 'date_asc':
-          return timeA - timeB;
-        case 'code_asc':
-          return String(a.code || '').localeCompare(String(b.code || ''));
-        case 'code_desc':
-          return String(b.code || '').localeCompare(String(a.code || ''));
-        default:
-          return timeB - timeA;
-      }
-    });
-  }, [batchCodes, ledgerSearch, ledgerSort]);
-
   const filteredBrandedCodes = useMemo(() => {
     const q = ledgerSearch.trim().toUpperCase();
     const base = !q
       ? brandedCodes
-      : brandedCodes.filter(c =>
-          String(c.code || '').toUpperCase().includes(q) ||
-          String(c.buyer_name || '').toUpperCase().includes(q) ||
-          String(c.buyer_email || '').toUpperCase().includes(q) ||
-          String(c.buyer_phone || '').toUpperCase().includes(q) ||
-          String(c.buyer_address || '').toUpperCase().includes(q) ||
-          String(c.order_number || '').toUpperCase().includes(q)
+      : brandedCodes.filter(
+          c =>
+            String(c.code || '').toUpperCase().includes(q) ||
+            String(c.buyer_name || '').toUpperCase().includes(q) ||
+            String(c.buyer_email || '').toUpperCase().includes(q) ||
+            String(c.order_number || '').toUpperCase().includes(q)
         );
-
-    const getName = (c: any) => String(c.buyer_name || c.code || 'zzzz').trim().toLowerCase();
-    const getEmail = (c: any) => String(c.buyer_email || c.code || 'zzzz').trim().toLowerCase();
-    const getTime = (c: any) => (c.created_at ? new Date(c.created_at).getTime() : 0);
-
-    return [...base].sort((a, b) => {
-      switch (ledgerSort) {
-        case 'date_desc':
-          return getTime(b) - getTime(a);
-        case 'date_asc':
-          return getTime(a) - getTime(b);
-        case 'name_asc':
-          return getName(a).localeCompare(getName(b));
-        case 'name_desc':
-          return getName(b).localeCompare(getName(a));
-        case 'email_asc':
-          return getEmail(a).localeCompare(getEmail(b));
-        case 'email_desc':
-          return getEmail(b).localeCompare(getEmail(a));
-        case 'code_asc':
-          return String(a.code || '').localeCompare(String(b.code || ''));
-        case 'code_desc':
-          return String(b.code || '').localeCompare(String(a.code || ''));
-        default:
-          return getTime(b) - getTime(a);
-      }
-    });
-  }, [brandedCodes, ledgerSearch, ledgerSort]);
+    return [...base];
+  }, [brandedCodes, ledgerSearch]);
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl animate-fade-in">
@@ -898,7 +1361,7 @@ const PromoCodeManager = () => {
           <Key className="w-6 h-6 text-[#fe9a00]" />
           <div>
             <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
-              1-Year Annual Pro Codes
+              1-Year Annual Pro Access Keys
             </h2>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
               Generate store batch codes or custom-branded annual subscription keys
@@ -907,19 +1370,15 @@ const PromoCodeManager = () => {
         </div>
       </div>
 
-      {/* TOP GENERATORS GRID: CUSTOM BRANDED + BATCH CSV */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        
-        {/* 1. CREATE CUSTOM-BRANDED 1-YEAR CODE */}
-        <form onSubmit={handleCreateCustomAnnual} className="bg-black border border-[#fe9a00]/40 shadow-[0_0_30px_rgba(254,154,0,0.08)] p-6 rounded-xl flex flex-col justify-between">
+        <form
+          onSubmit={handleCreateCustomAnnual}
+          className="bg-black border border-[#fe9a00]/40 p-6 rounded-xl flex flex-col justify-between"
+        >
           <div>
             <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-4">
               <Tag className="w-4 h-4" /> Custom-Branded Annual Code
             </h3>
-            <p className="text-zinc-400 text-xs font-bold mb-5 leading-relaxed">
-              Create a memorable, custom-branded 1-Year Pro code for partners, conventions, or VIPs (e.g., <span className="text-white">APPLEBLACK-VIP</span> or <span className="text-white">NYCC-2026</span>).
-            </p>
-
             <div className="space-y-4">
               <div>
                 <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
@@ -932,18 +1391,17 @@ const PromoCodeManager = () => {
                     onChange={e => setCustomCode(e.target.value.toUpperCase())}
                     required
                     placeholder="e.g. SATAM-VIP-2026"
-                    className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl text-[#fe9a00] px-4 py-3 font-black tracking-widest text-sm focus:outline-none focus:border-[#fe9a00]"
+                    className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl text-[#fe9a00] px-4 py-3 font-black tracking-widest text-sm"
                   />
                   <button
                     type="button"
                     onClick={generateBrandedSuggestion}
-                    className="bg-zinc-800 text-zinc-300 hover:text-white px-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-zinc-700 transition-colors cursor-pointer"
+                    className="bg-zinc-800 text-zinc-300 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest cursor-pointer"
                   >
                     Suggest
                   </button>
                 </div>
               </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
@@ -956,7 +1414,7 @@ const PromoCodeManager = () => {
                     value={maxUses}
                     onChange={e => setMaxUses(Number(e.target.value))}
                     required
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]"
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm"
                   />
                 </div>
                 <div>
@@ -970,291 +1428,135 @@ const PromoCodeManager = () => {
                     value={expireDays}
                     onChange={e => setExpireDays(Number(e.target.value))}
                     required
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]"
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm"
                   />
                 </div>
               </div>
             </div>
           </div>
-
           <button
             type="submit"
             disabled={isCreatingCustom || !customCode.trim()}
-            className="mt-6 w-full flex items-center justify-center gap-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.25)] disabled:opacity-50 cursor-pointer"
+            className="mt-6 w-full flex items-center justify-center gap-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl cursor-pointer"
           >
-            {isCreatingCustom ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
             {isCreatingCustom ? 'Creating...' : 'Create Branded 1-Year Code'}
           </button>
         </form>
 
-        {/* 2. BATCH GENERATE RANDOM STORE CODES */}
         <div className="bg-black border border-zinc-800 p-6 rounded-xl flex flex-col justify-between">
           <div>
             <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-4">
               <Download className="w-4 h-4 text-[#fe9a00]" /> Batch Generate Store Codes (CSV)
             </h3>
-            <p className="text-zinc-400 text-xs font-bold mb-5 leading-relaxed">
-              Generate single-use 12-character 1-Year Pro codes (<span className="text-zinc-300 font-mono">XXXX-XXXX-XXXX</span>) in bulk for Shopify fulfillment. Downloads a ready-to-import CSV automatically.
-            </p>
-
-            <div>
-              <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
-                Number of Single-Use Codes to Generate
-              </label>
-              <input
-                type="number"
-                min="1"
-                max="1000"
-                placeholder="Quantity (e.g. 50)"
-                value={batchSize}
-                onChange={(e) => setBatchSize(e.target.value ? Number(e.target.value) : '')}
-                className="w-full bg-zinc-900 border border-zinc-700 p-3.5 rounded-xl text-white text-sm font-bold focus:outline-none focus:border-[#fe9a00] transition-colors"
-              />
-            </div>
-
-            {batchMessage && (
-              <p className={`mt-4 text-xs font-bold ${batchMessage.includes('Error') ? 'text-red-500' : 'text-emerald-400'}`}>
-                {batchMessage}
-              </p>
-            )}
+            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+              Number of Single-Use Codes to Generate
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="1000"
+              placeholder="Quantity (e.g. 50)"
+              value={batchSize}
+              onChange={e => setBatchSize(e.target.value ? Number(e.target.value) : '')}
+              className="w-full bg-zinc-900 border border-zinc-700 p-3.5 rounded-xl text-white text-sm font-bold"
+            />
+            {batchMessage && <p className="mt-4 text-xs font-bold text-emerald-400">{batchMessage}</p>}
           </div>
-
           <button
             type="button"
             onClick={handleBatchGenerate}
             disabled={batchLoading || !batchSize}
-            className="mt-6 w-full bg-zinc-800 hover:bg-[#fe9a00] text-white hover:text-black py-4 rounded-xl font-black uppercase tracking-widest text-xs transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+            className="mt-6 w-full bg-zinc-800 hover:bg-[#fe9a00] text-white hover:text-black py-4 rounded-xl font-black uppercase tracking-widest text-xs cursor-pointer"
           >
-            {batchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             {batchLoading ? 'Generating Batch...' : 'Generate & Export CSV'}
           </button>
         </div>
-
       </div>
 
-      {/* UNIFIED MASTER LEDGER */}
       <div className="bg-black p-6 rounded-xl border border-zinc-800">
-        <div className="flex flex-col gap-4 border-b border-zinc-800 pb-4 mb-5">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3">
-                <h3 className="text-sm font-black uppercase tracking-widest text-[#fe9a00]">
-                  Master Annual Codes Ledger
-                </h3>
-                {hasPendingChanges && (
-                  <button
-                    onClick={handleSaveLedger}
-                    disabled={isSavingLedger}
-                    className="bg-[#fe9a00] text-black text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded flex items-center gap-1 transition-all shadow-[0_0_10px_rgba(254,154,0,0.4)] cursor-pointer"
-                  >
-                    {isSavingLedger ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save Distributed Marks'}
-                  </button>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-4 mt-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                <span>Shopify & Branded: <strong className="text-white">{brandedCodes.length}</strong></span>
-                <span>Batch Codes: <strong className="text-white">{batchCodes.length}</strong></span>
-                <span>Redeemed Batch: <strong className="text-emerald-400">{batchCodes.filter(c => c.is_used).length}</strong></span>
-                <span>Distributed: <strong className="text-[#fe9a00]">{batchCodes.filter(c => c.is_sold).length}</strong></span>
-              </div>
-            </div>
-
-            {/* Filter Pills */}
-            <div className="flex bg-zinc-900 p-1 rounded-lg border border-zinc-800 self-start md:self-auto">
-              <button
-                type="button"
-                onClick={() => setLedgerFilter('all')}
-                className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer ${ledgerFilter === 'all' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}
-              >
-                All ({batchCodes.length + brandedCodes.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setLedgerFilter('branded')}
-                className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer ${ledgerFilter === 'branded' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}
-              >
-                Shopify & Branded ({brandedCodes.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setLedgerFilter('batch')}
-                className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer ${ledgerFilter === 'batch' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'}`}
-              >
-                Batch ({batchCodes.length})
-              </button>
-            </div>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-zinc-800">
+          <div className="relative flex-1">
+            <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search code, purchaser name, email, order #..."
+              value={ledgerSearch}
+              onChange={e => setLedgerSearch(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 text-white pl-8 pr-3 py-2 rounded-lg text-xs font-bold"
+            />
           </div>
-
-          {/* Search & Sort Controls */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="relative flex-1">
-              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search code, purchaser name, email, order #, address..."
-                value={ledgerSearch}
-                onChange={(e) => setLedgerSearch(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-700 text-white pl-8 pr-3 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00]"
-              />
-            </div>
-
-            <div className="relative">
-              <ArrowUpDown className="w-3.5 h-3.5 text-[#fe9a00] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <select
-                value={ledgerSort}
-                onChange={(e) => setLedgerSort(e.target.value as LedgerSortOption)}
-                className="w-full sm:w-auto bg-zinc-900 border border-zinc-700 text-white pl-8 pr-4 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
-                title="Sort Access Keys & Purchases"
-              >
-                <option value="date_desc">Sort: Newest Purchase First (Default)</option>
-                <option value="date_asc">Sort: Oldest Purchase First</option>
-                <option value="name_asc">Sort: Purchaser Name (A → Z)</option>
-                <option value="name_desc">Sort: Purchaser Name (Z → A)</option>
-                <option value="email_asc">Sort: Email Address (A → Z)</option>
-                <option value="email_desc">Sort: Email Address (Z → A)</option>
-                <option value="code_asc">Sort: Code (A → Z)</option>
-                <option value="code_desc">Sort: Code (Z → A)</option>
-              </select>
-            </div>
+          <div className="flex bg-zinc-900 p-1 rounded-lg border border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setLedgerFilter('all')}
+              className={`px-3 py-1.5 rounded text-[9px] font-black uppercase cursor-pointer ${
+                ledgerFilter === 'all' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400'
+              }`}
+            >
+              All ({batchCodes.length + brandedCodes.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setLedgerFilter('branded')}
+              className={`px-3 py-1.5 rounded text-[9px] font-black uppercase cursor-pointer ${
+                ledgerFilter === 'branded' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400'
+              }`}
+            >
+              Shopify & Branded ({brandedCodes.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setLedgerFilter('batch')}
+              className={`px-3 py-1.5 rounded text-[9px] font-black uppercase cursor-pointer ${
+                ledgerFilter === 'batch' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400'
+              }`}
+            >
+              Batch ({batchCodes.length})
+            </button>
           </div>
+          {Object.keys(pendingSold).length > 0 && (
+            <button
+              onClick={handleSaveLedger}
+              disabled={isSavingLedger}
+              className="bg-[#fe9a00] text-black text-[9px] font-black uppercase px-3 py-2 rounded-lg cursor-pointer"
+            >
+              Save Distributed Marks
+            </button>
+          )}
         </div>
 
-        <div className="space-y-3 max-h-[520px] overflow-y-auto pr-2 custom-scrollbar">
-          {/* SHOPIFY & CUSTOM-BRANDED ANNUAL CODES */}
-          {(ledgerFilter === 'all' || ledgerFilter === 'branded') && filteredBrandedCodes.map((c) => {
-            const isExpired = c.expires_at && new Date() > new Date(c.expires_at);
-            const isDepleted = c.max_uses && c.times_used >= c.max_uses;
-            const isInactive = isExpired || isDepleted;
-            const isShopifyOrder = Boolean(c.buyer_email || c.buyer_name || c.order_number);
-
-            return (
+        <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+          {(ledgerFilter === 'all' || ledgerFilter === 'branded') &&
+            filteredBrandedCodes.map(c => (
               <div
                 key={`branded-${c.id}`}
                 className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-zinc-950 border border-[#fe9a00]/40 p-4 rounded-xl gap-4"
               >
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/40 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded">
-                      {isShopifyOrder ? `Shopify Order ${c.order_number || ''}` : 'Custom Branded • 1-Year Pro'}
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="bg-[#fe9a00]/20 text-[#fe9a00] text-[8px] font-black uppercase px-2 py-0.5 rounded">
+                      {c.order_number ? `Shopify ${c.order_number}` : 'Custom Branded'}
                     </span>
-                    <h4 className={`font-black tracking-widest text-sm sm:text-base ${isInactive ? 'text-zinc-600 line-through' : 'text-white'}`}>
-                      {c.code}
-                    </h4>
-                    {c.created_at && (
-                      <span className="text-[10px] font-mono text-zinc-400 flex items-center gap-1">
-                        <Calendar className="w-3 h-3 text-[#fe9a00]" />
-                        Purchased: {new Date(c.created_at).toLocaleDateString()} {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    )}
+                    <h4 className="font-black tracking-widest text-sm text-white">{c.code}</h4>
                   </div>
-
-                  {/* PURCHASER NAME, EMAIL, PHONE & ADDRESS DISPLAY */}
-                  {isShopifyOrder && (
-                    <div className="bg-zinc-900/80 border border-zinc-800 rounded-lg px-3 py-2 text-xs space-y-1">
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                        {c.buyer_name && (
-                          <span className="text-zinc-300 font-bold">
-                            Purchaser: <strong className="text-white">{c.buyer_name}</strong>
-                          </span>
-                        )}
-                        {c.buyer_email && (
-                          <span className="text-[#fe9a00] font-bold flex items-center gap-1">
-                            <Mail className="w-3 h-3" /> {c.buyer_email}
-                          </span>
-                        )}
-                        {c.buyer_phone && (
-                          <span className="text-emerald-400 font-bold flex items-center gap-1 text-[11px]">
-                            <Phone className="w-3 h-3" /> {c.buyer_phone}
-                          </span>
-                        )}
-                      </div>
-                      {c.buyer_address && (
-                        <div className="text-[11px] text-zinc-400 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-[#fe9a00] shrink-0" />
-                          <span>{c.buyer_address}</span>
-                        </div>
-                      )}
+                  {(c.buyer_name || c.buyer_email) && (
+                    <div className="text-xs text-zinc-300 font-bold">
+                      {c.buyer_name} {c.buyer_email ? `• ${c.buyer_email}` : ''}
                     </div>
                   )}
-
-                  <div className="flex flex-wrap items-center gap-3 pt-0.5">
-                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${isInactive ? 'text-emerald-400 border-emerald-900 bg-emerald-900/10' : 'text-[#fe9a00] border-[#fe9a00]/40 bg-[#fe9a00]/10'}`}>
-                      {isDepleted ? 'CLAIMED / AUTO-UPGRADED' : isExpired ? 'EXPIRED' : 'ACTIVE (UNCLAIMED)'}
-                    </span>
-                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
-                      Redeemed: <strong className="text-white">{c.times_used || 0} / {c.max_uses || 1}</strong>
-                    </span>
-                    {c.expires_at && (
-                      <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
-                        Expires: {new Date(c.expires_at).toLocaleDateString()}
-                      </span>
-                    )}
+                  <div className="text-[9px] text-zinc-400 font-bold uppercase">
+                    Redeemed: {c.times_used || 0} / {c.max_uses || 1}
                   </div>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => handleDeleteBranded(c.id, c.code)}
-                  className="p-2 text-zinc-500 hover:text-red-500 hover:bg-red-900/20 rounded-lg transition-colors self-end sm:self-auto cursor-pointer"
-                  title="Delete Branded Code"
+                  className="p-2 text-zinc-500 hover:text-red-500 cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
-            );
-          })}
-
-          {/* EXISTING & NEW 1-YEAR BATCH CODES */}
-          {(ledgerFilter === 'all' || ledgerFilter === 'batch') && filteredBatchCodes.map((c) => {
-            const statusColor = c.is_used
-              ? 'text-zinc-500 border-zinc-800 bg-zinc-900/50'
-              : 'text-emerald-500 border-emerald-900 bg-emerald-900/10';
-            const isSold = pendingSold[c.code] !== undefined ? pendingSold[c.code] : (c.is_sold || false);
-
-            return (
-              <div
-                key={`batch-${c.id}`}
-                className={`flex flex-col border p-4 rounded-xl gap-2 transition-colors ${
-                  isSold && !c.is_used ? 'bg-zinc-900/80 border-[#fe9a00]/30' : 'bg-zinc-950 border-zinc-800'
-                }`}
-              >
-                <div className="flex justify-between items-center gap-3">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={isSold}
-                      onChange={() => setPendingSold(prev => ({ ...prev, [c.code]: !isSold }))}
-                      className="w-4 h-4 accent-[#fe9a00] rounded cursor-pointer shrink-0"
-                      disabled={c.is_used}
-                      title={c.is_used ? "Already redeemed by a user" : "Mark as sold/distributed"}
-                    />
-                    <h4 className={`font-black tracking-widest text-sm sm:text-base ${c.is_used ? 'text-zinc-600 line-through' : (isSold ? 'text-[#fe9a00]' : 'text-white')}`}>
-                      {c.code}
-                    </h4>
-                  </div>
-                  <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border shrink-0 ${statusColor}`}>
-                    {c.is_used ? 'REDEEMED' : 'UNUSED'}
-                  </span>
-                </div>
-                {c.is_used && c.redeemed_at && (
-                  <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest ml-7">
-                    Redeemed: {new Date(c.redeemed_at).toLocaleDateString()}
-                  </p>
-                )}
-                {!c.is_used && isSold && (
-                  <p className="text-[9px] text-[#fe9a00]/80 font-bold uppercase tracking-widest ml-7">
-                    Marked as Distributed
-                  </p>
-                )}
-              </div>
-            );
-          })}
-
-          {filteredBatchCodes.length === 0 && filteredBrandedCodes.length === 0 && (
-            <p className="text-zinc-500 text-sm font-bold italic text-center py-12">
-              No annual codes match your filter.
-            </p>
-          )}
+            ))}
         </div>
       </div>
     </div>
@@ -1271,99 +1573,69 @@ const MasterSignatureManager = ({ Dropzone }: any) => {
   const [dbCreators, setDbCreators] = useState<string[]>([]);
 
   const fetchSignaturesAndPins = async () => {
-    const { data: sigs } = await supabase.from('creator_signatures').select('*').order('creator_name', { ascending: true });
+    const { data: sigs } = await supabase
+      .from('creator_signatures')
+      .select('*')
+      .order('creator_name', { ascending: true });
     if (sigs) setSignatures(sigs);
 
-    const { data: codes } = await supabase.from('bingo_codes').select('code, creator_name, expires_at');
+    const { data: codes } = await supabase
+      .from('bingo_codes')
+      .select('code, creator_name, expires_at');
     if (codes) {
       const pinMap: Record<string, string> = {};
       const now = new Date();
       codes.forEach(c => {
-        if (new Date(c.expires_at) > now) {
-          pinMap[c.creator_name] = c.code;
-        }
+        if (new Date(c.expires_at) > now) pinMap[c.creator_name] = c.code;
       });
       setActivePins(pinMap);
     }
   };
 
-  useEffect(() => { 
-    const fetchDbCreators = async () => {
-      const { data } = await supabase.from('series_creators').select('name');
-      if (data) setDbCreators(data.map((c: any) => c.name));
-    };
-    fetchDbCreators();
-    fetchSignaturesAndPins(); 
+  useEffect(() => {
+    supabase
+      .from('series_creators')
+      .select('name')
+      .then(({ data }) => {
+        if (data) setDbCreators(data.map((c: any) => c.name));
+      });
+    fetchSignaturesAndPins();
   }, []);
 
   const creatorOptions = useMemo(() => {
-    const uniqueMap = new Map();
-    
-    dbCreators.forEach((name: string) => {
-      if (name && name.trim().length >= 2) {
-        uniqueMap.set(name.trim().toLowerCase(), name.trim());
-      }
+    const uniqueMap = new Map<string, string>();
+    dbCreators.forEach(name => {
+      if (name && name.trim().length >= 2) uniqueMap.set(name.trim().toLowerCase(), name.trim());
     });
-
-    const processName = (nameInput: any) => {
-      if (!nameInput) return;
-      const namesArray = Array.isArray(nameInput) ? nameInput.flat(Infinity) : [nameInput];
-      namesArray.forEach((nameObj: any) => {
-        let nameStr = nameObj;
-        if (typeof nameObj === 'object' && nameObj !== null) {
-          if (nameObj.is_visible === false) return; 
-          nameStr = nameObj.name || nameObj.fullName || nameObj.value || nameObj.text || Object.values(nameObj)[0];
-        }
-        if (typeof nameStr !== 'string') return;
-        nameStr = nameStr.replace(/^(written by|art by|created by|story by|illustrated by)[:\s]+/i, '');
-        const splitNames = nameStr.split(/,|\s+&\s+|\s+and\s+|\s*\/\s*/i);
-        splitNames.forEach((rawName: string) => {
-          const cName = rawName.trim();
-          if (cName.length >= 2) {
-            const mapKey = cName.toLowerCase();
-            if (!uniqueMap.has(mapKey)) uniqueMap.set(mapKey, cName);
-          }
-        });
-      });
-    };
-
-    seriesList.forEach((series: any) => {
-      if (series.creators && Array.isArray(series.creators) && series.creators.length > 0) processName(series.creators);
-      else {
-        processName(series.creator_name || series.creator);
-        processName(series.writer_name || series.writer || series.author_name);
-        processName(series.artist_name || series.artist || series.illustrator);
-        processName(series.co_creator_name || series.co_creator);
-      }
+    seriesList.forEach((s: any) => {
+      if (s.creator_name) uniqueMap.set(s.creator_name.trim().toLowerCase(), s.creator_name.trim());
     });
-    return Array.from(uniqueMap.values()).sort((a: any, b: any) => a.localeCompare(b));
+    return Array.from(uniqueMap.values()).sort((a, b) => a.localeCompare(b));
   }, [seriesList, dbCreators]);
-
-  const handleCreatorChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedName = e.target.value;
-    setCreatorName(selectedName);
-    
-    const existingSig = signatures.find(s => s.creator_name === selectedName);
-    if (existingSig) {
-      setSignatureUrl(existingSig.signature_url);
-    } else {
-      setSignatureUrl('');
-    }
-  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!creatorName || !signatureUrl) return alert("Please select a creator and upload a signature image.");
+    if (!creatorName || !signatureUrl)
+      return alert('Please select a creator and upload a signature image.');
     setIsSubmitting(true);
-    const { error } = await supabase.from('creator_signatures').upsert({ creator_name: creatorName.trim(), signature_url: signatureUrl }, { onConflict: 'creator_name' });
+    const { error } = await supabase
+      .from('creator_signatures')
+      .upsert(
+        { creator_name: creatorName.trim(), signature_url: signatureUrl },
+        { onConflict: 'creator_name' }
+      );
     setIsSubmitting(false);
-
-    if (error) alert("Error saving signature: " + error.message);
-    else { alert('Signature Vault Updated!'); setCreatorName(''); setSignatureUrl(''); fetchSignaturesAndPins(); }
+    if (error) alert('Error saving signature: ' + error.message);
+    else {
+      alert('Signature Vault Updated!');
+      setCreatorName('');
+      setSignatureUrl('');
+      fetchSignaturesAndPins();
+    }
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this signature? Fans will no longer be able to claim it.")) return;
+    if (!window.confirm('Delete this signature?')) return;
     const { error } = await supabase.from('creator_signatures').delete().eq('id', id);
     if (!error) fetchSignaturesAndPins();
   };
@@ -1372,16 +1644,36 @@ const MasterSignatureManager = ({ Dropzone }: any) => {
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-4xl animate-fade-in">
       <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
         <PenTool className="w-6 h-6 text-[#fe9a00]" />
-        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Signature Vault</h2>
+        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
+          Signature Vault
+        </h2>
       </div>
-      <form onSubmit={handleSave} className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-4">
-        <p className="text-xs text-zinc-400 font-bold mb-4">Upload pre-drawn transparent PNG signatures or sketches.</p>
+      <form
+        onSubmit={handleSave}
+        className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-4"
+      >
         <div className="flex flex-col md:flex-row gap-6">
           <div className="flex-1">
-            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Select Creator</label>
-            <select value={creatorName} onChange={handleCreatorChange} required className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00] mb-4 cursor-pointer">
+            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">
+              Select Creator
+            </label>
+            <select
+              value={creatorName}
+              onChange={e => {
+                const val = e.target.value;
+                setCreatorName(val);
+                const found = signatures.find(s => s.creator_name === val);
+                setSignatureUrl(found ? found.signature_url : '');
+              }}
+              required
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm mb-4 cursor-pointer"
+            >
               <option value="">-- Choose a Creator --</option>
-              {creatorOptions.map((name: string) => <option key={name} value={name}>{name}</option>)}
+              {creatorOptions.map(name => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
             </select>
             {signatureUrl && (
               <div className="bg-zinc-900 border border-zinc-700 p-4 rounded-xl flex justify-center items-center">
@@ -1390,36 +1682,54 @@ const MasterSignatureManager = ({ Dropzone }: any) => {
             )}
           </div>
           <div className="flex-1">
-            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Upload Transparent PNG</label>
-            <Dropzone label={signatureUrl ? "Replace Signature" : "+ Upload PNG"} height="p-6" folderPath="creator-signatures" onUploadComplete={(url: string) => setSignatureUrl(url)} />
+            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">
+              Upload Transparent PNG
+            </label>
+            <Dropzone
+              label={signatureUrl ? 'Replace Signature' : '+ Upload PNG'}
+              height="p-6"
+              folderPath="creator-signatures"
+              onUploadComplete={(url: string) => setSignatureUrl(url)}
+            />
           </div>
         </div>
-        <button type="submit" disabled={isSubmitting || !signatureUrl || !creatorName} className="mt-4 w-full flex items-center justify-center gap-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] disabled:opacity-50">
-          <PenTool className="w-4 h-4" />{isSubmitting ? 'Saving...' : 'Save to Vault'}
+        <button
+          type="submit"
+          disabled={isSubmitting || !signatureUrl || !creatorName}
+          className="mt-4 w-full flex items-center justify-center gap-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl disabled:opacity-50 cursor-pointer"
+        >
+          <PenTool className="w-4 h-4" />
+          {isSubmitting ? 'Saving...' : 'Save to Vault'}
         </button>
       </form>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
-        {signatures.length === 0 ? (
-          <p className="text-zinc-500 text-sm font-bold italic col-span-full">No signatures in the vault yet.</p>
-        ) : (
-          signatures.map((sig) => (
-            <div key={sig.id} className="bg-black border border-zinc-800 rounded-xl overflow-hidden flex flex-col group relative">
-              <div className="bg-zinc-900 relative aspect-[3/1] p-4 flex items-center justify-center border-b border-zinc-800">
-                <img src={sig.signature_url} className="w-full h-full object-contain" alt="Signature" />
-                
-                {activePins[sig.creator_name] && (
-                  <div className="absolute top-2 left-2 bg-[#fe9a00] text-black text-[10px] font-black tracking-widest px-2 py-0.5 rounded shadow-lg z-10 uppercase">
-                    PIN: {activePins[sig.creator_name]}
-                  </div>
-                )}
-
-                <button onClick={() => handleDelete(sig.id)} className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 shadow-lg z-20" title="Delete Signature"><Trash2 className="w-3 h-3" /></button>
-              </div>
-              <div className="p-3 text-center"><h4 className="font-black text-xs text-white uppercase tracking-widest truncate">{sig.creator_name}</h4></div>
+        {signatures.map(sig => (
+          <div
+            key={sig.id}
+            className="bg-black border border-zinc-800 rounded-xl overflow-hidden flex flex-col group relative"
+          >
+            <div className="bg-zinc-900 relative aspect-[3/1] p-4 flex items-center justify-center border-b border-zinc-800">
+              <img src={sig.signature_url} className="w-full h-full object-contain" alt="Signature" />
+              {activePins[sig.creator_name] && (
+                <div className="absolute top-2 left-2 bg-[#fe9a00] text-black text-[10px] font-black px-2 py-0.5 rounded z-10 uppercase">
+                  PIN: {activePins[sig.creator_name]}
+                </div>
+              )}
+              <button
+                onClick={() => handleDelete(sig.id)}
+                className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-20 cursor-pointer"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
             </div>
-          ))
-        )}
+            <div className="p-3 text-center">
+              <h4 className="font-black text-xs text-white uppercase tracking-widest truncate">
+                {sig.creator_name}
+              </h4>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1434,92 +1744,67 @@ const BingoCodeManager = () => {
   const [dbCreators, setDbCreators] = useState<string[]>([]);
 
   const fetchCodes = async () => {
-    const { data } = await supabase.from('bingo_codes').select('*').order('created_at', { ascending: false });
+    const { data } = await supabase
+      .from('bingo_codes')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (data) setCodes(data);
   };
 
-  useEffect(() => { 
-    const fetchDbCreators = async () => {
-      const { data } = await supabase.from('series_creators').select('name');
-      if (data) setDbCreators(data.map((c: any) => c.name));
-    };
-    fetchDbCreators();
-    fetchCodes(); 
+  useEffect(() => {
+    supabase
+      .from('series_creators')
+      .select('name')
+      .then(({ data }) => {
+        if (data) setDbCreators(data.map((c: any) => c.name));
+      });
+    fetchCodes();
   }, []);
 
   const creatorOptions = useMemo(() => {
-    const uniqueMap = new Map();
-
-    dbCreators.forEach((name: string) => {
-      if (name && name.trim().length >= 2) {
-        uniqueMap.set(name.trim().toLowerCase(), name.trim());
-      }
+    const uniqueMap = new Map<string, string>();
+    dbCreators.forEach(name => {
+      if (name && name.trim().length >= 2) uniqueMap.set(name.trim().toLowerCase(), name.trim());
     });
-
-    const processName = (nameInput: any) => {
-      if (!nameInput) return;
-      const namesArray = Array.isArray(nameInput) ? nameInput.flat(Infinity) : [nameInput];
-      namesArray.forEach((nameObj: any) => {
-        let nameStr = nameObj;
-        if (typeof nameObj === 'object' && nameObj !== null) {
-          if (nameObj.is_visible === false) return; 
-          nameStr = nameObj.name || nameObj.fullName || nameObj.value || nameObj.text || Object.values(nameObj)[0];
-        }
-        if (typeof nameStr !== 'string') return;
-        nameStr = nameStr.replace(/^(written by|art by|created by|story by|illustrated by)[:\s]+/i, '');
-        const splitNames = nameStr.split(/,|\s+&\s+|\s+and\s+|\s*\/\s*/i);
-        splitNames.forEach((rawName: string) => {
-          const cName = rawName.trim();
-          if (cName.length >= 2) {
-            const mapKey = cName.toLowerCase();
-            if (!uniqueMap.has(mapKey)) uniqueMap.set(mapKey, cName);
-          }
-        });
-      });
-    };
-
-    seriesList.forEach((series: any) => {
-      if (series.creators && Array.isArray(series.creators) && series.creators.length > 0) processName(series.creators);
-      else {
-        processName(series.creator_name || series.creator);
-        processName(series.writer_name || series.writer || series.author_name);
-        processName(series.artist_name || series.artist || series.illustrator);
-        processName(series.co_creator_name || series.co_creator);
-      }
+    seriesList.forEach((s: any) => {
+      if (s.creator_name) uniqueMap.set(s.creator_name.trim().toLowerCase(), s.creator_name.trim());
     });
-    return Array.from(uniqueMap.values()).sort((a: any, b: any) => a.localeCompare(b));
+    return Array.from(uniqueMap.values()).sort((a, b) => a.localeCompare(b));
   }, [seriesList, dbCreators]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!creatorName) return alert("Please select a Creator.");
+    if (!creatorName) return alert('Please select a Creator.');
     setIsSubmitting(true);
-    
-    const pin = Math.floor(10000 + Math.random() * 90000).toString(); 
-    
-    let expiresAt = new Date();
+    const pin = Math.floor(10000 + Math.random() * 90000).toString();
+    const expiresAt = new Date();
     if (duration === '30m') expiresAt.setMinutes(expiresAt.getMinutes() + 30);
     else if (duration === '1h') expiresAt.setHours(expiresAt.getHours() + 1);
     else if (duration === '12h') expiresAt.setHours(expiresAt.getHours() + 12);
     else if (duration === '24h') expiresAt.setHours(expiresAt.getHours() + 24);
     else if (duration === '72h') expiresAt.setHours(expiresAt.getHours() + 72);
     else if (duration === 'permanent') expiresAt.setFullYear(expiresAt.getFullYear() + 100);
-    
-    const { error } = await supabase.from('bingo_codes').insert([{
-      code: pin,
-      creator_name: creatorName.trim(),
-      event_name: 'Standard Unlock', 
-      max_uses: 999999, 
-      expires_at: expiresAt.toISOString()
-    }]);
-    
+
+    const { error } = await supabase.from('bingo_codes').insert([
+      {
+        code: pin,
+        creator_name: creatorName.trim(),
+        event_name: 'Standard Unlock',
+        max_uses: 999999,
+        expires_at: expiresAt.toISOString()
+      }
+    ]);
     setIsSubmitting(false);
-    if (error) alert("Error creating PIN: " + error.message);
-    else { alert(`Code Generated: ${pin}`); setCreatorName(''); fetchCodes(); }
+    if (error) alert('Error creating PIN: ' + error.message);
+    else {
+      alert(`Code Generated: ${pin}`);
+      setCreatorName('');
+      fetchCodes();
+    }
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm("Are you sure you want to revoke this PIN? No one will be able to claim it anymore.")) return;
+    if (!window.confirm('Revoke this PIN?')) return;
     const { error } = await supabase.from('bingo_codes').delete().eq('id', id);
     if (!error) fetchCodes();
   };
@@ -1528,31 +1813,41 @@ const BingoCodeManager = () => {
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-4xl animate-fade-in">
       <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
         <Mic className="w-6 h-6 text-[#fe9a00]" />
-        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Bingo Codes</h2>
+        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
+          Bingo Codes
+        </h2>
       </div>
-
-      <form onSubmit={handleCreate} className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-4">
+      <form
+        onSubmit={handleCreate}
+        className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-4"
+      >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Select Creator</label>
-            <select 
-              value={creatorName} 
-              onChange={e => setCreatorName(e.target.value)} 
-              required 
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00] cursor-pointer"
+            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">
+              Select Creator
+            </label>
+            <select
+              value={creatorName}
+              onChange={e => setCreatorName(e.target.value)}
+              required
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm cursor-pointer"
             >
               <option value="">-- Choose a Creator --</option>
-              {creatorOptions.map((name: string) => (
-                <option key={name} value={name}>{name}</option>
+              {creatorOptions.map(name => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Duration</label>
-            <select 
-              value={duration} 
-              onChange={e => setDuration(e.target.value)} 
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00] cursor-pointer"
+            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">
+              Duration
+            </label>
+            <select
+              value={duration}
+              onChange={e => setDuration(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm cursor-pointer"
             >
               <option value="30m">30 Minutes</option>
               <option value="1h">1 Hour</option>
@@ -1563,46 +1858,50 @@ const BingoCodeManager = () => {
             </select>
           </div>
         </div>
-
-        <button type="submit" disabled={isSubmitting} className="mt-4 w-full flex items-center justify-center gap-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] disabled:opacity-50">
-          <Key className="w-4 h-4" />{isSubmitting ? 'Generating...' : 'Generate 5-Digit PIN'}
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="mt-4 w-full flex items-center justify-center gap-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl cursor-pointer"
+        >
+          <Key className="w-4 h-4" />
+          {isSubmitting ? 'Generating...' : 'Generate 5-Digit PIN'}
         </button>
       </form>
 
       <div className="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
-        <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-4 sticky top-0 bg-zinc-900 py-2">Active PINs</h3>
-        {codes.length === 0 ? (
-          <p className="text-zinc-500 text-sm font-bold italic">No active PINs found.</p>
-        ) : (
-          codes.map((c) => {
-            const isExpired = new Date() > new Date(c.expires_at);
-            const statusColor = isExpired ? 'text-red-500 border-red-900 bg-red-900/10' : 'text-[#fe9a00] border-[#fe9a00]/50 bg-[#fe9a00]/10';
-
-            return (
-              <div key={c.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-black border border-zinc-800 p-4 rounded-xl gap-4">
-                <div>
-                  <div className="flex items-center gap-3 mb-1">
-                    <h4 className="font-black tracking-[0.5em] text-white text-2xl">{c.code}</h4>
-                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${statusColor}`}>
-                      {isExpired ? 'EXPIRED' : 'LIVE'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Creator: <span className="text-[#fe9a00]">{c.creator_name}</span></span>
-                  </div>
-                  <p className="text-[9px] text-zinc-600 mt-2 font-mono">Expires: {new Date(c.expires_at).getFullYear() > 2090 ? 'Never (Permanent)' : new Date(c.expires_at).toLocaleString()}</p>
+        {codes.map(c => {
+          const isExpired = new Date() > new Date(c.expires_at);
+          return (
+            <div
+              key={c.id}
+              className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-black border border-zinc-800 p-4 rounded-xl gap-4"
+            >
+              <div>
+                <div className="flex items-center gap-3 mb-1">
+                  <h4 className="font-black tracking-[0.5em] text-white text-2xl">{c.code}</h4>
+                  <span
+                    className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${
+                      isExpired
+                        ? 'text-red-500 border-red-900 bg-red-900/10'
+                        : 'text-[#fe9a00] border-[#fe9a00]/50 bg-[#fe9a00]/10'
+                    }`}
+                  >
+                    {isExpired ? 'EXPIRED' : 'LIVE'}
+                  </span>
                 </div>
-                
-                <button 
-                  onClick={() => handleDelete(c.id)} 
-                  className="flex items-center gap-2 px-4 py-2.5 bg-red-950/30 text-red-500 hover:text-white hover:bg-red-600 border border-red-900/50 hover:border-red-600 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest mt-4 sm:mt-0 shadow-sm"
-                >
-                  <XCircle className="w-4 h-4" /> Revoke PIN
-                </button>
+                <span className="text-[10px] font-bold text-zinc-400 uppercase">
+                  Creator: <span className="text-[#fe9a00]">{c.creator_name}</span>
+                </span>
               </div>
-            )
-          })
-        )}
+              <button
+                onClick={() => handleDelete(c.id)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-red-950/30 text-red-500 hover:bg-red-600 hover:text-white border border-red-900/50 rounded-lg text-[10px] font-black uppercase cursor-pointer"
+              >
+                <XCircle className="w-4 h-4" /> Revoke PIN
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1619,73 +1918,217 @@ const NotificationCenter = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleTypeChange = (type: 'chapter' | 'feature' | 'news' | 'custom') => {
-    setNotifType(type); setSelectedSeriesSlug('');
-    if (type === 'feature') { setTitle('App Feature Update'); setMessage(''); setThumbnailUrl('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png'); setLinkTarget(''); } 
-    else if (type === 'news') { setTitle('Saturday AM News'); setMessage('News from Saturday AM'); setThumbnailUrl('https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png'); setLinkTarget('news'); } 
-    else if (type === 'chapter') { setTitle('New Chapter Drop!'); setMessage(''); setThumbnailUrl(''); setLinkTarget(''); } 
-    else { setTitle(''); setMessage(''); setThumbnailUrl(''); setLinkTarget(''); }
+    setNotifType(type);
+    setSelectedSeriesSlug('');
+    if (type === 'feature') {
+      setTitle('App Feature Update');
+      setMessage('');
+      setThumbnailUrl(
+        'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png'
+      );
+      setLinkTarget('');
+    } else if (type === 'news') {
+      setTitle('Saturday AM News');
+      setMessage('News from Saturday AM');
+      setThumbnailUrl(
+        'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/saturdayam%20LOGO%20cleaned%20ToBeVectored%20foot.png'
+      );
+      setLinkTarget('news');
+    } else if (type === 'chapter') {
+      setTitle('New Chapter Drop!');
+      setMessage('');
+      setThumbnailUrl('');
+      setLinkTarget('');
+    } else {
+      setTitle('');
+      setMessage('');
+      setThumbnailUrl('');
+      setLinkTarget('');
+    }
   };
 
   const handleSeriesSelect = (slug: string) => {
     setSelectedSeriesSlug(slug);
     const series = seriesList.find((s: any) => s.slug === slug);
-    if (series) { setMessage(`Chapter Drop: NEW ${series.title}!`); setThumbnailUrl(series.cover_url || ''); setLinkTarget(series.slug); } 
-    else { setMessage(''); setThumbnailUrl(''); setLinkTarget(''); }
+    if (series) {
+      setMessage(`Chapter Drop: NEW ${series.title}!`);
+      setThumbnailUrl(series.cover_url || '');
+      setLinkTarget(series.slug);
+    } else {
+      setMessage('');
+      setThumbnailUrl('');
+      setLinkTarget('');
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !message) return alert("Title and Message are required!");
+    if (!title || !message) return alert('Title and Message are required!');
     setIsSubmitting(true);
-    const { error } = await supabase.from('app_notifications').insert([{ title, message, thumbnail_url: thumbnailUrl || null, link_target: linkTarget || null }]);
+    const { error } = await supabase
+      .from('app_notifications')
+      .insert([
+        { title, message, thumbnail_url: thumbnailUrl || null, link_target: linkTarget || null }
+      ]);
     setIsSubmitting(false);
-    if (error) alert("Error: " + error.message);
-    else { alert("Notification Blasted Successfully!"); handleTypeChange(notifType); }
+    if (error) alert('Error: ' + error.message);
+    else {
+      alert('Notification Blasted Successfully!');
+      handleTypeChange(notifType);
+    }
   };
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-2xl">
       <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
         <Bell className="w-6 h-6 text-[#fe9a00]" />
-        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">Push Notification Blaster</h2>
+        <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
+          Push Notification Blaster
+        </h2>
       </div>
-
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-        <button onClick={() => handleTypeChange('chapter')} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'chapter' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}><BookOpen className="w-5 h-5 mb-2" /><span className="text-[9px] font-black uppercase tracking-widest text-center">Chapter</span></button>
-        <button onClick={() => handleTypeChange('feature')} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'feature' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}><Sparkles className="w-5 h-5 mb-2" /><span className="text-[9px] font-black uppercase tracking-widest text-center">Update</span></button>
-        <button onClick={() => handleTypeChange('news')} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'news' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}><Newspaper className="w-5 h-5 mb-2" /><span className="text-[9px] font-black uppercase tracking-widest text-center">AM News</span></button>
-        <button onClick={() => handleTypeChange('custom')} className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all ${notifType === 'custom' ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]' : 'border-zinc-800 bg-black text-zinc-500 hover:border-zinc-600'}`}><Star className="w-5 h-5 mb-2" /><span className="text-[9px] font-black uppercase tracking-widest text-center">Custom</span></button>
+        <button
+          onClick={() => handleTypeChange('chapter')}
+          className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 cursor-pointer ${
+            notifType === 'chapter'
+              ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]'
+              : 'border-zinc-800 bg-black text-zinc-500'
+          }`}
+        >
+          <BookOpen className="w-5 h-5 mb-2" />
+          <span className="text-[9px] font-black uppercase">Chapter</span>
+        </button>
+        <button
+          onClick={() => handleTypeChange('feature')}
+          className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 cursor-pointer ${
+            notifType === 'feature'
+              ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]'
+              : 'border-zinc-800 bg-black text-zinc-500'
+          }`}
+        >
+          <Sparkles className="w-5 h-5 mb-2" />
+          <span className="text-[9px] font-black uppercase">Update</span>
+        </button>
+        <button
+          onClick={() => handleTypeChange('news')}
+          className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 cursor-pointer ${
+            notifType === 'news'
+              ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]'
+              : 'border-zinc-800 bg-black text-zinc-500'
+          }`}
+        >
+          <Newspaper className="w-5 h-5 mb-2" />
+          <span className="text-[9px] font-black uppercase">AM News</span>
+        </button>
+        <button
+          onClick={() => handleTypeChange('custom')}
+          className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 cursor-pointer ${
+            notifType === 'custom'
+              ? 'border-[#fe9a00] bg-[#fe9a00]/10 text-[#fe9a00]'
+              : 'border-zinc-800 bg-black text-zinc-500'
+          }`}
+        >
+          <Star className="w-5 h-5 mb-2" />
+          <span className="text-[9px] font-black uppercase">Custom</span>
+        </button>
       </div>
-
       <form onSubmit={handleSubmit} className="space-y-5">
         {notifType === 'chapter' && (
           <div className="p-4 bg-black border border-zinc-800 rounded-xl mb-4">
-            <label className="block text-[#fe9a00] font-bold uppercase tracking-widest text-[10px] mb-2">Select Series to Auto-Fill</label>
-            <select value={selectedSeriesSlug} onChange={(e) => handleSeriesSelect(e.target.value)} className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]">
+            <label className="block text-[#fe9a00] font-bold uppercase text-[10px] mb-2">
+              Select Series to Auto-Fill
+            </label>
+            <select
+              value={selectedSeriesSlug}
+              onChange={e => handleSeriesSelect(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm"
+            >
               <option value="">-- Choose a Series --</option>
-              {seriesList.map((series: any) => <option key={series.id} value={series.slug}>{series.title}</option>)}
+              {seriesList.map((series: any) => (
+                <option key={series.id} value={series.slug}>
+                  {series.title}
+                </option>
+              ))}
             </select>
           </div>
         )}
-        <div><label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Notification Title</label><input type="text" value={title} onChange={e => setTitle(e.target.value)} required maxLength={50} className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]" placeholder="e.g. New Chapter Drop!" /></div>
-        <div><label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Message Body</label><textarea value={message} onChange={e => setMessage(e.target.value)} required rows={3} maxLength={150} className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]" placeholder="Brief description of the update..." /></div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div><label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Thumbnail URL</label><input type="url" value={thumbnailUrl} onChange={e => setThumbnailUrl(e.target.value)} className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]" placeholder="https://..." /></div>
-          <div><label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">Link Target</label><input type="text" value={linkTarget} onChange={e => setLinkTarget(e.target.value)} className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]" placeholder="e.g. apple-black" /></div>
+        <div>
+          <label className="block text-zinc-500 font-bold uppercase text-[10px] mb-2">
+            Notification Title
+          </label>
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            required
+            maxLength={50}
+            className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm"
+          />
         </div>
-        {thumbnailUrl && (
-          <div className="flex items-center gap-4 p-4 bg-black border border-zinc-800 rounded-xl"><img src={thumbnailUrl} alt="Thumbnail Preview" className="w-12 h-12 object-cover rounded border border-zinc-700" /><span className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Thumbnail Preview</span></div>
-        )}
-        <button type="submit" disabled={isSubmitting} className="mt-6 w-full flex items-center justify-center gap-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] disabled:opacity-50 disabled:cursor-not-allowed">
-          <Send className="w-4 h-4" />{isSubmitting ? 'Broadcasting...' : 'Blast Notification'}
+        <div>
+          <label className="block text-zinc-500 font-bold uppercase text-[10px] mb-2">
+            Message Body
+          </label>
+          <textarea
+            value={message}
+            onChange={e => setMessage(e.target.value)}
+            required
+            rows={3}
+            maxLength={150}
+            className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm"
+          />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-zinc-500 font-bold uppercase text-[10px] mb-2">
+              Thumbnail URL
+            </label>
+            <input
+              type="url"
+              value={thumbnailUrl}
+              onChange={e => setThumbnailUrl(e.target.value)}
+              className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-zinc-500 font-bold uppercase text-[10px] mb-2">
+              Link Target
+            </label>
+            <input
+              type="text"
+              value={linkTarget}
+              onChange={e => setLinkTarget(e.target.value)}
+              className="w-full bg-black border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm"
+            />
+          </div>
+        </div>
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="mt-6 w-full flex items-center justify-center gap-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl cursor-pointer"
+        >
+          <Send className="w-4 h-4" />
+          {isSubmitting ? 'Broadcasting...' : 'Blast Notification'}
         </button>
       </form>
     </div>
   );
 };
 
+// ============================================================================
+// MAIN ADMIN DASHBOARD SHELL (8 CONSOLIDATED HUBS)
+// ============================================================================
 export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any) => {
-  const [activeTab, setActiveTab] = useState('analytics'); 
+  const [activeTab, setActiveTab] = useState('analytics');
+  const [mangaSubTab, setMangaSubTab] = useState<'series' | 'chapters'>('series');
+  const [loadoutSubTab, setLoadoutSubTab] = useState<
+    'avatars' | 'frames' | 'stickers' | 'cardskins' | 'signatures' | 'bingocodes'
+  >('avatars');
+  const [usersSubTab, setUsersSubTab] = useState<'users' | 'moderation' | 'accesskeys'>('users');
+  const [marketingSubTab, setMarketingSubTab] = useState<'adstudio' | 'hype' | 'notifications'>(
+    'adstudio'
+  );
+
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedWarning(isDirty);
 
@@ -1696,54 +2139,71 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   }, [isDirty]);
 
   const handleTabChange = (tabId: string) => {
-    if (isDirty && !window.confirm("You have unsaved changes! Are you sure you want to leave this tab? Your progress will be lost.")) return;
-    setIsDirty(false); setActiveTab(tabId);
+    if (
+      isDirty &&
+      !window.confirm(
+        'You have unsaved changes! Are you sure you want to leave this tab? Your progress will be lost.'
+      )
+    )
+      return;
+    setIsDirty(false);
+    setActiveTab(tabId);
   };
 
   const handleExit = () => {
-    if (isDirty && !window.confirm("You have unsaved changes! Are you sure you want to exit? Your progress will be lost.")) return;
-    setIsDirty(false); onBack();
+    if (
+      isDirty &&
+      !window.confirm(
+        'You have unsaved changes! Are you sure you want to exit? Your progress will be lost.'
+      )
+    )
+      return;
+    setIsDirty(false);
+    onBack();
   };
 
+  // Consolidated 8-Hub Navigation Bar
   const tabs = [
-    { id: 'analytics', label: 'Analytics' }, 
+    { id: 'analytics', label: 'Analytics' },
     { id: 'home', label: 'Home Editor' },
-    { id: 'series', label: 'Series Page Editor' }, 
-    { id: 'creators', label: 'Creator Directory' },
-    { id: 'payouts', label: 'Creator Payouts' },
-    { id: 'users', label: 'User Directory' },
-    { id: 'chapter', label: 'Chapter Upload' },
-    { id: 'scheduler', label: 'Release Scheduler' },
-    { id: 'adstudio', label: 'Ad Studio' },
-    { id: 'hype', label: 'Hype Economy' }, 
-    { id: 'avatars', label: 'Avatar Maker' }, 
-    { id: 'frames', label: 'Frame Maker' }, 
-    { id: 'stickers', label: 'Sticker Maker' }, 
-    { id: 'cardskins', label: 'Card Skin Studio' },
-    { id: 'accesskeys', label: 'Access Keys' }, 
-    { id: 'signatures', label: 'Signature Vault' },
-    { id: 'bingocodes', label: 'Bingo Codes' },
-    { id: 'integrations', label: 'Third-Party Integrations' },
-    { id: 'moderation', label: 'Moderation' }, 
-    { id: 'notifications', label: 'Push Alerts' }
+    { id: 'manga', label: 'Manga Manager' },
+    { id: 'scheduler', label: 'Release Scheduler', domId: 'release-scheduler-tab-trigger' },
+    { id: 'creators', label: 'Creator Manager' },
+    { id: 'loadout', label: 'Profile & Bingo Manager' },
+    { id: 'users_mod', label: 'Users & Moderation' },
+    { id: 'marketing', label: 'Marketing & Economy' }
   ];
 
   return (
     <div className="min-h-screen bg-black text-white p-4 sm:p-8">
-      <div className="max-w-5xl mx-auto mt-4 sm:mt-10">
-        <div className="flex justify-between items-center mb-8 bg-zinc-900 p-6 rounded-xl border border-zinc-800">
+      <div className="max-w-6xl mx-auto mt-4 sm:mt-8">
+        <div className="flex justify-between items-center mb-6 bg-zinc-900 p-6 rounded-xl border border-zinc-800">
           <div>
             <h2 className="text-2xl font-black text-white tracking-wider">AM Command Center</h2>
-            <p className="text-xs text-zinc-500 mt-1 uppercase tracking-widest font-bold">Logged in as Administrator</p>
+            <p className="text-xs text-zinc-500 mt-1 uppercase tracking-widest font-bold">
+              Streamlined 8-Hub Administrator Suite
+            </p>
           </div>
-          <button onClick={handleExit} className="bg-black border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 px-6 py-3 rounded text-[10px] font-bold tracking-widest uppercase transition-colors">
+          <button
+            onClick={handleExit}
+            className="bg-black border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 px-6 py-3 rounded text-[10px] font-bold tracking-widest uppercase transition-colors cursor-pointer"
+          >
             Exit Vault
           </button>
         </div>
 
-        <div className="flex flex-wrap gap-2 sm:gap-6 mb-8 border-b border-zinc-800 pb-px px-2 sm:px-0">
-          {tabs.map((tab) => (
-            <button key={tab.id} onClick={() => handleTabChange(tab.id)} className={`pb-3 uppercase tracking-widest text-[10px] sm:text-xs font-black transition-colors border-b-2 px-2 sm:px-0 ${activeTab === tab.id ? 'text-[#fe9a00] border-[#fe9a00]' : 'text-zinc-500 border-transparent hover:text-white'}`}>
+        <div className="flex flex-wrap gap-2 sm:gap-5 mb-6 border-b border-zinc-800 pb-px px-2 sm:px-0">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              id={tab.domId}
+              onClick={() => handleTabChange(tab.id)}
+              className={`pb-3 uppercase tracking-widest text-[10px] sm:text-xs font-black transition-colors border-b-2 px-2 sm:px-0 cursor-pointer ${
+                activeTab === tab.id
+                  ? 'text-[#fe9a00] border-[#fe9a00]'
+                  : 'text-zinc-500 border-transparent hover:text-white'
+              }`}
+            >
               {tab.label}
             </button>
           ))}
@@ -1751,25 +2211,218 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
 
         <div className="mt-6" onInput={handleMarkDirty} onChange={handleMarkDirty}>
           {activeTab === 'analytics' && <AnalyticsDashboard />}
+
           {activeTab === 'home' && <HomeEditor Dropzone={Dropzone} setIsDirty={setIsDirty} />}
-          {activeTab === 'series' && <SeriesEditor Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
-          {activeTab === 'creators' && <CreatorVisibilityManager />}
-          {activeTab === 'payouts' && <CreatorPayoutTracker />}
-          {activeTab === 'users' && <UserManager />}
-          {activeTab === 'chapter' && <ChapterUploader Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
+
+          {activeTab === 'manga' && (
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center gap-2 bg-zinc-900 border border-zinc-800 p-3 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setMangaSubTab('series')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    mangaSubTab === 'series'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" /> Series Page Editor & Characters
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMangaSubTab('chapters')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    mangaSubTab === 'chapters'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Upload className="w-3.5 h-3.5" /> Chapter Uploader & Queue
+                </button>
+              </div>
+
+              {mangaSubTab === 'series' ? (
+                <SeriesEditor
+                  Dropzone={Dropzone}
+                  ThumbnailCropperModal={ThumbnailCropperModal}
+                  setIsDirty={setIsDirty}
+                />
+              ) : (
+                <ChapterUploader
+                  Dropzone={Dropzone}
+                  ThumbnailCropperModal={ThumbnailCropperModal}
+                  setIsDirty={setIsDirty}
+                />
+              )}
+            </div>
+          )}
+
           {activeTab === 'scheduler' && <ReleaseScheduler setIsDirty={setIsDirty} />}
-          {activeTab === 'adstudio' && <HouseAdBuilder Dropzone={Dropzone} setIsDirty={setIsDirty} />}
-          {activeTab === 'hype' && <HypeManager setIsDirty={setIsDirty} />}
-          {activeTab === 'avatars' && <AvatarMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
-          {activeTab === 'frames' && <FrameMaker />} 
-          {activeTab === 'stickers' && <StickerMaker Dropzone={Dropzone} ThumbnailCropperModal={ThumbnailCropperModal} setIsDirty={setIsDirty} />}
-          {activeTab === 'cardskins' && <CardSkinMaker />} 
-          {activeTab === 'accesskeys' && <PromoCodeManager />} 
-          {activeTab === 'signatures' && <MasterSignatureManager Dropzone={Dropzone} />}
-          {activeTab === 'bingocodes' && <BingoCodeManager />} 
-          {activeTab === 'integrations' && <IntegrationsManager setIsDirty={setIsDirty} />}
-          {activeTab === 'moderation' && <ModerationDashboard />}
-          {activeTab === 'notifications' && <NotificationCenter />}
+
+          {activeTab === 'creators' && <CreatorManagerHub />}
+
+          {activeTab === 'loadout' && (
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-zinc-900 border border-zinc-800 p-3 rounded-2xl">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 px-2">
+                    Profile Loadout:
+                  </span>
+                  {[
+                    { id: 'avatars', label: 'Avatars' },
+                    { id: 'frames', label: 'Border Frames' },
+                    { id: 'stickers', label: 'Club Stickers' },
+                    { id: 'cardskins', label: 'Card Skins' }
+                  ].map(item => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setLoadoutSubTab(item.id as any)}
+                      className={`px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                        loadoutSubTab === item.id
+                          ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                          : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 px-2">
+                    Bingo Book:
+                  </span>
+                  {[
+                    { id: 'signatures', label: 'Signature Vault' },
+                    { id: 'bingocodes', label: 'Bingo Event PINs' }
+                  ].map(item => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setLoadoutSubTab(item.id as any)}
+                      className={`px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                        loadoutSubTab === item.id
+                          ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                          : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {loadoutSubTab === 'avatars' && (
+                <AvatarMaker
+                  Dropzone={Dropzone}
+                  ThumbnailCropperModal={ThumbnailCropperModal}
+                  setIsDirty={setIsDirty}
+                />
+              )}
+              {loadoutSubTab === 'frames' && <FrameMaker />}
+              {loadoutSubTab === 'stickers' && (
+                <StickerMaker
+                  Dropzone={Dropzone}
+                  ThumbnailCropperModal={ThumbnailCropperModal}
+                  setIsDirty={setIsDirty}
+                />
+              )}
+              {loadoutSubTab === 'cardskins' && <CardSkinMaker />}
+              {loadoutSubTab === 'signatures' && <MasterSignatureManager Dropzone={Dropzone} />}
+              {loadoutSubTab === 'bingocodes' && <BingoCodeManager />}
+            </div>
+          )}
+
+          {activeTab === 'users_mod' && (
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center gap-2 bg-zinc-900 border border-zinc-800 p-3 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setUsersSubTab('users')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    usersSubTab === 'users'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" /> User Directory
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUsersSubTab('moderation')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    usersSubTab === 'moderation'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" /> Community Moderation
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUsersSubTab('accesskeys')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    usersSubTab === 'accesskeys'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Key className="w-3.5 h-3.5" /> Annual Pro Access Keys
+                </button>
+              </div>
+
+              {usersSubTab === 'users' && <UserManager />}
+              {usersSubTab === 'moderation' && <ModerationDashboard />}
+              {usersSubTab === 'accesskeys' && <PromoCodeManager />}
+            </div>
+          )}
+
+          {activeTab === 'marketing' && (
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center gap-2 bg-zinc-900 border border-zinc-800 p-3 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setMarketingSubTab('adstudio')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    marketingSubTab === 'adstudio'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Rewarded Ad Studio
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMarketingSubTab('hype')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    marketingSubTab === 'hype'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5" /> Hype Economy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMarketingSubTab('notifications')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    marketingSubTab === 'notifications'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Bell className="w-3.5 h-3.5" /> Push Alerts
+                </button>
+              </div>
+
+              {marketingSubTab === 'adstudio' && (
+                <HouseAdBuilder Dropzone={Dropzone} setIsDirty={setIsDirty} />
+              )}
+              {marketingSubTab === 'hype' && <HypeManager setIsDirty={setIsDirty} />}
+              {marketingSubTab === 'notifications' && <NotificationCenter />}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -3,12 +3,11 @@ import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { SeriesSection } from './SeriesSection';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
-import { Menu, X, Bell, CheckCircle, Play, RefreshCw, Clock } from 'lucide-react';
+import { Menu, X, Bell, CheckCircle, RefreshCw, Clock } from 'lucide-react';
 import { useTelemetry } from '../Components/useTelemetry';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 import {
   isChapterReleasedForUser,
-  getOneShotWednesdaySeries,
   isActiveOneShotWednesday,
   isInOneShotDebutWindow,
   getOneShotFreeCountdown

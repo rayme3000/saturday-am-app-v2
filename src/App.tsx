@@ -15,26 +15,27 @@ import { useIntegrations } from "./Components/useIntegrations";
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
 import { GlobalFlexCard } from './Components/GlobalFlexCard';
+import { CreatorOnboardingModal, hasAcceptedCreatorTerms } from './Components/CreatorOnboardingModal';
 
-// 2. Lazy Load the views that use Named Exports
-const HomePage = lazy(() => import('./MainViews/HomePage').then(mod => ({ default: mod.HomePage })));
-const SeriesDetailPage = lazy(() => import('./MainViews/SeriesDetailPage').then(mod => ({ default: mod.SeriesDetailPage })));
-const AdminDashboard = lazy(() => import('./AmCommandCenter/AdminDashboard').then(mod => ({ default: mod.AdminDashboard })));
-const UserProfile = lazy(() => import('./VirtualProfile/UserProfile').then(mod => ({ default: mod.UserProfile })));
-const SubscriptionPage = lazy(() => import('./MainViews/Subscription.tsx').then(mod => ({ default: mod.Subscription })));
-const AMNewsPage = lazy(() => import('./MainViews/AMNewsPage').then(mod => ({ default: mod.AMNewsPage })));
-const Shop = lazy(() => import('./MainViews/Shop').then(mod => ({ default: mod.Shop }))); 
-const LegalPages = lazy(() => import('./MainViews/LegalPages').then(mod => ({ default: mod.LegalPages }))); 
-const CharacterRoster = lazy(() => import('./MainViews/CharacterRoster').then(mod => ({ default: mod.CharacterRoster })));
-const CreatorsPage = lazy(() => import('./MainViews/CreatorsPage').then(mod => ({ default: mod.CreatorsPage })));
-const CreatorStudio = lazy(() => import('./MainViews/CreatorStudio').then(mod => ({ default: mod.CreatorStudio })));
+// 2. Lazy Load the views that use Named or Default Exports safely
+const HomePage = lazy<React.ComponentType<any>>(() => import('./MainViews/HomePage').then(mod => ({ default: mod.HomePage })));
+const SeriesDetailPage = lazy<React.ComponentType<any>>(() => import('./MainViews/SeriesDetailPage').then(mod => ({ default: mod.SeriesDetailPage })));
+const AdminDashboard = lazy<React.ComponentType<any>>(() => import('./AmCommandCenter/AdminDashboard').then(mod => ({ default: mod.AdminDashboard })));
+const UserProfile = lazy<React.ComponentType<any>>(() => import('./VirtualProfile/UserProfile').then(mod => ({ default: mod.UserProfile })));
+const SubscriptionPage = lazy<React.ComponentType<any>>(() => import('./MainViews/Subscription.tsx').then((mod: any) => ({ default: mod.Subscription || mod.default })));
+const AMNewsPage = lazy<React.ComponentType<any>>(() => import('./MainViews/AMNewsPage').then(mod => ({ default: mod.AMNewsPage })));
+const Shop = lazy<React.ComponentType<any>>(() => import('./MainViews/Shop').then(mod => ({ default: mod.Shop }))); 
+const LegalPages = lazy<React.ComponentType<any>>(() => import('./MainViews/LegalPages').then(mod => ({ default: mod.LegalPages }))); 
+const CharacterRoster = lazy<React.ComponentType<any>>(() => import('./MainViews/CharacterRoster').then(mod => ({ default: mod.CharacterRoster })));
+const CreatorsPage = lazy<React.ComponentType<any>>(() => import('./MainViews/CreatorsPage').then(mod => ({ default: mod.CreatorsPage })));
+const CreatorStudio = lazy<React.ComponentType<any>>(() => import('./MainViews/CreatorStudio').then(mod => ({ default: mod.CreatorStudio })));
 
 // 3. Lazy Load the views that use Default Exports
-const SettingsPage = lazy(() => import('./MainViews/Settings.tsx'));
-const BingoBook = lazy(() => import('./VirtualProfile/BingoBook'));
-const Favorites = lazy(() => import('./MainViews/MyFaves.tsx'));
-const Browse = lazy(() => import('./MainViews/Browse.tsx'));
-const Leaderboard = lazy(() => import('./MainViews/Leaderboard.tsx'));
+const SettingsPage = lazy<React.ComponentType<any>>(() => import('./MainViews/Settings.tsx'));
+const BingoBook = lazy<React.ComponentType<any>>(() => import('./VirtualProfile/BingoBook'));
+const Favorites = lazy<React.ComponentType<any>>(() => import('./MainViews/MyFaves.tsx'));
+const Browse = lazy<React.ComponentType<any>>(() => import('./MainViews/Browse.tsx'));
+const Leaderboard = lazy<React.ComponentType<any>>(() => import('./MainViews/Leaderboard.tsx'));
 
 // Authorized Saturday AM Admin Emails
 export const ADMIN_EMAILS = [
@@ -50,6 +51,23 @@ export const checkIsAdminUser = (userOrProfile: any, sessionEmail?: string): boo
   if (userOrProfile?.is_admin === true) return true;
   const email = String(userOrProfile?.email || sessionEmail || '').trim().toLowerCase();
   return ADMIN_EMAILS.includes(email);
+};
+
+// Persistent Anonymous Visitor ID Helper (1 ID per browser/device)
+export const getOrCreateVisitorId = (): string => {
+  try {
+    let vid = localStorage.getItem('am_visitor_id');
+    if (!vid) {
+      vid =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? `vis_${crypto.randomUUID()}`
+          : `vis_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      localStorage.setItem('am_visitor_id', vid);
+    }
+    return vid;
+  } catch {
+    return `vis_anon_${Date.now()}`;
+  }
 };
 
 // --- GLOBAL ERROR BOUNDARY ---
@@ -111,6 +129,16 @@ export default function App() {
   });
 
   const [showIntro, setShowIntro] = useState(() => {
+    // Skip splash intro for search engine crawlers or direct deep links (?series= or ?creator=)
+    const params = new URLSearchParams(window.location.search);
+    if (
+      params.has('series') ||
+      params.has('creator') ||
+      window.location.pathname.startsWith('/series/') ||
+      /bot|googlebot|crawler|spider|robot|crawling/i.test(navigator.userAgent)
+    ) {
+      return false;
+    }
     return !localStorage.getItem('am_has_seen_intro');
   });
 
@@ -119,6 +147,11 @@ export default function App() {
   const [isFlexCardOpen, setIsFlexCardOpen] = useState(false);
   const [upsellConfig, setUpsellConfig] = useState<{ title: string; message: string; target?: 'signup' | 'sub'; buttonText?: string } | null>(null);
   const [showGlobalShareModal, setShowGlobalShareModal] = useState(false);
+
+  // Creator Onboarding Magic Invite State
+  const [pendingCreatorInvite, setPendingCreatorInvite] = useState<string | null>(() => {
+    return localStorage.getItem('am_pending_creator_invite') || null;
+  });
 
   // Creator Stripe Connect OAuth Confirmation Banner State
   const [stripeConnectNotice, setStripeConnectNotice] = useState<{
@@ -150,10 +183,247 @@ export default function App() {
 
   const isPopState = useRef(false);
   const isFetchingProfile = useRef(false);
+  const presenceChannelRef = useRef<any>(null);
 
   const isUserAdmin = checkIsAdminUser(currentUser);
 
-  // Safe wrapper so child components can never trigger an upsell modal for a Premium user
+  // --- DYNAMIC SEO ENGINE: UPDATES <title>, META DESCRIPTION, CANONICAL URL & JSON-LD SCHEMA ---
+  useEffect(() => {
+    const setMetaContent = (selector: string, content: string) => {
+      const el = document.querySelector(selector);
+      if (el) el.setAttribute('content', content);
+    };
+
+    const setCanonicalHref = (href: string) => {
+      let link = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'canonical';
+        document.head.appendChild(link);
+      }
+      link.href = href;
+    };
+
+    const setDynamicJsonLd = (schemaObj: Record<string, any> | null) => {
+      let scriptEl = document.getElementById('dynamic-seo-jsonld') as HTMLScriptElement | null;
+      if (!schemaObj) {
+        if (scriptEl) scriptEl.remove();
+        return;
+      }
+      if (!scriptEl) {
+        scriptEl = document.createElement('script');
+        scriptEl.id = 'dynamic-seo-jsonld';
+        scriptEl.type = 'application/ld+json';
+        document.head.appendChild(scriptEl);
+      }
+      scriptEl.textContent = JSON.stringify(schemaObj);
+    };
+
+    if (currentView === 'series' && selectedSeries?.slug) {
+      const sTitle = selectedSeries.title || selectedSeries.slug;
+      const sCreator = selectedSeries.creator_name || 'Saturday AM';
+      const sGenre = selectedSeries.genre || 'Shonen Manga';
+      const sSynopsis =
+        selectedSeries.synopsis ||
+        selectedSeries.description ||
+        `Read ${sTitle} by ${sCreator} online on Saturday AM Manga Hype. Discover original diverse ${sGenre} manga chapters, characters, and creator updates.`;
+      const sImage =
+        selectedSeries.cover_url ||
+        selectedSeries.character_url ||
+        'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20load%20screen.jpg';
+      const canonicalUrl = `https://www.mangahype.com/?series=${encodeURIComponent(selectedSeries.slug)}`;
+
+      const fullTitle = `${sTitle} Manga by ${sCreator} | Read Online on Saturday AM`;
+      document.title = fullTitle;
+      setMetaContent('meta[name="description"]', sSynopsis.slice(0, 160));
+      setMetaContent('meta[property="og:title"]', fullTitle);
+      setMetaContent('meta[property="og:description"]', sSynopsis.slice(0, 200));
+      setMetaContent('meta[property="og:image"]', sImage);
+      setMetaContent('meta[property="og:url"]', canonicalUrl);
+      setMetaContent('meta[name="twitter:image"]', sImage);
+      setCanonicalHref(canonicalUrl);
+
+      setDynamicJsonLd({
+        '@context': 'https://schema.org',
+        '@type': 'ComicSeries',
+        name: sTitle,
+        url: canonicalUrl,
+        image: sImage,
+        genre: sGenre,
+        description: sSynopsis,
+        publisher: {
+          '@type': 'Organization',
+          name: 'Saturday AM'
+        },
+        author: {
+          '@type': 'Person',
+          name: sCreator
+        }
+      });
+      return;
+    }
+
+    const viewMetaMap: Record<string, { title: string; desc: string; query: string }> = {
+      creators: {
+        title: 'Manga Creators Roster | Saturday AM Manga Hype',
+        desc: 'Meet the global manga creators behind Apple Black, Clock Striker, Bully Eater, Hammer, Orisha, Oblivion Rouge, and more on Saturday AM.',
+        query: '?view=creators'
+      },
+      browse: {
+        title: 'Browse Diverse Manga Series & One-Shots | Saturday AM',
+        desc: 'Browse the complete Saturday AM manga vault. Read shonen action, fantasy, sci-fi, and exclusive One-Shot Wednesdays online.',
+        query: '?view=browse'
+      },
+      characters: {
+        title: 'Manga Character Roster & Combat Files | Saturday AM',
+        desc: 'Explore official character bios, stats, and combat files from Saturday AM flagship manga series.',
+        query: '?view=characters'
+      },
+      leaderboard: {
+        title: 'Global Manga Hype Leaderboards | Saturday AM',
+        desc: 'See the top-ranked manga series, chapters, characters, creators, and Super Fans on the Saturday AM Hype Leaderboards.',
+        query: '?view=leaderboard'
+      },
+      news: {
+        title: 'Saturday AM News & Manga Announcements | Manga Hype',
+        desc: 'Stay updated with the latest Saturday AM manga releases, creator interviews, convention appearances, and anime/game news.',
+        query: '?view=news'
+      },
+      shop: {
+        title: 'AM Shop - Official Manga Volumes & Merch | Saturday AM',
+        desc: 'Shop official Saturday AM graphic novels, manga volumes, apparel, and collectibles while earning bonus Hypes.',
+        query: '?view=shop'
+      },
+      sub: {
+        title: 'Saturday AM+ PLUS Membership - Read Manga Without Limits',
+        desc: 'Upgrade to Saturday AM+ PLUS for $1.99/mo or $20/yr to unlock the entire manga vault, 12-hour early access, and Super Hypes.',
+        query: '?view=sub'
+      }
+    };
+
+    const matchedView = viewMetaMap[currentView];
+    if (matchedView) {
+      const canonicalUrl = `https://www.mangahype.com/${matchedView.query}`;
+      document.title = matchedView.title;
+      setMetaContent('meta[name="description"]', matchedView.desc);
+      setMetaContent('meta[property="og:title"]', matchedView.title);
+      setMetaContent('meta[property="og:description"]', matchedView.desc);
+      setMetaContent('meta[property="og:url"]', canonicalUrl);
+      setCanonicalHref(canonicalUrl);
+      setDynamicJsonLd(null);
+    } else {
+      const defaultTitle = 'Saturday AM App - Read Diverse Manga Online';
+      const defaultDesc =
+        'Read original diverse manga online with Saturday AM. Explore Apple Black, Clock Striker, Bully Eater, Hammer, Underground, Gun+Bone, Orisha, Oblivion Rouge, and more by global creators.';
+      document.title = defaultTitle;
+      setMetaContent('meta[name="description"]', defaultDesc);
+      setMetaContent('meta[property="og:title"]', 'Saturday AM - Manga Hype');
+      setMetaContent('meta[property="og:description"]', defaultDesc);
+      setMetaContent('meta[property="og:url"]', 'https://www.mangahype.com/');
+      setCanonicalHref('https://www.mangahype.com/');
+      setDynamicJsonLd(null);
+    }
+  }, [currentView, selectedSeries]);
+
+  // --- 1. SINGLE UNIFIED REALTIME ONLINE PRESENCE CHANNEL ---
+  useEffect(() => {
+    const visitorId = getOrCreateVisitorId();
+    const channel = supabase.channel('am_live_presence_v2', {
+      config: { presence: { key: visitorId } }
+    });
+
+    presenceChannelRef.current = channel;
+
+    const broadcastPresenceToWindow = () => {
+      try {
+        const state = channel.presenceState();
+        const list: any[] = [];
+        Object.values(state).forEach((entries: any) => {
+          if (Array.isArray(entries) && entries.length > 0) {
+            list.push(entries[0]);
+          }
+        });
+        (window as any).__amLiveOnlineUsers = list;
+        window.dispatchEvent(new CustomEvent('amPresenceUpdated', { detail: list }));
+      } catch {
+        // Ignore presence sync errors
+      }
+    };
+
+    channel
+      .on('presence', { event: 'sync' }, broadcastPresenceToWindow)
+      .on('presence', { event: 'join' }, broadcastPresenceToWindow)
+      .on('presence', { event: 'leave' }, broadcastPresenceToWindow)
+      .subscribe(async (status: string) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({
+            visitor_id: visitorId,
+            user_id: currentUser?.id || null,
+            username: currentUser?.username || 'Visitor',
+            tier: currentUser?.is_premium ? 'premium' : currentUser?.id ? 'free' : 'visitor',
+            is_admin: Boolean(currentUser?.is_admin),
+            role: currentUser?.role || 'visitor',
+            view: currentView,
+            online_at: new Date().toISOString()
+          });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+      presenceChannelRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!presenceChannelRef.current) return;
+    const visitorId = getOrCreateVisitorId();
+    presenceChannelRef.current
+      .track({
+        visitor_id: visitorId,
+        user_id: currentUser?.id || null,
+        username: currentUser?.username || 'Visitor',
+        tier: currentUser?.is_premium ? 'premium' : currentUser?.id ? 'free' : 'visitor',
+        is_admin: Boolean(currentUser?.is_admin),
+        role: currentUser?.role || 'visitor',
+        view: currentView,
+        online_at: new Date().toISOString()
+      })
+      .catch(() => {});
+  }, [currentView, currentUser]);
+
+  // --- 2. LIGHTWEIGHT DAILY UNIQUE VISITOR PING ---
+  useEffect(() => {
+    if (!authResolved) return;
+    try {
+      const todayKey = new Date().toISOString().split('T')[0];
+      const lastPingDate = localStorage.getItem('am_last_visit_ping_date');
+      const visitorId = getOrCreateVisitorId();
+
+      if (lastPingDate !== todayKey) {
+        localStorage.setItem('am_last_visit_ping_date', todayKey);
+        supabase
+          .from('telemetry_events')
+          .insert([
+            {
+              user_id: currentUser?.id || null,
+              session_id: visitorId,
+              event_type: 'app_visit',
+              metadata: {
+                visitor_id: visitorId,
+                tier: userTier,
+                landing_view: currentView
+              }
+            }
+          ])
+          .then(() => {});
+      }
+    } catch {
+      // Non-blocking visitor ping
+    }
+  }, [authResolved, currentUser?.id, userTier, currentView]);
+
   const handleTriggerUpsell = useCallback((config: any) => {
     if (userTier === 'premium' || currentUser?.is_premium) {
       setUpsellConfig(null);
@@ -162,19 +432,75 @@ export default function App() {
     setUpsellConfig(config);
   }, [userTier, currentUser?.is_premium]);
 
-  // Immediately close any open upsell modal if the user is or becomes Premium
   useEffect(() => {
     if (userTier === 'premium' || currentUser?.is_premium) {
       setUpsellConfig(null);
     }
   }, [userTier, currentUser?.is_premium]);
 
-  // --- AUTO-CAPTURE SHOPIFY MAGIC LINK PROMO CODE, STRIPE CONNECT OAUTH & HARD-REFRESH (?v=) ---
+  // --- AUTO-CAPTURE DEEP LINKS (?series=, /series/..., ?creator=, ?view=), CREATOR INVITE LINK (?creator_invite=), & PROMO CODES ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const creatorInviteParam = params.get('creator_invite');
     const magicPromo = params.get('promo') || params.get('code');
     const stripeConnected = params.get('stripe_connected');
     const stripeConnectError = params.get('stripe_connect_error');
+
+    // Save any Creator/Partner referral code in URL (?ref=VIP-...) so deep links to a series ALSO credit the creator!
+    const refParam = params.get('ref') || params.get('referral') || params.get('vip');
+    if (refParam && refParam.trim().toUpperCase().startsWith('VIP-')) {
+      localStorage.setItem('am_referral_code', refParam.trim().toUpperCase());
+    }
+
+    // 1. Handle Direct Series Deep Link: ?series=apple-black OR /series/apple-black
+    const pathMatch = window.location.pathname.match(/^\/series\/([^/?#]+)/i);
+    const seriesSlugParam =
+      params.get('series') || params.get('slug') || (pathMatch ? decodeURIComponent(pathMatch[1]) : null);
+    const chapterParam = params.get('chapter');
+
+    if (seriesSlugParam && seriesSlugParam !== 'app') {
+      const cleanSlug = seriesSlugParam.trim().toLowerCase();
+      supabase
+        .from('series')
+        .select('*')
+        .ilike('slug', cleanSlug)
+        .maybeSingle()
+        .then(({ data: foundSeries }) => {
+          if (foundSeries) {
+            const payload = chapterParam
+              ? { ...foundSeries, autoOpenChapterId: chapterParam }
+              : foundSeries;
+            setSelectedSeries(payload);
+            setCurrentView('series');
+          }
+        });
+    }
+
+    // 2. Handle Direct Creator Deep Link: ?creator=Raymond%20Brown
+    const creatorParam = params.get('creator');
+    if (creatorParam && !params.has('donation_status')) {
+      sessionStorage.setItem('am_target_creator', creatorParam.trim());
+      setCurrentView('creators');
+    }
+
+    // 3. Handle Direct View Deep Link: ?view=browse | creators | characters | leaderboard | news | shop | sub
+    const viewParam = params.get('view');
+    if (
+      viewParam &&
+      ['browse', 'creators', 'characters', 'leaderboard', 'news', 'shop', 'sub', 'legal', 'bingobook'].includes(
+        viewParam.toLowerCase()
+      )
+    ) {
+      setCurrentView(viewParam.toLowerCase());
+    }
+
+    if (creatorInviteParam) {
+      const cleanInvite = creatorInviteParam.trim().toUpperCase();
+      localStorage.setItem('am_pending_creator_invite', cleanInvite);
+      setPendingCreatorInvite(cleanInvite);
+      window.history.replaceState({}, '', window.location.pathname);
+      return;
+    }
 
     if (stripeConnected === 'success') {
       const acctId = params.get('acct') || '';
@@ -197,6 +523,12 @@ export default function App() {
 
     if (magicPromo) {
       const cleanCode = magicPromo.trim().toUpperCase();
+      if (cleanCode.startsWith('SAM-CR-')) {
+        localStorage.setItem('am_pending_creator_invite', cleanCode);
+        setPendingCreatorInvite(cleanCode);
+        window.history.replaceState({}, '', window.location.pathname);
+        return;
+      }
       localStorage.setItem('auto_fill_premium_code', cleanCode);
       window.history.replaceState({}, '', window.location.pathname);
 
@@ -213,7 +545,21 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    window.history.replaceState({ view: currentView, series: selectedSeries }, '');
+    const buildCrawlableUrl = (view: string, seriesObj: any) => {
+      if (view === 'series' && seriesObj?.slug) {
+        return `/?series=${encodeURIComponent(seriesObj.slug)}`;
+      }
+      if (['browse', 'creators', 'characters', 'leaderboard', 'news', 'shop', 'sub'].includes(view)) {
+        return `/?view=${encodeURIComponent(view)}`;
+      }
+      return '/';
+    };
+
+    window.history.replaceState(
+      { view: currentView, series: selectedSeries },
+      '',
+      buildCrawlableUrl(currentView, selectedSeries)
+    );
 
     const handlePopState = (e: PopStateEvent) => {
       isPopState.current = true; 
@@ -228,13 +574,28 @@ export default function App() {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
+    const buildCrawlableUrl = (view: string, seriesObj: any) => {
+      if (view === 'series' && seriesObj?.slug) {
+        return `/?series=${encodeURIComponent(seriesObj.slug)}`;
+      }
+      if (['browse', 'creators', 'characters', 'leaderboard', 'news', 'shop', 'sub'].includes(view)) {
+        return `/?view=${encodeURIComponent(view)}`;
+      }
+      return '/';
+    };
+
     if (isPopState.current) {
       isPopState.current = false; 
     } else {
-      window.history.pushState({ view: currentView, series: selectedSeries }, '');
+      window.history.pushState(
+        { view: currentView, series: selectedSeries },
+        '',
+        buildCrawlableUrl(currentView, selectedSeries)
+      );
     }
   }, [currentView, selectedSeries]);
 
@@ -247,7 +608,7 @@ export default function App() {
     }
   }, [currentView, selectedSeries]);
 
-  // --- AUTOMATIC PAGE VISIT UPSELL TRACKER (FOR VISITORS & FREE USERS ONLY) ---
+  // --- AUTOMATIC PAGE VISIT UPSELL TRACKER ---
   useEffect(() => {
     if (!authResolved) return;
 
@@ -256,7 +617,7 @@ export default function App() {
       return;
     }
 
-    if (['sub', 'admin', 'settings', 'legal', 'creator-studio'].includes(currentView) || showLogin) return;
+    if (['sub', 'admin', 'settings', 'legal', 'creator-studio'].includes(currentView) || showLogin || Boolean(pendingCreatorInvite)) return;
 
     const rawVisits = sessionStorage.getItem('am_nav_counter') || '0';
     const nextVisits = parseInt(rawVisits, 10) + 1;
@@ -315,14 +676,17 @@ export default function App() {
           .select('*')
           .eq('id', sessionUser.id)
           .maybeSingle();
-        
+
+        let resolvedUserObj: any = null;
+
         if (data) {
           const verifiedAdmin = checkIsAdminUser(data, sessionUser.email);
-          setCurrentUser({
+          resolvedUserObj = {
             ...data,
             email: data.email || sessionUser.email,
             is_admin: verifiedAdmin
-          });
+          };
+          setCurrentUser(resolvedUserObj);
           const isPro = Boolean(data.is_premium);
           setUserTier(isPro ? 'premium' : 'free');
           if (isPro) setUpsellConfig(null);
@@ -339,7 +703,7 @@ export default function App() {
               super_hypes_left: fallbackPremium ? 3 : 1
             }
           ], { onConflict: 'id' });
-          setCurrentUser({
+          resolvedUserObj = {
             id: sessionUser.id,
             email: sessionUser.email,
             username: fallbackName,
@@ -349,7 +713,37 @@ export default function App() {
             super_hypes_left: fallbackPremium ? 3 : 1,
             is_premium: fallbackPremium,
             is_admin: fallbackAdmin
-          }); 
+          };
+          setCurrentUser(resolvedUserObj);
+        }
+
+        const metaInvite = String(sessionUser.user_metadata?.pending_creator_invite || '').trim().toUpperCase();
+        const alreadyAccepted =
+          Boolean(resolvedUserObj?.creator_terms_accepted_at) ||
+          Boolean(sessionUser.user_metadata?.creator_terms_accepted_at) ||
+          Boolean(localStorage.getItem(`am_creator_tos_accepted_${sessionUser.id}`));
+
+        if (metaInvite && !alreadyAccepted) {
+          localStorage.setItem('am_pending_creator_invite', metaInvite);
+          setPendingCreatorInvite(metaInvite);
+        }
+
+        // Link anonymous visitor ID to this authenticated account once for conversion tracking
+        const visitorId = getOrCreateVisitorId();
+        const convKey = `am_conv_logged_${sessionUser.id}`;
+        if (!localStorage.getItem(convKey)) {
+          localStorage.setItem(convKey, 'true');
+          supabase
+            .from('telemetry_events')
+            .insert([
+              {
+                user_id: sessionUser.id,
+                session_id: visitorId,
+                event_type: 'visitor_converted_signup',
+                metadata: { visitor_id: visitorId, email: sessionUser.email }
+              }
+            ])
+            .then(() => {});
         }
       } catch (err) {
         console.error("Error fetching user profile:", err);
@@ -649,6 +1043,33 @@ export default function App() {
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => setShowLogin(false)} />}
       <ShareModal isOpen={showGlobalShareModal} onClose={() => setShowGlobalShareModal(false)} currentUser={currentUser} series={null} />
 
+      {/* MANDATORY CREATOR ONBOARDING & TERMS OF PARTICIPATION MODAL */}
+      <CreatorOnboardingModal
+        isOpen={
+          !showLogin &&
+          (Boolean(pendingCreatorInvite) ||
+            (currentView === 'creator-studio' &&
+              Boolean(currentUser) &&
+              !isUserAdmin &&
+              !hasAcceptedCreatorTerms(currentUser)))
+        }
+        currentUser={currentUser}
+        inviteCode={pendingCreatorInvite}
+        onRequireLogin={() => setShowLogin(true)}
+        onCancel={() => {
+          setPendingCreatorInvite(null);
+          localStorage.removeItem('am_pending_creator_invite');
+          if (currentView === 'creator-studio') setCurrentView('home');
+        }}
+        onSuccess={(updatedProfile: any) => {
+          setCurrentUser(updatedProfile);
+          setUserTier('premium');
+          setPendingCreatorInvite(null);
+          localStorage.removeItem('am_pending_creator_invite');
+          setCurrentView('creator-studio');
+        }}
+      />
+
       {/* CREATOR STRIPE CONNECT CONFIRMATION MODAL */}
       {stripeConnectNotice && (
         <div className="fixed inset-0 z-[7500] bg-black/90 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in" onClick={() => setStripeConnectNotice(null)}>
@@ -838,7 +1259,7 @@ export default function App() {
         </button>
       )}
 
-      {/* COMPACT FLOATING INSTALL TOAST (ONLY SHOWN WHEN NATIVE 1-CLICK INSTALL IS AVAILABLE & NOT INSTALLED) */}
+      {/* COMPACT FLOATING INSTALL TOAST */}
       {showInstallPrompt && !isAppInstalled && !showIosPrompt && currentView !== 'admin' && (
         <div className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[6000] bg-zinc-950/95 border border-[#fe9a00]/70 p-2.5 sm:p-3 rounded-xl shadow-[0_10px_35px_rgba(0,0,0,0.9)] flex flex-col gap-2 animate-fade-in backdrop-blur-xl">
           <div className="flex items-center justify-between gap-2.5">
@@ -880,7 +1301,7 @@ export default function App() {
         </div>
       )}
 
-      {/* COMPACT IOS SAFARI PWA INSTALL BOTTOM SHEET (HIDDEN IN ADMIN VIEW & WHEN INSTALLED) */}
+      {/* COMPACT IOS SAFARI PWA INSTALL BOTTOM SHEET */}
       {showIosPrompt && !isAppInstalled && currentView !== 'admin' && (
         <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-4 sm:p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-3 animate-fade-in-up pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <div className="flex items-start justify-between">

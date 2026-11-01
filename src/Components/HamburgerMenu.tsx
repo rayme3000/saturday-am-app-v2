@@ -48,13 +48,16 @@ export const HamburgerMenu = memo(({ isOpen, onClose, onNavigate, onOpenFlexCard
   const cleanEmail = String(currentUser?.email || '').trim().toLowerCase();
   const cleanUsername = String(currentUser?.username || '').trim().toLowerCase();
   const cleanRole = String(currentUser?.role || '').trim().toLowerCase();
+  const isRevokedCreator = cleanRole === 'revoked_creator';
 
   const hasCreatorStudioAccess = Boolean(
     currentUser?.is_admin ||
-    Boolean(currentUser?.linked_creator_name) ||
-    ['creator', 'core_creator', 'staff', 'influencer'].includes(cleanRole) ||
-    KNOWN_CREATOR_EMAILS.has(cleanEmail) ||
-    KNOWN_CREATOR_USERNAMES.has(cleanUsername)
+    (!isRevokedCreator && (
+      Boolean(currentUser?.linked_creator_name) ||
+      ['creator', 'core_creator', 'staff', 'influencer'].includes(cleanRole) ||
+      KNOWN_CREATOR_EMAILS.has(cleanEmail) ||
+      KNOWN_CREATOR_USERNAMES.has(cleanUsername)
+    ))
   );
 
   const menuItems = [

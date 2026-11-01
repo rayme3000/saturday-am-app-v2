@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabase';
 import {
   ArrowLeft, DollarSign, Sparkles, Flame, BookOpen, KeyRound, Copy, Check,
-  ExternalLink, Heart, RefreshCw, Award, Eye, QrCode, Download, X
+  ExternalLink, Heart, RefreshCw, Award, Eye, QrCode, Download, X, Link2
 } from 'lucide-react';
 import { resolveCreatorStripeAccountId, normalizeCreatorKey } from './CreatorsPage';
 
@@ -144,7 +144,6 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
       const userName = String(currentUser?.username || '').trim().toLowerCase();
       const fullName = `${currentUser?.first_name || ''} ${currentUser?.last_name || ''}`.trim().toLowerCase();
 
-      // Check direct alias map by email or username (handles Effessart -> Frank Simmonds, rayme3000 -> Raymond Brown, etc.)
       const aliasMatch = CREATOR_IDENTITY_ALIAS_MAP[uEmail] || CREATOR_IDENTITY_ALIAS_MAP[userName];
       if (aliasMatch) {
         const normAlias = normalizeCreatorKey(aliasMatch);
@@ -187,7 +186,12 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
     return `VIP-${clean}`;
   }, [selectedCreatorName, currentUser?.username]);
 
-  const vipReferralLink = `https://www.mangahype.com/?ref=${encodeURIComponent(referralCode)}&vip=${referralSlug}`;
+  // If the creator has a primary series, default their main referral link to open directly to that series!
+  const primarySeriesSlug = seriesList[0]?.slug || '';
+  const vipReferralLink = primarySeriesSlug
+    ? `https://www.mangahype.com/?series=${encodeURIComponent(primarySeriesSlug)}&ref=${encodeURIComponent(referralCode)}&vip=${referralSlug}`
+    : `https://www.mangahype.com/?ref=${encodeURIComponent(referralCode)}&vip=${referralSlug}`;
+
   const qrCodeImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=16&color=000000&bgcolor=fe9a00&data=${encodeURIComponent(vipReferralLink)}`;
 
   const handleDownloadQrCode = async () => {
@@ -409,6 +413,35 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
     return seriesList.reduce((acc, s) => acc + getSeriesTotalHypes(s), 0);
   }, [seriesList, getSeriesTotalHypes]);
 
+  // --- ACCESS GUARD: LOCKS OUT USERS IF STUDIO ACCESS WAS REVOKED ---
+  const cleanRole = String(currentUser?.role || '').toLowerCase();
+  const isRevoked = cleanRole === 'revoked_creator';
+  const hasStudioPermission =
+    isAdmin ||
+    (!isRevoked &&
+      (STAFF_CREATOR_EMAILS.includes(userEmail) ||
+        Boolean(currentUser?.linked_creator_name) ||
+        ['creator', 'core_creator', 'staff', 'influencer'].includes(cleanRole)));
+
+  if (!hasStudioPermission) {
+    return (
+      <div className="min-h-screen bg-black/95 text-white flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+        <h2 className="text-2xl font-black italic uppercase tracking-tighter text-[#fe9a00] mb-2">
+          Creator Studio Access Required
+        </h2>
+        <p className="text-xs text-zinc-400 font-bold max-w-sm mb-6 leading-relaxed">
+          Your account does not currently have active Creator Studio privileges. Please use a valid Saturday AM Creator Onboarding link or contact editorial support.
+        </p>
+        <button
+          onClick={onBack}
+          className="px-6 py-3 bg-[#fe9a00] text-black font-black uppercase tracking-widest text-xs rounded-xl hover:bg-white transition-colors cursor-pointer"
+        >
+          Return Home
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black/90 text-white pb-36 pt-6 px-4 sm:px-8 max-w-6xl mx-auto animate-fade-in">
       {/* Top Navigation & Role Header */}
@@ -440,7 +473,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
               </span>
             </div>
             <p className="text-xs text-zinc-400 font-bold mt-1">
-              Real-time series stats, 100% pass-through fan tips, autograph PINs, QR codes & annual trial referral links
+              Real-time series stats, 100% pass-through fan tips, autograph PINs, QR codes & direct series/chapter links
             </p>
           </div>
         </div>
@@ -491,11 +524,11 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
               <span className="text-[10px] font-bold text-zinc-500">{tips.length} Fan Tip{tips.length === 1 ? '' : 's'}</span>
               {creatorProfile?.stripe_account_id ? (
                 <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
-                  Stripe Linked
+                  Payments: Direct
                 </span>
               ) : (
                 <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
-                  AM Default Escrow
+                  Payments: Saturday AM
                 </span>
               )}
             </div>
@@ -615,10 +648,12 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
               </button>
             </div>
 
-            {/* Referral Link Box (Expands to fill remaining width on desktop) */}
+            {/* Referral Link Box */}
             <div className="bg-black border border-zinc-800 rounded-xl px-4 py-2.5 flex items-center justify-between gap-3 sm:flex-1 min-w-0">
               <div className="min-w-0 flex-1 truncate">
-                <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block">Direct 3-Day Trial Link</span>
+                <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block">
+                  {primarySeriesSlug ? 'Direct Series + 3-Day Trial Link (Best for Bio)' : 'Direct 3-Day Trial Link'}
+                </span>
                 <span className="text-xs font-mono font-bold text-[#fe9a00] truncate block">{vipReferralLink}</span>
               </div>
               <button
@@ -640,7 +675,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
               <div className="flex items-center gap-2.5">
                 <BookOpen className="w-5 h-5 text-[#fe9a00]" />
                 <h3 className="text-base font-black italic uppercase tracking-wider text-white">
-                  My Series & Chapter Stats
+                  My Series, Deep Links & Chapter Stats
                 </h3>
               </div>
               <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
@@ -657,6 +692,12 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
                 {seriesList.map((series: any) => {
                   const sChapters = chaptersList.filter((c: any) => c.series_slug === series.slug);
                   const displaySeriesHypes = getSeriesTotalHypes(series);
+                  const firstChap = sChapters[0];
+
+                  const directSeriesUrl = `https://www.mangahype.com/?series=${encodeURIComponent(series.slug)}&ref=${encodeURIComponent(referralCode)}&vip=${referralSlug}`;
+                  const directChap1Url = firstChap
+                    ? `https://www.mangahype.com/?series=${encodeURIComponent(series.slug)}&chapter=${encodeURIComponent(String(firstChap.id))}&ref=${encodeURIComponent(referralCode)}&vip=${referralSlug}`
+                    : directSeriesUrl;
 
                   return (
                     <div key={series.id || series.slug} className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-4">
@@ -677,7 +718,35 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(directSeriesUrl, `series_url_${series.slug}`)}
+                            className="px-3 py-1.5 bg-zinc-950 hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border border-[#fe9a00]/50 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 cursor-pointer"
+                            title="Copy direct link to this series with your referral code"
+                          >
+                            {copiedKey === `series_url_${series.slug}` ? (
+                              <><Check className="w-3 h-3" /> Copied Series Link</>
+                            ) : (
+                              <><Link2 className="w-3 h-3" /> Copy Series Link</>
+                            )}
+                          </button>
+
+                          {firstChap && (
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(directChap1Url, `chap1_url_${series.slug}`)}
+                              className="px-3 py-1.5 bg-[#fe9a00] hover:bg-white text-black rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 cursor-pointer"
+                              title="Copy 1-click link that opens straight inside Chapter 1 with your referral code"
+                            >
+                              {copiedKey === `chap1_url_${series.slug}` ? (
+                                <><Check className="w-3 h-3" /> Copied Ch. 1 Link</>
+                              ) : (
+                                <><BookOpen className="w-3 h-3" /> Copy Ch. 1 Link</>
+                              )}
+                            </button>
+                          )}
+
                           <div className="bg-black border border-zinc-800 px-3 py-1.5 rounded-lg text-center">
                             <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block">Total Hypes</span>
                             <span className="text-xs font-black text-[#fe9a00] flex items-center justify-center gap-1">
@@ -699,21 +768,31 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
                           {sChapters.map((ch: any) => {
                             const chHypes = getChapterHypes(ch);
                             const chReacts = (ch.react_count || 0) + (chapterStatsMap[String(ch.id)]?.reacts || 0);
+                            const chapUrl = `https://www.mangahype.com/?series=${encodeURIComponent(series.slug)}&chapter=${encodeURIComponent(String(ch.id))}&ref=${encodeURIComponent(referralCode)}&vip=${referralSlug}`;
+
                             return (
                               <div
                                 key={ch.id}
-                                className="bg-black/60 border border-zinc-800/80 rounded-lg px-3 py-2 flex items-center justify-between text-xs"
+                                className="bg-black/60 border border-zinc-800/80 rounded-lg px-3 py-2 flex items-center justify-between text-xs gap-2"
                               >
                                 <span className="font-bold text-zinc-200 truncate">
                                   Ch. {ch.chapter_number}: {ch.title || `Chapter ${ch.chapter_number}`}
                                 </span>
-                                <div className="flex items-center gap-2.5 shrink-0 ml-2">
+                                <div className="flex items-center gap-2 shrink-0">
                                   <span className="text-[10px] font-black text-[#fe9a00] flex items-center gap-1" title="Chapter Hypes">
                                     <Flame className="w-3 h-3" /> {chHypes}
                                   </span>
                                   <span className="text-[10px] font-bold text-red-400 flex items-center gap-1" title="Chapter Likes">
                                     <Heart className="w-3 h-3 fill-red-500 text-red-500" /> {chReacts}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(chapUrl, `ch_${ch.id}`)}
+                                    className="p-1 bg-zinc-900 hover:bg-[#fe9a00] text-zinc-400 hover:text-black rounded transition-colors cursor-pointer"
+                                    title="Copy Direct Link to this Chapter"
+                                  >
+                                    {copiedKey === `ch_${ch.id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Link2 className="w-3 h-3" />}
+                                  </button>
                                 </div>
                               </div>
                             );
@@ -805,7 +884,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
               {selectedCreatorName || currentUser?.username || 'Saturday AM Partner'}
             </h3>
             <p className="text-[11px] font-bold text-zinc-400 mb-5">
-              Scan to unlock a <span className="text-[#fe9a00]">3-Day Free Trial</span> on the Saturday AM+ Annual Plan!
+              Scan to open <span className="text-white">{seriesList[0]?.title || 'Saturday AM'}</span> & unlock a <span className="text-[#fe9a00]">3-Day Free Trial</span> on the Annual Plan!
             </p>
 
             <div className="bg-[#fe9a00] p-3 rounded-2xl shadow-[0_0_30px_rgba(254,154,0,0.4)] mb-5">
