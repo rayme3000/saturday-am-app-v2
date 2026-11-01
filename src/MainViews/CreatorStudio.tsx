@@ -37,44 +37,85 @@ const CREATOR_IDENTITY_ALIAS_MAP: Record<string, string> = {
   'publisher@saturday-am.com': 'Frederick L. Jones'
 };
 
-// Built-in Saturday AM catalog mapping so every creator always syncs with their series & one-shots
-const CREATOR_SERIES_CATALOG_MAP: Record<string, string[]> = {
-  'raymond brown': ['bully eater'],
-  'rayme3000': ['bully eater'],
-  'odunze oguguo': ['apple black'],
-  'whyt manga': ['apple black'],
-  'odunze oguguo (whyt manga)': ['apple black'],
-  'frederick l. jones': ['clock striker', 'fan-x-boy', 'saturday wars', 'massively multiplayer world of ghosts', 'mmwog', 'yellow stringer'],
-  'issaka galadima': ['clock striker'],
-  'mike saharat srimuang': ['clock striker'],
+// Normalize any series title or slug to a canonical alphanumeric hyphenated key for exact comparison
+const normalizeSeriesIdentifier = (val: string): string => {
+  return String(val || '')
+    .toLowerCase()
+    .trim()
+    .replace(/\+/g, '-plus-')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+};
+
+// Strict Saturday AM Creator -> Exact Series Slug/Title ownership map (prevents substring bleed like 'gun' -> 'gunhild' or one-shot creators seeing flagship series)
+const CREATOR_EXACT_SERIES_MAP: Record<string, string[]> = {
+  'raymond brown': ['bully-eater', 'bully-eater-annual-one-shot'],
+  'rayme3000': ['bully-eater', 'bully-eater-annual-one-shot'],
+  'odunze oguguo': ['apple-black', 'apple-black-annual-one-shot', 'apple-black-origins'],
+  'whyt manga': ['apple-black', 'apple-black-annual-one-shot', 'apple-black-origins'],
+  'odunze oguguo (whyt manga)': ['apple-black', 'apple-black-annual-one-shot', 'apple-black-origins'],
+  'kiba fabio augusto': ['apple-black-annual-one-shot'],
+  'stephanie williams': ['apple-black-origins'],
+  'frederick l. jones': [
+    'clock-striker',
+    'clock-striker-annual-one-shot',
+    'fan-x-boy',
+    'saturday-wars',
+    'mmwog',
+    'the-massively-multiplayer-world-of-ghosts',
+    'the-massively-multiplayer-world-of-ghosts-mmwog',
+    'yellow-stringer',
+    'yellow-stringer-annual-one-shot'
+  ],
+  'issaka galadima': ['clock-striker'],
+  'mike saharat srimuang': ['clock-striker-annual-one-shot'],
   'frank simmonds': ['fan-x-boy'],
   'effessart': ['fan-x-boy'],
   'kristina andabak': ['grimmheim'],
-  'erick pedrucci': ['gun+bone', 'gun', 'hammer'],
+  'erick pedrucci': ['gun-bone', 'gun-plus-bone', 'hammer-annual-one-shot'],
   'fred tornager': ['gunhild'],
-  'jeyodin': ['hammer'],
+  'jeyodin': ['hammer', 'hammer-annual-one-shot'],
   'bon idle': ['henshin'],
-  'stefano romano': ['maximo'],
-  'pap souleye fall': ['oblivion rouge'],
+  'stefano romano': ['maximo', 'maximo-world-warrior'],
+  'pap souleye fall': ['oblivion-rouge'],
   'huzayfa umar': ['orisha'],
   'zayf': ['orisha'],
   'huzayfa umar (zayf)': ['orisha'],
   'yvan soudy': ['redskin'],
   'staark': ['redskin'],
   'yvan soudy (staark)': ['redskin'],
-  'eddy frye': ['saturday wars'],
-  'morganne walker': ['soul beat'],
-  'oscar fong': ['massively multiplayer world of ghosts', 'mmwog'],
-  'tony dawkins': ['titan king'],
+  'eddy frye': ['saturday-wars'],
+  'morganne walker': ['soul-beat'],
+  'oscar fong': [
+    'mmwog',
+    'the-massively-multiplayer-world-of-ghosts',
+    'the-massively-multiplayer-world-of-ghosts-mmwog'
+  ],
+  'tony dawkins': ['titan-king'],
   'jr de bard': ['underground'],
-  'goeffrey jean-louis': ['yellow stringer'],
-  'angélica rosales': ['yellow stringer'],
-  'angelica rosales': ['yellow stringer'],
+  'goeffrey jean-louis': ['yellow-stringer'],
+  'angélica rosales': ['yellow-stringer-annual-one-shot'],
+  'angelica rosales': ['yellow-stringer-annual-one-shot'],
   'austin harvey-younis': ['zarqa'],
   'vee': ['zarqa'],
-  'staniel russell': ['zephyr'],
-  'kiba fabio augusto': ['apple black'],
-  'stephanie williams': ['apple black']
+  'staniel russell': ['zephyr']
+};
+
+// Check if a creator name appears as an explicit author in a series' creator_name field (using exact word boundaries)
+const doesSeriesAuthorMatchCreator = (seriesAuthorRaw: string, creatorParts: string[]): boolean => {
+  if (!seriesAuthorRaw) return false;
+  // Split multi-author strings like "JeyOdin & Erick Pedrucci" or "Frederick L. Jones, Issaka Galadima"
+  const authorSegments = seriesAuthorRaw
+    .toLowerCase()
+    .split(/[,&/•|]+|\band\b/i)
+    .map(seg => normalizeCreatorKey(seg))
+    .filter(Boolean);
+
+  return creatorParts.some(part => {
+    const cleanPart = normalizeCreatorKey(part);
+    if (!cleanPart || cleanPart.length < 3) return false;
+    return authorSegments.some(seg => seg === cleanPart);
+  });
 };
 
 export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBack, onNavigate }) => {
@@ -223,16 +264,22 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
 
       const parenMatch = cleanName.match(/^(.+?)\s*\((.+?)\)$/);
       const nameParts = parenMatch
-        ? [normKey, parenMatch[1].trim().toLowerCase(), parenMatch[2].trim().toLowerCase()]
+        ? [normKey, normalizeCreatorKey(parenMatch[1]), normalizeCreatorKey(parenMatch[2])]
         : [normKey];
 
       const { data: allCreatorRows } = await supabase
         .from('series_creators')
         .select('*');
 
+      // Strict equality matching on creator rows so short names never bleed into other creators
       const cRows = (allCreatorRows || []).filter((r: any) => {
-        const rKey = normalizeCreatorKey(r.name || r.creator_name);
-        return nameParts.some(part => part && (rKey === part || rKey.includes(part) || part.includes(rKey)));
+        const rRaw = String(r.name || r.creator_name || '').trim();
+        const rKey = normalizeCreatorKey(rRaw);
+        const rParen = rRaw.match(/^(.+?)\s*\((.+?)\)$/);
+        const rParts = rParen
+          ? [rKey, normalizeCreatorKey(rParen[1]), normalizeCreatorKey(rParen[2])]
+          : [rKey];
+        return nameParts.some(part => part && rParts.includes(part));
       });
 
       const dbStripe = cRows.find((r: any) => r.stripe_account_id)?.stripe_account_id || '';
@@ -281,34 +328,51 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
 
       const { data: allSeries } = await supabase
         .from('series')
-        .select('*');
+        .select('*')
+        .order('display_order', { ascending: true });
 
-      const linkedSeriesSlugs = new Set<string>();
-      cRows.forEach((row: any) => {
-        if (row.series_slug) linkedSeriesSlugs.add(String(row.series_slug).trim().toLowerCase());
+      // 1. Check if this creator has an explicit audited allowlist in CREATOR_EXACT_SERIES_MAP
+      const allowedExactIdentifiers = new Set<string>();
+      let hasExplicitAuditEntry = false;
+
+      nameParts.forEach(part => {
+        if (CREATOR_EXACT_SERIES_MAP[part]) {
+          hasExplicitAuditEntry = true;
+          CREATOR_EXACT_SERIES_MAP[part].forEach(slugOrTitle => {
+            allowedExactIdentifiers.add(normalizeSeriesIdentifier(slugOrTitle));
+          });
+        }
       });
 
-      const catalogKeywords: string[] = [];
-      nameParts.forEach(part => {
-        if (CREATOR_SERIES_CATALOG_MAP[part]) {
-          catalogKeywords.push(...CREATOR_SERIES_CATALOG_MAP[part]);
+      // 2. Also gather explicit series_slug links from Supabase `series_creators` table
+      const dbLinkedSeriesSlugs = new Set<string>();
+      cRows.forEach((row: any) => {
+        if (row.series_slug) {
+          dbLinkedSeriesSlugs.add(normalizeSeriesIdentifier(row.series_slug));
         }
       });
 
       const mySeries = (allSeries || []).filter((s: any) => {
-        const sSlug = String(s.slug || '').trim().toLowerCase();
-        const sTitle = String(s.title || '').trim().toLowerCase();
-        const sCreator = String(s.creator_name || s.author || '').trim().toLowerCase();
+        const normSlug = normalizeSeriesIdentifier(s.slug);
+        const normTitle = normalizeSeriesIdentifier(s.title);
+        const sAuthorRaw = String(s.creator_name || s.author || '').trim();
 
-        if (sSlug && linkedSeriesSlugs.has(sSlug)) return true;
-
-        if (sCreator && nameParts.some(part => part.length > 2 && sCreator.includes(part))) {
-          return true;
+        // If the creator is in our audited catalog map, enforce exact series matching so they NEVER get another creator's series
+        if (hasExplicitAuditEntry) {
+          if (allowedExactIdentifiers.has(normSlug) || allowedExactIdentifiers.has(normTitle)) {
+            return true;
+          }
+          // Also allow any brand-new series added in the future where they are explicitly listed as the author
+          if (doesSeriesAuthorMatchCreator(sAuthorRaw, nameParts)) {
+            return true;
+          }
+          return false;
         }
 
-        if (catalogKeywords.some(kw => sTitle.includes(kw) || sSlug.includes(kw.replace(/\s+/g, '-')))) {
-          return true;
-        }
+        // Fallback for any newly onboarded creator not in the static map:
+        // Match exact series_slug from series_creators OR exact author segment match
+        if (normSlug && dbLinkedSeriesSlugs.has(normSlug)) return true;
+        if (doesSeriesAuthorMatchCreator(sAuthorRaw, nameParts)) return true;
 
         return false;
       });
@@ -317,6 +381,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
 
       if (mySeries.length > 0) {
         const mySlugs = mySeries.map((s: any) => s.slug).filter(Boolean);
+        const allowedSlugSet = new Set(mySlugs.map((slug: string) => String(slug).trim().toLowerCase()));
 
         const { data: chData } = await supabase
           .from('chapters')
@@ -325,7 +390,12 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
           .eq('is_published', true)
           .order('chapter_number', { ascending: true });
 
-        setChaptersList(chData || []);
+        // Strictly filter chapters so only chapters belonging to this creator's verified series slugs are kept
+        const verifiedChapters = (chData || []).filter((ch: any) =>
+          allowedSlugSet.has(String(ch.series_slug || '').trim().toLowerCase())
+        );
+
+        setChaptersList(verifiedChapters);
 
         const statsAccumulator: Record<string, { hypes: number; reacts: number }> = {};
         await Promise.all(
@@ -404,7 +474,9 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
   }, [chapterStatsMap]);
 
   const getSeriesTotalHypes = useCallback((series: any) => {
-    const sChapters = chaptersList.filter((c: any) => c.series_slug === series.slug);
+    const sChapters = chaptersList.filter(
+      (c: any) => String(c.series_slug || '').trim().toLowerCase() === String(series.slug || '').trim().toLowerCase()
+    );
     const subHypes = sChapters.reduce((sum, ch) => sum + getChapterHypes(ch), 0);
     return Number(series.hype_count || series.total_hypes || 0) + subHypes;
   }, [chaptersList, getChapterHypes]);
@@ -690,7 +762,11 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
             ) : (
               <div className="space-y-4">
                 {seriesList.map((series: any) => {
-                  const sChapters = chaptersList.filter((c: any) => c.series_slug === series.slug);
+                  const sChapters = chaptersList.filter(
+                    (c: any) =>
+                      String(c.series_slug || '').trim().toLowerCase() ===
+                      String(series.slug || '').trim().toLowerCase()
+                  );
                   const displaySeriesHypes = getSeriesTotalHypes(series);
                   const firstChap = sChapters[0];
 
