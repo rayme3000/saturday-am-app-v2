@@ -28,7 +28,7 @@ const isNewItem = (createdAt: string | undefined) => {
 };
 
 export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userTier, nextScheduledBySeries = {}, onRequireAuth }: any) => {
-  const scrollRef = useRef(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const [localLikes, setLocalLikes] = useState<Record<string, boolean>>({});
   const [earliestNextDropMap, setEarliestNextDropMap] = useState<Record<string, string>>({});
   const [, setTickSecond] = useState<number>(0);
@@ -134,11 +134,14 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
     fetchLikes();
   }, [currentUser?.id, seriesSlugs]);
 
-  const scroll = (direction: string) => {
+  const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
-      const { current } = scrollRef as any;
-      const scrollAmount = direction === 'left' ? -current.offsetWidth + 50 : current.offsetWidth - 50;
-      current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+      const container = scrollRef.current;
+      const step = Math.max(240, Math.floor(container.clientWidth * 0.75));
+      container.scrollBy({
+        left: direction === 'left' ? -step : step,
+        behavior: 'smooth'
+      });
     }
   };
 
@@ -202,23 +205,48 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
         }
       `}</style>
       
-      <div className="flex items-center gap-3 mb-4">
-        <svg className="w-5 h-5 text-[#fe9a00] ml-1" viewBox="0 0 24 24" fill="currentColor">
-          <polygon points="0,0 8,0 8,24 0,24" />
-          <polygon points="10,0 24,0 24,14 10,8" />
-          <polygon points="10,10 24,16 24,24 10,24" />
-        </svg>
-        <h2 className="text-xl font-black text-white tracking-wider text-left">
-          {title}
-        </h2>
+      {/* Section Header + Always-Visible Left/Right Scroll Arrows */}
+      <div className="flex items-center justify-between gap-3 mb-4 pr-1">
+        <div className="flex items-center gap-3">
+          <svg className="w-5 h-5 text-[#fe9a00] ml-1 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="0,0 8,0 8,24 0,24" />
+            <polygon points="10,0 24,0 24,14 10,8" />
+            <polygon points="10,10 24,16 24,24 10,24" />
+          </svg>
+          <h2 className="text-xl font-black text-white tracking-wider text-left">
+            {title}
+          </h2>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); scroll('left'); }}
+            aria-label={`Scroll ${title} left`}
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-900/90 hover:bg-[#fe9a00] text-zinc-200 hover:text-black border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center transition-all shadow-md active:scale-95 cursor-pointer"
+          >
+            <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); scroll('right'); }}
+            aria-label={`Scroll ${title} right`}
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-900/90 hover:bg-[#fe9a00] text-zinc-200 hover:text-black border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center transition-all shadow-md active:scale-95 cursor-pointer"
+          >
+            <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
+        </div>
       </div>
 
       <div className="relative">
+        {/* Desktop Floating Left Arrow Pill */}
         <button 
+          type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); scroll('left'); }}
-          className="absolute left-0 top-0 bottom-8 z-50 flex items-center justify-center w-10 sm:w-12 bg-gradient-to-r from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex cursor-pointer"
+          aria-label={`Scroll ${title} left`}
+          className="hidden md:flex absolute -left-3 top-[38%] -translate-y-1/2 z-50 w-10 h-10 rounded-full bg-black/85 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] opacity-85 group-hover:opacity-100 transition-all cursor-pointer"
         >
-          <ChevronLeft className="w-8 h-8 text-white hover:text-[#fe9a00] transition-colors drop-shadow-md" />
+          <ChevronLeft className="w-6 h-6" />
         </button>
 
         <div ref={scrollRef} className="flex overflow-x-auto gap-3 pb-4 pt-2 px-1 scroll-smooth snap-x no-scrollbar">
@@ -375,11 +403,14 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
           })}
         </div>
 
+        {/* Desktop Floating Right Arrow Pill */}
         <button 
+          type="button"
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); scroll('right'); }}
-          className="absolute right-0 top-0 bottom-8 z-50 flex items-center justify-center w-10 sm:w-12 bg-gradient-to-l from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex cursor-pointer"
+          aria-label={`Scroll ${title} right`}
+          className="hidden md:flex absolute -right-3 top-[38%] -translate-y-1/2 z-50 w-10 h-10 rounded-full bg-black/85 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] opacity-85 group-hover:opacity-100 transition-all cursor-pointer"
         >
-          <ChevronRight className="w-8 h-8 text-white hover:text-[#fe9a00] transition-colors drop-shadow-md" />
+          <ChevronRight className="w-6 h-6" />
         </button>
       </div>
     </div>

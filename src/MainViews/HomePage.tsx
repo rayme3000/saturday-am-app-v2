@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { SeriesSection } from './SeriesSection';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
-import { Menu, X, Bell, CheckCircle, RefreshCw, Clock } from 'lucide-react';
+import { Menu, X, Bell, CheckCircle, RefreshCw, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTelemetry } from '../Components/useTelemetry';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 import {
@@ -71,6 +71,9 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const { seriesList = [], vaultAvatars = [], cardSkins = [], vaultFrames = [], isLoading } = useSeriesData();
   const { trackEvent } = useTelemetry(currentUser?.id);
 
+  const latestChaptersScrollRef = useRef<HTMLDivElement | null>(null);
+  const recentReadsScrollRef = useRef<HTMLDivElement | null>(null);
+
   const [currentSlide, setCurrentSlide] = useState(0);
   const [heroSlides, setHeroSlides] = useState<any[]>(memHeroSlides || []);
   const [homeSections, setHomeSections] = useState<any[]>(memHomeSections || []);
@@ -90,6 +93,16 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [, setSecondTick] = useState<number>(0);
 
   const isPlusSubscriber = userTier === 'premium' || Boolean(currentUser?.is_premium);
+
+  const scrollContainerByRef = (ref: React.RefObject<HTMLDivElement | null>, direction: 'left' | 'right') => {
+    if (!ref.current) return;
+    const container = ref.current;
+    const step = Math.max(240, Math.floor(container.clientWidth * 0.75));
+    container.scrollBy({
+      left: direction === 'left' ? -step : step,
+      behavior: 'smooth'
+    });
+  };
 
   useEffect(() => {
     const interval = setInterval(() => setNowTick(Date.now()), 30000);
@@ -604,70 +617,160 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           <TutorialHelpButton onClick={() => setForceTutorial(true)} />
         </div>
 
+        {/* Hero Banner Carousel with Left/Right Arrows */}
         <div className="mb-8 w-full flex flex-col items-center">
-          <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900/80 border border-zinc-800/50 shadow-xl backdrop-blur-sm">
+          <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900/80 border border-zinc-800/50 shadow-xl backdrop-blur-sm group">
             {heroSlides.map((slide, index) => (
               <div key={slide.id} onClick={() => handleSlideClick(slide)} className={`absolute inset-0 transition-opacity duration-1000 ease-in-out cursor-pointer ${index === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}>
                 <img src={slide.mobile_url} alt={`Slide ${index}`} className="md:hidden w-full h-full object-cover" />
                 <img src={slide.desktop_url} alt={`Slide ${index}`} className="hidden md:block w-full h-full object-cover" />
               </div>
             ))}
+
             {heroSlides.length > 1 && (
-              <div className="absolute bottom-4 left-0 right-0 z-20 flex justify-center gap-2">
-                {heroSlides.map((_, index) => (
-                  <button key={index} onClick={e => { e.stopPropagation(); setCurrentSlide(index); }} className={`h-1.5 rounded-full transition-all duration-300 ${index === currentSlide ? 'bg-[#fe9a00] w-6' : 'bg-white/50 w-1.5 hover:bg-white'}`} />
-                ))}
-              </div>
+              <>
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    setCurrentSlide(prev => (prev - 1 + heroSlides.length) % heroSlides.length);
+                  }}
+                  aria-label="Previous slide"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 z-30 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/75 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center transition-all shadow-lg cursor-pointer"
+                >
+                  <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+                </button>
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    setCurrentSlide(prev => (prev + 1) % heroSlides.length);
+                  }}
+                  aria-label="Next slide"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 z-30 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/75 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center transition-all shadow-lg cursor-pointer"
+                >
+                  <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+                </button>
+
+                <div className="absolute bottom-4 left-0 right-0 z-20 flex justify-center gap-2">
+                  {heroSlides.map((_, index) => (
+                    <button key={index} onClick={e => { e.stopPropagation(); setCurrentSlide(index); }} className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${index === currentSlide ? 'bg-[#fe9a00] w-6' : 'bg-white/50 w-1.5 hover:bg-white'}`} />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>
 
+        {/* Latest Chapters Slider with Header & Side Arrows */}
         {visibleLatestChapters.length > 0 && (
           <div className="mb-10 relative group px-2">
-            <div className="flex items-center gap-3 mb-4">
-              <svg className="w-5 h-5 text-[#fe9a00] ml-1 drop-shadow-[0_0_8px_rgba(254,154,0,0.8)]" viewBox="0 0 24 24" fill="currentColor">
-                <polygon points="0,0 8,0 8,24 0,24" /><polygon points="10,0 24,0 24,14 10,8" /><polygon points="10,10 24,16 24,24 10,24" />
-              </svg>
-              <h2 className="text-xl font-black text-white tracking-wider uppercase drop-shadow-md">Latest Chapters</h2>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-3">
+                <svg className="w-5 h-5 text-[#fe9a00] ml-1 drop-shadow-[0_0_8px_rgba(254,154,0,0.8)] shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="0,0 8,0 8,24 0,24" /><polygon points="10,0 24,0 24,14 10,8" /><polygon points="10,10 24,16 24,24 10,24" />
+                </svg>
+                <h2 className="text-xl font-black text-white tracking-wider uppercase drop-shadow-md">Latest Chapters</h2>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => scrollContainerByRef(latestChaptersScrollRef, 'left')}
+                  aria-label="Scroll Latest Chapters left"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-900/90 hover:bg-[#fe9a00] text-zinc-200 hover:text-black border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollContainerByRef(latestChaptersScrollRef, 'right')}
+                  aria-label="Scroll Latest Chapters right"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-900/90 hover:bg-[#fe9a00] text-zinc-200 hover:text-black border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              </div>
             </div>
 
-            <div className="flex overflow-x-auto gap-4 pb-4 snap-x no-scrollbar items-start">
-              {visibleLatestChapters.map(chapter => {
-                const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug) || {};
-                const isFreeOneshotActive = !isPlusSubscriber && isActiveOneShotWednesday(seriesData, seriesList);
-                const freeOneshotCountdown = isFreeOneshotActive ? getOneShotFreeCountdown(seriesData, seriesList) : null;
-                const showNewBadge = isNewRelease(chapter.publish_at || seriesData.publish_at, chapter.created_at, chapter.updated_at || seriesData.updated_at);
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => scrollContainerByRef(latestChaptersScrollRef, 'left')}
+                aria-label="Scroll Latest Chapters left"
+                className="hidden md:flex absolute -left-3 top-[38%] -translate-y-1/2 z-40 w-10 h-10 rounded-full bg-black/85 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] opacity-85 group-hover:opacity-100 transition-all cursor-pointer"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
 
-                return (
-                  <div key={chapter.id} onClick={() => onNavigate({ ...seriesData, autoOpenChapterId: chapter.id })} className="w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start flex flex-col">
-                    <div className="relative overflow-hidden rounded-lg aspect-square border-[1px] border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.4)] group-hover/card:-translate-y-1 group-hover/card:border-[#fe9a00] group-hover/card:shadow-[0_0_30px_rgba(254,154,0,0.8)] transition-all duration-300">
-                      <img src={chapter.thumbnail_url || seriesData.cover_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className="w-full h-full object-cover" style={{ objectPosition: chapter.thumbnail_position || '50% 50%', transform: `scale(${(chapter.thumbnail_scale || 100) / 100})` }} alt="Chapter Thumbnail" />
-                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
-                        <p className="text-[#fe9a00] font-black text-[10px] uppercase tracking-widest drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]">CH. {chapter.chapter_number}</p>
-                      </div>
-                      {freeOneshotCountdown ? (
-                        <div className="absolute top-1.5 right-1.5 z-30 bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-tight px-2 py-0.5 rounded shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-1 pointer-events-none">
-                          <Clock className="w-2.5 h-2.5 shrink-0" /><span>FREE: {freeOneshotCountdown}</span>
+              <div ref={latestChaptersScrollRef} className="flex overflow-x-auto gap-4 pb-4 scroll-smooth snap-x no-scrollbar items-start">
+                {visibleLatestChapters.map(chapter => {
+                  const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug) || {};
+                  const isFreeOneshotActive = !isPlusSubscriber && isActiveOneShotWednesday(seriesData, seriesList);
+                  const freeOneshotCountdown = isFreeOneshotActive ? getOneShotFreeCountdown(seriesData, seriesList) : null;
+                  const showNewBadge = isNewRelease(chapter.publish_at || seriesData.publish_at, chapter.created_at, chapter.updated_at || seriesData.updated_at);
+
+                  return (
+                    <div key={chapter.id} onClick={() => onNavigate({ ...seriesData, autoOpenChapterId: chapter.id })} className="w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start flex flex-col">
+                      <div className="relative overflow-hidden rounded-lg aspect-square border-[1px] border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.4)] group-hover/card:-translate-y-1 group-hover/card:border-[#fe9a00] group-hover/card:shadow-[0_0_30px_rgba(254,154,0,0.8)] transition-all duration-300">
+                        <img src={chapter.thumbnail_url || seriesData.cover_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className="w-full h-full object-cover" style={{ objectPosition: chapter.thumbnail_position || '50% 50%', transform: `scale(${(chapter.thumbnail_scale || 100) / 100})` }} alt="Chapter Thumbnail" />
+                        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
+                          <p className="text-[#fe9a00] font-black text-[10px] uppercase tracking-widest drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]">CH. {chapter.chapter_number}</p>
                         </div>
-                      ) : showNewBadge && (
-                        <div className="absolute top-1.5 right-1.5 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>
-                      )}
+                        {freeOneshotCountdown ? (
+                          <div className="absolute top-1.5 right-1.5 z-30 bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-tight px-2 py-0.5 rounded shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-1 pointer-events-none">
+                            <Clock className="w-2.5 h-2.5 shrink-0" /><span>FREE: {freeOneshotCountdown}</span>
+                          </div>
+                        ) : showNewBadge && (
+                          <div className="absolute top-1.5 right-1.5 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>
+                        )}
+                      </div>
+                      <div className="mt-3 px-1 flex flex-col flex-1">
+                        <h3 className="text-white font-bold text-xs truncate group-hover/card:text-[#fe9a00] transition-colors">{seriesData.title}</h3>
+                        <p className="text-zinc-400 text-[10px] font-bold truncate mt-0.5">{chapter.title || `Chapter ${chapter.chapter_number}`}</p>
+                      </div>
                     </div>
-                    <div className="mt-3 px-1 flex flex-col flex-1">
-                      <h3 className="text-white font-bold text-xs truncate group-hover/card:text-[#fe9a00] transition-colors">{seriesData.title}</h3>
-                      <p className="text-zinc-400 text-[10px] font-bold truncate mt-0.5">{chapter.title || `Chapter ${chapter.chapter_number}`}</p>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => scrollContainerByRef(latestChaptersScrollRef, 'right')}
+                aria-label="Scroll Latest Chapters right"
+                className="hidden md:flex absolute -right-3 top-[38%] -translate-y-1/2 z-40 w-10 h-10 rounded-full bg-black/85 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] opacity-85 group-hover:opacity-100 transition-all cursor-pointer"
+              >
+                <ChevronRight className="w-6 h-6" />
+              </button>
             </div>
           </div>
         )}
 
+        {/* Jump Back In Slider with Header Arrows */}
         {recentReads.length > 0 && (
           <div className="mb-12 animate-fade-in bg-black/40 backdrop-blur-sm p-4 rounded-xl border border-zinc-800/50">
-            <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-wider text-white mb-4 px-2 drop-shadow-md">Jump Back In</h2>
-            <div className="flex gap-4 overflow-x-auto pb-4 px-2 no-scrollbar">
+            <div className="flex items-center justify-between gap-3 mb-4 px-2">
+              <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-wider text-white drop-shadow-md">Jump Back In</h2>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => scrollContainerByRef(recentReadsScrollRef, 'left')}
+                  aria-label="Scroll Jump Back In left"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-900/90 hover:bg-[#fe9a00] text-zinc-200 hover:text-black border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollContainerByRef(recentReadsScrollRef, 'right')}
+                  aria-label="Scroll Jump Back In right"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-900/90 hover:bg-[#fe9a00] text-zinc-200 hover:text-black border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              </div>
+            </div>
+            <div ref={recentReadsScrollRef} className="flex gap-4 overflow-x-auto pb-4 px-2 scroll-smooth no-scrollbar">
               {recentReads.map(read => (
                 <div key={read.id} onClick={() => onNavigate({ ...read.target, autoOpenChapterId: read.chapter_id, autoOpenPage: read.page_index })} className="relative min-w-[140px] w-[140px] md:min-w-[180px] md:w-[180px] aspect-[2/3] rounded-xl overflow-hidden cursor-pointer group border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] hover:-translate-y-1 transition-all duration-300 flex-shrink-0 mb-3">
                   <img src={read.image} alt={read.title} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
