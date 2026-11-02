@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { supabase } from '../supabase';
+import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { SeriesSection } from './SeriesSection';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
@@ -14,6 +14,10 @@ import {
 } from '../oneshotWednesday';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
+
+const getLocalCalendarDateKey = (dateObj = new Date()): string => {
+  return `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+};
 
 const isNewRelease = (publishAt?: string | null, createdAt?: string | null, updatedAt?: string | null) => {
   const now = Date.now();
@@ -94,6 +98,50 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
   const isPlusSubscriber = userTier === 'premium' || Boolean(currentUser?.is_premium);
 
+  // Award +5 Fandom Points once per local calendar day — even if the user stays logged in across midnight!
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    const checkAndAwardDailyLogin = () => {
+      const todayKey = getLocalCalendarDateKey();
+      const storageKey = `am_daily_login_pts_${currentUser.id}_${todayKey}`;
+      if (localStorage.getItem(storageKey)) return;
+
+      localStorage.setItem(storageKey, '1');
+      trackTelemetry('daily_login_bonus', { user_id: currentUser.id, date: todayKey });
+
+      supabase
+        .from('profiles')
+        .select('fandom_score')
+        .eq('id', currentUser.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) {
+            supabase
+              .from('profiles')
+              .update({ fandom_score: (Number(data.fandom_score) || 0) + 5 })
+              .eq('id', currentUser.id)
+              .then(() => window.dispatchEvent(new Event('profileUpdated')));
+          }
+        });
+    };
+
+    checkAndAwardDailyLogin();
+
+    const handleFocusOrVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkAndAwardDailyLogin();
+      }
+    };
+
+    window.addEventListener('focus', handleFocusOrVisibility);
+    document.addEventListener('visibilitychange', handleFocusOrVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisibility);
+      document.removeEventListener('visibilitychange', handleFocusOrVisibility);
+    };
+  }, [currentUser?.id, nowTick]);
+
   const scrollContainerByRef = (ref: React.RefObject<HTMLDivElement | null>, direction: 'left' | 'right') => {
     if (!ref.current) return;
     const container = ref.current;
@@ -139,7 +187,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   };
 
   const visibleLatestChapters = useMemo(() => {
-    // CRITICAL: Check !chapter.is_published FIRST so pulled/unpublished chapters are immediately hidden!
     const releasedPool = latestChapters.filter(chapter => {
       if (!chapter.is_published) return false;
       const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug);
@@ -662,7 +709,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           </div>
         </div>
 
-        {/* Latest Chapters Slider with Header & Side Arrows */}
+        {/* Latest Chapters Slider with Top-Right Header Arrows Only */}
         {visibleLatestChapters.length > 0 && (
           <div className="mb-10 relative group px-2">
             <div className="flex items-center justify-between gap-3 mb-4">
@@ -693,55 +740,35 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
               </div>
             </div>
 
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => scrollContainerByRef(latestChaptersScrollRef, 'left')}
-                aria-label="Scroll Latest Chapters left"
-                className="hidden md:flex absolute -left-3 top-[38%] -translate-y-1/2 z-40 w-10 h-10 rounded-full bg-black/85 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] opacity-85 group-hover:opacity-100 transition-all cursor-pointer"
-              >
-                <ChevronLeft className="w-6 h-6" />
-              </button>
+            <div ref={latestChaptersScrollRef} className="flex overflow-x-auto gap-4 pb-4 scroll-smooth snap-x no-scrollbar items-start">
+              {visibleLatestChapters.map(chapter => {
+                const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug) || {};
+                const isFreeOneshotActive = !isPlusSubscriber && isActiveOneShotWednesday(seriesData, seriesList);
+                const freeOneshotCountdown = isFreeOneshotActive ? getOneShotFreeCountdown(seriesData, seriesList) : null;
+                const showNewBadge = isNewRelease(chapter.publish_at || seriesData.publish_at, chapter.created_at, chapter.updated_at || seriesData.updated_at);
 
-              <div ref={latestChaptersScrollRef} className="flex overflow-x-auto gap-4 pb-4 scroll-smooth snap-x no-scrollbar items-start">
-                {visibleLatestChapters.map(chapter => {
-                  const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug) || {};
-                  const isFreeOneshotActive = !isPlusSubscriber && isActiveOneShotWednesday(seriesData, seriesList);
-                  const freeOneshotCountdown = isFreeOneshotActive ? getOneShotFreeCountdown(seriesData, seriesList) : null;
-                  const showNewBadge = isNewRelease(chapter.publish_at || seriesData.publish_at, chapter.created_at, chapter.updated_at || seriesData.updated_at);
-
-                  return (
-                    <div key={chapter.id} onClick={() => onNavigate({ ...seriesData, autoOpenChapterId: chapter.id })} className="w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start flex flex-col">
-                      <div className="relative overflow-hidden rounded-lg aspect-square border-[1px] border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.4)] group-hover/card:-translate-y-1 group-hover/card:border-[#fe9a00] group-hover/card:shadow-[0_0_30px_rgba(254,154,0,0.8)] transition-all duration-300">
-                        <img src={chapter.thumbnail_url || seriesData.cover_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className="w-full h-full object-cover" style={{ objectPosition: chapter.thumbnail_position || '50% 50%', transform: `scale(${(chapter.thumbnail_scale || 100) / 100})` }} alt="Chapter Thumbnail" />
-                        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
-                          <p className="text-[#fe9a00] font-black text-[10px] uppercase tracking-widest drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]">CH. {chapter.chapter_number}</p>
+                return (
+                  <div key={chapter.id} onClick={() => onNavigate({ ...seriesData, autoOpenChapterId: chapter.id })} className="w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start flex flex-col">
+                    <div className="relative overflow-hidden rounded-lg aspect-square border-[1px] border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.4)] group-hover/card:-translate-y-1 group-hover/card:border-[#fe9a00] group-hover/card:shadow-[0_0_30px_rgba(254,154,0,0.8)] transition-all duration-300">
+                      <img src={chapter.thumbnail_url || seriesData.cover_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className="w-full h-full object-cover" style={{ objectPosition: chapter.thumbnail_position || '50% 50%', transform: `scale(${(chapter.thumbnail_scale || 100) / 100})` }} alt="Chapter Thumbnail" />
+                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
+                        <p className="text-[#fe9a00] font-black text-[10px] uppercase tracking-widest drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]">CH. {chapter.chapter_number}</p>
+                      </div>
+                      {freeOneshotCountdown ? (
+                        <div className="absolute top-1.5 right-1.5 z-30 bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-tight px-2 py-0.5 rounded shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-1 pointer-events-none">
+                          <Clock className="w-2.5 h-2.5 shrink-0" /><span>FREE: {freeOneshotCountdown}</span>
                         </div>
-                        {freeOneshotCountdown ? (
-                          <div className="absolute top-1.5 right-1.5 z-30 bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-tight px-2 py-0.5 rounded shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-1 pointer-events-none">
-                            <Clock className="w-2.5 h-2.5 shrink-0" /><span>FREE: {freeOneshotCountdown}</span>
-                          </div>
-                        ) : showNewBadge && (
-                          <div className="absolute top-1.5 right-1.5 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>
-                        )}
-                      </div>
-                      <div className="mt-3 px-1 flex flex-col flex-1">
-                        <h3 className="text-white font-bold text-xs truncate group-hover/card:text-[#fe9a00] transition-colors">{seriesData.title}</h3>
-                        <p className="text-zinc-400 text-[10px] font-bold truncate mt-0.5">{chapter.title || `Chapter ${chapter.chapter_number}`}</p>
-                      </div>
+                      ) : showNewBadge && (
+                        <div className="absolute top-1.5 right-1.5 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => scrollContainerByRef(latestChaptersScrollRef, 'right')}
-                aria-label="Scroll Latest Chapters right"
-                className="hidden md:flex absolute -right-3 top-[38%] -translate-y-1/2 z-40 w-10 h-10 rounded-full bg-black/85 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] opacity-85 group-hover:opacity-100 transition-all cursor-pointer"
-              >
-                <ChevronRight className="w-6 h-6" />
-              </button>
+                    <div className="mt-3 px-1 flex flex-col flex-1">
+                      <h3 className="text-white font-bold text-xs truncate group-hover/card:text-[#fe9a00] transition-colors">{seriesData.title}</h3>
+                      <p className="text-zinc-400 text-[10px] font-bold truncate mt-0.5">{chapter.title || `Chapter ${chapter.chapter_number}`}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
