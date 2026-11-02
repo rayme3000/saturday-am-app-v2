@@ -43,6 +43,7 @@ import {
   Check,
   DollarSign,
   UserX,
+  UserPlus,
   Lock,
   Layers,
   Upload
@@ -100,6 +101,7 @@ export const parseCreatorInviteMeta = (row: any): { creatorName: string; role: s
 const CreatorManagerHub = () => {
   const [subTab, setSubTab] = useState<'directory' | 'onboarding' | 'payouts'>('directory');
   const [creators, setCreators] = useState<any[]>([]);
+  const [allProfiles, setAllProfiles] = useState<any[]>([]);
   const [creatorUsers, setCreatorUsers] = useState<any[]>([]);
   const [inviteLinks, setInviteLinks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,6 +112,12 @@ const CreatorManagerHub = () => {
   const [stripeInputVal, setStripeInputVal] = useState('');
   const [showRawStripeInput, setShowRawStripeInput] = useState(false);
   const [savingStripe, setSavingStripe] = useState(false);
+
+  // Grant Studio Access Inline Drawer State
+  const [grantingStudioCreator, setGrantingStudioCreator] = useState<string | null>(null);
+  const [grantUserQuery, setGrantUserQuery] = useState('');
+  const [grantRole, setGrantRole] = useState<'creator' | 'core_creator' | 'staff'>('creator');
+  const [grantingAccess, setGrantingAccess] = useState(false);
 
   const [inviteCreatorName, setInviteCreatorName] = useState('');
   const [inviteRole, setInviteRole] = useState<'creator' | 'core_creator' | 'staff'>('creator');
@@ -124,15 +132,32 @@ const CreatorManagerHub = () => {
         { data: creatorRows },
         { data: seriesRows },
         { data: profileRows },
+        { data: adminDirRows },
         { data: promoRows }
       ] = await Promise.all([
         supabase.from('series_creators').select('*').order('name', { ascending: true }),
         supabase.from('series').select('slug, title, creator_name, creator_stripe_account_id'),
         supabase
           .from('profiles')
-          .select('id, username, email, role, linked_creator_name, is_premium, creator_terms_accepted_at'),
+          .select('id, username, email, role, linked_creator_name, is_premium, creator_terms_accepted_at')
+          .limit(10000),
+        supabase.rpc('get_admin_user_directory', { p_search: '', p_limit: 5000, p_offset: 0 }),
         supabase.from('promo_codes').select('*').order('created_at', { ascending: false })
       ]);
+
+      const authEmailById = new Map<string, string>();
+      if (Array.isArray(adminDirRows)) {
+        adminDirRows.forEach((u: any) => {
+          if (u.id && u.email) authEmailById.set(String(u.id), String(u.email));
+        });
+      }
+
+      const mergedProfiles = (profileRows || []).map((p: any) => ({
+        ...p,
+        email: p.email || authEmailById.get(String(p.id)) || ''
+      }));
+
+      setAllProfiles(mergedProfiles);
 
       const seriesStripeBySlug = new Map<string, string>();
       (seriesRows || []).forEach((s: any) => {
@@ -181,7 +206,7 @@ const CreatorManagerHub = () => {
 
       setCreators(Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name)));
       setCreatorUsers(
-        (profileRows || []).filter(
+        mergedProfiles.filter(
           (p: any) =>
             (p.role && p.role !== 'reader' && p.role !== 'revoked_creator') ||
             Boolean(String(p.linked_creator_name || '').trim())
@@ -258,6 +283,125 @@ const CreatorManagerHub = () => {
       );
     } finally {
       setSavingStripe(false);
+    }
+  };
+
+  // --- GRANT / LINK CREATOR STUDIO ACCESS DIRECTLY TO AN ACCOUNT ---
+  const handleGrantStudioAccess = async (
+    creatorName: string,
+    targetUserOrQuery: any,
+    includePlusUpgrade: boolean
+  ) => {
+    const cleanCreator = creatorName.trim();
+    let matchedProfile: any = null;
+
+    if (targetUserOrQuery && typeof targetUserOrQuery === 'object' && targetUserOrQuery.id) {
+      matchedProfile = targetUserOrQuery;
+    } else {
+      const q = String(targetUserOrQuery || grantUserQuery || '').trim().toLowerCase();
+      if (!q) {
+        return alert('Please enter or select the user email or username to grant Studio access.');
+      }
+      matchedProfile =
+        allProfiles.find(
+          p =>
+            String(p.email || '').trim().toLowerCase() === q ||
+            String(p.username || '').trim().toLowerCase() === q
+        ) ||
+        allProfiles.find(
+          p =>
+            String(p.email || '').toLowerCase().includes(q) ||
+            String(p.username || '').toLowerCase().includes(q)
+        );
+    }
+
+    if (!matchedProfile) {
+      return alert(
+        `No registered user account found matching "${grantUserQuery}". Ask the creator to sign up first, or click "Generate & Copy 1-Use Invite Link" below!`
+      );
+    }
+
+    setGrantingAccess(true);
+    try {
+      const patch: Record<string, any> = {
+        role: grantRole || 'creator',
+        linked_creator_name: cleanCreator
+      };
+
+      if (includePlusUpgrade) {
+        patch.is_premium = true;
+        patch.hypes_remaining = 3;
+        patch.super_hypes_left = 3;
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update(patch)
+        .eq('id', matchedProfile.id);
+
+      if (error) throw error;
+
+      setGrantingStudioCreator(null);
+      setGrantUserQuery('');
+      await fetchCreatorManagerData();
+      alert(
+        `Success! Granted Creator Studio${includePlusUpgrade ? ' + PLUS' : ''} access for "${cleanCreator}" to ${
+          matchedProfile.username || matchedProfile.email
+        }.`
+      );
+    } catch (err: any) {
+      alert('Failed to grant Creator Studio access: ' + err.message);
+    } finally {
+      setGrantingAccess(false);
+    }
+  };
+
+  // --- 1-CLICK QUICK ONBOARDING INVITE GENERATOR FROM ANY CREATOR CARD ---
+  const handleQuickGenerateCardInvite = async (creatorName: string) => {
+    const cleanCreator = creatorName.trim();
+    setGrantingAccess(true);
+    try {
+      const randA = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const randB = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const code = `SAM-CR-${randA}-${randB}`;
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 14);
+
+      const fullPayload = {
+        code,
+        tier: 'premium',
+        max_uses: 1,
+        times_used: 0,
+        expires_at: expiresAt.toISOString(),
+        order_number: `CREATOR_INVITE:${cleanCreator}:${grantRole}`,
+        buyer_name: cleanCreator
+      };
+
+      const { error } = await supabase.from('promo_codes').insert([fullPayload]);
+      if (error) {
+        const { error: fallbackErr } = await supabase.from('promo_codes').insert([
+          {
+            code,
+            tier: 'premium',
+            max_uses: 1,
+            times_used: 0,
+            expires_at: expiresAt.toISOString()
+          }
+        ]);
+        if (fallbackErr) throw fallbackErr;
+      }
+
+      const magicUrl = `${window.location.origin}/?creator_invite=${encodeURIComponent(code)}`;
+      navigator.clipboard.writeText(magicUrl);
+      await fetchCreatorManagerData();
+      alert(
+        `1-Use Creator Invite Link generated for ${cleanCreator} and copied to your clipboard!\n\n${magicUrl}`
+      );
+    } catch (err: any) {
+      alert('Error generating invite link: ' + err.message);
+    } finally {
+      setGrantingAccess(false);
     }
   };
 
@@ -434,7 +578,7 @@ const CreatorManagerHub = () => {
                     Creator Directory & Donation Routing
                   </h2>
                   <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-                    Manage roster visibility and wire Stripe Connect payout routing (Masked as Direct vs. Saturday AM)
+                    Manage roster visibility, grant or revoke Creator Studio access, and wire Stripe Connect payout routing
                   </p>
                 </div>
               </div>
@@ -459,15 +603,39 @@ const CreatorManagerHub = () => {
                 <Loader2 className="w-6 h-6 animate-spin text-[#fe9a00] mr-2" /> Loading Creators...
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto custom-scrollbar pr-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[650px] overflow-y-auto custom-scrollbar pr-1">
                 {filteredCreators.map(c => {
                   const isUpdating = updatingName === c.name;
                   const isEditingThisStripe = editingStripeCreator === c.name;
+                  const isGrantingThisStudio = grantingStudioCreator === c.name;
+
                   const linkedAccounts = creatorUsers.filter(
                     u =>
                       String(u.linked_creator_name || '').toLowerCase() === c.name.toLowerCase() ||
                       String(u.username || '').toLowerCase() === c.name.toLowerCase()
                   );
+
+                  // Candidate matching users when the admin is typing an email/username in "+ Grant Studio Access"
+                  const matchingProfileSuggestions = isGrantingThisStudio
+                    ? allProfiles
+                        .filter(p => {
+                          const q = grantUserQuery.trim().toLowerCase();
+                          if (!q) {
+                            const cNorm = c.name.toLowerCase();
+                            const cFirst = cNorm.split(' ')[0];
+                            return (
+                              String(p.username || '').toLowerCase().includes(cFirst) ||
+                              String(p.email || '').toLowerCase().includes(cFirst) ||
+                              String(p.role || '') === 'revoked_creator'
+                            );
+                          }
+                          return (
+                            String(p.email || '').toLowerCase().includes(q) ||
+                            String(p.username || '').toLowerCase().includes(q)
+                          );
+                        })
+                        .slice(0, 5)
+                    : [];
 
                   return (
                     <div
@@ -478,7 +646,6 @@ const CreatorManagerHub = () => {
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                          {/* Hard-locked 48x48px circle so high-res creator portraits never blow up the card */}
                           <div
                             className="w-12 h-12 rounded-full bg-zinc-800 border-2 border-[#fe9a00]/60 overflow-hidden shrink-0 flex items-center justify-center"
                             style={{ width: 48, height: 48, minWidth: 48, minHeight: 48 }}
@@ -518,7 +685,33 @@ const CreatorManagerHub = () => {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isGrantingThisStudio) {
+                                setGrantingStudioCreator(null);
+                                setGrantUserQuery('');
+                              } else {
+                                setGrantingStudioCreator(c.name);
+                                setEditingStripeCreator(null);
+                                setGrantUserQuery(c.email || '');
+                                setGrantRole('creator');
+                              }
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer flex items-center gap-1 ${
+                              isGrantingThisStudio
+                                ? 'bg-[#fe9a00] text-black border-[#fe9a00]'
+                                : linkedAccounts.length === 0
+                                ? 'bg-emerald-950/50 hover:bg-emerald-500 text-emerald-300 hover:text-black border-emerald-600/50'
+                                : 'bg-zinc-900 hover:bg-[#fe9a00] text-zinc-300 hover:text-black border-zinc-700'
+                            }`}
+                            title="Grant Creator Studio access to an existing user account or generate an invite link"
+                          >
+                            <UserPlus className="w-3 h-3" />
+                            {linkedAccounts.length === 0 ? '+ Grant Studio' : '+ Add User'}
+                          </button>
+
                           <button
                             type="button"
                             onClick={() => {
@@ -527,6 +720,7 @@ const CreatorManagerHub = () => {
                                 setStripeInputVal('');
                               } else {
                                 setEditingStripeCreator(c.name);
+                                setGrantingStudioCreator(null);
                                 setStripeInputVal('');
                                 setShowRawStripeInput(false);
                               }
@@ -563,6 +757,120 @@ const CreatorManagerHub = () => {
                         </div>
                       </div>
 
+                      {/* INLINE GRANT CREATOR STUDIO ACCESS DRAWER */}
+                      {isGrantingThisStudio && (
+                        <div className="bg-zinc-950 border border-emerald-500/50 rounded-xl p-3.5 space-y-3 animate-fade-in">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1">
+                              <UserPlus className="w-3.5 h-3.5" /> Grant Creator Studio Access for {c.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setGrantingStudioCreator(null);
+                                setGrantUserQuery('');
+                              }}
+                              className="text-[9px] font-bold text-zinc-400 hover:text-white uppercase cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <input
+                              type="text"
+                              placeholder="Type user email or username..."
+                              value={grantUserQuery}
+                              onChange={e => setGrantUserQuery(e.target.value)}
+                              className="sm:col-span-2 bg-black border border-zinc-700 rounded-lg px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-[#fe9a00]"
+                            />
+                            <select
+                              value={grantRole}
+                              onChange={e => setGrantRole(e.target.value as any)}
+                              className="bg-black border border-zinc-700 rounded-lg px-2.5 py-2 text-[10px] font-black uppercase text-white focus:outline-none focus:border-[#fe9a00] cursor-pointer"
+                            >
+                              <option value="creator">Role: Creator</option>
+                              <option value="core_creator">Role: Core Creator</option>
+                              <option value="staff">Role: Staff</option>
+                            </select>
+                          </div>
+
+                          {/* Live Matching User Suggestions */}
+                          {matchingProfileSuggestions.length > 0 && (
+                            <div className="space-y-1 max-h-36 overflow-y-auto custom-scrollbar pr-1">
+                              <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block">
+                                Click a registered account below to link immediately:
+                              </span>
+                              {matchingProfileSuggestions.map(p => (
+                                <div
+                                  key={p.id}
+                                  className="flex items-center justify-between gap-2 bg-zinc-900/90 border border-zinc-800 hover:border-emerald-500/50 rounded-lg px-2.5 py-1.5 text-[10px]"
+                                >
+                                  <div className="min-w-0 truncate">
+                                    <strong className="text-white">{p.username || 'User'}</strong>{' '}
+                                    <span className="text-zinc-400">({p.email || 'no email'})</span>
+                                    {p.role === 'revoked_creator' && (
+                                      <span className="ml-1.5 text-[8px] bg-red-950 text-red-400 border border-red-800 px-1.5 py-0.5 rounded uppercase font-black">
+                                        Revoked
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      disabled={grantingAccess}
+                                      onClick={() => handleGrantStudioAccess(c.name, p, true)}
+                                      className="px-2 py-1 rounded bg-emerald-500 hover:bg-white text-black font-black uppercase tracking-widest text-[8px] cursor-pointer"
+                                    >
+                                      Grant Studio + PLUS
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={grantingAccess}
+                                      onClick={() => handleGrantStudioAccess(c.name, p, false)}
+                                      className="px-2 py-1 rounded bg-zinc-800 hover:bg-[#fe9a00] text-zinc-200 hover:text-black font-black uppercase tracking-widest text-[8px] cursor-pointer"
+                                    >
+                                      Studio Only
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-800/80">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={grantingAccess || !grantUserQuery.trim()}
+                                onClick={() => handleGrantStudioAccess(c.name, grantUserQuery, true)}
+                                className="px-3 py-1.5 bg-emerald-500 hover:bg-white text-black font-black uppercase tracking-widest text-[9px] rounded-lg cursor-pointer disabled:opacity-40"
+                              >
+                                {grantingAccess ? '...' : 'Grant Studio + PLUS'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={grantingAccess || !grantUserQuery.trim()}
+                                onClick={() => handleGrantStudioAccess(c.name, grantUserQuery, false)}
+                                className="px-3 py-1.5 bg-zinc-800 hover:bg-[#fe9a00] text-white hover:text-black font-black uppercase tracking-widest text-[9px] rounded-lg cursor-pointer disabled:opacity-40"
+                              >
+                                Grant Studio Only
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              disabled={grantingAccess}
+                              onClick={() => handleQuickGenerateCardInvite(c.name)}
+                              className="px-2.5 py-1.5 bg-[#fe9a00]/15 hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border border-[#fe9a00]/40 font-black uppercase tracking-widest text-[8px] rounded-lg cursor-pointer flex items-center gap-1"
+                              title="Generate a 1-use onboarding link if this creator hasn't signed up yet"
+                            >
+                              <Link2 className="w-3 h-3" /> Or Copy 1-Use Invite Link
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {isEditingThisStripe && (
                         <div className="bg-zinc-950 border border-[#fe9a00]/40 rounded-xl p-3 space-y-2.5 animate-fade-in">
                           <div className="flex items-center justify-between">
@@ -579,7 +887,6 @@ const CreatorManagerHub = () => {
                           </div>
 
                           <div className="flex gap-2">
-                            {/* Uses type="text" + WebkitTextSecurity so Chrome never triggers password autofill into the search box */}
                             <input
                               type="text"
                               name={`stripe_connect_acct_${c.name.replace(/\s+/g, '_')}`}
