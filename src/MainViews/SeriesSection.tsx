@@ -8,7 +8,8 @@ import {
   isCurrentlyWednesdayEST,
   getWednesdayCountdownEST,
   getOneShotFreeCountdown,
-  getNextScheduledChapterBadge
+  isChapterReleasedForUser,
+  PLUS_EARLY_ACCESS_MS
 } from '../oneshotWednesday';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
@@ -24,7 +25,75 @@ const getPatternStyle = (color: string, pattern: string) => {
 
 const isNewItem = (createdAt: string | undefined) => {
   if (!createdAt) return false;
-  return Date.now() - new Date(createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
+  return Date.now() - new Date(createdAt).getTime() < 3 * 24 * 60 * 60 * 1000;
+};
+
+const formatDurationShort = (diffMs: number): string => {
+  const totalMinutes = Math.max(1, Math.floor(diffMs / (1000 * 60)));
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const mins = totalMinutes % 60;
+
+  if (days > 0) return `${days}D ${hours}H`;
+  if (hours > 0) return `${hours}H ${mins}M`;
+  return `${mins}M`;
+};
+
+// Role-aware badge builder: PLUS users only see when their next chapter is available; Free/Visitors see Early Access cues
+const buildRoleAwareNextChapterBadge = (
+  publishAtIso: string | null | undefined,
+  isPlusSubscriber: boolean
+): { badgeText: string; shortText: string; isSoon: boolean } | null => {
+  if (!publishAtIso) return null;
+  const officialReleaseMs = new Date(publishAtIso).getTime();
+  if (isNaN(officialReleaseMs)) return null;
+
+  const now = Date.now();
+  const plusUnlockMs = officialReleaseMs - PLUS_EARLY_ACCESS_MS;
+
+  if (isPlusSubscriber) {
+    // For PLUS accounts: if the chapter is already unlocked in Early Access, don't show a countdown for it
+    const diffForPlus = plusUnlockMs - now;
+    if (diffForPlus <= 0) return null;
+
+    const timeStr = formatDurationShort(diffForPlus);
+    const isSoon = diffForPlus <= 24 * 60 * 60 * 1000;
+    return {
+      badgeText: `NEXT CH IN ${timeStr}`,
+      shortText: `CH IN ${timeStr}`,
+      isSoon
+    };
+  }
+
+  // For Free accounts & Visitors: show Early Access badge before/during the PLUS window, and standard countdown to public release
+  const diffForFree = officialReleaseMs - now;
+  if (diffForFree <= 0) return null;
+
+  const diffToPlusUnlock = plusUnlockMs - now;
+  const freeTimeStr = formatDurationShort(diffForFree);
+
+  if (diffToPlusUnlock > 0 && diffToPlusUnlock <= 24 * 60 * 60 * 1000) {
+    const plusTimeStr = formatDurationShort(diffToPlusUnlock);
+    return {
+      badgeText: `PLUS DROP IN ${plusTimeStr}`,
+      shortText: `CH IN ${freeTimeStr}`,
+      isSoon: true
+    };
+  }
+
+  if (diffToPlusUnlock <= 0 && diffForFree > 0) {
+    return {
+      badgeText: `EARLY ACCESS LIVE • FREE IN ${freeTimeStr}`,
+      shortText: `FREE IN ${freeTimeStr}`,
+      isSoon: true
+    };
+  }
+
+  return {
+    badgeText: `NEXT CH IN ${freeTimeStr}`,
+    shortText: `CH IN ${freeTimeStr}`,
+    isSoon: diffForFree <= 24 * 60 * 60 * 1000
+  };
 };
 
 export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userTier, nextScheduledBySeries = {}, onRequireAuth }: any) => {
@@ -33,12 +102,9 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
   const [earliestNextDropMap, setEarliestNextDropMap] = useState<Record<string, string>>({});
   const [, setTickSecond] = useState<number>(0);
 
-  // PLUS subscribers never see any One-Shot Wednesday countdowns, glows, or PLUS Vault tags
   const isPlusSubscriber = userTier === 'premium' || Boolean(currentUser?.is_premium);
-
   const seriesSlugs = useMemo(() => series?.map((s: any) => s.slug).join(',') || '', [series]);
 
-  // Fetch the SOONEST (minimum) future publish_at per series directly so a later queued chapter never overwrites this week's drop
   useEffect(() => {
     if (!seriesSlugs) return;
     const slugs = seriesSlugs.split(',').filter(Boolean);
@@ -48,8 +114,9 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
       const nowIso = new Date().toISOString();
       const { data, error } = await supabase
         .from('chapters')
-        .select('series_slug, publish_at, chapter_number')
+        .select('series_slug, publish_at, chapter_number, is_published')
         .in('series_slug', slugs)
+        .eq('is_published', true)
         .gt('publish_at', nowIso)
         .order('publish_at', { ascending: true });
 
@@ -57,7 +124,10 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
 
       const earliestMap: Record<string, string> = {};
       data.forEach((row: any) => {
-        if (!row.series_slug || !row.publish_at) return;
+        if (!row.series_slug || !row.publish_at || !row.is_published) return;
+        // Skip chapters that are already unlocked for this user tier (e.g. PLUS Early Access already active)
+        if (isChapterReleasedForUser(row.publish_at, isPlusSubscriber)) return;
+
         if (!earliestMap[row.series_slug]) {
           earliestMap[row.series_slug] = row.publish_at;
         } else if (new Date(row.publish_at).getTime() < new Date(earliestMap[row.series_slug]).getTime()) {
@@ -74,14 +144,13 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
       window.removeEventListener('seriesUpdated', fetchEarliestDrops);
       window.removeEventListener('vaultUpdated', fetchEarliestDrops);
     };
-  }, [seriesSlugs]);
+  }, [seriesSlugs, isPlusSubscriber]);
 
   const hasAnyActiveFreeCompletedRun = useMemo(() => {
     if (isPlusSubscriber || !series || series.length === 0) return false;
     return series.some((s: any) => isActiveOneShotWednesday(s, series));
   }, [series, isPlusSubscriber]);
 
-  // Automatically move any active One-Shot Wednesday or 48h Debut title to the #1 position for non-PLUS users
   const sortedSeries = useMemo(() => {
     if (!series || series.length === 0) return [];
     if (isPlusSubscriber || (title !== 'Completed Runs' && !hasAnyActiveFreeCompletedRun)) {
@@ -102,7 +171,6 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
     });
   }, [series, isPlusSubscriber, title, hasAnyActiveFreeCompletedRun]);
 
-  // Live 1-second countdown ticker (runs whenever there is an active Wednesday OSW or 48h One-Shot Debut for non-PLUS users)
   useEffect(() => {
     if (isPlusSubscriber || (!isCurrentlyWednesdayEST() && !hasAnyActiveFreeCompletedRun)) return;
     const interval = setInterval(() => {
@@ -119,11 +187,7 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
       if (slugs.length === 0) return;
 
       const { data, error } = await supabase.from('series_likes').select('series_slug').eq('user_id', currentUser.id).in('series_slug', slugs);
-      
-      if (error) {
-        console.error("Fetch likes error:", error.message);
-        return;
-      }
+      if (error) return;
 
       if (data) {
         const map: Record<string, boolean> = {};
@@ -156,7 +220,6 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
     
     const currentlyLiked = localLikes[seriesSlug];
     const newLikedState = !currentlyLiked;
-    
     setLocalLikes(prev => ({ ...prev, [seriesSlug]: newLikedState }));
 
     const syncWithDatabase = async () => {
@@ -168,7 +231,6 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
         }
 
         const { data } = await supabase.from('profiles').select('fandom_score').eq('id', currentUser.id).maybeSingle();
-        
         if (data) {
           const newScore = newLikedState 
             ? (data.fandom_score || 0) + 1 
@@ -205,7 +267,7 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
         }
       `}</style>
       
-      {/* Section Header + Always-Visible Left/Right Scroll Arrows */}
+      {/* Section Header + Top-Right Scroll Arrows Only */}
       <div className="flex items-center justify-between gap-3 mb-4 pr-1">
         <div className="flex items-center gap-3">
           <svg className="w-5 h-5 text-[#fe9a00] ml-1 shrink-0" viewBox="0 0 24 24" fill="currentColor">
@@ -238,180 +300,155 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
         </div>
       </div>
 
-      <div className="relative">
-        {/* Desktop Floating Left Arrow Pill */}
-        <button 
-          type="button"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); scroll('left'); }}
-          aria-label={`Scroll ${title} left`}
-          className="hidden md:flex absolute -left-3 top-[38%] -translate-y-1/2 z-50 w-10 h-10 rounded-full bg-black/85 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] opacity-85 group-hover:opacity-100 transition-all cursor-pointer"
-        >
-          <ChevronLeft className="w-6 h-6" />
-        </button>
+      <div ref={scrollRef} className="flex overflow-x-auto gap-3 pb-4 pt-2 px-1 scroll-smooth snap-x no-scrollbar">
+        {sortedSeries.map((s: any) => {
+          const isCompleted = title === 'Completed Runs' || isCompletedRunSeries(s, series);
+          const is48hDebut = isCompleted && isInOneShotDebutWindow(s, series);
+          const showFreeWednesdayCue = !isPlusSubscriber && isCompleted && isActiveOneShotWednesday(s, series);
+          const showPlusVaultTag = !isPlusSubscriber && isCompleted && !showFreeWednesdayCue;
+          const cardCountdownText = showFreeWednesdayCue ? getOneShotFreeCountdown(s, series) : getWednesdayCountdownEST();
 
-        <div ref={scrollRef} className="flex overflow-x-auto gap-3 pb-4 pt-2 px-1 scroll-smooth snap-x no-scrollbar">
-          {sortedSeries.map((s: any) => {
-            const isCompleted = title === 'Completed Runs' || isCompletedRunSeries(s, series);
-            const is48hDebut = isCompleted && isInOneShotDebutWindow(s, series);
-            const showFreeWednesdayCue = !isPlusSubscriber && isCompleted && isActiveOneShotWednesday(s, series);
-            const showPlusVaultTag = !isPlusSubscriber && isCompleted && !showFreeWednesdayCue;
-            const cardCountdownText = showFreeWednesdayCue ? getOneShotFreeCountdown(s, series) : getWednesdayCountdownEST();
+          const candidateFromParent = nextScheduledBySeries[s.slug] || s.next_chapter_publish_at || null;
+          const candidateEarliest = earliestNextDropMap[s.slug] || null;
+          let nextDropIso = candidateEarliest || candidateFromParent;
+          if (candidateEarliest && candidateFromParent) {
+            nextDropIso =
+              new Date(candidateEarliest).getTime() <= new Date(candidateFromParent).getTime()
+                ? candidateEarliest
+                : candidateFromParent;
+          }
 
-            const candidateFromParent = nextScheduledBySeries[s.slug] || s.next_chapter_publish_at || null;
-            const candidateEarliest = earliestNextDropMap[s.slug] || null;
-            let nextDropIso = candidateEarliest || candidateFromParent;
-            if (candidateEarliest && candidateFromParent) {
-              nextDropIso =
-                new Date(candidateEarliest).getTime() <= new Date(candidateFromParent).getTime()
-                  ? candidateEarliest
-                  : candidateFromParent;
-            }
+          const nextChapterCountdown = !isCompleted
+            ? buildRoleAwareNextChapterBadge(nextDropIso, isPlusSubscriber)
+            : null;
 
-            const nextChapterCountdown = !isCompleted ? getNextScheduledChapterBadge(nextDropIso, isPlusSubscriber) : null;
+          return (
+            <div key={s.id || s.slug} className="w-1/3 sm:w-1/4 md:w-1/5 flex-shrink-0 snap-start cursor-pointer group/card" onClick={() => onSeriesClick(s)}>
+              <div 
+                className={`relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] transition-all duration-300 mb-3 bg-black ${
+                  showFreeWednesdayCue
+                    ? 'border-2 border-[#fe9a00] animate-oneshot-card-glow group-hover/card:-translate-y-1.5'
+                    : 'border border-white/70 shadow-[4px_4px_0px_0px_#fe9a00] group-hover/card:shadow-[6px_6px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1'
+                }`}
+                style={getPatternStyle(s.card_color, s.card_pattern)}
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
 
-            return (
-              <div key={s.id || s.slug} className="w-1/3 sm:w-1/4 md:w-1/5 flex-shrink-0 snap-start cursor-pointer group/card" onClick={() => onSeriesClick(s)}>
+                {showFreeWednesdayCue && (
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#fe9a00]/30 via-transparent to-[#fe9a00]/20 z-10 pointer-events-none animate-pulse" />
+                )}
+                
+                <img 
+                  src={s.character_url || s.cover_url} 
+                  alt={`${s.title} Character`} 
+                  className={`absolute left-1/2 -translate-x-1/2 max-w-none object-contain transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 ${
+                    s.character_align === 'top' ? 'top-0' : 
+                    s.character_align === 'center' ? 'top-1/2 -translate-y-1/2' : 
+                    'bottom-0'
+                  }`}
+                  style={{ width: `${s.character_scale || 140}%`, height: '120%' }}
+                />
+                
+                <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black via-black/80 to-transparent z-20" />
                 
                 <div 
-                  className={`relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] transition-all duration-300 mb-3 bg-black ${
-                    showFreeWednesdayCue
-                      ? 'border-2 border-[#fe9a00] animate-oneshot-card-glow group-hover/card:-translate-y-1.5'
-                      : 'border border-white/70 shadow-[4px_4px_0px_0px_#fe9a00] group-hover/card:shadow-[6px_6px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1'
-                  }`}
-                  style={getPatternStyle(s.card_color, s.card_pattern)}
+                  className="absolute left-0 right-0 flex justify-center z-30 px-3 transition-all duration-300"
+                  style={{ bottom: `${showFreeWednesdayCue ? Math.max(26, (s.logo_offset ?? 16) + 10) : (s.logo_offset ?? 16)}px` }}
                 >
-                  <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
-
-                  {showFreeWednesdayCue && (
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#fe9a00]/30 via-transparent to-[#fe9a00]/20 z-10 pointer-events-none animate-pulse" />
-                  )}
-                  
                   <img 
-                    src={s.character_url || s.cover_url} 
-                    alt={`${s.title} Character`} 
-                    className={`absolute left-1/2 -translate-x-1/2 max-w-none object-contain transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 ${
-                      s.character_align === 'top' ? 'top-0' : 
-                      s.character_align === 'center' ? 'top-1/2 -translate-y-1/2' : 
-                      'bottom-0'
-                    }`}
-                    style={{ width: `${s.character_scale || 140}%`, height: '120%' }}
+                    src={s.logo_url || (s.title === 'Apple Black' ? `${CLOUDFLARE_BASE_URL}/series-logos/apple-black-logo.png` : '')} 
+                    alt={`${s.title} Logo`} 
+                    className="max-h-24 object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1 drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]" 
+                    style={{ width: `${s.logo_scale ?? 100}%` }}
                   />
-                  
-                  <div className="absolute inset-x-0 bottom-0 h-[50%] bg-gradient-to-t from-black via-black/80 to-transparent z-20" />
-                  
-                  <div 
-                    className="absolute left-0 right-0 flex justify-center z-30 px-3 transition-all duration-300"
-                    style={{ bottom: `${showFreeWednesdayCue ? Math.max(26, (s.logo_offset ?? 16) + 10) : (s.logo_offset ?? 16)}px` }}
-                  >
-                    <img 
-                      src={s.logo_url || (s.title === 'Apple Black' ? `${CLOUDFLARE_BASE_URL}/series-logos/apple-black-logo.png` : '')} 
-                      alt={`${s.title} Logo`} 
-                      className="max-h-24 object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1 drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]" 
-                      style={{ width: `${s.logo_scale ?? 100}%` }}
-                    />
+                </div>
+
+                {showFreeWednesdayCue ? (
+                  <div className="absolute top-1.5 left-1.5 right-8 z-40 flex flex-col gap-0.5 pointer-events-none">
+                    <div className="bg-gradient-to-r from-[#fe9a00] via-yellow-400 to-[#fe9a00] text-black text-[7px] sm:text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded sm:rounded-b-none sm:rounded-t shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-0.5 sm:gap-1 w-max max-w-full">
+                      <Zap className="w-2.5 h-2.5 fill-black shrink-0" />
+                      <span className="sm:hidden">{is48hDebut ? 'DEBUT' : 'FREE'}</span>
+                      <span className="hidden sm:inline truncate">{is48hDebut ? '48H FREE DEBUT' : 'FREE TODAY'}</span>
+                    </div>
+                    <div className="hidden sm:flex bg-black/90 backdrop-blur-md border border-[#fe9a00] text-[#fe9a00] text-[8px] font-mono font-black uppercase tracking-tight px-1.5 py-0.5 rounded-b shadow-lg items-center gap-1 w-max max-w-full">
+                      <Clock className="w-2.5 h-2.5 text-red-500 animate-spin shrink-0" style={{ animationDuration: '6s' }} />
+                      <span>{cardCountdownText}</span>
+                    </div>
                   </div>
-
-                  {/* TOP BADGE: ONE-SHOT DEBUT / WEDNESDAY, PLUS VAULT, NEXT CH COUNTDOWN, OR NEW */}
-                  {showFreeWednesdayCue ? (
-                    <div className="absolute top-1.5 left-1.5 right-8 z-40 flex flex-col gap-0.5 pointer-events-none">
-                      <div className="bg-gradient-to-r from-[#fe9a00] via-yellow-400 to-[#fe9a00] text-black text-[7px] sm:text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded sm:rounded-b-none sm:rounded-t shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-0.5 sm:gap-1 w-max max-w-full">
-                        <Zap className="w-2.5 h-2.5 fill-black shrink-0" />
-                        <span className="sm:hidden">{is48hDebut ? 'DEBUT' : 'FREE'}</span>
-                        <span className="hidden sm:inline truncate">{is48hDebut ? '48H FREE DEBUT' : 'FREE TODAY'}</span>
-                      </div>
-                      <div className="hidden sm:flex bg-black/90 backdrop-blur-md border border-[#fe9a00] text-[#fe9a00] text-[8px] font-mono font-black uppercase tracking-tight px-1.5 py-0.5 rounded-b shadow-lg items-center gap-1 w-max max-w-full">
-                        <Clock className="w-2.5 h-2.5 text-red-500 animate-spin shrink-0" style={{ animationDuration: '6s' }} />
-                        <span>{cardCountdownText}</span>
-                      </div>
-                    </div>
-                  ) : showPlusVaultTag ? (
-                    <div className="absolute top-1 left-1 z-40 bg-purple-900/90 text-purple-200 border border-purple-400/50 text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-md pointer-events-none">
-                      PLUS VAULT
-                    </div>
-                  ) : nextChapterCountdown ? (
-                    <div className={`hidden sm:flex absolute top-1.5 left-1.5 z-40 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-lg pointer-events-none items-center gap-1 ${
-                      nextChapterCountdown.isSoon
-                        ? 'bg-[#fe9a00] text-black animate-pulse'
-                        : 'bg-black/85 backdrop-blur-md text-[#fe9a00] border border-[#fe9a00]/60'
-                    }`}>
-                      <Clock className="w-2.5 h-2.5 shrink-0" />
-                      <span>{nextChapterCountdown.badgeText}</span>
-                    </div>
-                  ) : (
-                    isNewItem(s.created_at) && (
-                      <div className="absolute top-1 left-1 z-40 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
-                        NEW!
-                      </div>
-                    )
-                  )}
-
-                  {showFreeWednesdayCue && (
-                    <div className="absolute bottom-0 inset-x-0 z-40 bg-gradient-to-r from-red-600 via-[#fe9a00] to-red-600 text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest py-1 px-1 text-center shadow-[0_-4px_12px_rgba(254,154,0,0.6)] pointer-events-none truncate">
-                      <span className="sm:hidden">{is48hDebut ? 'FREE 48H DEBUT' : 'READ FREE TODAY'}</span>
-                      <span className="hidden sm:inline">{is48hDebut ? 'READ NOW • VAULTS IN 48H!' : 'READ NOW • LOCKS AT MIDNIGHT!'}</span>
-                    </div>
-                  )}
-
-                  <button 
-                    onClick={(e) => handleToggleLike(e, s.slug)}
-                    className="absolute top-1 right-1 z-40 p-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/10 hover:bg-zinc-800 transition-all shadow-md"
-                  >
-                    <Heart className={`w-3.5 h-3.5 transition-colors ${localLikes[s.slug] ? 'fill-red-500 text-red-500' : 'text-zinc-400 hover:text-red-400'}`} />
-                  </button>
-                </div>
-                
-                <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg mt-1 p-1">
-                  <h3 className={`font-bold text-xs truncate tracking-wide transition-colors ${
-                    showFreeWednesdayCue ? 'text-[#fe9a00]' : 'text-white group-hover/card:text-[#fe9a00]'
+                ) : showPlusVaultTag ? (
+                  <div className="absolute top-1 left-1 z-40 bg-purple-900/90 text-purple-200 border border-purple-400/50 text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-md pointer-events-none">
+                    PLUS VAULT
+                  </div>
+                ) : nextChapterCountdown ? (
+                  <div className={`hidden sm:flex absolute top-1.5 left-1.5 z-40 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-lg pointer-events-none items-center gap-1 ${
+                    nextChapterCountdown.isSoon && !isPlusSubscriber
+                      ? 'bg-[#fe9a00] text-black animate-pulse'
+                      : 'bg-black/85 backdrop-blur-md text-[#fe9a00] border border-[#fe9a00]/60'
                   }`}>
-                    {s.title}
-                  </h3>
-
-                  {/* MOBILE (<640px): High-contrast, non-truncated timer pill */}
-                  {showFreeWednesdayCue ? (
-                    <div className="sm:hidden mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#fe9a00]/20 border border-[#fe9a00]/60 text-[#fe9a00] text-[8.5px] font-extrabold uppercase tracking-tight leading-tight whitespace-nowrap max-w-full">
-                      <Clock className="w-2.5 h-2.5 shrink-0 text-[#fe9a00]" />
-                      <span className="truncate">{cardCountdownText} LEFT</span>
+                    <Clock className="w-2.5 h-2.5 shrink-0" />
+                    <span>{nextChapterCountdown.badgeText}</span>
+                  </div>
+                ) : (
+                  isNewItem(s.created_at) && (
+                    <div className="absolute top-1 left-1 z-40 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+                      NEW!
                     </div>
-                  ) : nextChapterCountdown ? (
-                    <div className={`sm:hidden mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-extrabold uppercase tracking-tight leading-tight whitespace-nowrap max-w-full ${
-                      nextChapterCountdown.isSoon
-                        ? 'bg-[#fe9a00] text-black shadow-[0_0_10px_rgba(254,154,0,0.5)]'
-                        : 'bg-[#fe9a00]/15 border border-[#fe9a00]/50 text-[#fe9a00]'
-                    }`}>
-                      <Clock className="w-2.5 h-2.5 shrink-0" />
-                      <span className="truncate">{nextChapterCountdown.shortText}</span>
-                    </div>
-                  ) : (
-                    <p className="sm:hidden text-zinc-500 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5">
-                      {s.creator_name || 'Saturday AM'}
-                    </p>
-                  )}
+                  )
+                )}
 
-                  {/* PC / TABLET (>=640px): Original layout */}
-                  <p className="hidden sm:block text-zinc-500 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5">
-                    {showFreeWednesdayCue
-                      ? `⏳ ${cardCountdownText} left`
-                      : nextChapterCountdown
-                      ? `⏳ ${nextChapterCountdown.shortText}`
-                      : (s.creator_name || 'Saturday AM')}
-                  </p>
-                </div>
+                {showFreeWednesdayCue && (
+                  <div className="absolute bottom-0 inset-x-0 z-40 bg-gradient-to-r from-red-600 via-[#fe9a00] to-red-600 text-black text-[7px] sm:text-[8px] font-black uppercase tracking-widest py-1 px-1 text-center shadow-[0_-4px_12px_rgba(254,154,0,0.6)] pointer-events-none truncate">
+                    <span className="sm:hidden">{is48hDebut ? 'FREE 48H DEBUT' : 'READ FREE TODAY'}</span>
+                    <span className="hidden sm:inline">{is48hDebut ? 'READ NOW • VAULTS IN 48H!' : 'READ NOW • LOCKS AT MIDNIGHT!'}</span>
+                  </div>
+                )}
 
+                <button 
+                  onClick={(e) => handleToggleLike(e, s.slug)}
+                  className="absolute top-1 right-1 z-40 p-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/10 hover:bg-zinc-800 transition-all shadow-md"
+                >
+                  <Heart className={`w-3.5 h-3.5 transition-colors ${localLikes[s.slug] ? 'fill-red-500 text-red-500' : 'text-zinc-400 hover:text-red-400'}`} />
+                </button>
               </div>
-            );
-          })}
-        </div>
+              
+              <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg mt-1 p-1">
+                <h3 className={`font-bold text-xs truncate tracking-wide transition-colors ${
+                  showFreeWednesdayCue ? 'text-[#fe9a00]' : 'text-white group-hover/card:text-[#fe9a00]'
+                }`}>
+                  {s.title}
+                </h3>
 
-        {/* Desktop Floating Right Arrow Pill */}
-        <button 
-          type="button"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); scroll('right'); }}
-          aria-label={`Scroll ${title} right`}
-          className="hidden md:flex absolute -right-3 top-[38%] -translate-y-1/2 z-50 w-10 h-10 rounded-full bg-black/85 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] items-center justify-center shadow-[0_0_20px_rgba(0,0,0,0.8)] opacity-85 group-hover:opacity-100 transition-all cursor-pointer"
-        >
-          <ChevronRight className="w-6 h-6" />
-        </button>
+                {showFreeWednesdayCue ? (
+                  <div className="sm:hidden mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#fe9a00]/20 border border-[#fe9a00]/60 text-[#fe9a00] text-[8.5px] font-extrabold uppercase tracking-tight leading-tight whitespace-nowrap max-w-full">
+                    <Clock className="w-2.5 h-2.5 shrink-0 text-[#fe9a00]" />
+                    <span className="truncate">{cardCountdownText} LEFT</span>
+                  </div>
+                ) : nextChapterCountdown ? (
+                  <div className={`sm:hidden mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-extrabold uppercase tracking-tight leading-tight whitespace-nowrap max-w-full ${
+                    nextChapterCountdown.isSoon && !isPlusSubscriber
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_10px_rgba(254,154,0,0.5)]'
+                      : 'bg-[#fe9a00]/15 border border-[#fe9a00]/50 text-[#fe9a00]'
+                  }`}>
+                    <Clock className="w-2.5 h-2.5 shrink-0" />
+                    <span className="truncate">{nextChapterCountdown.shortText}</span>
+                  </div>
+                ) : (
+                  <p className="sm:hidden text-zinc-500 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5">
+                    {s.creator_name || 'Saturday AM'}
+                  </p>
+                )}
+
+                <p className="hidden sm:block text-zinc-500 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5">
+                  {showFreeWednesdayCue
+                    ? `⏳ ${cardCountdownText} left`
+                    : nextChapterCountdown
+                    ? `⏳ ${nextChapterCountdown.shortText}`
+                    : (s.creator_name || 'Saturday AM')}
+                </p>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

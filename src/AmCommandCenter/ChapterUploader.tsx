@@ -1,10 +1,38 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, X, ChevronLeft, ChevronRight, Crop, Image as ImageIcon, MapPin, Share2, ArrowRight, Zap, Clock, Wrench, EyeOff, Eye } from 'lucide-react';
+import {
+  BookOpen,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Crop,
+  Image as ImageIcon,
+  MapPin,
+  Share2,
+  ArrowRight,
+  ArrowLeft,
+  Zap,
+  Clock,
+  Wrench,
+  EyeOff,
+  Eye,
+  Trash2,
+  CheckSquare,
+  Square,
+  AlertTriangle,
+  RefreshCw
+} from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
-import { MangaReader } from '../MainViews/MangaReader';
+import { MangaReader, normalizeMangaPageUrl } from '../MainViews/MangaReader';
 import { STORAGE_TRACKS_KEY, getMatchingDropDatesForTrack, toNineAmEstIso } from './ReleaseScheduler';
 import type { TrackAssignment } from './ReleaseScheduler';
+
+const DEFAULT_RTL_SERIES_SLUGS = new Set(['redskin']);
+
+const isDefaultRtlSeries = (slug: string): boolean => {
+  const clean = String(slug || '').trim().toLowerCase();
+  return DEFAULT_RTL_SERIES_SLUGS.has(clean) || clean.includes('redskin');
+};
 
 const navigateToReleaseSchedulerTab = () => {
   const byId = document.getElementById('release-scheduler-tab-trigger');
@@ -30,6 +58,11 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
   const [showPageSelector, setShowPageSelector] = useState(false);
 
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
+  const [brokenPageIndices, setBrokenPageIndices] = useState<number[]>([]);
+  const [pageRetryCounters, setPageRetryCounters] = useState<Record<number, number>>({});
+  const [replacingPageIndex, setReplacingPageIndex] = useState<number | null>(null);
+
+  const lastClickedPageRef = useRef<number | null>(null);
   const [, setDraggedItem] = useState<number | null>(null);
   const [dragOverItem, setDragOverItem] = useState<number | null>(null);
 
@@ -40,7 +73,13 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
   const [hotspotForm, setHotspotForm] = useState({ content: '' });
 
   const [formData, setFormData] = useState({
-    chapterNumber: '', title: '', thumbnailUrl: '', thumbnailScale: 100, thumbnailPosition: '50% 50%', pages: [] as string[]
+    chapterNumber: '',
+    title: '',
+    readingDirection: 'ltr' as 'ltr' | 'rtl',
+    thumbnailUrl: '',
+    thumbnailScale: 100,
+    thumbnailPosition: '50% 50%',
+    pages: [] as string[]
   });
 
   const getAssignedTrackForSeries = (slug: string): TrackAssignment | null => {
@@ -71,10 +110,24 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
   }, [targetSeries, refreshKey]);
 
   useEffect(() => {
+    setSelectedPages([]);
+    setBrokenPageIndices([]);
+    setPageRetryCounters({});
+    setReplacingPageIndex(null);
+    lastClickedPageRef.current = null;
     if (targetChapter === 'new') {
       loadedChapterIdRef.current = 'new';
       const nextNum = existingChapters.length > 0 ? Math.floor(Number(existingChapters[0].chapter_number) + 1) : 1;
-      setFormData({ chapterNumber: nextNum.toString(), title: '', thumbnailUrl: '', thumbnailScale: 100, thumbnailPosition: '50% 50%', pages: [] });
+      const defaultDir: 'ltr' | 'rtl' = isDefaultRtlSeries(targetSeries) ? 'rtl' : 'ltr';
+      setFormData({
+        chapterNumber: nextNum.toString(),
+        title: '',
+        readingDirection: defaultDir,
+        thumbnailUrl: '',
+        thumbnailScale: 100,
+        thumbnailPosition: '50% 50%',
+        pages: []
+      });
       setHotspots([]);
     } else {
       const selected = existingChapters.find(c => String(c.id) === String(targetChapter));
@@ -83,9 +136,16 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
         const fetchPagesAndHotspots = async () => {
           const { data: pagesData } = await supabase.from('pages').select('image_url').eq('chapter_id', selected.id).order('page_order', { ascending: true });
           const { data: hotspotData } = await supabase.from('page_hotspots').select('*').eq('chapter_id', selected.id);
+          const resolvedDir: 'ltr' | 'rtl' =
+            selected.reading_direction === 'rtl' ||
+            (!selected.reading_direction && isDefaultRtlSeries(targetSeries))
+              ? 'rtl'
+              : 'ltr';
+
           setFormData({
             chapterNumber: selected.chapter_number.toString(),
             title: selected.title || '',
+            readingDirection: resolvedDir,
             thumbnailUrl: selected.thumbnail_url || '',
             thumbnailScale: selected.thumbnail_scale || 100,
             thumbnailPosition: selected.thumbnail_position || '50% 50%',
@@ -96,7 +156,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
         fetchPagesAndHotspots();
       }
     }
-  }, [targetChapter, existingChapters]);
+  }, [targetChapter, existingChapters, targetSeries]);
 
   useEffect(() => { loadedChapterIdRef.current = 'new'; setTargetChapter('new'); }, [targetSeries]);
 
@@ -264,19 +324,109 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
     if (setIsDirty) setIsDirty(true); if (onDirty) onDirty();
   };
 
-  const handlePageClick = (index: number, e: React.MouseEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      setSelectedPages(prev => prev.includes(index) ? prev.filter(i => i !== index) : [...prev, index].sort((a, b) => a - b));
-    } else if (e.shiftKey && selectedPages.length > 0) {
-      const last = selectedPages[selectedPages.length - 1];
-      const range = Array.from({ length: Math.abs(last - index) + 1 }, (_, i) => Math.min(last, index) + i);
-      setSelectedPages(Array.from(new Set([...selectedPages, ...range])).sort((a, b) => a - b));
-    } else setSelectedPages([index]);
+  // --- MULTI-SELECT, SHIFT-CLICK RANGE SELECT & BULK DELETE ---
+  const handleTogglePageSelection = (index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (e.shiftKey && lastClickedPageRef.current !== null) {
+      const start = Math.min(lastClickedPageRef.current, index);
+      const end = Math.max(lastClickedPageRef.current, index);
+      const range = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+      setSelectedPages(prev => Array.from(new Set([...prev, ...range])).sort((a, b) => a - b));
+    } else {
+      setSelectedPages(prev =>
+        prev.includes(index)
+          ? prev.filter(i => i !== index)
+          : [...prev, index].sort((a, b) => a - b)
+      );
+      lastClickedPageRef.current = index;
+    }
+  };
+
+  const handleSelectAllPages = () => {
+    if (selectedPages.length === formData.pages.length) {
+      setSelectedPages([]);
+      lastClickedPageRef.current = null;
+    } else {
+      setSelectedPages(formData.pages.map((_, idx) => idx));
+    }
+  };
+
+  const handleBulkDeleteSelectedPages = () => {
+    if (selectedPages.length === 0) return;
+    const count = selectedPages.length;
+    const pageNumsLabel = selectedPages.map(i => i + 1).join(', ');
+    if (
+      !window.confirm(
+        `Delete ${count} selected page${count === 1 ? '' : 's'} (Pg. ${pageNumsLabel})?\n\nRemaining pages will automatically renumber sequentially.`
+      )
+    ) {
+      return;
+    }
+
+    const selectedSet = new Set(selectedPages);
+    const remainingPages = formData.pages.filter((_, i) => !selectedSet.has(i));
+
+    if (hotspots.length > 0) {
+      const updatedHotspots = hotspots
+        .filter(h => !selectedSet.has(Number(h.page_index)))
+        .map(h => {
+          const oldIdx = Number(h.page_index);
+          const removedBeforeCount = selectedPages.filter(remIdx => remIdx < oldIdx).length;
+          return { ...h, page_index: Math.max(0, oldIdx - removedBeforeCount) };
+        });
+      setHotspots(updatedHotspots);
+    }
+
+    setFormData(prev => ({ ...prev, pages: remainingPages }));
+    setSelectedPages([]);
+    setBrokenPageIndices([]);
+    setPageRetryCounters({});
+    lastClickedPageRef.current = null;
+    if (setIsDirty) setIsDirty(true);
+    if (onDirty) onDirty();
+  };
+
+  // --- HANDLE SINGLE PAGE IMAGE REPLACEMENT IN PLACE ---
+  const handleReplaceSinglePageUrl = (pageIndex: number, uploadedResult: any) => {
+    const newUrl = Array.isArray(uploadedResult) ? uploadedResult[0] : uploadedResult;
+    if (!newUrl || typeof newUrl !== 'string') return;
+    setFormData(prev => {
+      const nextPages = [...prev.pages];
+      nextPages[pageIndex] = newUrl;
+      return { ...prev, pages: nextPages };
+    });
+    setBrokenPageIndices(prev => prev.filter(idx => idx !== pageIndex));
+    setPageRetryCounters(prev => ({ ...prev, [pageIndex]: 0 }));
+    setReplacingPageIndex(null);
+    if (setIsDirty) setIsDirty(true);
+    if (onDirty) onDirty();
+  };
+
+  const handlePageImageError = (index: number) => {
+    const currentTries = pageRetryCounters[index] || 0;
+    if (currentTries < 2) {
+      setTimeout(() => {
+        setPageRetryCounters(prev => ({ ...prev, [index]: currentTries + 1 }));
+      }, 400 * (currentTries + 1));
+    } else {
+      setBrokenPageIndices(prev => (prev.includes(index) ? prev : [...prev, index].sort((a, b) => a - b)));
+    }
+  };
+
+  const handlePageImageLoad = (index: number) => {
+    if (brokenPageIndices.includes(index)) {
+      setBrokenPageIndices(prev => prev.filter(i => i !== index));
+    }
   };
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
-    if (!selectedPages.includes(index)) setSelectedPages([index]);
-    setDraggedItem(index); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', index.toString());
+    if (!selectedPages.includes(index)) {
+      setSelectedPages([index]);
+      lastClickedPageRef.current = index;
+    }
+    setDraggedItem(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
   };
 
   const handleDrop = (e: React.DragEvent, dropIndex: number) => {
@@ -289,14 +439,40 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
     const insertIndex = Math.max(0, dropIndex - selectedPages.filter(i => i < dropIndex).length);
     remainingPages.splice(insertIndex, 0, ...pagesToMove);
     setFormData({ ...formData, pages: remainingPages });
-    setSelectedPages([]); setDraggedItem(null); setDragOverItem(null);
-    if (setIsDirty) setIsDirty(true); if (onDirty) onDirty();
+    setSelectedPages([]);
+    setBrokenPageIndices([]);
+    setDraggedItem(null);
+    setDragOverItem(null);
+    if (setIsDirty) setIsDirty(true);
+    if (onDirty) onDirty();
   };
 
   const removePage = (index: number) => {
-    if (!window.confirm(`Remove page ${index + 1}?`)) return;
-    setFormData({ ...formData, pages: formData.pages.filter((_, i) => i !== index) });
-    if (setIsDirty) setIsDirty(true); if (onDirty) onDirty();
+    if (!window.confirm(`Remove page ${index + 1}? Remaining pages will renumber automatically.`)) return;
+    const remainingPages = formData.pages.filter((_, i) => i !== index);
+    if (hotspots.length > 0) {
+      setHotspots(prev =>
+        prev
+          .filter(h => Number(h.page_index) !== index)
+          .map(h => ({
+            ...h,
+            page_index: Number(h.page_index) > index ? Number(h.page_index) - 1 : Number(h.page_index)
+          }))
+      );
+    }
+    setFormData({ ...formData, pages: remainingPages });
+    setSelectedPages(prev =>
+      prev
+        .filter(i => i !== index)
+        .map(i => (i > index ? i - 1 : i))
+    );
+    setBrokenPageIndices(prev =>
+      prev
+        .filter(i => i !== index)
+        .map(i => (i > index ? i - 1 : i))
+    );
+    if (setIsDirty) setIsDirty(true);
+    if (onDirty) onDirty();
   };
 
   const movePage = (index: number, direction: 'left' | 'right') => {
@@ -304,7 +480,9 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
     if (direction === 'left' && index > 0) [newPages[index - 1], newPages[index]] = [newPages[index], newPages[index - 1]];
     else if (direction === 'right' && index < newPages.length - 1) [newPages[index + 1], newPages[index]] = [newPages[index], newPages[index + 1]];
     setFormData({ ...formData, pages: newPages });
-    if (setIsDirty) setIsDirty(true); if (onDirty) onDirty();
+    setBrokenPageIndices([]);
+    if (setIsDirty) setIsDirty(true);
+    if (onDirty) onDirty();
   };
 
   const handleSaveToVault = async () => {
@@ -312,28 +490,64 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
     if (!formData.chapterNumber) return alert('Please enter a chapter number.');
     if (formData.pages.length === 0) return alert('Please upload at least one page.');
 
+    if (brokenPageIndices.length > 0) {
+      const brokenLabel = brokenPageIndices.map(i => `PG ${i + 1}`).join(', ');
+      if (
+        !window.confirm(
+          `Warning: ${brokenPageIndices.length} page(s) (${brokenLabel}) timed out or failed to load their image preview.\n\nDo you still want to save, or Cancel to replace/remove those broken pages first?`
+        )
+      ) {
+        return;
+      }
+    }
+
     setIsSaving(true);
     let currentChapterId: any = targetChapter;
     try {
       const existingChapterObj = existingChapters.find(c => String(c.id) === String(targetChapter));
       const actualId = existingChapterObj ? existingChapterObj.id : targetChapter;
 
-      const chapterPayload: any = {
+      const cleanPages = formData.pages
+        .map(u => String(u || '').trim())
+        .filter(Boolean);
+
+      const baseChapterPayload: any = {
         series_slug: targetSeries,
         chapter_number: Number(formData.chapterNumber),
         title: formData.title ? formData.title.trim() : `Chapter ${formData.chapterNumber}`,
-        thumbnail_url: formData.thumbnailUrl || formData.pages[0],
+        thumbnail_url: formData.thumbnailUrl || cleanPages[0],
         thumbnail_scale: Number(formData.thumbnailScale) || 100,
         thumbnail_position: formData.thumbnailPosition || '50% 50%'
+      };
+
+      const chapterPayload: any = {
+        ...baseChapterPayload,
+        reading_direction: formData.readingDirection || 'ltr'
       };
 
       if (targetChapter === 'new') {
         chapterPayload.is_published = true;
         chapterPayload.publish_at = computeNextScheduledIsoForNewChapter();
-        const { data: newChapter, error: chapterError } = await supabase.from('chapters').insert([chapterPayload]).select().single();
+        let { data: newChapter, error: chapterError } = await supabase
+          .from('chapters')
+          .insert([chapterPayload])
+          .select()
+          .single();
+
+        if (chapterError && String(chapterError.message || '').includes('reading_direction')) {
+          const fallbackInsert = {
+            ...baseChapterPayload,
+            is_published: true,
+            publish_at: chapterPayload.publish_at
+          };
+          const retry = await supabase.from('chapters').insert([fallbackInsert]).select().single();
+          newChapter = retry.data;
+          chapterError = retry.error;
+        }
+
         if (chapterError) throw chapterError;
         currentChapterId = newChapter.id;
-        const pagePayload = formData.pages.map((url, index) => ({ chapter_id: currentChapterId, page_order: index + 1, image_url: url }));
+        const pagePayload = cleanPages.map((url, index) => ({ chapter_id: currentChapterId, page_order: index + 1, image_url: url }));
         const { error: pagesError } = await supabase.from('pages').insert(pagePayload);
         if (pagesError) throw pagesError;
       } else {
@@ -342,7 +556,23 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
           chapterPayload.is_published = existingChapterObj.is_published ?? true;
           chapterPayload.publish_at = existingChapterObj.publish_at ?? null;
         }
-        const { data: updatedRows, error: chapterError } = await supabase.from('chapters').update(chapterPayload).eq('id', actualId).select();
+        let { data: updatedRows, error: chapterError } = await supabase
+          .from('chapters')
+          .update(chapterPayload)
+          .eq('id', actualId)
+          .select();
+
+        if (chapterError && String(chapterError.message || '').includes('reading_direction')) {
+          const fallbackUpdate = {
+            ...baseChapterPayload,
+            is_published: chapterPayload.is_published,
+            publish_at: chapterPayload.publish_at
+          };
+          const retry = await supabase.from('chapters').update(fallbackUpdate).eq('id', actualId).select();
+          updatedRows = retry.data;
+          chapterError = retry.error;
+        }
+
         if (chapterError) throw chapterError;
         if (!updatedRows || updatedRows.length === 0) {
           const { error: upErr } = await supabase.from('chapters').upsert({ id: actualId, ...chapterPayload }, { onConflict: 'id' });
@@ -352,12 +582,12 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
         await supabase.from('pages').delete().eq('chapter_id', actualId);
         const { data: remaining } = await supabase.from('pages').select('id').eq('chapter_id', actualId).order('page_order', { ascending: true });
         if (remaining && remaining.length > 0) {
-          for (let i = 0; i < formData.pages.length; i++) {
-            if (remaining[i]) await supabase.from('pages').update({ page_order: i + 1, image_url: formData.pages[i] }).eq('id', remaining[i].id);
-            else await supabase.from('pages').insert([{ chapter_id: actualId, page_order: i + 1, image_url: formData.pages[i] }]);
+          for (let i = 0; i < cleanPages.length; i++) {
+            if (remaining[i]) await supabase.from('pages').update({ page_order: i + 1, image_url: cleanPages[i] }).eq('id', remaining[i].id);
+            else await supabase.from('pages').insert([{ chapter_id: actualId, page_order: i + 1, image_url: cleanPages[i] }]);
           }
         } else {
-          const pagePayload = formData.pages.map((url, index) => ({ chapter_id: actualId, page_order: index + 1, image_url: url }));
+          const pagePayload = cleanPages.map((url, index) => ({ chapter_id: actualId, page_order: index + 1, image_url: url }));
           const { error: pagesError } = await supabase.from('pages').insert(pagePayload);
           if (pagesError) throw pagesError;
         }
@@ -365,7 +595,11 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
 
       window.dispatchEvent(new Event('vaultUpdated'));
       window.dispatchEvent(new Event('seriesUpdated'));
-      alert(`SUCCESS! Chapter ${formData.chapterNumber} saved.`);
+      alert(
+        `SUCCESS! Chapter ${formData.chapterNumber} saved (${
+          formData.readingDirection === 'rtl' ? 'Right-to-Left Japanese Style' : 'Left-to-Right'
+        }).`
+      );
       loadedChapterIdRef.current = String(currentChapterId);
       setTargetChapter(currentChapterId);
       setRefreshKey(prev => prev + 1);
@@ -392,6 +626,43 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
 
   return (
     <div className="space-y-6 animate-fade-in-up relative">
+      {/* Modal for Replacing a Single Timed-Out or Broken Page in Place */}
+      {replacingPageIndex !== null && (
+        <div
+          className="fixed inset-0 z-[7500] bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
+          onClick={() => setReplacingPageIndex(null)}
+        >
+          <div
+            className="bg-zinc-900 border border-[#fe9a00] rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <h3 className="text-sm font-black uppercase tracking-widest text-[#fe9a00]">
+                Replace Page {replacingPageIndex + 1} Image
+              </h3>
+              <button
+                type="button"
+                onClick={() => setReplacingPageIndex(null)}
+                className="text-zinc-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-zinc-300 font-bold leading-relaxed">
+              Upload a replacement file for <strong className="text-white">Page {replacingPageIndex + 1}</strong>. It will swap right into slot #{replacingPageIndex + 1} without changing your other pages.
+            </p>
+            <Dropzone
+              label={`+ Upload Replacement for Page ${replacingPageIndex + 1}`}
+              height="p-8"
+              folderPath="manga-pages"
+              onUploadComplete={(urlOrUrls: any) =>
+                handleReplaceSinglePageUrl(replacingPageIndex, urlOrUrls)
+              }
+            />
+          </div>
+        </div>
+      )}
+
       {activeHotspotPage !== null && (
         <div className={`fixed inset-0 z-[7000] bg-black/95 p-4 sm:p-6 animate-fade-in backdrop-blur-md ${cropSourceImage ? 'hidden' : 'flex'}`}>
           <div className="flex-1 flex justify-center items-center relative overflow-hidden bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 shadow-inner">
@@ -441,7 +712,13 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
         </div>
       )}
 
-      {isPreviewOpen && <MangaReader pages={formData.pages} readingDirection="ltr" onClose={() => setIsPreviewOpen(false)} />}
+      {isPreviewOpen && (
+        <MangaReader
+          pages={formData.pages}
+          readingDirection={formData.readingDirection}
+          onClose={() => setIsPreviewOpen(false)}
+        />
+      )}
 
       {cropSourceImage && (
         <div className="fixed inset-0 z-[9999]">
@@ -498,7 +775,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-4">
                 <div>
                   <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Chapter Number</label>
                   <input type="number" step="0.1" value={formData.chapterNumber} onChange={e => { setFormData(prev => ({ ...prev, chapterNumber: e.target.value })); if (setIsDirty) setIsDirty(true); if (onDirty) onDirty(); }} className="w-full bg-black border border-zinc-700 rounded p-3 text-white font-bold focus:border-[#fe9a00]" />
@@ -506,6 +783,48 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
                 <div>
                   <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Chapter Title</label>
                   <input type="text" placeholder="e.g., The Beginning..." value={formData.title} onChange={e => { setFormData(prev => ({ ...prev, title: e.target.value })); if (setIsDirty) setIsDirty(true); if (onDirty) onDirty(); }} className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-sm focus:border-[#fe9a00]" />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mb-2">
+                    Reading Orientation
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5 bg-black border border-zinc-700 p-1 rounded">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({ ...prev, readingDirection: 'ltr' }));
+                        if (setIsDirty) setIsDirty(true);
+                        if (onDirty) onDirty();
+                      }}
+                      className={`py-2 px-2 rounded text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                        formData.readingDirection === 'ltr'
+                          ? 'bg-[#fe9a00] text-black shadow'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                      title="Standard Left-to-Right reading direction"
+                    >
+                      <span>L → R</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({ ...prev, readingDirection: 'rtl' }));
+                        if (setIsDirty) setIsDirty(true);
+                        if (onDirty) onDirty();
+                      }}
+                      className={`py-2 px-2 rounded text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                        formData.readingDirection === 'rtl'
+                          ? 'bg-[#fe9a00] text-black shadow'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                      title="Japanese Manga Style Right-to-Left reading direction"
+                    >
+                      <ArrowLeft className="w-3 h-3" />
+                      <span>R ← L (JP)</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -538,36 +857,189 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
                 </div>
 
                 <div className="md:col-span-2">
-                  <div className="flex justify-between items-end mb-2">
-                    <h3 className="font-bold text-[#fe9a00] uppercase tracking-widest text-xs">Chapter Pages</h3>
-                    {formData.pages.length > 0 && <button type="button" onClick={() => setIsPreviewOpen(true)} className="text-[10px] font-bold uppercase bg-zinc-800 px-3 py-1.5 rounded hover:bg-[#fe9a00] hover:text-black cursor-pointer">Preview Reader</button>}
+                  <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-[#fe9a00] uppercase tracking-widest text-xs">Chapter Pages</h3>
+                      {formData.readingDirection === 'rtl' && (
+                        <span className="text-[9px] font-black uppercase tracking-widest bg-amber-950/80 text-[#fe9a00] border border-[#fe9a00]/50 px-2 py-0.5 rounded flex items-center gap-1">
+                          <ArrowLeft className="w-3 h-3" /> Reads Right-to-Left (JP)
+                        </span>
+                      )}
+                    </div>
+                    {formData.pages.length > 0 && (
+                      <button type="button" onClick={() => setIsPreviewOpen(true)} className="text-[10px] font-bold uppercase bg-zinc-800 px-3 py-1.5 rounded hover:bg-[#fe9a00] hover:text-black cursor-pointer">
+                        Preview Reader
+                      </button>
+                    )}
                   </div>
+
                   {formData.pages.length > 0 && (
-                    <div className="bg-black border border-zinc-800 p-3 rounded mb-4 max-h-[400px] overflow-y-auto">
-                      <p className="text-xs text-[#fe9a00] font-bold mb-3 uppercase tracking-widest">{formData.pages.length} Pages</p>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                        {formData.pages.map((url, i) => (
-                          <div key={i} draggable onMouseDown={e => handlePageClick(i, e)} onDragStart={e => handleDragStart(e, i)} onDragEnter={() => setDragOverItem(i)} onDragEnd={() => { setDraggedItem(null); setDragOverItem(null); }} onDragOver={e => { e.preventDefault(); e.stopPropagation(); }} onDrop={e => handleDrop(e, i)} className={`relative aspect-[2/3] rounded-lg overflow-hidden cursor-grab border-2 select-none group/page ${selectedPages.includes(i) ? 'border-[#fe9a00] scale-95' : dragOverItem === i ? 'border-white border-dashed' : 'border-zinc-800'}`}>
-                            <div className="absolute top-1 left-1 z-20 bg-black/90 text-white text-[9px] font-black px-1.5 py-0.5 rounded border border-zinc-700">PG {i + 1}</div>
-                            <button type="button" onClick={e => { e.stopPropagation(); openHotspotEditor(i, 'info'); }} className="absolute bottom-1 right-10 z-20 bg-black/80 p-1.5 rounded-full border border-zinc-700 text-[#fe9a00] hover:bg-[#fe9a00] hover:text-black cursor-pointer"><MapPin className="w-4 h-4" /></button>
-                            <button type="button" onClick={e => { e.stopPropagation(); openHotspotEditor(i, 'share'); }} className="absolute bottom-1 right-1 z-20 bg-black/80 p-1.5 rounded-full border border-zinc-700 text-red-500 hover:bg-red-500 hover:text-white cursor-pointer"><Share2 className="w-4 h-4" /></button>
-                            <img src={url} alt={`Pg ${i + 1}`} draggable={false} className="w-full h-full object-cover pointer-events-none" />
-                            <div className="absolute inset-0 bg-black/80 opacity-0 group-hover/page:opacity-100 flex flex-col justify-between p-1 z-10 pointer-events-none">
-                              <div className="flex justify-between w-full pointer-events-auto">
-                                <button type="button" onClick={() => { setCropTarget('thumbnail'); setCropSourceImage(url); }} className="p-1 text-zinc-400 hover:text-white cursor-pointer"><Crop className="w-3.5 h-3.5" /></button>
-                                <button type="button" onClick={() => removePage(i)} className="p-1 text-zinc-400 hover:text-red-500 cursor-pointer"><X className="w-4 h-4" /></button>
-                              </div>
-                              <div className="flex justify-between w-full pointer-events-auto">
-                                <button type="button" onClick={() => movePage(i, 'left')} className="p-1 text-zinc-400 hover:text-[#fe9a00] cursor-pointer"><ChevronLeft className="w-4 h-4" /></button>
-                                <button type="button" onClick={() => movePage(i, 'right')} className="p-1 text-zinc-400 hover:text-[#fe9a00] cursor-pointer"><ChevronRight className="w-4 h-4" /></button>
+                    <div className="bg-black border border-zinc-800 p-3 rounded-xl mb-4">
+                      {/* Multi-Select, Broken Page Detector & Bulk Delete Action Bar */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-zinc-800">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-[#fe9a00] font-black uppercase tracking-widest">
+                            {formData.pages.length} Pages
+                          </span>
+                          {selectedPages.length > 0 && (
+                            <span className="text-[10px] bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/40 px-2 py-0.5 rounded font-black uppercase tracking-widest">
+                              {selectedPages.length} Selected
+                            </span>
+                          )}
+                          {brokenPageIndices.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPages([...brokenPageIndices])}
+                              className="text-[9px] bg-red-950/90 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/60 px-2 py-0.5 rounded font-black uppercase tracking-widest flex items-center gap-1 cursor-pointer animate-pulse"
+                              title="Click to select all timed-out / broken pages so you can delete or replace them"
+                            >
+                              <AlertTriangle className="w-3 h-3" /> Select All Broken ({brokenPageIndices.length})
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={handleSelectAllPages}
+                            className="px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[9px] font-black uppercase tracking-widest flex items-center gap-1 cursor-pointer"
+                          >
+                            {selectedPages.length === formData.pages.length ? (
+                              <><CheckSquare className="w-3 h-3 text-[#fe9a00]" /> Deselect All</>
+                            ) : (
+                              <><Square className="w-3 h-3" /> Select All</>
+                            )}
+                          </button>
+
+                          {selectedPages.length > 0 && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => { setSelectedPages([]); lastClickedPageRef.current = null; }}
+                                className="px-2 py-1 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white text-[9px] font-black uppercase tracking-widest cursor-pointer"
+                              >
+                                Clear
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleBulkDeleteSelectedPages}
+                                className="px-2.5 py-1 rounded bg-red-600 hover:bg-red-500 text-white text-[9px] font-black uppercase tracking-widest flex items-center gap-1 shadow-[0_0_12px_rgba(220,38,38,0.4)] cursor-pointer"
+                              >
+                                <Trash2 className="w-3 h-3" /> Delete Selected ({selectedPages.length})
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-[420px] overflow-y-auto pr-1 custom-scrollbar">
+                        {formData.pages.map((url, i) => {
+                          const isSelected = selectedPages.includes(i);
+                          const isBroken = brokenPageIndices.includes(i);
+                          const retryCount = pageRetryCounters[i] || 0;
+                          const displaySrc = normalizeMangaPageUrl(url, retryCount);
+
+                          return (
+                            <div
+                              key={i}
+                              draggable
+                              onClick={e => handleTogglePageSelection(i, e)}
+                              onDragStart={e => handleDragStart(e, i)}
+                              onDragEnter={() => setDragOverItem(i)}
+                              onDragEnd={() => { setDraggedItem(null); setDragOverItem(null); }}
+                              onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                              onDrop={e => handleDrop(e, i)}
+                              className={`relative aspect-[2/3] rounded-lg overflow-hidden cursor-grab border-2 select-none group/page transition-all ${
+                                isBroken
+                                  ? 'border-red-500 bg-red-950/20'
+                                  : isSelected
+                                  ? 'border-[#fe9a00] ring-2 ring-[#fe9a00]/50 scale-[0.97]'
+                                  : dragOverItem === i
+                                  ? 'border-white border-dashed'
+                                  : 'border-zinc-800 hover:border-zinc-600'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={e => handleTogglePageSelection(i, e)}
+                                className={`absolute top-1 left-1 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded border text-[9px] font-black cursor-pointer transition-colors ${
+                                  isSelected
+                                    ? 'bg-[#fe9a00] text-black border-[#fe9a00]'
+                                    : 'bg-black/90 text-white border-zinc-700 hover:border-[#fe9a00]'
+                                }`}
+                                title="Click to select page (Shift+Click to select a range)"
+                              >
+                                {isSelected ? (
+                                  <CheckSquare className="w-3 h-3 stroke-[2.5]" />
+                                ) : (
+                                  <Square className="w-3 h-3 text-zinc-400" />
+                                )}
+                                <span>PG {i + 1}</span>
+                              </button>
+
+                              <button type="button" onClick={e => { e.stopPropagation(); openHotspotEditor(i, 'info'); }} className="absolute bottom-1 right-10 z-20 bg-black/80 p-1.5 rounded-full border border-zinc-700 text-[#fe9a00] hover:bg-[#fe9a00] hover:text-black cursor-pointer" title="Author Comments Hotspot"><MapPin className="w-4 h-4" /></button>
+                              <button type="button" onClick={e => { e.stopPropagation(); openHotspotEditor(i, 'share'); }} className="absolute bottom-1 right-1 z-20 bg-black/80 p-1.5 rounded-full border border-zinc-700 text-red-500 hover:bg-red-500 hover:text-white cursor-pointer" title="Hype Share Zone Hotspot"><Share2 className="w-4 h-4" /></button>
+
+                              <img
+                                src={displaySrc}
+                                alt={`Pg ${i + 1}`}
+                                draggable={false}
+                                onError={() => handlePageImageError(i)}
+                                onLoad={() => handlePageImageLoad(i)}
+                                className={`w-full h-full object-cover pointer-events-none ${isBroken ? 'opacity-20' : ''}`}
+                              />
+
+                              {/* Visible Overlay When an Upload Timed Out / Failed */}
+                              {isBroken && (
+                                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-2 text-center bg-black/80 gap-1.5">
+                                  <AlertTriangle className="w-5 h-5 text-red-500 animate-bounce" />
+                                  <span className="text-[8px] font-black uppercase tracking-widest text-red-400 leading-tight">
+                                    Upload Timed Out
+                                  </span>
+                                  <div className="flex flex-col gap-1 w-full px-1 pointer-events-auto">
+                                    <button
+                                      type="button"
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        setReplacingPageIndex(i);
+                                      }}
+                                      className="w-full py-1 px-1.5 rounded bg-[#fe9a00] hover:bg-white text-black text-[8px] font-black uppercase tracking-wider cursor-pointer"
+                                    >
+                                      Replace PG {i + 1}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        setBrokenPageIndices(prev => prev.filter(idx => idx !== i));
+                                        setPageRetryCounters(prev => ({ ...prev, [i]: (prev[i] || 0) + 1 }));
+                                      }}
+                                      className="w-full py-1 px-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[8px] font-black uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer"
+                                    >
+                                      <RefreshCw className="w-2.5 h-2.5" /> Retry Load
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="absolute inset-0 bg-black/75 opacity-0 group-hover/page:opacity-100 flex flex-col justify-between p-1 z-10 pointer-events-none transition-opacity">
+                                <div className="flex justify-end w-full gap-1 pointer-events-auto">
+                                  <button type="button" onClick={e => { e.stopPropagation(); setReplacingPageIndex(i); }} className="p-1 bg-black/80 rounded text-zinc-300 hover:text-[#fe9a00] cursor-pointer" title="Replace This Page Image"><RefreshCw className="w-3.5 h-3.5" /></button>
+                                  <button type="button" onClick={e => { e.stopPropagation(); setCropTarget('thumbnail'); setCropSourceImage(url); }} className="p-1 bg-black/80 rounded text-zinc-300 hover:text-[#fe9a00] cursor-pointer" title="Crop as Chapter Thumbnail"><Crop className="w-3.5 h-3.5" /></button>
+                                  <button type="button" onClick={e => { e.stopPropagation(); removePage(i); }} className="p-1 bg-black/80 rounded text-zinc-300 hover:text-red-500 cursor-pointer" title="Delete Page"><X className="w-4 h-4" /></button>
+                                </div>
+                                <div className="flex justify-between w-full pointer-events-auto pb-7">
+                                  <button type="button" onClick={e => { e.stopPropagation(); movePage(i, 'left'); }} className="p-1 bg-black/80 rounded text-zinc-300 hover:text-[#fe9a00] cursor-pointer" title="Move Page Left"><ChevronLeft className="w-4 h-4" /></button>
+                                  <button type="button" onClick={e => { e.stopPropagation(); movePage(i, 'right'); }} className="p-1 bg-black/80 rounded text-zinc-300 hover:text-[#fe9a00] cursor-pointer" title="Move Page Right"><ChevronRight className="w-4 h-4" /></button>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
-                  <Dropzone label="+ Add Pages" multiple height="p-6" folderPath="manga-pages" onUploadComplete={(urls: any) => { setFormData(prev => ({ ...prev, pages: [...prev.pages, ...urls] })); if (setIsDirty) setIsDirty(true); if (onDirty) onDirty(); }} />
+                  <Dropzone label="+ Add Pages (Tip: Upload 5–8 pages at a time to avoid DB timeouts)" multiple height="p-6" folderPath="manga-pages" onUploadComplete={(urls: any) => { const validUrls = (Array.isArray(urls) ? urls : [urls]).filter(Boolean); setFormData(prev => ({ ...prev, pages: [...prev.pages, ...validUrls] })); if (setIsDirty) setIsDirty(true); if (onDirty) onDirty(); }} />
                 </div>
               </div>
             </div>
@@ -599,6 +1071,9 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
               {existingChapters.map(ch => {
                 const isPulled = !ch.is_published;
                 const isLive = isChapterCurrentlyLive(ch);
+                const isRtl =
+                  ch.reading_direction === 'rtl' ||
+                  (!ch.reading_direction && isDefaultRtlSeries(targetSeries));
                 const scheduledDateLabel = ch.publish_at
                   ? `Scheduled: ${new Date(ch.publish_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
                   : 'Scheduled';
@@ -617,7 +1092,14 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1">
-                          <span className="text-xs font-black text-white uppercase tracking-wider">CH. {ch.chapter_number}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-white uppercase tracking-wider">CH. {ch.chapter_number}</span>
+                            {isRtl && (
+                              <span className="text-[8px] font-black uppercase bg-amber-950 text-[#fe9a00] border border-[#fe9a00]/40 px-1.5 py-0.5 rounded">
+                                R ← L
+                              </span>
+                            )}
+                          </div>
                           <span className={`text-[9px] px-2 py-0.5 rounded font-black tracking-wider uppercase ${
                             isPulled
                               ? 'bg-red-500/20 text-red-400 border border-red-500/40'

@@ -43,15 +43,15 @@ const iconMaskStyle = {
   maskPosition: 'center'
 };
 
-const isNewRelease = (publishAt?: string | null, createdAt?: string | null, updatedAt?: string | null) => {
+const isNewRelease = (publishAt?: string | null, createdAt?: string | null) => {
   const now = Date.now();
-  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
   const earlyAccessBufferMs = 24 * 60 * 60 * 1000;
 
-  const candidates = [publishAt, updatedAt, createdAt].filter(Boolean);
+  const candidates = [publishAt, createdAt].filter(Boolean);
   for (const dateStr of candidates) {
     const t = new Date(dateStr as string).getTime();
-    if (!isNaN(t) && t <= now + earlyAccessBufferMs && now - t < sevenDaysMs) {
+    if (!isNaN(t) && t <= now + earlyAccessBufferMs && now - t < threeDaysMs) {
       return true;
     }
   }
@@ -60,7 +60,7 @@ const isNewRelease = (publishAt?: string | null, createdAt?: string | null, upda
 
 const formatLiveCountdown = (targetMs: number, nowMs: number) => {
   const diff = targetMs - nowMs;
-  if (diff <= 0) return 'DROPPING NOW!';
+  if (diff <= 0) return 'AVAILABLE NOW!';
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
   const mins = Math.floor((diff / (1000 * 60)) % 60);
@@ -179,15 +179,16 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   }, []);
 
   useEffect(() => {
+    if (isReaderOpen) return;
     const timer = setInterval(() => setNowTick(Date.now()), 30000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isReaderOpen]);
 
   useEffect(() => {
-    if (isPlusActive || !isUnlockedForOneShotWednesday) return;
+    if (isReaderOpen || isPlusActive || !isUnlockedForOneShotWednesday) return;
     const secInterval = setInterval(() => setSecondTick(prev => (prev + 1) % 60), 1000);
     return () => clearInterval(secInterval);
-  }, [isPlusActive, isUnlockedForOneShotWednesday]);
+  }, [isReaderOpen, isPlusActive, isUnlockedForOneShotWednesday]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -368,7 +369,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         const effectiveSeriesObj = freshSeries || localSeries || series;
         const isFreeOswOrDebut = isActiveOneShotWednesday(effectiveSeriesObj, seriesList);
 
-        // CRITICAL: Always check ch.is_published FIRST so pulled/unpublished chapters never appear!
         const liveChapters = chapterData.filter((ch: any) => {
           if (!ch.is_published) return false;
           if (isFreeOswOrDebut) return true;
@@ -742,12 +742,22 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         const currentIndex = chapters.findIndex(c => c.id === activeChapterId);
         const hasNext = currentIndex > -1 && currentIndex < chapters.length - 1;
         const hasPrev = currentIndex > 0;
+        const resolvedReadingDirection: 'ltr' | 'rtl' =
+          activeChapterData?.reading_direction === 'rtl' ||
+          (!activeChapterData?.reading_direction &&
+            String(localSeries?.slug || '').toLowerCase().includes('redskin'))
+            ? 'rtl'
+            : 'ltr';
+
         return (
           <MangaReader
             pages={activePages}
+            readingDirection={resolvedReadingDirection}
             chapterId={activeChapterId}
+            series={localSeries}
+            chapter={activeChapterData}
             userId={currentUserId}
-            isPremium={isPremiumUser}
+            isPremium={isPlusActive}
             title={activeChapterData ? `Chapter ${activeChapterData.chapter_number} - ${activeChapterData.title || ''}` : ''}
             subtitle={localSeries.title}
             initialPage={startPage}
@@ -908,23 +918,25 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           {activeTab === 'chapters' && (
             <div className="animate-fade-in">
               {nextScheduledChapter && scheduledTargetMs && scheduledTargetMs > nowTick && (
-                <div className={`mb-6 p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg ${
-                  isPlusActive ? 'bg-gradient-to-r from-purple-950/60 via-zinc-900 to-amber-950/40 border-purple-500/40' : 'bg-zinc-900/90 border-[#fe9a00]/40'
-                }`}>
+                <div className="mb-6 p-4 rounded-2xl border bg-zinc-900/90 border-[#fe9a00]/40 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
                   <div className="flex items-center gap-3 text-center sm:text-left">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isPlusActive ? 'bg-purple-600/30 border border-purple-400/50 text-purple-300' : 'bg-[#fe9a00]/20 border border-[#fe9a00]/40 text-[#fe9a00]'}`}>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-[#fe9a00]/20 border border-[#fe9a00]/40 text-[#fe9a00]">
                       <Clock className="w-5 h-5 animate-pulse" />
                     </div>
                     <div>
-                      <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-white">{`⏳ Next New Chapter (Ch. ${nextScheduledChapter.chapter_number}) Scheduled`}</p>
-                      <p className="text-[9px] sm:text-[10px] font-bold text-zinc-400 mt-0.5">
-                        {isPlusActive ? 'Your PLUS membership unlocks new chapters automatically as soon as they drop!' : '⚡ Saturday AM+ PLUS members unlock this chapter 12 hours early!'}
+                      <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-white">
+                        {`⏳ Next Chapter (Ch. ${nextScheduledChapter.chapter_number}) Available In ${formatLiveCountdown(scheduledTargetMs, nowTick)}`}
                       </p>
+                      {!isPlusActive && (
+                        <p className="text-[9px] sm:text-[10px] font-bold text-zinc-400 mt-0.5">
+                          ⚡ Saturday AM+ PLUS members unlock this chapter 12 hours early!
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className={`px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-widest border ${isPlusActive ? 'bg-black/60 border-purple-400/50 text-purple-200' : 'bg-black/60 border-[#fe9a00]/50 text-[#fe9a00]'}`}>
-                      Drops in {formatLiveCountdown(scheduledTargetMs, nowTick)}
+                    <div className="px-3.5 py-2 rounded-xl font-black text-xs sm:text-sm uppercase tracking-widest border bg-black/60 border-[#fe9a00]/50 text-[#fe9a00]">
+                      {`Next Ch in ${formatLiveCountdown(scheduledTargetMs, nowTick)}`}
                     </div>
                   </div>
                 </div>
@@ -943,10 +955,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               {displayedChapters.map((ch: any) => {
                 const absoluteIndex = chapters.findIndex(c => c.id === ch.id);
                 const actualProgress = readProgresses[String(ch.id)] || 0;
-                const hasTempUnlock = !isCompletedRun && rewardedAdsEnabled && unlockedChapters.includes(String(ch.id));
+                const hasTempUnlock = !isCompletedRun && rewardedAdsEnabled && unlockedChapters.includes(String(chapterStats.id || ch.id));
                 const isLocked = checkIsLocked(ch.id) && !hasTempUnlock;
                 const isLatestChapterOfSeries = absoluteIndex === chapters.length - 1;
-                const showNewBadge = isLatestChapterOfSeries && isNewRelease(ch.publish_at || localSeries?.publish_at, ch.created_at, ch.updated_at || localSeries?.updated_at);
+                const showNewBadge = isLatestChapterOfSeries && isNewRelease(ch.publish_at, ch.created_at);
                 const displayReacts = (ch.react_count || 0) + (chapterStats[String(ch.id)]?.reacts || 0);
 
                 return (
