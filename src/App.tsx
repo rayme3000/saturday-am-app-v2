@@ -17,25 +17,36 @@ import LoginModal from './Auth/LoginModal.tsx';
 import { GlobalFlexCard } from './Components/GlobalFlexCard';
 import { CreatorOnboardingModal, hasAcceptedCreatorTerms } from './Components/CreatorOnboardingModal';
 
-// 2. Lazy Load the views that use Named or Default Exports safely
-const HomePage = lazy<React.ComponentType<any>>(() => import('./MainViews/HomePage').then(mod => ({ default: mod.HomePage })));
-const SeriesDetailPage = lazy<React.ComponentType<any>>(() => import('./MainViews/SeriesDetailPage').then(mod => ({ default: mod.SeriesDetailPage })));
-const AdminDashboard = lazy<React.ComponentType<any>>(() => import('./AmCommandCenter/AdminDashboard').then(mod => ({ default: mod.AdminDashboard })));
-const UserProfile = lazy<React.ComponentType<any>>(() => import('./VirtualProfile/UserProfile').then(mod => ({ default: mod.UserProfile })));
-const SubscriptionPage = lazy<React.ComponentType<any>>(() => import('./MainViews/Subscription.tsx').then((mod: any) => ({ default: mod.Subscription || mod.default })));
-const AMNewsPage = lazy<React.ComponentType<any>>(() => import('./MainViews/AMNewsPage').then(mod => ({ default: mod.AMNewsPage })));
-const Shop = lazy<React.ComponentType<any>>(() => import('./MainViews/Shop').then(mod => ({ default: mod.Shop }))); 
-const LegalPages = lazy<React.ComponentType<any>>(() => import('./MainViews/LegalPages').then(mod => ({ default: mod.LegalPages }))); 
-const CharacterRoster = lazy<React.ComponentType<any>>(() => import('./MainViews/CharacterRoster').then(mod => ({ default: mod.CharacterRoster })));
-const CreatorsPage = lazy<React.ComponentType<any>>(() => import('./MainViews/CreatorsPage').then(mod => ({ default: mod.CreatorsPage })));
-const CreatorStudio = lazy<React.ComponentType<any>>(() => import('./MainViews/CreatorStudio').then(mod => ({ default: mod.CreatorStudio })));
+// Helper to safely resolve any Named or Default export so React lazy() never receives `undefined` (Error #306)
+const resolveLazyModule = (mod: any, preferredName?: string) => {
+  if (!mod) return { default: () => null };
+  if (preferredName && typeof mod[preferredName] === 'function') return { default: mod[preferredName] };
+  if (typeof mod.default === 'function') return { default: mod.default };
+  if (typeof mod.Subscription === 'function') return { default: mod.Subscription };
+  if (typeof mod.SubscriptionPage === 'function') return { default: mod.SubscriptionPage };
+  const firstExport = Object.values(mod).find(v => typeof v === 'function');
+  return { default: (firstExport as React.ComponentType<any>) || (() => null) };
+};
+
+// 2. Lazy Load the views safely
+const HomePage = lazy<React.ComponentType<any>>(() => import('./MainViews/HomePage').then(mod => resolveLazyModule(mod, 'HomePage')));
+const SeriesDetailPage = lazy<React.ComponentType<any>>(() => import('./MainViews/SeriesDetailPage').then(mod => resolveLazyModule(mod, 'SeriesDetailPage')));
+const AdminDashboard = lazy<React.ComponentType<any>>(() => import('./AmCommandCenter/AdminDashboard').then(mod => resolveLazyModule(mod, 'AdminDashboard')));
+const UserProfile = lazy<React.ComponentType<any>>(() => import('./VirtualProfile/UserProfile').then(mod => resolveLazyModule(mod, 'UserProfile')));
+const SubscriptionPage = lazy<React.ComponentType<any>>(() => import('./MainViews/Subscription.tsx').then(mod => resolveLazyModule(mod)));
+const AMNewsPage = lazy<React.ComponentType<any>>(() => import('./MainViews/AMNewsPage').then(mod => resolveLazyModule(mod, 'AMNewsPage')));
+const Shop = lazy<React.ComponentType<any>>(() => import('./MainViews/Shop').then(mod => resolveLazyModule(mod, 'Shop'))); 
+const LegalPages = lazy<React.ComponentType<any>>(() => import('./MainViews/LegalPages').then(mod => resolveLazyModule(mod, 'LegalPages'))); 
+const CharacterRoster = lazy<React.ComponentType<any>>(() => import('./MainViews/CharacterRoster').then(mod => resolveLazyModule(mod, 'CharacterRoster')));
+const CreatorsPage = lazy<React.ComponentType<any>>(() => import('./MainViews/CreatorsPage').then(mod => resolveLazyModule(mod, 'CreatorsPage')));
+const CreatorStudio = lazy<React.ComponentType<any>>(() => import('./MainViews/CreatorStudio').then(mod => resolveLazyModule(mod, 'CreatorStudio')));
 
 // 3. Lazy Load the views that use Default Exports
-const SettingsPage = lazy<React.ComponentType<any>>(() => import('./MainViews/Settings.tsx'));
-const BingoBook = lazy<React.ComponentType<any>>(() => import('./VirtualProfile/BingoBook'));
-const Favorites = lazy<React.ComponentType<any>>(() => import('./MainViews/MyFaves.tsx'));
-const Browse = lazy<React.ComponentType<any>>(() => import('./MainViews/Browse.tsx'));
-const Leaderboard = lazy<React.ComponentType<any>>(() => import('./MainViews/Leaderboard.tsx'));
+const SettingsPage = lazy<React.ComponentType<any>>(() => import('./MainViews/Settings.tsx').then(mod => resolveLazyModule(mod)));
+const BingoBook = lazy<React.ComponentType<any>>(() => import('./VirtualProfile/BingoBook').then(mod => resolveLazyModule(mod)));
+const Favorites = lazy<React.ComponentType<any>>(() => import('./MainViews/MyFaves.tsx').then(mod => resolveLazyModule(mod)));
+const Browse = lazy<React.ComponentType<any>>(() => import('./MainViews/Browse.tsx').then(mod => resolveLazyModule(mod)));
+const Leaderboard = lazy<React.ComponentType<any>>(() => import('./MainViews/Leaderboard.tsx').then(mod => resolveLazyModule(mod)));
 
 // Authorized Saturday AM Admin Emails
 export const ADMIN_EMAILS = [
@@ -70,17 +81,44 @@ export const getOrCreateVisitorId = (): string => {
   }
 };
 
-// --- GLOBAL ERROR BOUNDARY ---
+// --- SELF-HEALING GLOBAL ERROR BOUNDARY (CLEARS STUCK VIEW STATE AUTOMATICALLY) ---
 class AppErrorBoundary extends React.Component<any, any> {
-  constructor(props: any) { super(props); this.state = { hasError: false, error: null }; }
-  static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    try {
+      sessionStorage.setItem('currentView', 'home');
+      sessionStorage.removeItem('selectedSeries');
+    } catch {
+      // Ignore storage errors
+    }
+    return { hasError: true, error };
+  }
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center">
-          <h2 className="text-[#fe9a00] font-black text-3xl italic uppercase tracking-tighter mb-4">System Glitch</h2>
-          <p className="text-zinc-400 font-bold mb-8 max-w-md">{this.state.error?.message || "An unexpected error occurred."}</p>
-          <button onClick={() => window.location.reload()} className="bg-[#fe9a00] text-black px-8 py-3 rounded-full font-black uppercase tracking-widest hover:bg-white transition-colors cursor-pointer">Reboot Interface</button>
+        <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center z-[9999] relative">
+          <h2 className="text-[#fe9a00] font-black text-3xl italic uppercase tracking-tighter mb-4">
+            System Glitch
+          </h2>
+          <p className="text-zinc-400 font-bold mb-8 max-w-md">
+            {this.state.error?.message || 'An unexpected error occurred.'}
+          </p>
+          <button
+            onClick={() => {
+              try {
+                sessionStorage.clear();
+              } catch {
+                // Ignore
+              }
+              window.location.replace('/');
+            }}
+            className="bg-[#fe9a00] text-black px-8 py-3 rounded-full font-black uppercase tracking-widest hover:bg-white transition-colors cursor-pointer"
+          >
+            Return to Home Page
+          </button>
         </div>
       );
     }
@@ -119,8 +157,52 @@ const ScrollToTopButton = () => {
 export default function App() {
   useIntegrations();
 
+  // --- AUTO-UPDATE SERVICE WORKER & STALE CACHE DETECTOR (MACBOOK M1 / PWA FIX) ---
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    const checkForUpdates = async () => {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) {
+          await reg.update();
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+        }
+      } catch {
+        // Ignore SW update check errors
+      }
+    };
+
+    checkForUpdates();
+
+    let refreshing = false;
+    const handleControllerChange = () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') checkForUpdates();
+    };
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
+  }, []);
+
   const [currentView, setCurrentView] = useState(() => {
-    return sessionStorage.getItem('currentView') || 'home';
+    const params = new URLSearchParams(window.location.search);
+    const urlView = params.get('view');
+    if (urlView) return urlView.toLowerCase();
+    const saved = sessionStorage.getItem('currentView');
+    if (saved === 'sub' && !urlView) return 'home';
+    return saved || 'home';
   });
 
   const [selectedSeries, setSelectedSeries] = useState(() => {
@@ -129,7 +211,6 @@ export default function App() {
   });
 
   const [showIntro, setShowIntro] = useState(() => {
-    // Skip splash intro for search engine crawlers or direct deep links (?series= or ?creator=)
     const params = new URLSearchParams(window.location.search);
     if (
       params.has('series') ||
@@ -148,12 +229,10 @@ export default function App() {
   const [upsellConfig, setUpsellConfig] = useState<{ title: string; message: string; target?: 'signup' | 'sub'; buttonText?: string } | null>(null);
   const [showGlobalShareModal, setShowGlobalShareModal] = useState(false);
 
-  // Creator Onboarding Magic Invite State
   const [pendingCreatorInvite, setPendingCreatorInvite] = useState<string | null>(() => {
     return localStorage.getItem('am_pending_creator_invite') || null;
   });
 
-  // Creator Stripe Connect OAuth Confirmation Banner State
   const [stripeConnectNotice, setStripeConnectNotice] = useState<{
     status: 'success' | 'error';
     accountId?: string;
@@ -187,7 +266,7 @@ export default function App() {
 
   const isUserAdmin = checkIsAdminUser(currentUser);
 
-  // --- DYNAMIC SEO ENGINE: UPDATES <title>, META DESCRIPTION, CANONICAL URL & JSON-LD SCHEMA ---
+  // --- DYNAMIC SEO ENGINE ---
   useEffect(() => {
     const setMetaContent = (selector: string, content: string) => {
       const el = document.querySelector(selector);
@@ -438,7 +517,7 @@ export default function App() {
     }
   }, [userTier, currentUser?.is_premium]);
 
-  // --- AUTO-CAPTURE DEEP LINKS (?series=, /series/..., ?creator=, ?view=), CREATOR INVITE LINK (?creator_invite=), & PROMO CODES ---
+  // --- AUTO-CAPTURE DEEP LINKS ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const creatorInviteParam = params.get('creator_invite');
@@ -446,13 +525,11 @@ export default function App() {
     const stripeConnected = params.get('stripe_connected');
     const stripeConnectError = params.get('stripe_connect_error');
 
-    // Save any Creator/Partner referral code in URL (?ref=VIP-...) so deep links to a series ALSO credit the creator!
     const refParam = params.get('ref') || params.get('referral') || params.get('vip');
     if (refParam && refParam.trim().toUpperCase().startsWith('VIP-')) {
       localStorage.setItem('am_referral_code', refParam.trim().toUpperCase());
     }
 
-    // 1. Handle Direct Series Deep Link: ?series=apple-black OR /series/apple-black
     const pathMatch = window.location.pathname.match(/^\/series\/([^/?#]+)/i);
     const seriesSlugParam =
       params.get('series') || params.get('slug') || (pathMatch ? decodeURIComponent(pathMatch[1]) : null);
@@ -476,18 +553,16 @@ export default function App() {
         });
     }
 
-    // 2. Handle Direct Creator Deep Link: ?creator=Raymond%20Brown
     const creatorParam = params.get('creator');
     if (creatorParam && !params.has('donation_status')) {
       sessionStorage.setItem('am_target_creator', creatorParam.trim());
       setCurrentView('creators');
     }
 
-    // 3. Handle Direct View Deep Link: ?view=browse | creators | characters | leaderboard | news | shop | sub
     const viewParam = params.get('view');
     if (
       viewParam &&
-      ['browse', 'creators', 'characters', 'leaderboard', 'news', 'shop', 'sub', 'legal', 'bingobook'].includes(
+      ['home', 'browse', 'creators', 'characters', 'leaderboard', 'news', 'shop', 'sub', 'legal', 'bingobook'].includes(
         viewParam.toLowerCase()
       )
     ) {
@@ -728,7 +803,6 @@ export default function App() {
           setPendingCreatorInvite(metaInvite);
         }
 
-        // Link anonymous visitor ID to this authenticated account once for conversion tracking
         const visitorId = getOrCreateVisitorId();
         const convKey = `am_conv_logged_${sessionUser.id}`;
         if (!localStorage.getItem(convKey)) {
@@ -1043,7 +1117,6 @@ export default function App() {
       {showLogin && <LoginModal onClose={() => setShowLogin(false)} onSuccess={() => setShowLogin(false)} />}
       <ShareModal isOpen={showGlobalShareModal} onClose={() => setShowGlobalShareModal(false)} currentUser={currentUser} series={null} />
 
-      {/* MANDATORY CREATOR ONBOARDING & TERMS OF PARTICIPATION MODAL */}
       <CreatorOnboardingModal
         isOpen={
           !showLogin &&
@@ -1070,7 +1143,6 @@ export default function App() {
         }}
       />
 
-      {/* CREATOR STRIPE CONNECT CONFIRMATION MODAL */}
       {stripeConnectNotice && (
         <div className="fixed inset-0 z-[7500] bg-black/90 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in" onClick={() => setStripeConnectNotice(null)}>
           <div className="bg-zinc-950 border-2 border-[#fe9a00] p-8 rounded-3xl w-full max-w-md flex flex-col items-center text-center shadow-[0_0_50px_rgba(254,154,0,0.25)] relative" onClick={e => e.stopPropagation()}>
@@ -1259,7 +1331,6 @@ export default function App() {
         </button>
       )}
 
-      {/* COMPACT FLOATING INSTALL TOAST */}
       {showInstallPrompt && !isAppInstalled && !showIosPrompt && currentView !== 'admin' && (
         <div className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[6000] bg-zinc-950/95 border border-[#fe9a00]/70 p-2.5 sm:p-3 rounded-xl shadow-[0_10px_35px_rgba(0,0,0,0.9)] flex flex-col gap-2 animate-fade-in backdrop-blur-xl">
           <div className="flex items-center justify-between gap-2.5">
@@ -1301,7 +1372,6 @@ export default function App() {
         </div>
       )}
 
-      {/* COMPACT IOS SAFARI PWA INSTALL BOTTOM SHEET */}
       {showIosPrompt && !isAppInstalled && currentView !== 'admin' && (
         <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-4 sm:p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-3 animate-fade-in-up pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <div className="flex items-start justify-between">

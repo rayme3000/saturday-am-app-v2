@@ -93,7 +93,7 @@ const ContentRatingBadge = ({ rating }: { rating: string }) => {
   };
   const current = config[rating] || config['T'];
   return (
-    <div className="flex items-center gap-2 mt-6 bg-zinc-900/50 px-3 py-1.5 rounded-full border border-zinc-800/50 backdrop-blur-sm w-max mx-auto shadow-lg">
+    <div className="flex items-center gap-2 mt-5 bg-zinc-900/80 px-3 py-1.5 rounded-full border border-zinc-800 w-max mx-auto shadow-lg">
       <div className={`w-5 h-5 flex items-center justify-center rounded-[3px] font-black text-[10px] ${current.color} shadow-sm`}>{current.label}</div>
       <span className="text-[9px] font-black text-zinc-300 uppercase tracking-widest">{current.desc}</span>
     </div>
@@ -103,6 +103,9 @@ const ContentRatingBadge = ({ rating }: { rating: string }) => {
 export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLoginClick, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [localSeries, setLocalSeries] = useState(series);
+  const localSeriesRef = useRef(series);
+  localSeriesRef.current = localSeries;
+
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('chapters');
   const [isReaderOpen, setIsReaderOpen] = useState(false);
@@ -162,6 +165,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const actionsRef = useRef<HTMLDivElement>(null);
   const commentsRef = useRef<HTMLDivElement>(null);
   const creatorRef = useRef<HTMLDivElement>(null);
+
+  const targetSeriesSlug = typeof series === 'string' ? series : (series?.slug || localSeries?.slug);
 
   const isCompletedRun = isCompletedRunSeries(localSeries, seriesList) || isCompletedRunSeries(series, seriesList);
   const isUnlockedForOneShotWednesday = isActiveOneShotWednesday(localSeries || series, seriesList);
@@ -244,12 +249,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   };
 
   useEffect(() => {
-    if (localSeries?.slug) {
-      trackEvent('series_page_visit', { series_slug: localSeries.slug });
-      trackTelemetry('series_visit', { series_slug: localSeries.slug });
+    if (targetSeriesSlug) {
+      trackEvent('series_page_visit', { series_slug: targetSeriesSlug });
+      trackTelemetry('series_visit', { series_slug: targetSeriesSlug });
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
-  }, [localSeries?.slug, trackEvent]);
+  }, [targetSeriesSlug, trackEvent]);
 
   useEffect(() => {
     if (userTier === 'premium') {
@@ -274,15 +279,15 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   useEffect(() => {
     const checkFavoriteAndLikeStatus = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user && localSeries) {
+      if (user && targetSeriesSlug) {
         setCurrentUserId(user.id);
         const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-        if (data?.favorites && data.favorites.includes(localSeries.slug)) setIsFavorited(true);
+        if (data?.favorites && data.favorites.includes(targetSeriesSlug)) setIsFavorited(true);
         if (data?.is_premium) setIsPremiumUser(true);
       }
     };
     checkFavoriteAndLikeStatus();
-  }, [localSeries]);
+  }, [targetSeriesSlug]);
 
   const syncTemporaryUnlocks = useCallback(async () => {
     if (userTier === 'premium' || userTier === 'visitor') return;
@@ -332,10 +337,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   useEffect(() => { syncTemporaryUnlocks(); }, [syncTemporaryUnlocks, nowTick]);
 
+  // Fixed dependency array (removed `localSeries` state dependency so `setLocalSeries` never triggers a re-fetch loop on MacBook M1!)
   const fetchDetails = useCallback(async () => {
     try {
-      const targetSlug = typeof series === 'string' ? series : (localSeries?.slug || series?.slug);
-      if (!targetSlug) return;
+      if (!targetSeriesSlug) return;
 
       const [
         { data: freshSeries },
@@ -345,12 +350,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         seriesHypesRes,
         seriesLikesRes
       ] = await Promise.all([
-        supabase.from('series').select('*').eq('slug', targetSlug).single(),
-        supabase.from('chapters').select('*').eq('series_slug', targetSlug).order('chapter_number', { ascending: true }),
-        supabase.from('series_creators').select('*').eq('series_slug', targetSlug).order('id', { ascending: true }),
-        supabase.from('series_characters').select('*').eq('series_slug', targetSlug).order('id', { ascending: true }),
-        supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('target_type', 'series').eq('target_id', targetSlug),
-        supabase.from('series_likes').select('*', { count: 'exact', head: true }).eq('series_slug', targetSlug)
+        supabase.from('series').select('*').eq('slug', targetSeriesSlug).single(),
+        supabase.from('chapters').select('*').eq('series_slug', targetSeriesSlug).order('chapter_number', { ascending: true }),
+        supabase.from('series_creators').select('*').eq('series_slug', targetSeriesSlug).order('id', { ascending: true }),
+        supabase.from('series_characters').select('*').eq('series_slug', targetSeriesSlug).order('id', { ascending: true }),
+        supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('target_type', 'series').eq('target_id', targetSeriesSlug),
+        supabase.from('series_likes').select('*', { count: 'exact', head: true }).eq('series_slug', targetSeriesSlug)
       ]);
 
       setSeriesDirectHypes(Number(seriesHypesRes.count || 0));
@@ -366,7 +371,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
       if (chapterData) {
         const isPlus = userTier === 'premium' || isPremiumUser;
-        const effectiveSeriesObj = freshSeries || localSeries || series;
+        const effectiveSeriesObj = freshSeries || localSeriesRef.current || series;
         const isFreeOswOrDebut = isActiveOneShotWednesday(effectiveSeriesObj, seriesList);
 
         const liveChapters = chapterData.filter((ch: any) => {
@@ -401,7 +406,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
       if (charData) setSeriesCharacters(charData as any);
     } catch (err) { console.error("Failed to load series details:", err); }
-  }, [series, localSeries, seriesList, userTier, isPremiumUser]);
+  }, [targetSeriesSlug, series, seriesList, userTier, isPremiumUser]);
 
   useEffect(() => {
     fetchDetails();
@@ -434,12 +439,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   }, [currentUserId, chapters, readerClosedCount]);
 
   useEffect(() => {
-    if (chapters.length === 0 || !localSeries?.slug) return;
+    if (chapters.length === 0 || !targetSeriesSlug) return;
     const fetchChapterStats = async () => {
       try {
         const chapterIds = chapters.map(c => String(c.id));
         const [{ data: statsData, error }, chapLikesRes] = await Promise.all([
-          supabase.rpc('get_series_chapter_stats', { p_series_slug: localSeries.slug }),
+          supabase.rpc('get_series_chapter_stats', { p_series_slug: targetSeriesSlug }),
           supabase.from('chapter_likes').select('*', { count: 'exact', head: true }).in('chapter_id', chapterIds)
         ]);
         setChapterLikesTotal(Number(chapLikesRes.count || 0));
@@ -453,7 +458,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       } catch (err) { console.error("Failed to fetch chapter stats:", err); }
     };
     fetchChapterStats();
-  }, [chapters, readerClosedCount, localSeries?.slug]);
+  }, [chapters, readerClosedCount, targetSeriesSlug]);
 
   const checkIsLocked = (chapterId: string) => {
     if (userTier === 'premium' || isPremiumUser) return false;
@@ -631,8 +636,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const safeSynopsis = localSeries.synopsis || '';
   const activeBannerPos = isMobile ? (localSeries.banner_position_mobile || localSeries.banner_position_desktop || '50% 50%') : (localSeries.banner_position_desktop || '50% 50%');
   const activeBannerScale = isMobile ? (localSeries.banner_scale_mobile || localSeries.banner_scale_desktop || 100) : (localSeries.banner_scale_desktop || 100);
-  const logoScale = localSeries.logo_scale ?? 100;
-  const logoOffset = localSeries.logo_offset ?? 16;
+  const logoScale = Math.min(180, Math.max(50, Number(localSeries.logo_scale ?? 100)));
+  const logoOffset = Math.max(16, Number(localSeries.logo_offset ?? 16));
+
+  // Compute real layout width instead of CSS transform:scale() so scaled logos NEVER overlap the Creator name below on MacBook M1!
+  const baseLogoMaxWidth = isMobile ? 260 : 340;
+  const computedLogoWidthPx = Math.round((baseLogoMaxWidth * logoScale) / 100);
 
   const scheduledTargetMs = nextScheduledChapter?.publish_at
     ? new Date(nextScheduledChapter.publish_at).getTime() - (isPlusActive ? PLUS_EARLY_ACCESS_MS : 0)
@@ -643,7 +652,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     : null;
 
   return (
-    <div className="relative min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-transparent text-white">
+    <div className="relative min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-transparent text-white pb-28">
       <FeatureTutorialModal tutorialId="series_page_icons" slides={seriesTutorialSlide} forceOpen={forceTutorial} onClose={() => setForceTutorial(false)} />
 
       {isAutoLoading && (
@@ -778,35 +787,47 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         );
       })()}
 
-      <div className="sticky top-0 left-0 w-full h-[50vh] sm:h-[60vh] z-0 overflow-hidden bg-black">
+      <div className="relative w-full h-[46vh] sm:h-[55vh] z-0 overflow-hidden bg-black">
         <img
           src={localSeries.cover_url}
-          className="w-full h-full object-cover opacity-60 transition-all duration-300 pointer-events-none"
+          className="w-full h-full object-cover opacity-65 pointer-events-none"
           alt="Hero Banner"
           style={{ objectPosition: activeBannerPos, transform: `scale(${activeBannerScale / 100})`, transformOrigin: activeBannerPos }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-transparent pointer-events-none" />
         <div className="absolute top-4 sm:top-6 left-4 sm:left-6 z-20 flex items-center gap-2">
-          <button onClick={() => { if (window.history.length > 1) window.history.back(); else onBack(); }} className="p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg cursor-pointer">
+          <button onClick={() => { if (window.history.length > 1) window.history.back(); else onBack(); }} className="p-3 bg-black/75 border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg cursor-pointer">
             <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
           <TutorialHelpButton onClick={() => setForceTutorial(true)} />
         </div>
-        <button onClick={() => setShowShareModal(true)} className="absolute top-4 sm:top-6 right-[4.5rem] sm:right-24 z-20 p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-all shadow-lg group cursor-pointer">
+        <button onClick={() => setShowShareModal(true)} className="absolute top-4 sm:top-6 right-[4.5rem] sm:right-24 z-20 p-3 bg-black/75 border border-zinc-800 rounded-full text-white hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-all shadow-lg group cursor-pointer">
           <Share2 className="w-5 h-5 sm:w-6 sm:h-6 group-hover:scale-110 transition-transform" />
         </button>
       </div>
 
-      <div className="relative z-10 bg-black min-h-screen w-full overflow-x-hidden -mt-12 pt-12 [mask-image:linear-gradient(to_bottom,transparent,black_48px)]">
-        <div className="px-6 pt-8 flex flex-col items-center w-full max-w-4xl mx-auto">
-          <div className="flex items-center justify-center gap-4 transition-all duration-300 w-full" style={{ marginBottom: `${Math.max(16, logoOffset)}px` }}>
+      {/* Removed GPU-heavy full-page [mask-image] that caused severe scroll lag on MacBook M1 Retina displays */}
+      <div className="relative z-10 bg-black min-h-screen w-full overflow-x-hidden -mt-10 pt-6">
+        <div className="px-6 pt-2 flex flex-col items-center w-full max-w-4xl mx-auto">
+          {/* True Layout-Sized Logo Container so scaled logos NEVER overlap Creator Name below */}
+          <div
+            className="flex items-center justify-center gap-4 w-full relative z-10"
+            style={{ marginBottom: `${logoOffset}px` }}
+          >
             {localSeries.logo_url && (
-              <div className="flex items-center justify-center transition-all duration-300" style={{ transform: `scale(${logoScale / 100})`, transformOrigin: 'center center' }}>
-                <img src={localSeries.logo_url} alt="Logo" className="w-full max-w-[280px] sm:max-w-[350px] h-auto object-contain drop-shadow-2xl" />
+              <div
+                className="flex items-center justify-center mx-auto"
+                style={{ width: `${computedLogoWidthPx}px`, maxWidth: '88vw' }}
+              >
+                <img
+                  src={localSeries.logo_url}
+                  alt={localSeries.title || 'Series Logo'}
+                  className="w-full h-auto max-h-[190px] sm:max-h-[230px] object-contain drop-shadow-2xl block"
+                />
               </div>
             )}
             {localSeries.has_awards && localSeries.awards && (
-              <div className="relative flex items-center cursor-pointer" onMouseEnter={() => setShowAwards(true)} onMouseLeave={() => setShowAwards(false)} onClick={triggerAwards}>
+              <div className="relative flex items-center cursor-pointer shrink-0" onMouseEnter={() => setShowAwards(true)} onMouseLeave={() => setShowAwards(false)} onClick={triggerAwards}>
                 <img src={`${CLOUDFLARE_BASE_URL}/series-page-graphics/award-icon.png`} alt="Award" className={`w-10 h-10 object-contain transition-all duration-200 drop-shadow-lg ${showAwards ? 'opacity-80 scale-110' : 'opacity-100'}`} />
                 <div className={`absolute left-full ml-4 top-1/2 -translate-y-1/2 w-max min-w-[120px] bg-zinc-800 border border-zinc-700 p-3 rounded shadow-2xl transition-all duration-300 pointer-events-none z-50 ${showAwards ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-3'}`}>
                   {String(localSeries.awards || '').split(',').map((award, i) => (<p key={i} className="text-[10px] text-zinc-300 font-bold uppercase tracking-widest whitespace-nowrap mb-1 last:mb-0">{award.trim()}</p>))}
@@ -815,7 +836,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             )}
           </div>
 
-          <div className="flex flex-col items-center gap-1 mt-2">
+          <div className="flex flex-col items-center gap-1.5 mt-2 relative z-20">
             {creators.map((c: any, i) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="text-zinc-500 text-[9px] uppercase tracking-widest font-black">{c.role || 'Creator'}:</span>
@@ -864,7 +885,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             {safeSynopsis.length > 150 && (<button onClick={() => setIsExpanded(!isExpanded)} className="text-[#fe9a00] font-black tracking-widest text-[10px] mt-2 uppercase hover:text-white transition-colors cursor-pointer">{isExpanded ? '- READ LESS' : '+ READ MORE'}</button>)}
           </div>
 
-          <div ref={actionsRef} className="flex flex-col items-center gap-4 mt-8 w-full max-w-sm mx-auto scroll-mt-32">
+          <div ref={actionsRef} className="flex flex-col items-center gap-4 mt-8 mb-6 w-full max-w-sm mx-auto scroll-mt-32">
             <div className="w-full flex flex-col gap-3 [&>button]:w-full [&>button]:justify-center">
               <HypeButton
                 variant="series-main" targetType="series" targetId={localSeries.slug} seriesSlug={localSeries.slug} userId={currentUserId} isPremium={isPremiumUser}
@@ -876,7 +897,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               </button>
             </div>
 
-            <div className="flex items-start justify-center gap-4 sm:gap-8 w-full mt-4 px-2 sm:px-6 flex-nowrap shrink-0">
+            <div className="flex items-start justify-center gap-5 sm:gap-8 w-full mt-4 px-2 sm:px-6 flex-nowrap shrink-0">
               <div className="flex flex-col items-center gap-2">
                 <HypeButton targetType="series" targetId={localSeries.slug} userId={currentUserId} initialCount={verifiedSeriesInitialHypes} bonusCount={aggregatedSubHypes} variant="icon" onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype this series!" })} />
                 <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Hypes</span>
@@ -886,13 +907,13 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Likes</span>
               </div>
               <div className="flex flex-col items-center gap-2">
-                <button onClick={handleToggleFavorite} className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 border shadow-xl flex items-center justify-center cursor-pointer ${isFavorited ? 'bg-[#fe9a00]/20 border-[#fe9a00]/30 text-[#fe9a00]' : 'bg-black/40 backdrop-blur-md hover:bg-black/60 border-white/5 text-white/70 hover:text-white'}`} title={isFavorited ? "Saved to Faves" : "Add to Faves"}>
+                <button onClick={handleToggleFavorite} className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 border shadow-xl flex items-center justify-center cursor-pointer ${isFavorited ? 'bg-[#fe9a00]/20 border-[#fe9a00]/30 text-[#fe9a00]' : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-700 text-white/80 hover:text-white'}`} title={isFavorited ? "Saved to Faves" : "Add to Faves"}>
                   <Bookmark className={`w-5 h-5 sm:w-6 sm:h-6 ${isFavorited ? 'fill-[#fe9a00]' : ''}`} />
                 </button>
                 <span className={`text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${isFavorited ? 'text-[#fe9a00]' : 'text-zinc-500'}`}>Save</span>
               </div>
               <div className="flex flex-col items-center gap-2">
-                <button onClick={(e) => scrollToSection(e, commentsRef)} className="relative p-2.5 sm:p-3 rounded-full transition-all duration-300 bg-black/40 backdrop-blur-md hover:bg-black/60 border border-white/5 shadow-xl flex items-center justify-center cursor-pointer text-white/70 hover:text-white" title="Discuss">
+                <button onClick={(e) => scrollToSection(e, commentsRef)} className="relative p-2.5 sm:p-3 rounded-full transition-all duration-300 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer text-white/80 hover:text-white" title="Discuss">
                   <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6" />
                 </button>
                 <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Discuss</span>
@@ -901,7 +922,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           </div>
         </div>
 
-        <div className="mt-12 w-full border-b border-zinc-800 flex justify-center">
+        <div className="mt-10 w-full border-b border-zinc-800 flex justify-center">
           <div className="w-full max-w-3xl flex justify-center gap-12 px-6">
             <button onClick={() => setActiveTab('chapters')} className={`pb-4 font-black uppercase tracking-widest text-xs transition-colors relative cursor-pointer ${activeTab === 'chapters' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
               CHAPTERS{activeTab === 'chapters' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#fe9a00] rounded-t-sm" />}
@@ -955,7 +976,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               {displayedChapters.map((ch: any) => {
                 const absoluteIndex = chapters.findIndex(c => c.id === ch.id);
                 const actualProgress = readProgresses[String(ch.id)] || 0;
-                const hasTempUnlock = !isCompletedRun && rewardedAdsEnabled && unlockedChapters.includes(String(chapterStats.id || ch.id));
+                const hasTempUnlock = !isCompletedRun && rewardedAdsEnabled && unlockedChapters.includes(String(ch.id));
                 const isLocked = checkIsLocked(ch.id) && !hasTempUnlock;
                 const isLatestChapterOfSeries = absoluteIndex === chapters.length - 1;
                 const showNewBadge = isLatestChapterOfSeries && isNewRelease(ch.publish_at, ch.created_at);
@@ -964,10 +985,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 return (
                   <div key={ch.id} onClick={() => handleReadChapter(ch, absoluteIndex)} className="flex items-start sm:items-center gap-3 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
                     <div className="relative overflow-hidden rounded-lg min-w-[80px] w-20 h-20 sm:min-w-[128px] sm:w-32 sm:h-32 flex-shrink-0">
-                      <img src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className={`w-full h-full object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`} style={{ objectPosition: ch.thumbnail_position || '50% 50%', transform: `scale(${(ch.thumbnail_scale || 100) / 100})` }} alt="Thumbnail" />
+                      <img src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} loading="lazy" className={`w-full h-full object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`} style={{ objectPosition: ch.thumbnail_position || '50% 50%', transform: `scale(${(ch.thumbnail_scale || 100) / 100})` }} alt="Thumbnail" />
                       <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
                       {isLocked && (
-                        <div className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-black/80 backdrop-blur-md border border-zinc-700 p-1 sm:p-1.5 rounded-md">
+                        <div className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-black/80 border border-zinc-700 p-1 sm:p-1.5 rounded-md">
                           <Lock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-zinc-400" />
                         </div>
                       )}
@@ -1049,7 +1070,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 {seriesCharacters.slice(0, showAllChars ? undefined : 8).map((char, i) => (
                   <div key={i} className="flex flex-col items-center bg-zinc-900/50 rounded-xl overflow-hidden border border-zinc-800">
                     <div className="w-full aspect-square bg-zinc-800 relative">
-                      <img src={char.headshot_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} alt={char.name} onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`; }} className="w-full h-full object-cover" />
+                      <img src={char.headshot_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} loading="lazy" alt={char.name} onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`; }} className="w-full h-full object-cover" />
                       {char.is_mc && <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-10 uppercase">MC</div>}
                     </div>
                     <div className="p-2 w-full text-center">
@@ -1088,7 +1109,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 <div key={index} className="flex flex-col items-center text-center w-full max-w-lg bg-zinc-900/30 p-8 rounded-2xl border border-zinc-800/50 shadow-xl">
                   <div className="flex flex-col items-center gap-4 mb-6">
                     <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-zinc-700 overflow-hidden border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.3)]">
-                      <img src={(c.avatar_url && c.avatar_url !== 'null') ? c.avatar_url : `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} alt={safeName} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }} />
+                      <img src={(c.avatar_url && c.avatar_url !== 'null') ? c.avatar_url : `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} loading="lazy" alt={safeName} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }} />
                     </div>
                     <div>
                       <h4 className="font-black text-xl sm:text-2xl tracking-tight">{safeName}</h4>
