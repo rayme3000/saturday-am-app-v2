@@ -17,7 +17,6 @@ import LoginModal from './Auth/LoginModal.tsx';
 import { GlobalFlexCard } from './Components/GlobalFlexCard';
 import { CreatorOnboardingModal, hasAcceptedCreatorTerms } from './Components/CreatorOnboardingModal';
 
-// Helper to safely resolve any Named or Default export so React lazy() never receives `undefined` (Error #306)
 const resolveLazyModule = (mod: any, preferredName?: string) => {
   if (!mod) return { default: () => null };
   if (preferredName && typeof mod[preferredName] === 'function') return { default: mod[preferredName] };
@@ -64,7 +63,6 @@ export const checkIsAdminUser = (userOrProfile: any, sessionEmail?: string): boo
   return ADMIN_EMAILS.includes(email);
 };
 
-// Persistent Anonymous Visitor ID Helper (1 ID per browser/device)
 export const getOrCreateVisitorId = (): string => {
   try {
     let vid = localStorage.getItem('am_visitor_id');
@@ -81,7 +79,6 @@ export const getOrCreateVisitorId = (): string => {
   }
 };
 
-// --- SELF-HEALING GLOBAL ERROR BOUNDARY (CLEARS STUCK VIEW STATE AUTOMATICALLY) ---
 class AppErrorBoundary extends React.Component<any, any> {
   constructor(props: any) {
     super(props);
@@ -157,7 +154,6 @@ const ScrollToTopButton = () => {
 export default function App() {
   useIntegrations();
 
-  // --- AUTO-UPDATE SERVICE WORKER & STALE CACHE DETECTOR (MACBOOK M1 / PWA FIX) ---
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
@@ -713,7 +709,7 @@ export default function App() {
         title: 'Enjoying Saturday AM?',
         message: 'Upgrade to Saturday AM+ for $1.99/mo to get 3 weekly Super Hypes, custom card skins, animated frames, and unlimited reading!',
         target: 'sub',
-        buttonText: 'Upgrade to Pro'
+        buttonText: 'Upgrade to PLUS'
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1218,7 +1214,7 @@ export default function App() {
               }} 
               className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
             >
-              {upsellConfig.buttonText || (userTier === 'visitor' ? 'Create Free Account' : 'Upgrade to Pro')}
+              {upsellConfig.buttonText || (userTier === 'visitor' ? 'Create Free Account' : 'Upgrade to PLUS')}
             </button>
           </div>
         </div>

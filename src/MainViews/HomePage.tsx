@@ -3,7 +3,23 @@ import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { SeriesSection } from './SeriesSection';
 import { DecoratedAvatar } from '../Components/DecoratedAvatar';
-import { Menu, X, Bell, CheckCircle, RefreshCw, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  Menu,
+  X,
+  Bell,
+  CheckCircle,
+  RefreshCw,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
+  Zap,
+  KeyRound,
+  Sparkles,
+  CheckCircle2,
+  Lock,
+  Loader2,
+  UserPlus
+} from 'lucide-react';
 import { useTelemetry } from '../Components/useTelemetry';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 import {
@@ -12,6 +28,7 @@ import {
   isInOneShotDebutWindow,
   getOneShotFreeCountdown
 } from '../oneshotWednesday';
+import { doCreatorNamesMatch } from '../VirtualProfile/BingoBook';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -19,19 +36,35 @@ const getLocalCalendarDateKey = (dateObj = new Date()): string => {
   return `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
 };
 
-const isNewRelease = (publishAt?: string | null, createdAt?: string | null, updatedAt?: string | null) => {
+const isNewRelease = (publishAt?: string | null, createdAt?: string | null) => {
   const now = Date.now();
-  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
   const earlyAccessBufferMs = 24 * 60 * 60 * 1000;
 
-  const candidates = [publishAt, updatedAt, createdAt].filter(Boolean);
+  const candidates = [publishAt, createdAt].filter(Boolean);
   for (const dateStr of candidates) {
     const t = new Date(dateStr as string).getTime();
-    if (!isNaN(t) && t <= now + earlyAccessBufferMs && now - t < sevenDaysMs) {
+    if (!isNaN(t) && t <= now + earlyAccessBufferMs && now - t < threeDaysMs) {
       return true;
     }
   }
   return false;
+};
+
+const isWithin48HourDebutSpotlight = (seriesData: any, latestActivityMs: number, allSeries: any[]) => {
+  if (!seriesData) return false;
+  const now = Date.now();
+  const fortyEightHoursMs = 48 * 60 * 60 * 1000;
+  const earlyBufferMs = 24 * 60 * 60 * 1000;
+
+  const seriesReleaseMs = new Date(seriesData.publish_at || seriesData.created_at || 0).getTime();
+  const effectiveDebutMs = !isNaN(seriesReleaseMs) && seriesReleaseMs > 0 ? seriesReleaseMs : latestActivityMs;
+
+  if (effectiveDebutMs <= 0) return false;
+  const ageMs = now - effectiveDebutMs;
+  if (ageMs < -earlyBufferMs || ageMs > fortyEightHoursMs) return false;
+
+  return isInOneShotDebutWindow(seriesData, allSeries) || ageMs <= fortyEightHoursMs;
 };
 
 const isRecentAddition = (createdAt?: string | null, days = 14) => {
@@ -51,6 +84,7 @@ let memHeroSlides: any = null;
 let memHomeSections: any = null;
 let memLatestChapters: any = null;
 let memRecentReads: any = null;
+let memCompletedChapterIds: Set<string> | null = null;
 let memNotifications: any = null;
 let memRecentCreators: any = null;
 let memRecentCharacters: any = null;
@@ -87,6 +121,9 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [isLoadingSlides, setIsLoadingSlides] = useState(!memHeroSlides);
 
   const [recentReads, setRecentReads] = useState<any[]>(memRecentReads || []);
+  const [completedChapterIds, setCompletedChapterIds] = useState<Set<string>>(
+    () => memCompletedChapterIds || new Set()
+  );
   const [notifications, setNotifications] = useState<any[]>(memNotifications || []);
   const [showNotifications, setShowNotifications] = useState(false);
   const [dismissedNotifs, setDismissedNotifs] = useState<string[]>([]);
@@ -96,9 +133,22 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [, setSecondTick] = useState<number>(0);
 
-  const isPlusSubscriber = userTier === 'premium' || Boolean(currentUser?.is_premium);
+  // --- QUICK-REDEEM MODAL STATE ---
+  const [showQuickRedeemModal, setShowQuickRedeemModal] = useState(false);
+  const [quickCodeInput, setQuickCodeInput] = useState('');
+  const [isRedeemingQuickCode, setIsRedeemingQuickCode] = useState(false);
+  const [quickRedeemFeedback, setQuickRedeemFeedback] = useState<{
+    type: 'success' | 'error';
+    title: string;
+    message: string;
+    unlockedCreator?: string;
+  } | null>(null);
 
-  // Award +5 Fandom Points once per local calendar day — even if the user stays logged in across midnight!
+  const isVisitor = !currentUser || userTier === 'visitor';
+  const isPlusSubscriber = userTier === 'premium' || Boolean(currentUser?.is_premium);
+  const isFreeMember = !isVisitor && !isPlusSubscriber;
+
+  // Award +5 Fandom Points once per local calendar day
   useEffect(() => {
     if (!currentUser?.id) return;
 
@@ -142,6 +192,282 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     };
   }, [currentUser?.id, nowTick]);
 
+  // --- UNIFIED CODE & PIN REDEEMER ---
+  const unlockCreatorAutographHelper = async (userId: string, creatorNameRaw?: string, eventLabel = 'Home Quick Redeem') => {
+    const targetCreator = String(creatorNameRaw || '').trim();
+    if (!targetCreator) return null;
+
+    try {
+      const { data: existingLogs } = await supabase
+        .from('bingo_signatures_log')
+        .select('creator_name')
+        .eq('user_id', userId);
+
+      const alreadyHas = (existingLogs || []).some((row: any) =>
+        doCreatorNamesMatch(row.creator_name, targetCreator)
+      );
+
+      if (!alreadyHas) {
+        await supabase.from('bingo_signatures_log').insert([
+          {
+            user_id: userId,
+            creator_name: targetCreator,
+            event_name: eventLabel,
+            signature_type: 'Standard'
+          }
+        ]);
+      }
+
+      const { data: allSigs } = await supabase
+        .from('creator_signatures')
+        .select('creator_name, signature_url');
+
+      const matchedSig = (allSigs || []).find((r: any) =>
+        doCreatorNamesMatch(r.creator_name, targetCreator)
+      );
+
+      const localHunts: string[] = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
+      if (!localHunts.some(h => doCreatorNamesMatch(h, targetCreator))) {
+        localHunts.push(targetCreator);
+      }
+      if (matchedSig?.creator_name && !localHunts.includes(matchedSig.creator_name)) {
+        localHunts.push(matchedSig.creator_name);
+      }
+      localStorage.setItem('am_bingo_hunts', JSON.stringify(localHunts));
+
+      if (matchedSig?.signature_url) {
+        const localSigs: Record<string, string> = JSON.parse(
+          localStorage.getItem('am_bingo_sigs') || '{}'
+        );
+        localSigs[targetCreator] = matchedSig.signature_url;
+        localSigs[matchedSig.creator_name] = matchedSig.signature_url;
+        localStorage.setItem('am_bingo_sigs', JSON.stringify(localSigs));
+      }
+
+      window.dispatchEvent(new Event('bingoUpdated'));
+      return matchedSig?.creator_name || targetCreator;
+    } catch (err) {
+      console.error('Error unlocking autograph from Home:', err);
+      return targetCreator;
+    }
+  };
+
+  const handleUniversalCodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanCode = quickCodeInput.trim().toUpperCase();
+    if (!cleanCode) return;
+
+    setQuickRedeemFeedback(null);
+
+    if (cleanCode.startsWith('SAM-CR-')) {
+      localStorage.setItem('am_pending_creator_invite', cleanCode);
+      window.location.href = `/?creator_invite=${encodeURIComponent(cleanCode)}`;
+      return;
+    }
+
+    if (cleanCode.startsWith('VIP-')) {
+      localStorage.setItem('am_referral_code', cleanCode);
+      setQuickCodeInput('');
+      setShowQuickRedeemModal(false);
+      onNavigate({ action: 'sub' });
+      return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    const activeUserId = currentUser?.id || user?.id;
+
+    if (!activeUserId) {
+      localStorage.setItem('auto_fill_premium_code', cleanCode);
+      setShowQuickRedeemModal(false);
+      if (onLoginClick) onLoginClick();
+      return;
+    }
+
+    setIsRedeemingQuickCode(true);
+
+    try {
+      const { data: currentProf } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', activeUserId)
+        .maybeSingle();
+
+      const alreadyPremium = Boolean(isPlusSubscriber || currentProf?.is_premium);
+
+      if (/^\d{5}$/.test(cleanCode)) {
+        const { data: pinData } = await supabase
+          .from('bingo_codes')
+          .select('*')
+          .eq('code', cleanCode)
+          .maybeSingle();
+
+        if (!pinData) {
+          throw new Error('Invalid 5-digit Autograph PIN. Please check the number and try again.');
+        }
+        if (pinData.expires_at && new Date() > new Date(pinData.expires_at)) {
+          throw new Error('This 5-digit Autograph PIN has expired.');
+        }
+        const pinUsed = Number(pinData.times_used || 0);
+        const pinMax = Number(pinData.max_uses || 999999);
+        if (pinMax > 0 && pinUsed >= pinMax) {
+          throw new Error(
+            pinMax === 1
+              ? 'This 1-Time Fan Gift PIN has already been claimed!'
+              : 'This PIN has reached its maximum redemptions.'
+          );
+        }
+
+        await supabase
+          .from('bingo_codes')
+          .update({ times_used: pinUsed + 1 })
+          .eq('id', pinData.id);
+
+        const unlockedCreator = await unlockCreatorAutographHelper(
+          activeUserId,
+          pinData.creator_name,
+          'Home Quick PIN Unlock'
+        );
+
+        await supabase
+          .from('profiles')
+          .update({ fandom_score: (Number(currentProf?.fandom_score) || 0) + 25 })
+          .eq('id', activeUserId);
+
+        window.dispatchEvent(new Event('profileUpdated'));
+        setQuickCodeInput('');
+        setQuickRedeemFeedback({
+          type: 'success',
+          title: 'Autograph Unlocked!',
+          message: `You unlocked ${unlockedCreator || pinData.creator_name}'s Gold Autograph (+25 Fandom Pts)! It is now displayed in your Bingo Book and on their Series pages.`,
+          unlockedCreator: unlockedCreator || pinData.creator_name
+        });
+        setIsRedeemingQuickCode(false);
+        return;
+      }
+
+      const { data: promoRow } = await supabase
+        .from('promo_codes')
+        .select('*')
+        .ilike('code', cleanCode)
+        .maybeSingle();
+
+      if (promoRow) {
+        const now = new Date();
+        if (promoRow.expires_at && new Date(promoRow.expires_at) < now) {
+          throw new Error('This flash contest or access code has expired.');
+        }
+        const timesUsed = Number(promoRow.times_used || 0);
+        const maxUses = Number(promoRow.max_uses || 1);
+        if (timesUsed >= maxUses) {
+          throw new Error('All available claims for this code have already been redeemed!');
+        }
+
+        if (alreadyPremium && !promoRow.creator_name) {
+          throw new Error(
+            'You already have an active Saturday AM+ PLUS membership! Your code was not used so you can save it or gift it to a friend.'
+          );
+        }
+
+        const { error: updatePromoErr } = await supabase
+          .from('promo_codes')
+          .update({ times_used: timesUsed + 1 })
+          .eq('id', promoRow.id);
+        if (updatePromoErr) throw updatePromoErr;
+
+        const baseDate =
+          currentProf?.premium_until && new Date(currentProf.premium_until) > now
+            ? new Date(currentProf.premium_until)
+            : now;
+        const nextYearDate = new Date(baseDate.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
+
+        const currentHypes = Number(currentProf?.hypes_remaining ?? currentProf?.super_hypes_left ?? 3);
+        const newHypeBalance = alreadyPremium ? currentHypes + 3 : Math.max(3, currentHypes);
+        const bonusFandomPts = promoRow.creator_name ? (alreadyPremium ? 50 : 25) : 15;
+
+        const profilePatch: Record<string, any> = {
+          is_premium: true,
+          hypes_remaining: newHypeBalance,
+          super_hypes_left: newHypeBalance,
+          fandom_score: (Number(currentProf?.fandom_score) || 0) + bonusFandomPts,
+          premium_until: nextYearDate
+        };
+
+        let { error: profErr } = await supabase
+          .from('profiles')
+          .update(profilePatch)
+          .eq('id', activeUserId);
+
+        if (profErr && String(profErr.message || '').includes('premium_until')) {
+          delete profilePatch.premium_until;
+          const retry = await supabase.from('profiles').update(profilePatch).eq('id', activeUserId);
+          profErr = retry.error;
+        }
+        if (profErr) throw profErr;
+
+        const unlockedCreator = await unlockCreatorAutographHelper(
+          activeUserId,
+          promoRow.creator_name,
+          'Flash Contest Bundle'
+        );
+
+        window.dispatchEvent(new Event('profileUpdated'));
+        setQuickCodeInput('');
+        setQuickRedeemFeedback({
+          type: 'success',
+          title: unlockedCreator ? 'Flash Bundle Unlocked!' : '1-Year PLUS Activated!',
+          message: unlockedCreator
+            ? alreadyPremium
+              ? `VIP PLUS WINNER BONUS! Unlocked ${unlockedCreator}'s Gold Autograph, extended your PLUS by +1 Year, and stacked +3 Bonus Super Hypes & +50 Fandom Pts!`
+              : `1-Year Saturday AM+ PLUS + ${unlockedCreator}'s Gold Autograph (+25 Fandom Pts) are now active!`
+            : 'Success! Your 1-Year Saturday AM+ PLUS Access Key has been activated!',
+          unlockedCreator: unlockedCreator || undefined
+        });
+        setIsRedeemingQuickCode(false);
+        return;
+      }
+
+      if (alreadyPremium) {
+        throw new Error(
+          'You already have an active Saturday AM+ PLUS membership! Your store code was not used so you can save it or gift it to a friend.'
+        );
+      }
+
+      const { data: rpcSuccess, error: rpcErr } = await supabase.rpc('redeem_premium_code', {
+        input_code: cleanCode,
+        user_uuid: activeUserId
+      });
+
+      if (rpcErr || !rpcSuccess) {
+        throw new Error('Invalid or already redeemed code or PIN.');
+      }
+
+      await supabase
+        .from('profiles')
+        .update({
+          is_premium: true,
+          hypes_remaining: 3,
+          super_hypes_left: 3
+        })
+        .eq('id', activeUserId);
+
+      window.dispatchEvent(new Event('profileUpdated'));
+      setQuickCodeInput('');
+      setQuickRedeemFeedback({
+        type: 'success',
+        title: 'PLUS Membership Activated!',
+        message: 'Success! Your Saturday AM+ PLUS membership is now active!'
+      });
+    } catch (err: any) {
+      setQuickRedeemFeedback({
+        type: 'error',
+        title: 'Redemption Notice',
+        message: err.message || 'Unable to redeem code. Please check and try again.'
+      });
+    } finally {
+      setIsRedeemingQuickCode(false);
+    }
+  };
+
   const scrollContainerByRef = (ref: React.RefObject<HTMLDivElement | null>, direction: 'left' | 'right') => {
     if (!ref.current) return;
     const container = ref.current;
@@ -170,8 +496,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     setIsRefreshingApp(true);
     try {
       memHeroSlides = null; memHomeSections = null; memLatestChapters = null;
-      memRecentReads = null; memNotifications = null; memRecentCreators = null;
-      memRecentCharacters = null; lastHomeFetchTime = 0;
+      memRecentReads = null; memCompletedChapterIds = null; memNotifications = null;
+      memRecentCreators = null; memRecentCharacters = null; lastHomeFetchTime = 0;
       if ('serviceWorker' in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
         await Promise.all(registrations.map(reg => reg.unregister()));
@@ -186,7 +512,18 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     window.location.replace(url.toString());
   };
 
+  const readChapterIdSet = useMemo(() => {
+    const set = new Set<string>(completedChapterIds);
+    recentReads.forEach((r: any) => {
+      if (r?.chapter_id) set.add(String(r.chapter_id));
+    });
+    return set;
+  }, [completedChapterIds, recentReads]);
+
   const visibleLatestChapters = useMemo(() => {
+    const now = Date.now();
+    const maxLatestAgeMs = 21 * 24 * 60 * 60 * 1000;
+
     const releasedPool = latestChapters.filter(chapter => {
       if (!chapter.is_published) return false;
       const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug);
@@ -206,12 +543,13 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       const slug = String(ch.series_slug || '');
       if (!slug) return;
       const chTime = new Date(ch.publish_at || ch.created_at || 0).getTime();
+      const validTime = isNaN(chTime) ? 0 : chTime;
       const existing = highestChapterBySeries.get(slug);
 
       if (!existing) {
-        highestChapterBySeries.set(slug, { chapter: ch, latestSeriesActivityMs: isNaN(chTime) ? 0 : chTime });
+        highestChapterBySeries.set(slug, { chapter: ch, latestSeriesActivityMs: validTime });
       } else {
-        const bestActivityMs = Math.max(existing.latestSeriesActivityMs, isNaN(chTime) ? 0 : chTime);
+        const bestActivityMs = Math.max(existing.latestSeriesActivityMs, validTime);
         const isHigherChapNum = Number(ch.chapter_number) > Number(existing.chapter.chapter_number);
         highestChapterBySeries.set(slug, {
           chapter: isHigherChapNum ? ch : existing.chapter,
@@ -220,23 +558,39 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       }
     });
 
-    return Array.from(highestChapterBySeries.values())
+    const allSeriesEntries = Array.from(highestChapterBySeries.values());
+    const freshEntries = allSeriesEntries.filter(
+      entry => now - entry.latestSeriesActivityMs <= maxLatestAgeMs
+    );
+    const candidatePool = freshEntries.length >= 6 ? freshEntries : allSeriesEntries;
+
+    return candidatePool
       .sort((a, b) => {
+        const aRead = readChapterIdSet.has(String(a.chapter.id));
+        const bRead = readChapterIdSet.has(String(b.chapter.id));
+
+        if (aRead !== bRead) return aRead ? 1 : -1;
+
         const seriesA = seriesList.find((s: any) => s.slug === a.chapter.series_slug);
         const seriesB = seriesList.find((s: any) => s.slug === b.chapter.series_slug);
-        const aIsDebut = seriesA ? isInOneShotDebutWindow(seriesA, seriesList) : false;
-        const bIsDebut = seriesB ? isInOneShotDebutWindow(seriesB, seriesList) : false;
-        if (aIsDebut && !bIsDebut) return -1;
-        if (!aIsDebut && bIsDebut) return 1;
+        const aIsFreshDebut = isWithin48HourDebutSpotlight(seriesA, a.latestSeriesActivityMs, seriesList);
+        const bIsFreshDebut = isWithin48HourDebutSpotlight(seriesB, b.latestSeriesActivityMs, seriesList);
+        if (aIsFreshDebut && !bIsFreshDebut) return -1;
+        if (!aIsFreshDebut && bIsFreshDebut) return 1;
+
         return b.latestSeriesActivityMs - a.latestSeriesActivityMs;
       })
       .map(entry => ({
         ...entry.chapter,
-        publish_at: entry.latestSeriesActivityMs > 0 ? new Date(entry.latestSeriesActivityMs).toISOString() : entry.chapter.publish_at
+        isAlreadyRead: readChapterIdSet.has(String(entry.chapter.id)),
+        publish_at:
+          entry.latestSeriesActivityMs > 0
+            ? new Date(entry.latestSeriesActivityMs).toISOString()
+            : entry.chapter.publish_at
       }))
-      .slice(0, 10);
+      .slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestChapters, seriesList, nowTick, isPlusSubscriber]);
+  }, [latestChapters, seriesList, nowTick, isPlusSubscriber, readChapterIdSet]);
 
   const visibleNotifications = useMemo(() => {
     const chaptersById = new Map<string, any>();
@@ -503,10 +857,37 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
   useEffect(() => {
     const fetchRecentReads = async () => {
-      if (isLoading || !currentUser) { setRecentReads([]); return; }
-      if (memRecentReads) { setRecentReads(memRecentReads); return; }
+      if (isLoading || !currentUser) {
+        setRecentReads([]);
+        setCompletedChapterIds(new Set());
+        return;
+      }
+      if (memRecentReads && memCompletedChapterIds) {
+        setRecentReads(memRecentReads);
+        setCompletedChapterIds(memCompletedChapterIds);
+        return;
+      }
       try {
-        const { data: history } = await supabase.from('reading_history').select('*').eq('user_id', currentUser.id).order('updated_at', { ascending: false }).limit(10);
+        const [{ data: history }, { data: completedRows }] = await Promise.all([
+          supabase
+            .from('reading_history')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .order('updated_at', { ascending: false })
+            .limit(15),
+          supabase
+            .from('completed_reads')
+            .select('chapter_id')
+            .eq('user_id', currentUser.id)
+            .limit(500)
+        ]);
+
+        const compSet = new Set<string>(
+          (completedRows || []).map((r: any) => String(r.chapter_id))
+        );
+        setCompletedChapterIds(compSet);
+        memCompletedChapterIds = compSet;
+
         if (!history || history.length === 0) return;
         const allIds = history.map((h: any) => h.chapter_id);
         let chapters: any[] = [];
@@ -542,7 +923,12 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   }, [heroSlides.length]);
 
   useEffect(() => {
-    const handleInstantLogout = () => { memRecentReads = null; setRecentReads([]); };
+    const handleInstantLogout = () => {
+      memRecentReads = null;
+      memCompletedChapterIds = null;
+      setRecentReads([]);
+      setCompletedChapterIds(new Set());
+    };
     window.addEventListener('instantLogout', handleInstantLogout);
     return () => window.removeEventListener('instantLogout', handleInstantLogout);
   }, []);
@@ -574,9 +960,14 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
   if (isLoading || isLoadingSlides) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4">
+      <div className="min-h-screen bg-transparent flex flex-col items-center justify-center gap-4 pb-20">
         <div className="relative flex items-center justify-center animate-hype-glow">
-          <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Hype%20flame.png" alt="Saturday AM Loading" className="w-24 h-24 sm:w-28 sm:h-28 object-contain" />
+          <img
+            src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Hype%20flame.png"
+            alt="Saturday AM Loading"
+            className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
+            style={{ filter: 'url(#hype-flame-color)' }}
+          />
         </div>
       </div>
     );
@@ -586,25 +977,184 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     <div className="relative min-h-screen bg-transparent text-white pb-24">
       <FeatureTutorialModal tutorialId="home_page_basics" slides={homeTutorialSlides} forceOpen={forceTutorial} onClose={() => setForceTutorial(false)} />
 
-      <div className="fixed inset-0 z-[-1] bg-black">
-        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
-        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
-        <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
-        <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
-      </div>
+      {/* =====================================================================
+          INSTANT QUICK-REDEEM & UPGRADE MODAL
+      ===================================================================== */}
+      {showQuickRedeemModal && (
+        <div
+          className="fixed inset-0 z-[7500] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setShowQuickRedeemModal(false)}
+        >
+          <div
+            className="bg-zinc-950 border-2 border-[#fe9a00] rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-[0_0_50px_rgba(254,154,0,0.28)] relative flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowQuickRedeemModal(false)}
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
 
-      <nav className="sticky top-0 w-full z-[100] px-4 py-3 sm:px-6 sm:py-4 flex justify-between items-center bg-black/80 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-11 h-11 rounded-2xl bg-[#fe9a00]/15 border border-[#fe9a00]/50 flex items-center justify-center text-[#fe9a00] shrink-0">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] block">
+                  Instant Home Unlock
+                </span>
+                <h3 className="text-xl font-black italic uppercase text-white leading-tight">
+                  Redeem Code or Autograph PIN
+                </h3>
+              </div>
+            </div>
+
+            <p className="text-xs text-zinc-400 font-bold leading-relaxed mb-5">
+              Enter a <span className="text-white">Flash Contest Code</span>, <span className="text-white">5-Digit Creator Autograph PIN</span>, <span className="text-white">1-Year Store Key</span>, or <span className="text-[#fe9a00]">VIP Referral Code</span> below:
+            </p>
+
+            <form onSubmit={handleUniversalCodeSubmit} className="space-y-3">
+              <input
+                type="text"
+                placeholder="e.g. GUNBONE-FLASH or 5-Digit PIN"
+                value={quickCodeInput}
+                onChange={e => setQuickCodeInput(e.target.value.toUpperCase())}
+                className="w-full bg-black border border-zinc-700 rounded-xl px-4 py-3.5 text-center font-black uppercase tracking-widest text-sm text-[#fe9a00] focus:outline-none focus:border-[#fe9a00]"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={isRedeemingQuickCode || !quickCodeInput.trim()}
+                className="w-full py-3.5 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
+              >
+                {isRedeemingQuickCode ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> Unlocking...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" /> Unlock Now
+                  </>
+                )}
+              </button>
+            </form>
+
+            {quickRedeemFeedback && (
+              <div
+                className={`mt-4 p-4 rounded-xl border text-xs font-bold leading-relaxed ${
+                  quickRedeemFeedback.type === 'success'
+                    ? 'bg-emerald-950/70 border-emerald-500 text-emerald-200'
+                    : 'bg-red-950/70 border-red-500 text-red-200'
+                }`}
+              >
+                <div className="flex items-center gap-2 font-black uppercase tracking-wider text-white mb-1">
+                  {quickRedeemFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <Lock className="w-4 h-4 text-red-400 shrink-0" />
+                  )}
+                  <span>{quickRedeemFeedback.title}</span>
+                </div>
+                <p>{quickRedeemFeedback.message}</p>
+                {quickRedeemFeedback.unlockedCreator && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowQuickRedeemModal(false);
+                      onNavigate({ action: 'bingobook' });
+                    }}
+                    className="mt-3 w-full py-2 bg-[#fe9a00] text-black font-black uppercase tracking-widest text-[10px] rounded-lg hover:bg-white transition-colors cursor-pointer"
+                  >
+                    Open Bingo Book to View Autograph
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!isPlusSubscriber && (
+              <div className="mt-6 pt-5 border-t border-zinc-800 flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-white block">
+                    {isVisitor ? 'New to Saturday AM?' : 'Want Unlimited Manga?'}
+                  </span>
+                  <span className="text-[10px] font-bold text-zinc-400">
+                    {isVisitor ? (
+                      'Create a Free Account to read Ch. 1-3 & earn Fandom pts!'
+                    ) : (
+                      <>
+                        <span className="line-through text-zinc-600 mr-1">$2.99</span>$1.99/mo or{' '}
+                        <span className="line-through text-zinc-600 mr-1">$35.99</span>$20/yr
+                      </>
+                    )}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowQuickRedeemModal(false);
+                    if (isVisitor && onLoginClick) onLoginClick();
+                    else onNavigate({ action: 'sub' });
+                  }}
+                  className="px-4 py-2.5 bg-zinc-900 hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border border-[#fe9a00]/50 font-black uppercase tracking-widest text-[10px] rounded-xl transition-colors cursor-pointer shrink-0"
+                >
+                  {isVisitor ? 'Join Free →' : 'Get PLUS →'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          STICKY NAVBAR: VISITORS -> "JOIN FREE" | FREE USERS -> "GET PLUS"
+      ===================================================================== */}
+      <nav className="sticky top-0 w-full z-[100] px-4 py-3 sm:px-6 sm:py-4 flex justify-between items-center bg-black/85 backdrop-blur-xl border-b border-white/5 shadow-2xl mb-6">
         <div className="flex items-center cursor-pointer flex-shrink-0" onClick={() => onNavigate({ action: 'home' })}>
-          <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png" alt="Saturday AM" className="h-10 md:h-12 object-contain drop-shadow-md hover:scale-105 transition-transform" />
+          <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/logos/SATURDAY%20AM%20Logo.png" alt="Saturday AM" className="h-9 sm:h-11 md:h-12 object-contain drop-shadow-md hover:scale-105 transition-transform" />
         </div>
 
-        <div className="flex items-center justify-end gap-2 sm:gap-3">
-          {!currentUser ? (
-            <button onClick={onLoginClick} className="whitespace-nowrap flex-shrink-0 flex items-center justify-center bg-[#fe9a00] text-black px-4 py-1.5 sm:px-5 sm:py-2 rounded-full font-black uppercase tracking-widest text-[9px] sm:text-[10px] hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)] cursor-pointer">Log In</button>
-          ) : (
-            <div className="hidden sm:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity mr-1" onClick={() => onNavigate({ action: 'profile' })}>
+        <div className="flex items-center justify-end gap-1.5 sm:gap-2.5">
+          {isVisitor ? (
+            <button
+              type="button"
+              onClick={onLoginClick}
+              className="whitespace-nowrap flex items-center gap-1.5 bg-gradient-to-r from-[#fe9a00] to-amber-400 hover:from-white hover:to-white text-black px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full font-black uppercase tracking-widest text-[9px] sm:text-[10px] transition-all shadow-[0_0_15px_rgba(254,154,0,0.45)] hover:scale-105 cursor-pointer"
+              title="Create a Free Saturday AM Account"
+            >
+              <UserPlus className="w-3 h-3 shrink-0" />
+              <span>Join Free</span>
+            </button>
+          ) : isFreeMember ? (
+            <button
+              type="button"
+              onClick={() => onNavigate({ action: 'sub' })}
+              className="whitespace-nowrap flex items-center gap-1 bg-gradient-to-r from-[#fe9a00] to-amber-400 hover:from-white hover:to-white text-black px-3 py-1.5 sm:px-4 sm:py-2 rounded-full font-black uppercase tracking-widest text-[9px] sm:text-[10px] transition-all shadow-[0_0_15px_rgba(254,154,0,0.45)] hover:scale-105 cursor-pointer"
+              title="Upgrade to Saturday AM+ PLUS ($1.99/mo)"
+            >
+              <Zap className="w-3 h-3 fill-black shrink-0" />
+              <span>Get PLUS</span>
+            </button>
+          ) : null}
+
+          {/* Top-Right Redeem Code / PIN Pill */}
+          <button
+            type="button"
+            onClick={() => {
+              setQuickRedeemFeedback(null);
+              setShowQuickRedeemModal(true);
+            }}
+            className="whitespace-nowrap flex items-center gap-1 bg-zinc-900 hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border border-[#fe9a00]/50 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-full font-black uppercase tracking-widest text-[9px] sm:text-[10px] transition-all cursor-pointer"
+            title="Redeem Flash Contest Code, Store Key, or 5-Digit Autograph PIN"
+          >
+            <KeyRound className="w-3 h-3 shrink-0" />
+            <span className="hidden xs:inline sm:inline">Redeem</span>
+          </button>
+
+          {!currentUser ? null : (
+            <div className="hidden sm:flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity mr-0.5" onClick={() => onNavigate({ action: 'profile' })}>
               <DecoratedAvatar avatarUrl={currentUser.avatar_url} frameId={currentUser.frame_id} size="w-8 h-8" iconSize="w-4 h-4" />
-              {userTier === 'premium' && <span className="bg-purple-900/40 border border-purple-500 text-purple-400 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black tracking-widest uppercase ml-1">PLUS</span>}
+              {isPlusSubscriber && <span className="bg-purple-900/40 border border-purple-500 text-purple-400 px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black tracking-widest uppercase">PLUS</span>}
             </div>
           )}
 
@@ -666,7 +1216,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
         {/* Hero Banner Carousel with Left/Right Arrows */}
         <div className="mb-8 w-full flex flex-col items-center">
-          <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900/80 border border-zinc-800/50 shadow-xl backdrop-blur-sm group">
+          <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900/80 border border-zinc-800/50 shadow-xl group">
             {heroSlides.map((slide, index) => (
               <div key={slide.id} onClick={() => handleSlideClick(slide)} className={`absolute inset-0 transition-opacity duration-1000 ease-in-out cursor-pointer ${index === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}>
                 <img src={slide.mobile_url} alt={`Slide ${index}`} className="md:hidden w-full h-full object-cover" />
@@ -709,7 +1259,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           </div>
         </div>
 
-        {/* Latest Chapters Slider with Top-Right Header Arrows Only */}
+        {/* Latest Chapters Slider */}
         {visibleLatestChapters.length > 0 && (
           <div className="mb-10 relative group px-2">
             <div className="flex items-center justify-between gap-3 mb-4">
@@ -745,20 +1295,31 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                 const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug) || {};
                 const isFreeOneshotActive = !isPlusSubscriber && isActiveOneShotWednesday(seriesData, seriesList);
                 const freeOneshotCountdown = isFreeOneshotActive ? getOneShotFreeCountdown(seriesData, seriesList) : null;
-                const showNewBadge = isNewRelease(chapter.publish_at || seriesData.publish_at, chapter.created_at, chapter.updated_at || seriesData.updated_at);
+                const showNewBadge = isNewRelease(chapter.publish_at, chapter.created_at);
 
                 return (
-                  <div key={chapter.id} onClick={() => onNavigate({ ...seriesData, autoOpenChapterId: chapter.id })} className="w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start flex flex-col">
+                  <div
+                    key={chapter.id}
+                    onClick={() => onNavigate({ ...seriesData, autoOpenChapterId: chapter.id })}
+                    className={`w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start flex flex-col transition-opacity ${
+                      chapter.isAlreadyRead ? 'opacity-75 hover:opacity-100' : ''
+                    }`}
+                  >
                     <div className="relative overflow-hidden rounded-lg aspect-square border-[1px] border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.4)] group-hover/card:-translate-y-1 group-hover/card:border-[#fe9a00] group-hover/card:shadow-[0_0_30px_rgba(254,154,0,0.8)] transition-all duration-300">
                       <img src={chapter.thumbnail_url || seriesData.cover_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className="w-full h-full object-cover" style={{ objectPosition: chapter.thumbnail_position || '50% 50%', transform: `scale(${(chapter.thumbnail_scale || 100) / 100})` }} alt="Chapter Thumbnail" />
-                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12">
+                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12 flex items-center justify-between">
                         <p className="text-[#fe9a00] font-black text-[10px] uppercase tracking-widest drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]">CH. {chapter.chapter_number}</p>
+                        {chapter.isAlreadyRead && (
+                          <span className="text-[8px] font-black uppercase tracking-widest bg-zinc-900/90 text-zinc-400 border border-zinc-700 px-1.5 py-0.5 rounded">
+                            Read
+                          </span>
+                        )}
                       </div>
                       {freeOneshotCountdown ? (
                         <div className="absolute top-1.5 right-1.5 z-30 bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-tight px-2 py-0.5 rounded shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-1 pointer-events-none">
                           <Clock className="w-2.5 h-2.5 shrink-0" /><span>FREE: {freeOneshotCountdown}</span>
                         </div>
-                      ) : showNewBadge && (
+                      ) : showNewBadge && !chapter.isAlreadyRead && (
                         <div className="absolute top-1.5 right-1.5 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>
                       )}
                     </div>
@@ -773,9 +1334,9 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           </div>
         )}
 
-        {/* Jump Back In Slider with Header Arrows */}
+        {/* Jump Back In Slider */}
         {recentReads.length > 0 && (
-          <div className="mb-12 animate-fade-in bg-black/40 backdrop-blur-sm p-4 rounded-xl border border-zinc-800/50">
+          <div className="mb-12 animate-fade-in bg-black/40 p-4 rounded-xl border border-zinc-800/50">
             <div className="flex items-center justify-between gap-3 mb-4 px-2">
               <h2 className="text-xl md:text-2xl font-black italic uppercase tracking-wider text-white drop-shadow-md">Jump Back In</h2>
               <div className="flex items-center gap-1.5 shrink-0">
