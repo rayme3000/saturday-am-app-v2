@@ -4,6 +4,9 @@ import { supabase } from '../supabase';
 import { DecoratedAvatar } from './DecoratedAvatar';
 import { cleanText, containsInappropriateLanguage } from '../profanityFilter';
 
+// Silent window: Free users can comment until Sunday, Nov 8, 2026 @ 11:59:59 PM EST
+const FREE_COMMENTS_END_MS = new Date('2026-11-08T23:59:59-05:00').getTime();
+
 export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlug: string, onRequireAuth: () => void }) => {
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
@@ -299,8 +302,10 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
     }
   };
 
-  // --- PREMIUM ONLY GATE ---
-  if (!isPremiumUser && currentUser) {
+  const isFreeCommentingOpen = Date.now() <= FREE_COMMENTS_END_MS;
+
+  // --- PREMIUM ONLY GATE (Automatically bypassed until Sunday, Nov 8 @ Midnight EST) ---
+  if (!isPremiumUser && currentUser && !isFreeCommentingOpen) {
     return (
       <div className="relative w-full max-w-4xl mx-auto px-6 py-12 border-t border-zinc-900 mt-12">
         <h3 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-8">Community <span className="text-[#fe9a00]">Discussion</span></h3>
