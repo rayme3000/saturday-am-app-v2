@@ -1171,6 +1171,7 @@ export const AnalyticsDashboard = () => {
     let hypeCardTelemetryOpens = 0;
     let loadoutTelemetrySaves = 0;
     let bingoTelemetryEvents = 0;
+    let leaderboardTelemetryEvents = 0;
     const seriesVisitsPerSlug: Record<string, number> = {};
 
     telemetryRows.forEach((t: any) => {
@@ -1196,6 +1197,8 @@ export const AnalyticsDashboard = () => {
         loadoutTelemetrySaves += 1;
       } else if (evType.includes('bingo')) {
         bingoTelemetryEvents += 1;
+      } else if (evType.includes('leaderboard')) {
+        leaderboardTelemetryEvents += 1;
       }
     });
 
@@ -1248,6 +1251,15 @@ export const AnalyticsDashboard = () => {
     );
     const totalBingoBookInteractions = bingoTelemetryEvents + bingoCodeRedemptions;
 
+    const activeRankedLeaderboardFans = activeProfiles.filter(
+      (p: any) => Number(p.fandom_score || 0) > 0
+    ).length;
+
+    const totalLeaderboardEngagements = Math.max(
+      leaderboardTelemetryEvents,
+      activeRankedLeaderboardFans
+    );
+
     const totalLikesAllTypes =
       seriesLikesData.length +
       chapterLikesData.length +
@@ -1288,7 +1300,9 @@ export const AnalyticsDashboard = () => {
       profilesWithCardSkin,
       hypeCardOpens: totalHypeCardInteractions,
       bingoBookInteractions: totalBingoBookInteractions,
-      activeBingoCodesCount: bingoCodesList.length
+      activeBingoCodesCount: bingoCodesList.length,
+      leaderboardEngagements: totalLeaderboardEngagements,
+      activeRankedLeaderboardFans
     };
 
     const rawSeriesSource =
@@ -1386,7 +1400,8 @@ export const AnalyticsDashboard = () => {
         return (
           et.includes('hype_card') ||
           et.includes('loadout') ||
-          et.includes('bingo')
+          et.includes('bingo') ||
+          et.includes('leaderboard')
         );
       })
       .slice(-8)
@@ -1396,6 +1411,8 @@ export const AnalyticsDashboard = () => {
           ? 'Fan flexed their Virtual Hype Card'
           : et.includes('loadout')
           ? 'Fan customized their Profile Loadout'
+          : et.includes('leaderboard')
+          ? 'Fan checked Global Leaderboards & Rankings'
           : 'Fan opened the Creator Bingo Book';
         feedItems.push({
           type: 'feature',
@@ -2696,7 +2713,7 @@ export const AnalyticsDashboard = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-gradient-to-br from-black via-zinc-950 to-purple-950/25 border border-purple-500/30 p-4 rounded-2xl flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2 text-purple-400 mb-1">
@@ -2759,6 +2776,26 @@ export const AnalyticsDashboard = () => {
                 Autographs
               </span>
             </div>
+
+            <div className="bg-gradient-to-br from-black via-zinc-950 to-yellow-950/25 border border-yellow-500/40 p-4 rounded-2xl flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-yellow-400 mb-1">
+                  <Trophy className="w-4 h-4" />
+                  <span className="text-[9px] font-black uppercase tracking-widest">
+                    Leaderboard Engagement
+                  </span>
+                </div>
+                <p className="text-2xl font-black text-white">
+                  {engagementBreakdown.leaderboardEngagements.toLocaleString()}
+                </p>
+                <p className="text-[9px] text-zinc-400 font-bold mt-1">
+                  Ranked Fans on Board: {engagementBreakdown.activeRankedLeaderboardFans}
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-full bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 text-[9px] font-black uppercase tracking-wider shrink-0">
+                Rankings
+              </span>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -2769,7 +2806,7 @@ export const AnalyticsDashboard = () => {
                 </h3>
                 <p className="text-[11px] text-zinc-400 font-medium mt-0.5">
                   De-duplicated breakdown of community actions across reading, profile loadouts,
-                  Hype Cards, and Bingo Book.
+                  Hype Cards, Leaderboards, and Bingo Book.
                 </p>
               </div>
 
@@ -2789,6 +2826,11 @@ export const AnalyticsDashboard = () => {
                     label: 'Profile Loadout Customizations (Top 5, Avatars, Frames, Skins)',
                     count: engagementBreakdown.profileLoadoutCustomizations,
                     color: 'bg-purple-500'
+                  },
+                  {
+                    label: 'Leaderboard Views, Tab Switches & Ranked Fan Participation',
+                    count: engagementBreakdown.leaderboardEngagements,
+                    color: 'bg-yellow-400'
                   },
                   {
                     label: 'Hype Card Opens & Custom Pass Equips',

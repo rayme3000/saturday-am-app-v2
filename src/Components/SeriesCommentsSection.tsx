@@ -7,6 +7,52 @@ import { cleanText, containsInappropriateLanguage } from '../profanityFilter';
 // Silent window: Free users can comment until Sunday, Nov 8, 2026 @ 11:59:59 PM EST
 const FREE_COMMENTS_END_MS = new Date('2026-11-08T23:59:59-05:00').getTime();
 
+// Helper to ensure no user ever shows up as generic "Reader"
+const resolveDisplayUsername = (
+  profile?: any,
+  authUser?: any,
+  savedCommentUserName?: string,
+  fallbackUserId?: string
+): string => {
+  const isGeneric = (val?: string | null) => {
+    const clean = String(val || '').trim().toLowerCase();
+    return !clean || clean === 'reader' || clean === 'user' || clean === 'anonymous';
+  };
+
+  if (profile?.username && !isGeneric(profile.username)) {
+    return String(profile.username).trim();
+  }
+
+  const fullName = `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim();
+  if (fullName && !isGeneric(fullName)) {
+    return fullName;
+  }
+
+  if (savedCommentUserName && !isGeneric(savedCommentUserName)) {
+    return String(savedCommentUserName).trim();
+  }
+
+  const metaName =
+    authUser?.user_metadata?.username ||
+    authUser?.user_metadata?.display_name ||
+    authUser?.user_metadata?.full_name ||
+    authUser?.user_metadata?.name;
+  if (metaName && !isGeneric(metaName)) {
+    return String(metaName).trim();
+  }
+
+  const emailToUse = profile?.email || authUser?.email || '';
+  if (emailToUse && emailToUse.includes('@')) {
+    return emailToUse.split('@')[0];
+  }
+
+  const shortId = String(fallbackUserId || profile?.id || authUser?.id || '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 5)
+    .toUpperCase();
+  return shortId ? `Reader_${shortId}` : 'Reader';
+};
+
 export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlug: string, onRequireAuth: () => void }) => {
   const [commentText, setCommentText] = useState('');
   const [comments, setComments] = useState<any[]>([]);
@@ -34,13 +80,25 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
       if (user) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('username, avatar_url, avatar_frame_id, is_premium')
+          .select('id, username, first_name, last_name, email, avatar_url, avatar_frame_id, is_premium')
           .eq('id', user.id)
           .maybeSingle();
+
+        const resolvedName = resolveDisplayUsername(profile, user, undefined, user.id);
+
+        // If their profile in DB still had generic "Reader", silently heal it to their real handle
+        if (profile && (!profile.username || profile.username.trim().toLowerCase() === 'reader') && resolvedName !== 'Reader') {
+          supabase
+            .from('profiles')
+            .update({ username: resolvedName })
+            .eq('id', user.id)
+            .then(() => {});
+        }
+
         setCurrentUser({
           id: user.id,
-          name: profile?.username || 'Reader',
-          avatar: profile?.avatar_url || '',
+          name: resolvedName,
+          avatar: profile?.avatar_url || user.user_metadata?.avatar_url || '',
           frameId: profile?.avatar_frame_id || 'none'
         });
         setIsPremiumUser(Boolean(profile?.is_premium));
@@ -70,20 +128,25 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
 
     if (data) {
       const userIds = [...new Set(data.map((c: any) => c.user_id))].filter(Boolean);
-      const profileMap: Record<string, string> = {};
+      const profileMap: Record<string, any> = {};
       if (userIds.length > 0) {
         const { data: profiles } = await supabase
           .from('profiles')
-          .select('id, avatar_frame_id')
+          .select('id, username, first_name, last_name, email, avatar_url, avatar_frame_id')
           .in('id', userIds);
         profiles?.forEach((p: any) => {
-          profileMap[p.id] = p.avatar_frame_id || 'none';
+          profileMap[p.id] = p;
         });
       }
-      const enrichedData = data.map((c: any) => ({
-        ...c,
-        frame_id: profileMap[c.user_id] || 'none'
-      }));
+      const enrichedData = data.map((c: any) => {
+        const prof = profileMap[c.user_id];
+        return {
+          ...c,
+          user_name: resolveDisplayUsername(prof, null, c.user_name, c.user_id),
+          avatar_url: c.avatar_url || prof?.avatar_url || '',
+          frame_id: prof?.avatar_frame_id || 'none'
+        };
+      });
 
       if (isInitialLoad) setComments(enrichedData);
       else setComments(prev => [...prev, ...enrichedData]);
@@ -167,19 +230,27 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
 
     if (data) {
       const userIds = [...new Set(data.map((c: any) => c.user_id))].filter(Boolean);
-      const profileMap: Record<string, string> = {};
+      const profileMap: Record<string, any> = {};
       if (userIds.length > 0) {
         const { data: profiles } = await supabase
           .from('profiles')
-          .select('id, avatar_frame_id')
+          .select('id, username, first_name, last_name, email, avatar_url, avatar_frame_id')
           .in('id', userIds);
         profiles?.forEach((p: any) => {
-          profileMap[p.id] = p.avatar_frame_id || 'none';
+          profileMap[p.id] = p;
         });
       }
       setReplies(prev => ({
         ...prev,
-        [parentId]: data.map((c: any) => ({ ...c, frame_id: profileMap[c.user_id] || 'none' }))
+        [parentId]: data.map((c: any) => {
+          const prof = profileMap[c.user_id];
+          return {
+            ...c,
+            user_name: resolveDisplayUsername(prof, null, c.user_name, c.user_id),
+            avatar_url: c.avatar_url || prof?.avatar_url || '',
+            frame_id: prof?.avatar_frame_id || 'none'
+          };
+        })
       }));
     }
     setExpandedReplies(prev => ({ ...prev, [parentId]: true }));
@@ -204,11 +275,17 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
 
     const isFlagged = containsInappropriateLanguage(commentText);
     const cleaned = cleanText(commentText.trim());
+    const resolvedPosterName = resolveDisplayUsername(
+      currentUser ? { username: currentUser.name } : null,
+      user,
+      currentUser?.name,
+      user.id
+    );
 
     const newComment = {
       series_slug: seriesSlug,
       user_id: user.id,
-      user_name: currentUser?.name || user.user_metadata?.username || 'Reader',
+      user_name: resolvedPosterName,
       avatar_url: currentUser?.avatar || '',
       text: cleaned,
       parent_id: parentId,
@@ -218,7 +295,11 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
     const { data, error } = await supabase.from('series_comments').insert([newComment]).select().single();
 
     if (!error && data) {
-      const newCommentWithFrame = { ...data, frame_id: currentUser?.frameId || 'none' };
+      const newCommentWithFrame = {
+        ...data,
+        user_name: resolvedPosterName,
+        frame_id: currentUser?.frameId || 'none'
+      };
       if (parentId) {
         setReplies(prev => ({ ...prev, [parentId]: [...(prev[parentId] || []), newCommentWithFrame] }));
         setExpandedReplies(prev => ({ ...prev, [parentId]: true }));
@@ -366,74 +447,80 @@ export const SeriesCommentsSection = ({ seriesSlug, onRequireAuth }: { seriesSlu
       </div>
 
       <div className="flex flex-col gap-6 mb-8">
-        {comments.map((comment) => (
-          <div key={comment.id} className="flex flex-col gap-3 group animate-fade-in border-b border-zinc-900/50 pb-6">
-            <div className="flex gap-4">
-              <DecoratedAvatar avatarUrl={comment.avatar_url} frameId={comment.frame_id} size="w-10 h-10" iconSize="w-5 h-5" />
-              <div className="flex-1 flex flex-col">
-                <div className="flex items-baseline gap-2 mb-1">
-                  <span className="text-[#fe9a00] font-black tracking-widest uppercase text-[10px]">{comment.user_name}</span>
-                  <span className="text-zinc-600 text-[8px] font-bold tracking-widest uppercase">{new Date(comment.created_at).toLocaleDateString()}</span>
-                </div>
-                <p className="text-zinc-300 text-xs leading-relaxed whitespace-pre-wrap break-words">{comment.text}</p>
-
-                <div className="flex items-center gap-4 mt-2">
-                  <button onClick={() => handleHypeComment(comment.id)} className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer ${commentHypes[comment.id]?.hasHyped ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-white'}`}>
-                    <Flame className={`w-3.5 h-3.5 ${commentHypes[comment.id]?.hasHyped ? 'fill-[#fe9a00]' : ''}`} />
-                    {commentHypes[comment.id]?.count || 0}
-                  </button>
-                  <button onClick={() => setReplyingTo(comment.id)} className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors cursor-pointer">
-                    <MessageSquare className="w-3.5 h-3.5" /> Reply
-                  </button>
-                  <button onClick={() => handleReportComment(comment.id)} disabled={reportedComments.includes(comment.id)} className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer ${reportedComments.includes(comment.id) ? 'text-red-500/50 cursor-not-allowed' : 'text-zinc-500 hover:text-red-500'}`} title="Report Comment">
-                    <Flag className="w-3.5 h-3.5" /> {reportedComments.includes(comment.id) ? 'Reported' : 'Report'}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* --- REPLIES SECTION --- */}
-            <div className="pl-14 flex flex-col gap-3">
-              <button onClick={() => loadReplies(comment.id)} className="text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-[#fe9a00] transition-colors flex items-center gap-1 w-max cursor-pointer">
-                <CornerDownRight className="w-3 h-3" /> {expandedReplies[comment.id] ? 'Hide Replies' : 'View Replies'}
-              </button>
-
-              {expandedReplies[comment.id] && replies[comment.id]?.map(reply => (
-                <div key={reply.id} className="flex gap-3 mt-2 animate-fade-in bg-zinc-900/20 p-3 rounded-lg border border-zinc-800/30">
-                  <DecoratedAvatar avatarUrl={reply.avatar_url} frameId={reply.frame_id} size="w-8 h-8" iconSize="w-4 h-4" />
-                  <div className="flex-1 flex flex-col">
-                    <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-[#fe9a00] font-black tracking-widest uppercase text-[9px]">{reply.user_name}</span>
-                    </div>
-                    <p className="text-zinc-300 text-[11px] leading-relaxed break-words">{reply.text}</p>
+{comments.map((comment) => {
+          return (
+            <div key={comment.id} className="flex flex-col gap-3 group animate-fade-in border-b border-zinc-900/50 pb-6">
+              <div className="flex gap-4">
+                <DecoratedAvatar avatarUrl={comment.avatar_url} frameId={comment.frame_id} size="w-10 h-10" iconSize="w-5 h-5" />
+                <div className="flex-1 flex flex-col">
+                  <div className="flex items-baseline gap-2 mb-1">
+                    <span className="text-[#fe9a00] font-black tracking-widest uppercase text-[10px]">
+                      {comment.user_name}
+                    </span>
+                    <span className="text-zinc-600 text-[8px] font-bold tracking-widest uppercase">
+                      {new Date(comment.created_at).toLocaleDateString()}
+                    </span>
                   </div>
-                </div>
-              ))}
+                  <p className="text-zinc-300 text-xs leading-relaxed whitespace-pre-wrap break-words">{comment.text}</p>
 
-              {replyingTo === comment.id && (
-                <div className="flex flex-col items-end gap-2 mt-2 animate-fade-in-up">
-                  <textarea
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value.slice(0, MAX_CHARS))}
-                    placeholder="Write a reply..."
-                    className="w-full bg-zinc-900 border border-[#fe9a00]/30 text-white text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-[#fe9a00] transition-colors resize-none h-16"
-                  />
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => { setReplyingTo(null); setCommentText(''); }} className="text-zinc-500 hover:text-white text-[9px] font-black uppercase tracking-widest px-3 py-1.5 cursor-pointer">Cancel</button>
-                    <button
-                      onClick={() => handleCommentSubmit(comment.id)}
-                      disabled={isSubmitting || !commentText.trim()}
-                      className="bg-[#fe9a00] text-black px-4 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:bg-white transition-all disabled:opacity-50 cursor-pointer"
-                    >
-                      {isSubmitting ? '...' : 'Reply'}
+                  <div className="flex items-center gap-4 mt-2">
+                    <button onClick={() => handleHypeComment(comment.id)} className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer ${commentHypes[comment.id]?.hasHyped ? 'text-[#fe9a00]' : 'text-zinc-500 hover:text-white'}`}>
+                      <Flame className={`w-3.5 h-3.5 ${commentHypes[comment.id]?.hasHyped ? 'fill-[#fe9a00]' : ''}`} />
+                      {commentHypes[comment.id]?.count || 0}
+                    </button>
+                    <button onClick={() => setReplyingTo(comment.id)} className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors cursor-pointer">
+                      <MessageSquare className="w-3.5 h-3.5" /> Reply
+                    </button>
+                    <button onClick={() => handleReportComment(comment.id)} disabled={reportedComments.includes(comment.id)} className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer ${reportedComments.includes(comment.id) ? 'text-red-500/50 cursor-not-allowed' : 'text-zinc-500 hover:text-red-500'}`} title="Report Comment">
+                      <Flag className="w-3.5 h-3.5" /> {reportedComments.includes(comment.id) ? 'Reported' : 'Report'}
                     </button>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
 
-          </div>
-        ))}
+              {/* --- REPLIES SECTION --- */}
+              <div className="pl-14 flex flex-col gap-3">
+                <button onClick={() => loadReplies(comment.id)} className="text-[9px] font-black uppercase tracking-widest text-zinc-600 hover:text-[#fe9a00] transition-colors flex items-center gap-1 w-max cursor-pointer">
+                  <CornerDownRight className="w-3 h-3" /> {expandedReplies[comment.id] ? 'Hide Replies' : 'View Replies'}
+                </button>
+
+                {expandedReplies[comment.id] && replies[comment.id]?.map(reply => (
+                  <div key={reply.id} className="flex gap-3 mt-2 animate-fade-in bg-zinc-900/20 p-3 rounded-lg border border-zinc-800/30">
+                    <DecoratedAvatar avatarUrl={reply.avatar_url} frameId={reply.frame_id} size="w-8 h-8" iconSize="w-4 h-4" />
+                    <div className="flex-1 flex flex-col">
+                      <div className="flex items-baseline gap-2 mb-1">
+                        <span className="text-[#fe9a00] font-black tracking-widest uppercase text-[9px]">{reply.user_name}</span>
+                      </div>
+                      <p className="text-zinc-300 text-[11px] leading-relaxed break-words">{reply.text}</p>
+                    </div>
+                  </div>
+                ))}
+
+                {replyingTo === comment.id && (
+                  <div className="flex flex-col items-end gap-2 mt-2 animate-fade-in-up">
+                    <textarea
+                      value={commentText}
+                      onChange={(e) => setCommentText(e.target.value.slice(0, MAX_CHARS))}
+                      placeholder="Write a reply..."
+                      className="w-full bg-zinc-900 border border-[#fe9a00]/30 text-white text-xs px-3 py-2 rounded-lg focus:outline-none focus:border-[#fe9a00] transition-colors resize-none h-16"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => { setReplyingTo(null); setCommentText(''); }} className="text-zinc-500 hover:text-white text-[9px] font-black uppercase tracking-widest px-3 py-1.5 cursor-pointer">Cancel</button>
+                      <button
+                        onClick={() => handleCommentSubmit(comment.id)}
+                        disabled={isSubmitting || !commentText.trim()}
+                        className="bg-[#fe9a00] text-black px-4 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:bg-white transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        {isSubmitting ? '...' : 'Reply'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          );
+        })}
 
         {comments.length === 0 && (
           <div className="text-center py-12 border-2 border-dashed border-zinc-800 rounded-xl">

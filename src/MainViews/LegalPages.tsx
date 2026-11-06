@@ -9,16 +9,13 @@ export const LegalPages = ({ onBack }: any) => {
   }, [activeTab]);
 
   return (
-    <div className="min-h-screen bg-black text-zinc-300 relative pb-32 font-sans">
-      
-      {/* GLOBAL BACKDROP */}
-      <div className="fixed inset-0 z-[-1] bg-black pointer-events-none">
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 mix-blend-overlay" />
-      </div>
-
+    <div className="min-h-screen bg-black/95 text-zinc-300 relative pb-32 font-sans">
       {/* HEADER WITH ANTI-COLLISION PADDING */}
       <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-xl px-4 pt-6 pb-4 border-b border-zinc-800 pr-16 sm:pr-24 shadow-xl">
-        <button onClick={onBack} className="mb-4 flex items-center gap-2 text-zinc-400 hover:text-white transition-colors cursor-pointer">
+        <button
+          onClick={onBack}
+          className="mb-4 flex items-center gap-2 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+        >
           <ArrowLeft className="w-5 h-5" />
           <span className="text-[10px] font-black uppercase tracking-widest">Back</span>
         </button>
@@ -28,26 +25,32 @@ export const LegalPages = ({ onBack }: any) => {
       </div>
 
       <div className="sticky top-[93px] z-40 flex border-b border-zinc-800 bg-black/90 backdrop-blur-md shadow-md overflow-x-auto no-scrollbar">
-        <button 
+        <button
           onClick={() => setActiveTab('privacy')}
           className={`flex-1 flex items-center justify-center gap-2 py-4 px-3 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${
-            activeTab === 'privacy' ? 'bg-zinc-900 text-[#fe9a00] border-b-2 border-[#fe9a00]' : 'text-zinc-500 hover:text-white hover:bg-zinc-900/50'
+            activeTab === 'privacy'
+              ? 'bg-zinc-900 text-[#fe9a00] border-b-2 border-[#fe9a00]'
+              : 'text-zinc-500 hover:text-white hover:bg-zinc-900/50'
           }`}
         >
           <Shield className="w-4 h-4 shrink-0" /> Privacy & Data
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('terms')}
           className={`flex-1 flex items-center justify-center gap-2 py-4 px-3 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${
-            activeTab === 'terms' ? 'bg-zinc-900 text-[#fe9a00] border-b-2 border-[#fe9a00]' : 'text-zinc-500 hover:text-white hover:bg-zinc-900/50'
+            activeTab === 'terms'
+              ? 'bg-zinc-900 text-[#fe9a00] border-b-2 border-[#fe9a00]'
+              : 'text-zinc-500 hover:text-white hover:bg-zinc-900/50'
           }`}
         >
           <FileText className="w-4 h-4 shrink-0" /> Terms of Service
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('dmca_ai')}
           className={`flex-1 flex items-center justify-center gap-2 py-4 px-3 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${
-            activeTab === 'dmca_ai' ? 'bg-zinc-900 text-[#fe9a00] border-b-2 border-[#fe9a00]' : 'text-zinc-500 hover:text-white hover:bg-zinc-900/50'
+            activeTab === 'dmca_ai'
+              ? 'bg-zinc-900 text-[#fe9a00] border-b-2 border-[#fe9a00]'
+              : 'text-zinc-500 hover:text-white hover:bg-zinc-900/50'
           }`}
         >
           <Scale className="w-4 h-4 shrink-0" /> DMCA, AI & Safety
@@ -56,7 +59,6 @@ export const LegalPages = ({ onBack }: any) => {
 
       <div className="max-w-3xl mx-auto px-6 py-8">
         <div className="prose prose-invert prose-zinc max-w-none prose-headings:font-black prose-headings:italic prose-headings:uppercase prose-headings:tracking-tighter prose-h2:text-2xl prose-h2:text-white prose-p:text-sm prose-p:font-bold prose-p:leading-relaxed prose-p:text-zinc-400 mb-12">
-          
           {activeTab === 'privacy' && (
             <div className="animate-fade-in">
               <h2>Privacy Policy & Data Disclosures</h2>
@@ -68,7 +70,7 @@ export const LegalPages = ({ onBack }: any) => {
                   <p>When you register for a Saturday AM account, subscribe to Saturday AM+, interact with manga chapters, or make a purchase, we collect the following categories of personal and behavioral data:</p>
                   <ul className="list-disc pl-5 mt-2 space-y-2 text-sm font-bold text-zinc-400">
                     <li><strong>Account & Identity Data:</strong> Your first and last name, username, email address, country/region of residence, and (only when redeeming physical prize/store bundles) physical shipping address, phone number, and date of birth.</li>
-                    <li><strong>Reading & Behavioral Telemetry:</strong> Chapters read, page-level reading progress (`reading_history`), favorite/bookshelf series, Hypes given, Smart Comments/Emoji reactions, banner clicks, and series page visits (`useTelemetry`) used to calculate Fandom Scores and global leaderboards.</li>
+                    <li><strong>Reading & Behavioral Telemetry:</strong> Chapters read, page-level reading progress (reading_history), favorite/bookshelf series, Hypes given, Smart Comments/Emoji reactions, banner clicks, and series page visits (useTelemetry) used to calculate Fandom Scores and global leaderboards.</li>
                     <li><strong>Payment & Transaction Data:</strong> All credit/debit card numbers and billing credentials are tokenized and processed directly by <strong>Stripe</strong> or <strong>Shopify</strong>. Saturday AM never stores raw credit card numbers or CVV security codes on our servers.</li>
                     <li><strong>Device & Local Storage Data:</strong> Browser local/session storage tokens used to maintain login sessions, dismissed notification IDs, and Progressive Web App (PWA) installation preferences.</li>
                   </ul>
@@ -126,7 +128,7 @@ export const LegalPages = ({ onBack }: any) => {
 
                 <section>
                   <h3 className="text-[#fe9a00] text-lg mb-2">2. Subscriptions, 3-Day Free Trials & 1-Click Cancellation (FTC Negative Option Disclosure)</h3>
-                  <p><strong>Recurring Billing:</strong> Saturday AM+ Pro memberships are offered on a monthly ($1.99/month) or annual ($35.99/year standard, or $20.00/year with a valid Creator/Partner Referral Code) auto-renewing basis.</p>
+                  <p><strong>Recurring Billing:</strong> Saturday AM+ PLUS memberships are offered on a monthly ($1.99/month) or annual ($20.00/year) auto-renewing basis.</p>
                   <p className="mt-3"><strong>3-Day Free Trial Terms:</strong> When you subscribe to the Annual Plan using a valid partner referral link or code, you receive a <strong>3-Day Free Trial</strong> ($0.00 due today). Unless you cancel before the end of your 3-day trial period, your payment method on file will automatically be charged <strong>$20.00/year</strong> at the conclusion of the 72-hour trial, and annually thereafter until canceled.</p>
                   <p className="mt-3"><strong>1-Click Cancellation:</strong> You may cancel your trial or recurring subscription at any time in one click with no penalty by navigating to <strong>Settings &rarr; Billing &amp; Plan &rarr; Cancel Subscription</strong>. Upon cancellation, you will never be charged again, and your earned Fandom Score, reading history, and unlocked Bingo Book signatures will remain saved on your free account.</p>
                 </section>
@@ -172,7 +174,7 @@ export const LegalPages = ({ onBack }: any) => {
               <div className="mt-8 space-y-8">
                 <section>
                   <h3 className="text-[#fe9a00] text-lg mb-2">1. Artificial Intelligence (AI) Transparency & Derivative Content Policy</h3>
-                  <p><strong>Automated Comment Moderation:</strong> Saturday AM utilizes automated profanity filters and AI-assisted moderation (`moderate-comments`) to screen user-submitted community comments and Smart Reactions for hate speech, harassment, and spam to keep our community safe.</p>
+                  <p><strong>Automated Comment Moderation:</strong> Saturday AM utilizes automated profanity filters and AI-assisted moderation (moderate-comments) to screen user-submitted community comments and Smart Reactions for hate speech, harassment, and spam to keep our community safe.</p>
                   <p className="mt-3"><strong>Human-Created Manga & No AI Scraping:</strong> Saturday AM celebrates human creators. Neither users nor third parties may scrape or use Saturday AM's platform, creator content, or intellectual property to train, develop, or improve artificial intelligence systems without the applicable rights holder's express authorization and Saturday AM's written consent.</p>
                   <p className="mt-3"><strong>Creator AI Disclosures:</strong> Creators must disclose any AI-generated or AI-assisted elements in submitted works and remain solely responsible for ensuring submissions do not unlawfully reproduce or misappropriate third-party works. Saturday AM reserves the right to restrict, label, demonetize, or remove content that violates its AI policies, and makes no guarantee that AI-generated material qualifies for copyright protection.</p>
                 </section>
@@ -203,20 +205,20 @@ export const LegalPages = ({ onBack }: any) => {
               </div>
             </div>
           )}
-
         </div>
 
         {/* BOTTOM THUMB ZONE RETURN */}
         <div className="mt-12 border-t border-zinc-800 pt-8">
-          <button 
+          <button
             onClick={onBack}
             className="w-full max-w-sm mx-auto py-4 bg-zinc-900 border border-zinc-800 text-white font-black uppercase tracking-widest text-[10px] rounded-xl hover:bg-zinc-800 transition-colors flex items-center justify-center gap-2 shadow-lg cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" /> Return to App
           </button>
         </div>
-
       </div>
     </div>
   );
 };
+
+export default LegalPages;

@@ -37,7 +37,6 @@ import {
   Eye,
   EyeOff,
   Search,
-  Tag,
   Link2,
   Copy,
   Check,
@@ -50,7 +49,6 @@ import {
 } from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 
-// Audited Creator -> Series Slug map so every creator card knows its exact series even if series_creators.series_slug was blank
 const CREATOR_SERIES_FALLBACK_MAP: Record<string, string[]> = {
   'raymond brown': ['bully-eater', 'bully-eater-annual-one-shot'],
   'odunze oguguo': ['apple-black', 'apple-black-annual-one-shot', 'apple-black-origins'],
@@ -238,7 +236,6 @@ const CreatorManagerHub = () => {
         }
       });
 
-      // Also match series by author name in `series.creator_name`
       const getSeriesListForCreatorName = (cName: string, explicitSlugs: string[]) => {
         const normC = normalizeNameForMatch(cName);
         const parenMatch = cName.toLowerCase().match(/^(.+?)\s*\((.+?)\)$/);
@@ -280,7 +277,6 @@ const CreatorManagerHub = () => {
           row.stripe_account_id || seriesStripeBySlug.get(row.series_slug) || '';
         const effectiveStripeId = resolveCreatorStripeAccountId(key, dbStripe);
 
-        // Check if studio_enabled is explicitly set on series_creators (or role !== 'revoked_creator')
         const rowStudioEnabled =
           row.studio_enabled !== undefined
             ? Boolean(row.studio_enabled)
@@ -349,7 +345,6 @@ const CreatorManagerHub = () => {
     fetchCreatorManagerData();
   }, [fetchCreatorManagerData]);
 
-  // Finds any user profile linked to this creator or their series
   const findLinkedProfilesForCreator = useCallback(
     (creator: any) => {
       const cNameLower = String(creator.name || '').trim().toLowerCase();
@@ -390,7 +385,6 @@ const CreatorManagerHub = () => {
     }
   };
 
-  // --- 1-CLICK GRANT / REVOKE CREATOR STUDIO BY SERIES & CREATOR RECORD (NO EMAIL REQUIRED!) ---
   const handleToggleSeriesStudioAccess = async (
     creator: any,
     grantAccess: boolean,
@@ -408,7 +402,6 @@ const CreatorManagerHub = () => {
 
     setUpdatingName(cleanCreator);
     try {
-      // 1. Update series_creators row(s) for this creator (works immediately without any user email!)
       const scPatch: Record<string, any> = {
         studio_enabled: grantAccess,
         role: grantAccess ? 'Creator' : 'revoked_creator'
@@ -420,14 +413,12 @@ const CreatorManagerHub = () => {
         .ilike('name', cleanCreator);
 
       if (scErr) {
-        // Fallback if studio_enabled column hasn't been added yet: store in role column on series_creators
         await supabase
           .from('series_creators')
           .update({ role: grantAccess ? 'Creator' : 'revoked_creator' })
           .ilike('name', cleanCreator);
       }
 
-      // 2. Also update any linked user profile(s) in `profiles` if they have an account
       const linkedProfiles = findLinkedProfilesForCreator(creator);
       for (const acc of linkedProfiles) {
         const profilePatch: Record<string, any> = {
@@ -489,8 +480,7 @@ const CreatorManagerHub = () => {
       );
     } catch (err: any) {
       alert(
-        'Failed to save Stripe Connect ID (run the 2-line SQL snippet in Supabase to add stripe_account_id to series_creators): ' +
-          err.message
+        'Failed to save Stripe Connect ID: ' + err.message
       );
     } finally {
       setSavingStripe(false);
@@ -698,7 +688,6 @@ const CreatorManagerHub = () => {
                         c.is_visible ? 'bg-black border-zinc-800' : 'bg-red-950/20 border-red-900/40'
                       }`}
                     >
-                      {/* Top Row: Creator Avatar, Full Name, Routing & Visibility */}
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0 flex-1">
                           <div
@@ -842,7 +831,6 @@ const CreatorManagerHub = () => {
                         </div>
                       )}
 
-                      {/* Bottom Bar: Tied Directly to Creator's Series + 1-Click Grant / Revoke Studio Buttons */}
                       <div className="pt-2 border-t border-zinc-800/80 flex flex-col gap-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-2 bg-zinc-900/70 px-2.5 py-1.5 rounded-lg text-[10px]">
                           <div className="min-w-0 flex-1 truncate">
@@ -1486,36 +1474,91 @@ const HypeManager = ({ setIsDirty }: any) => {
   );
 };
 
+// --- UPGRADED CUSTOMER ACCESS CODE & THEMED ANNUAL SUBSCRIPTION BUNDLE BUILDER ---
 const PromoCodeManager = () => {
+  const { seriesList = [], cardSkins = [], vaultAvatars = [] } = useSeriesData();
   const [batchCodes, setBatchCodes] = useState<any[]>([]);
   const [brandedCodes, setBrandedCodes] = useState<any[]>([]);
+  const [themedBundles, setThemedBundles] = useState<any[]>([]);
+  const [dbCreators, setDbCreators] = useState<string[]>([]);
+
   const [batchSize, setBatchSize] = useState<number | ''>('');
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchMessage, setBatchMessage] = useState('');
+
+  // Builder State
+  const [publishToStorefront, setPublishToStorefront] = useState<boolean>(false);
+  const [bundleTitle, setBundleTitle] = useState('');
+  const [bundleSubtitle, setBundleSubtitle] = useState('');
+  const [themeBadge, setThemeBadge] = useState('DIWALI SPECIAL BUNDLE');
+  const [bundlePrice, setBundlePrice] = useState<number>(30);
+
   const [customCode, setCustomCode] = useState('');
-  const [maxUses, setMaxUses] = useState(1);
-  const [expireDays, setExpireDays] = useState(365);
+  const [maxUses, setMaxUses] = useState(100);
+  const [expireDays, setExpireDays] = useState(30);
+  const [include1YrSub, setInclude1YrSub] = useState<boolean>(true);
+  const [selectedCardSkinId, setSelectedCardSkinId] = useState('');
+  const [selectedAvatar1, setSelectedAvatar1] = useState('');
+  const [selectedAvatar2, setSelectedAvatar2] = useState('');
+  const [selectedAvatar3, setSelectedAvatar3] = useState('');
+  const [bundleCreatorName, setBundleCreatorName] = useState('');
+  const [bonusHypes, setBonusHypes] = useState<number>(0);
   const [isCreatingCustom, setIsCreatingCustom] = useState(false);
+
   const [ledgerFilter, setLedgerFilter] = useState<'all' | 'batch' | 'branded'>('all');
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [pendingSold, setPendingSold] = useState<Record<string, boolean>>({});
   const [isSavingLedger, setIsSavingLedger] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const fetchAllAnnualCodes = async () => {
-    const { data: pData } = await supabase.rpc('fetch_premium_ledger');
+    const [
+      { data: pData },
+      { data: cData },
+      { data: creatorsData },
+      { data: sigsData },
+      { data: tBundles }
+    ] = await Promise.all([
+      supabase.rpc('fetch_premium_ledger'),
+      supabase.from('promo_codes').select('*').order('created_at', { ascending: false }),
+      supabase.from('series_creators').select('name'),
+      supabase.from('creator_signatures').select('creator_name'),
+      supabase.from('themed_annual_bundles').select('*').order('created_at', { ascending: false })
+    ]);
     if (pData) setBatchCodes(pData);
-    const { data: cData } = await supabase
-      .from('promo_codes')
-      .select('*')
-      .order('created_at', { ascending: false });
     if (cData) {
       setBrandedCodes(cData.filter((r: any) => !isCreatorInviteRow(r)));
     }
+    if (tBundles) {
+      setThemedBundles(tBundles);
+    }
+    const names = [
+      ...(creatorsData || []).map((r: any) => r.name),
+      ...(sigsData || []).map((r: any) => r.creator_name)
+    ].filter(Boolean);
+    setDbCreators(names);
   };
 
   useEffect(() => {
     fetchAllAnnualCodes();
   }, []);
+
+  const creatorOptions = useMemo(() => {
+    const uniqueMap = new Map<string, string>();
+    dbCreators.forEach(name => {
+      if (name && name.trim().length >= 2) uniqueMap.set(name.trim().toLowerCase(), name.trim());
+    });
+    seriesList.forEach((s: any) => {
+      if (s.creator_name) uniqueMap.set(s.creator_name.trim().toLowerCase(), s.creator_name.trim());
+    });
+    return Array.from(uniqueMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [seriesList, dbCreators]);
+
+  const copyToClipboard = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(key);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const downloadCSV = (codes: { generated_code: string }[]) => {
     const csvContent =
@@ -1552,33 +1595,125 @@ const PromoCodeManager = () => {
 
   const generateBrandedSuggestion = () => {
     const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-    setCustomCode(`SATAM-PRO-${suffix}`);
+    const prefix = bundleTitle
+      ? bundleTitle.split(' ')[0].toUpperCase().replace(/[^A-Z0-9]/g, '')
+      : bundleCreatorName
+      ? bundleCreatorName.split(' ')[0].toUpperCase().replace(/[^A-Z0-9]/g, '')
+      : 'SATAM';
+    setCustomCode(`${prefix}-BUNDLE-${suffix}`);
   };
+
+  const selectedSkinObj = useMemo(
+    () => (cardSkins || []).find((sk: any) => String(sk.id) === String(selectedCardSkinId)),
+    [cardSkins, selectedCardSkinId]
+  );
 
   const handleCreateCustomAnnual = async (e: React.FormEvent) => {
     e.preventDefault();
     const clean = customCode.trim().toUpperCase().replace(/\s+/g, '-');
-    if (!clean) return alert('Please enter a custom-branded code.');
+    if (!clean) return alert('Please enter or auto-fill an access code name.');
+    if (publishToStorefront && !bundleTitle.trim()) {
+      return alert('Please enter a Bundle Title (e.g. "MMWOG Diwali Annual Bundle") for the Subscription Page.');
+    }
+
     setIsCreatingCustom(true);
+
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + Number(expireDays || 365));
-    const { error } = await supabase.from('promo_codes').insert([
-      {
-        code: clean,
-        tier: 'premium',
-        max_uses: Number(maxUses) || 1,
-        expires_at: expiresAt.toISOString()
+
+    const avatarUrls = [selectedAvatar1, selectedAvatar2, selectedAvatar3].filter(Boolean);
+    const avatarNames = avatarUrls.map(url => {
+      const found = (vaultAvatars || []).find((a: any) => a.image_url === url);
+      return found?.name || 'Avatar';
+    });
+
+    const bundleConfigPayload = {
+      include_1yr_sub: include1YrSub,
+      bundle_title: bundleTitle.trim() || undefined,
+      card_skin_id: selectedCardSkinId || undefined,
+      card_skin_name: selectedSkinObj?.name || undefined,
+      card_skin_url: selectedSkinObj?.image_url || undefined,
+      avatar_urls: avatarUrls,
+      avatar_names: avatarNames,
+      creator_autograph: bundleCreatorName.trim() || undefined,
+      bonus_hypes: Number(bonusHypes || 0)
+    };
+
+    const payload: Record<string, any> = {
+      code: clean,
+      tier: 'premium',
+      max_uses: Number(maxUses) || 1,
+      times_used: 0,
+      expires_at: expiresAt.toISOString(),
+      creator_name: bundleCreatorName.trim() || null,
+      bundle_config: bundleConfigPayload
+    };
+
+    let { error } = await supabase.from('promo_codes').insert([payload]);
+
+    if (error && String(error.message || '').includes('bundle_config')) {
+      delete payload.bundle_config;
+      const retry = await supabase.from('promo_codes').insert([payload]);
+      error = retry.error;
+    }
+
+    if (!error && publishToStorefront) {
+      const { error: tbErr } = await supabase.from('themed_annual_bundles').insert([
+        {
+          title: bundleTitle.trim(),
+          subtitle:
+            bundleSubtitle.trim() ||
+            `Includes 1-Year Saturday AM+ PLUS, ${
+              selectedSkinObj?.name ? `${selectedSkinObj.name} Card Skin, ` : ''
+            }${avatarUrls.length > 0 ? `${avatarUrls.length} Character Avatars, ` : ''}${
+              bundleCreatorName ? `and ${bundleCreatorName}'s Gold Signature Badge!` : 'and exclusive rewards!'
+            }`,
+          theme_badge: themeBadge.trim() || 'LIMITED EDITION BUNDLE',
+          price_dollars: Number(bundlePrice || 30),
+          card_skin_id: selectedCardSkinId || null,
+          card_skin_name: selectedSkinObj?.name || null,
+          card_skin_url: selectedSkinObj?.image_url || null,
+          avatar_urls: avatarUrls,
+          avatar_names: avatarNames,
+          creator_autograph: bundleCreatorName.trim() || null,
+          bonus_hypes: Number(bonusHypes || 0),
+          promo_code: clean,
+          is_active: true
+        }
+      ]);
+      if (tbErr) {
+        console.warn('Note: themed_annual_bundles insert error (run SQL migration):', tbErr.message);
       }
-    ]);
+    }
+
     setIsCreatingCustom(false);
-    if (error) alert('Error creating custom annual code: ' + error.message);
-    else {
-      alert(`Custom 1-Year Pro Code "${clean}" created!`);
+    if (error) {
+      alert('Error creating custom bundle/code: ' + error.message);
+    } else {
+      alert(
+        publishToStorefront
+          ? `SUCCESS! Published "${bundleTitle}" ($${bundlePrice}/yr) to the Subscription Page AND created Access Code "${clean}"!`
+          : `SUCCESS! Custom Bundle Code "${clean}" created (${maxUses} uses, valid ${expireDays} days)!`
+      );
       setCustomCode('');
-      setMaxUses(1);
-      setExpireDays(365);
+      setBundleTitle('');
+      setBundleSubtitle('');
       fetchAllAnnualCodes();
     }
+  };
+
+  const handleToggleThemedBundleActive = async (bundle: any) => {
+    await supabase
+      .from('themed_annual_bundles')
+      .update({ is_active: !bundle.is_active })
+      .eq('id', bundle.id);
+    fetchAllAnnualCodes();
+  };
+
+  const handleDeleteThemedBundle = async (id: string, title: string) => {
+    if (!window.confirm(`Remove "${title}" from the Subscription Page?`)) return;
+    await supabase.from('themed_annual_bundles').delete().eq('id', id);
+    fetchAllAnnualCodes();
   };
 
   const handleDeleteBranded = async (id: string, codeName: string) => {
@@ -1606,139 +1741,432 @@ const PromoCodeManager = () => {
       : brandedCodes.filter(
           c =>
             String(c.code || '').toUpperCase().includes(q) ||
-            String(c.buyer_name || '').toUpperCase().includes(q) ||
-            String(c.buyer_email || '').toUpperCase().includes(q) ||
-            String(c.order_number || '').toUpperCase().includes(q)
+            String(c.creator_name || '').toUpperCase().includes(q) ||
+            String(c.bundle_config?.bundle_title || '').toUpperCase().includes(q) ||
+            String(c.buyer_name || '').toUpperCase().includes(q)
         );
     return [...base];
   }, [brandedCodes, ledgerSearch]);
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl animate-fade-in">
-      <div className="flex items-center justify-between gap-3 mb-6 border-b border-zinc-800 pb-4">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl animate-fade-in space-y-8">
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-800 pb-4">
         <div className="flex items-center gap-3">
           <Key className="w-6 h-6 text-[#fe9a00]" />
           <div>
             <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
-              1-Year Annual Pro Access Keys
+              Customer Access Code & Themed Annual Bundle Builder
             </h2>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-              Generate store batch codes or custom-branded annual subscription keys
+              Build custom 1-Year Subscription Bundles with 1 Card Skin + 3 Avatars + 1 Signature + Bonus Hypes (Redeemable via Code or $30–$35 Storefront)
             </p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <form
-          onSubmit={handleCreateCustomAnnual}
-          className="bg-black border border-[#fe9a00]/40 p-6 rounded-xl flex flex-col justify-between"
-        >
+      {/* =====================================================================
+          CUSTOM BUNDLE & ACCESS CODE BUILDER FORM
+      ===================================================================== */}
+      <form
+        onSubmit={handleCreateCustomAnnual}
+        className="bg-black border-2 border-[#fe9a00]/60 p-6 rounded-2xl space-y-6 shadow-[0_0_30px_rgba(254,154,0,0.1)]"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+          <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2">
+            <Sparkles className="w-4 h-4" /> Step 1: Code & Storefront Mode
+          </h3>
+
+          <label className="flex items-center gap-2 cursor-pointer bg-zinc-900 border border-[#fe9a00]/50 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-white">
+            <input
+              type="checkbox"
+              checked={publishToStorefront}
+              onChange={e => setPublishToStorefront(e.target.checked)}
+              className="accent-[#fe9a00] w-3.5 h-3.5"
+            />
+            <span>Also Feature on Subscription Page ($30–$35 Storefront Bundle)</span>
+          </label>
+        </div>
+
+        {/* Optional Storefront Title / Badge / $30-$35 Price Row */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-4">
-              <Tag className="w-4 h-4" /> Custom-Branded Annual Code
-            </h3>
-            <div className="space-y-4">
+            <label className="block text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+              Bundle / Campaign Title {publishToStorefront ? '*' : '(Optional)'}
+            </label>
+            <input
+              type="text"
+              value={bundleTitle}
+              onChange={e => setBundleTitle(e.target.value)}
+              placeholder="e.g. MMWOG Diwali Bundle or Apple Black Pass"
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-xs focus:outline-none focus:border-[#fe9a00]"
+            />
+          </div>
+
+          {publishToStorefront && (
+            <>
               <div>
-                <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
-                  Branded Code Name
+                <label className="block text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+                  Event / Theme Badge
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={customCode}
-                    onChange={e => setCustomCode(e.target.value.toUpperCase())}
-                    required
-                    placeholder="e.g. SATAM-VIP-2026"
-                    className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl text-[#fe9a00] px-4 py-3 font-black tracking-widest text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={generateBrandedSuggestion}
-                    className="bg-zinc-800 text-zinc-300 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest cursor-pointer"
-                  >
-                    Suggest
-                  </button>
-                </div>
+                <input
+                  type="text"
+                  value={themeBadge}
+                  onChange={e => setThemeBadge(e.target.value.toUpperCase())}
+                  placeholder="e.g. DIWALI SPECIAL BUNDLE"
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-[#fe9a00] px-4 py-3 font-black tracking-widest text-xs focus:outline-none focus:border-[#fe9a00]"
+                />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
-                    Max Redemptions
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="10000"
-                    value={maxUses}
-                    onChange={e => setMaxUses(Number(e.target.value))}
-                    required
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
-                    Valid For (Days)
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="3650"
-                    value={expireDays}
-                    onChange={e => setExpireDays(Number(e.target.value))}
-                    required
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm"
-                  />
-                </div>
+
+              <div>
+                <label className="block text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+                  Storefront Bundle Price ($30–$35)
+                </label>
+                <select
+                  value={bundlePrice}
+                  onChange={e => setBundlePrice(Number(e.target.value))}
+                  className="w-full bg-zinc-900 border border-[#fe9a00] rounded-xl text-[#fe9a00] px-4 py-3 font-black text-sm cursor-pointer"
+                >
+                  <option value={30}>$30.00 / Year Bundle</option>
+                  <option value={32}>$32.00 / Year Bundle</option>
+                  <option value={35}>$35.00 / Year Bundle</option>
+                  <option value={25}>$25.00 / Year Flash Sale</option>
+                </select>
               </div>
+            </>
+          )}
+        </div>
+
+        {/* Access Code, Max Uses, Duration & 1-Yr Sub Toggle */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="md:col-span-2">
+            <label className="block text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+              Access Code Name *
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={customCode}
+                onChange={e => setCustomCode(e.target.value.toUpperCase())}
+                required
+                placeholder="e.g. DIWALI-MMWOG-2026 or AB-VIP"
+                className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl text-[#fe9a00] px-4 py-3 font-black tracking-widest text-sm focus:outline-none focus:border-[#fe9a00]"
+              />
+              <button
+                type="button"
+                onClick={generateBrandedSuggestion}
+                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-4 rounded-xl font-black text-[10px] uppercase tracking-widest cursor-pointer"
+              >
+                Auto-Fill
+              </button>
             </div>
           </div>
-          <button
-            type="submit"
-            disabled={isCreatingCustom || !customCode.trim()}
-            className="mt-6 w-full flex items-center justify-center gap-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl cursor-pointer"
-          >
-            {isCreatingCustom ? 'Creating...' : 'Create Branded 1-Year Code'}
-          </button>
-        </form>
 
-        <div className="bg-black border border-zinc-800 p-6 rounded-xl flex flex-col justify-between">
           <div>
-            <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3 mb-4">
-              <Download className="w-4 h-4 text-[#fe9a00]" /> Batch Generate Store Codes (CSV)
-            </h3>
-            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-1.5">
-              Number of Single-Use Codes to Generate
+            <label className="block text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+              Defined Uses (1 = 1-Time) *
             </label>
             <input
               type="number"
               min="1"
-              max="1000"
-              placeholder="Quantity (e.g. 50)"
-              value={batchSize}
-              onChange={e => setBatchSize(e.target.value ? Number(e.target.value) : '')}
-              className="w-full bg-zinc-900 border border-zinc-700 p-3.5 rounded-xl text-white text-sm font-bold"
+              max="10000"
+              value={maxUses}
+              onChange={e => setMaxUses(Number(e.target.value))}
+              required
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]"
             />
-            {batchMessage && <p className="mt-4 text-xs font-bold text-emerald-400">{batchMessage}</p>}
           </div>
-          <button
-            type="button"
-            onClick={handleBatchGenerate}
-            disabled={batchLoading || !batchSize}
-            className="mt-6 w-full bg-zinc-800 hover:bg-[#fe9a00] text-white hover:text-black py-4 rounded-xl font-black uppercase tracking-widest text-xs cursor-pointer"
-          >
-            {batchLoading ? 'Generating Batch...' : 'Generate & Export CSV'}
-          </button>
+
+          <div>
+            <label className="block text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1.5">
+              Valid For (Days) *
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="3650"
+              value={expireDays}
+              onChange={e => setExpireDays(Number(e.target.value))}
+              required
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-xl text-white px-4 py-3 font-bold text-sm focus:outline-none focus:border-[#fe9a00]"
+            />
+          </div>
         </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mr-1">
+              Quick Presets:
+            </span>
+            {[
+              { label: '1-Time Code (1 Use)', uses: 1, days: 30 },
+              { label: '3-Day Flash (5 Uses)', uses: 5, days: 3 },
+              { label: 'Diwali Event (14 Days)', uses: 500, days: 14 },
+              { label: '1 Year (365 Days)', uses: 100, days: 365 }
+            ].map((preset, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  setMaxUses(preset.uses);
+                  setExpireDays(preset.days);
+                }}
+                className="px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider bg-zinc-900 hover:bg-[#fe9a00] text-zinc-300 hover:text-black border border-zinc-800 transition-colors cursor-pointer"
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer text-[10px] font-black uppercase tracking-widest text-emerald-400">
+            <input
+              type="checkbox"
+              checked={include1YrSub}
+              onChange={e => setInclude1YrSub(e.target.checked)}
+              className="accent-emerald-500 w-3.5 h-3.5"
+            />
+            <span>Includes 1-Year Full App PLUS Subscription</span>
+          </label>
+        </div>
+
+        {/* STEP 2: DATABASE REWARD DROPDOWNS (CARD SKIN, 3 AVATARS, SIGNATURE, HYPES) */}
+        <div className="pt-4 border-t border-zinc-800 space-y-4">
+          <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2">
+            <Gift className="w-4 h-4" /> Step 2: Select Optional Database Items to Bundle
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* 1. Hype Card Skin Dropdown */}
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 space-y-2">
+              <label className="block text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
+                1. Themed Hype Card Skin
+              </label>
+              <select
+                value={selectedCardSkinId}
+                onChange={e => setSelectedCardSkinId(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-3 py-2.5 font-bold text-xs cursor-pointer focus:outline-none focus:border-[#fe9a00]"
+              >
+                <option value="">-- No Card Skin --</option>
+                {(cardSkins || []).map((sk: any) => (
+                  <option key={sk.id} value={sk.id}>
+                    {sk.name} {sk.series_name ? `(${sk.series_name})` : ''}
+                  </option>
+                ))}
+              </select>
+              {selectedSkinObj?.image_url && (
+                <div className="flex items-center gap-2 pt-1">
+                  <img
+                    src={selectedSkinObj.image_url}
+                    alt={selectedSkinObj.name}
+                    className="w-10 h-14 object-cover rounded border border-[#fe9a00]"
+                  />
+                  <span className="text-[10px] font-bold text-emerald-400">
+                    ✓ Auto-Equips {selectedSkinObj.name}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* 2. Creator / Event Signature Dropdown */}
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 space-y-2">
+              <label className="block text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
+                2. Creator / Event Gold Signature
+              </label>
+              <select
+                value={bundleCreatorName}
+                onChange={e => setBundleCreatorName(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-3 py-2.5 font-bold text-xs cursor-pointer focus:outline-none focus:border-[#fe9a00]"
+              >
+                <option value="">-- No Signature Badge --</option>
+                {creatorOptions.map(cName => (
+                  <option key={cName} value={cName}>
+                    {cName}'s Gold Signature
+                  </option>
+                ))}
+              </select>
+              <p className="text-[9px] text-zinc-500 font-bold">
+                Unlocks in the user's Bingo Book & shines in gold foil on Series pages (+25 Fandom Pts).
+              </p>
+            </div>
+
+            {/* 3. Bonus Hypes Selector */}
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 space-y-2">
+              <label className="block text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
+                3. Extra Bonus Hypes
+              </label>
+              <select
+                value={bonusHypes}
+                onChange={e => setBonusHypes(Number(e.target.value))}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-[#fe9a00] px-3 py-2.5 font-black text-xs cursor-pointer focus:outline-none focus:border-[#fe9a00]"
+              >
+                <option value={0}>0 Extra Hypes (Standard 3 Weekly)</option>
+                <option value={1}>+1 Bonus Hype</option>
+                <option value={2}>+2 Bonus Hypes</option>
+                <option value={3}>+3 Bonus Hypes</option>
+                <option value={5}>+5 Bonus Hypes</option>
+                <option value={10}>+10 Bonus Hypes</option>
+              </select>
+              <p className="text-[9px] text-zinc-500 font-bold">
+                Stacks directly on top of the user's current Hype wallet balance!
+              </p>
+            </div>
+          </div>
+
+          {/* 4. Up to 3 Character Profile Avatars */}
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-3">
+            <label className="block text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
+              4. Up to 3 Themed Character Profile Avatars (Avatar #1 Auto-Equips on Profile)
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                { label: 'Avatar Slot #1 (Primary)', val: selectedAvatar1, setVal: setSelectedAvatar1 },
+                { label: 'Avatar Slot #2', val: selectedAvatar2, setVal: setSelectedAvatar2 },
+                { label: 'Avatar Slot #3', val: selectedAvatar3, setVal: setSelectedAvatar3 }
+              ].map((slot, idx) => (
+                <div key={idx} className="flex items-center gap-2.5 bg-black border border-zinc-800 rounded-lg p-2">
+                  {slot.val ? (
+                    <img
+                      src={slot.val}
+                      alt={slot.label}
+                      className="w-10 h-10 rounded-full object-cover border-2 border-[#fe9a00] shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[9px] font-black text-zinc-500 shrink-0">
+                      #{idx + 1}
+                    </div>
+                  )}
+                  <select
+                    value={slot.val}
+                    onChange={e => slot.setVal(e.target.value)}
+                    className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 rounded px-2.5 py-2 text-xs text-white font-bold cursor-pointer focus:outline-none focus:border-[#fe9a00]"
+                  >
+                    <option value="">-- None --</option>
+                    {(vaultAvatars || []).map((av: any) => (
+                      <option key={av.id || av.image_url} value={av.image_url}>
+                        {av.name || 'Character Avatar'} {av.series_title ? `(${av.series_title})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={isCreatingCustom || !customCode.trim()}
+          className="w-full flex items-center justify-center gap-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs py-4 rounded-xl cursor-pointer shadow-[0_0_25px_rgba(254,154,0,0.35)] disabled:opacity-40"
+        >
+          {isCreatingCustom
+            ? 'Saving Bundle & Code...'
+            : publishToStorefront
+            ? `+ Publish "${bundleTitle || 'Themed Bundle'}" ($${bundlePrice}/yr) & Create Code "${customCode || '...'}"`
+            : `+ Create Custom Bundle Access Code "${customCode || '...'}" (${maxUses} Uses)`}
+        </button>
+      </form>
+
+      {/* ACTIVE STOREFRONT THEMED ANNUAL BUNDLES ($30-$35) */}
+      {themedBundles.length > 0 && (
+        <div className="bg-black border border-[#fe9a00]/40 p-6 rounded-xl space-y-3">
+          <h3 className="text-xs font-black uppercase tracking-widest text-[#fe9a00]">
+            Live Storefront Themed Annual Bundles on Subscription Page ({themedBundles.length})
+          </h3>
+          <div className="space-y-2.5">
+            {themedBundles.map(tb => (
+              <div
+                key={tb.id}
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-950 border border-zinc-800 p-3.5 rounded-xl"
+              >
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-black uppercase text-white">{tb.title}</span>
+                    <span className="text-xs font-black text-[#fe9a00]">${tb.price_dollars}/yr</span>
+                    {tb.promo_code && (
+                      <span className="text-[9px] font-mono bg-zinc-900 border border-zinc-700 px-2 py-0.5 rounded text-zinc-300">
+                        Code: {tb.promo_code}
+                      </span>
+                    )}
+                    <span
+                      className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ${
+                        tb.is_active
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/40'
+                          : 'bg-zinc-800 text-zinc-400'
+                      }`}
+                    >
+                      {tb.is_active ? 'Visible on Sub Page' : 'Hidden'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-zinc-400 font-bold mt-1">
+                    {[
+                      tb.card_skin_name ? `Skin: ${tb.card_skin_name}` : null,
+                      Array.isArray(tb.avatar_urls) && tb.avatar_urls.length > 0
+                        ? `${tb.avatar_urls.length} Avatars`
+                        : null,
+                      tb.creator_autograph ? `Sig: ${tb.creator_autograph}` : null,
+                      Number(tb.bonus_hypes) > 0 ? `+${tb.bonus_hypes} Hypes` : null
+                    ]
+                      .filter(Boolean)
+                      .join(' • ')}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleThemedBundleActive(tb)}
+                    className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-[9px] font-black uppercase tracking-widest rounded-lg border border-zinc-700 cursor-pointer"
+                  >
+                    {tb.is_active ? 'Hide' : 'Show'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteThemedBundle(tb.id, tb.title)}
+                    className="p-2 text-zinc-500 hover:text-red-500 cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* BATCH CSV GENERATOR */}
+      <div className="bg-black border border-zinc-800 p-6 rounded-xl flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div className="flex-1">
+          <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2 mb-2">
+            <Download className="w-4 h-4 text-[#fe9a00]" /> Batch Generate Single-Use Store Codes (CSV)
+          </h3>
+          <input
+            type="number"
+            min="1"
+            max="1000"
+            placeholder="Quantity of random 1-use codes (e.g. 50)"
+            value={batchSize}
+            onChange={e => setBatchSize(e.target.value ? Number(e.target.value) : '')}
+            className="w-full bg-zinc-900 border border-zinc-700 p-3 rounded-xl text-white text-xs font-bold"
+          />
+          {batchMessage && <p className="mt-2 text-xs font-bold text-emerald-400">{batchMessage}</p>}
+        </div>
+        <button
+          type="button"
+          onClick={handleBatchGenerate}
+          disabled={batchLoading || !batchSize}
+          className="px-6 py-3.5 bg-zinc-800 hover:bg-[#fe9a00] text-white hover:text-black rounded-xl font-black uppercase tracking-widest text-xs cursor-pointer shrink-0"
+        >
+          {batchLoading ? 'Generating...' : 'Generate & Export CSV'}
+        </button>
       </div>
 
+      {/* ACTIVE CODES LEDGER */}
       <div className="bg-black p-6 rounded-xl border border-zinc-800">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-zinc-800">
           <div className="relative flex-1">
             <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search code, purchaser name, email, order #..."
+              placeholder="Search code, bundle title, creator..."
               value={ledgerSearch}
               onChange={e => setLedgerSearch(e.target.value)}
               className="w-full bg-zinc-900 border border-zinc-700 text-white pl-8 pr-3 py-2 rounded-lg text-xs font-bold"
@@ -1761,7 +2189,7 @@ const PromoCodeManager = () => {
                 ledgerFilter === 'branded' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400'
               }`}
             >
-              Shopify & Branded ({brandedCodes.length})
+              Custom & Bundles ({brandedCodes.length})
             </button>
             <button
               type="button"
@@ -1786,36 +2214,124 @@ const PromoCodeManager = () => {
 
         <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
           {(ledgerFilter === 'all' || ledgerFilter === 'branded') &&
-            filteredBrandedCodes.map(c => (
-              <div
-                key={`branded-${c.id}`}
-                className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-zinc-950 border border-[#fe9a00]/40 p-4 rounded-xl gap-4"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="bg-[#fe9a00]/20 text-[#fe9a00] text-[8px] font-black uppercase px-2 py-0.5 rounded">
-                      {c.order_number ? `Shopify ${c.order_number}` : 'Custom Branded'}
-                    </span>
-                    <h4 className="font-black tracking-widest text-sm text-white">{c.code}</h4>
-                  </div>
-                  {(c.buyer_name || c.buyer_email) && (
-                    <div className="text-xs text-zinc-300 font-bold">
-                      {c.buyer_name} {c.buyer_email ? `• ${c.buyer_email}` : ''}
+            filteredBrandedCodes.map(c => {
+              const used = Number(c.times_used || 0);
+              const max = Number(c.max_uses || 1);
+              const isDepleted = used >= max;
+              const isExpired = c.expires_at && new Date() > new Date(c.expires_at);
+              const magicUrl = `https://www.mangahype.com/?promo=${encodeURIComponent(c.code)}`;
+              const bCfg = c.bundle_config || {};
+              const rewardTags = [
+                bCfg.include_1yr_sub !== false ? '1-Yr PLUS' : null,
+                bCfg.card_skin_name ? `Skin: ${bCfg.card_skin_name}` : null,
+                Array.isArray(bCfg.avatar_urls) && bCfg.avatar_urls.length > 0
+                  ? `${bCfg.avatar_urls.length} Avatars`
+                  : null,
+                bCfg.creator_autograph || c.creator_name
+                  ? `Sig: ${bCfg.creator_autograph || c.creator_name}`
+                  : null,
+                Number(bCfg.bonus_hypes) > 0 ? `+${bCfg.bonus_hypes} Hypes` : null
+              ].filter(Boolean);
+
+              return (
+                <div
+                  key={`branded-${c.id}`}
+                  className={`flex flex-col sm:flex-row justify-between items-start sm:items-center border p-4 rounded-xl gap-4 ${
+                    isDepleted || isExpired
+                      ? 'bg-zinc-950/60 border-zinc-800 opacity-65'
+                      : 'bg-zinc-950 border-[#fe9a00]/40'
+                  }`}
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="bg-[#fe9a00]/20 text-[#fe9a00] text-[8px] font-black uppercase px-2 py-0.5 rounded">
+                        {bCfg.bundle_title || (c.creator_name ? 'Flash Bundle' : 'Custom Bundle Code')}
+                      </span>
+                      <h4 className="font-mono font-black tracking-widest text-sm text-white">
+                        {c.code}
+                      </h4>
+                      <span
+                        className={`text-[8px] font-black uppercase px-2 py-0.5 rounded border ${
+                          isDepleted
+                            ? 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                            : isExpired
+                            ? 'bg-red-950 text-red-400 border-red-800'
+                            : 'bg-emerald-950/80 text-emerald-400 border-emerald-500/40'
+                        }`}
+                      >
+                        {isDepleted
+                          ? `All Claimed (${used}/${max})`
+                          : isExpired
+                          ? 'Expired'
+                          : `Active (${used}/${max} Used)`}
+                      </span>
                     </div>
-                  )}
-                  <div className="text-[9px] text-zinc-400 font-bold uppercase">
-                    Redeemed: {c.times_used || 0} / {c.max_uses || 1}
+
+                    {rewardTags.length > 0 && (
+                      <div className="text-[10px] text-[#fe9a00] font-bold">
+                        Rewards: {rewardTags.join(' • ')}
+                      </div>
+                    )}
+
+                    <div className="text-[9px] text-zinc-400 font-bold uppercase flex flex-wrap items-center gap-3">
+                      <span>
+                        Redemptions: <strong className="text-white">{used} / {max}</strong>
+                      </span>
+                      {c.expires_at && (
+                        <span>
+                          Expires:{' '}
+                          <strong className="text-zinc-300">
+                            {new Date(c.expires_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </strong>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {!isDepleted && !isExpired && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(magicUrl, `magic_${c.id}`)}
+                          className="px-3 py-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-[9px] rounded-lg flex items-center gap-1.5 cursor-pointer"
+                          title="Copy 1-Click Magic Redemption Link"
+                        >
+                          {copiedId === `magic_${c.id}` ? (
+                            <><Check className="w-3.5 h-3.5" /> Copied Link</>
+                          ) : (
+                            <><Link2 className="w-3.5 h-3.5" /> Copy Magic Link</>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(c.code, `code_${c.id}`)}
+                          className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase tracking-widest text-[9px] rounded-lg flex items-center gap-1.5 cursor-pointer"
+                        >
+                          {copiedId === `code_${c.id}` ? (
+                            <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copied</>
+                          ) : (
+                            <><Copy className="w-3.5 h-3.5" /> Copy Code</>
+                          )}
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteBranded(c.id, c.code)}
+                      className="p-2 text-zinc-500 hover:text-red-500 cursor-pointer"
+                      title="Delete Code"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteBranded(c.id, c.code)}
-                  className="p-2 text-zinc-500 hover:text-red-500 cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
+              );
+            })}
         </div>
       </div>
     </div>
@@ -1999,6 +2515,7 @@ const BingoCodeManager = () => {
   const [codes, setCodes] = useState<any[]>([]);
   const [creatorName, setCreatorName] = useState('');
   const [duration, setDuration] = useState('24h');
+  const [pinMaxUses, setPinMaxUses] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dbCreators, setDbCreators] = useState<string[]>([]);
 
@@ -2042,21 +2559,23 @@ const BingoCodeManager = () => {
     else if (duration === '12h') expiresAt.setHours(expiresAt.getHours() + 12);
     else if (duration === '24h') expiresAt.setHours(expiresAt.getHours() + 24);
     else if (duration === '72h') expiresAt.setHours(expiresAt.getHours() + 72);
+    else if (duration === '7d') expiresAt.setDate(expiresAt.getDate() + 7);
     else if (duration === 'permanent') expiresAt.setFullYear(expiresAt.getFullYear() + 100);
 
     const { error } = await supabase.from('bingo_codes').insert([
       {
         code: pin,
         creator_name: creatorName.trim(),
-        event_name: 'Standard Unlock',
-        max_uses: 999999,
+        event_name: pinMaxUses === 1 ? '1-Time Fan Gift PIN' : 'Standard Event Unlock',
+        max_uses: Number(pinMaxUses) || 999999,
+        times_used: 0,
         expires_at: expiresAt.toISOString()
       }
     ]);
     setIsSubmitting(false);
     if (error) alert('Error creating PIN: ' + error.message);
     else {
-      alert(`Code Generated: ${pin}`);
+      alert(`PIN Generated: ${pin} (${pinMaxUses === 999999 ? 'Unlimited Uses' : `${pinMaxUses} Use(s)`})`);
       setCreatorName('');
       fetchCodes();
     }
@@ -2073,14 +2592,14 @@ const BingoCodeManager = () => {
       <div className="flex items-center gap-3 mb-6 border-b border-zinc-800 pb-4">
         <Mic className="w-6 h-6 text-[#fe9a00]" />
         <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
-          Bingo Codes
+          Bingo Autograph PINs (1-Time Gift & Live Event)
         </h2>
       </div>
       <form
         onSubmit={handleCreate}
         className="bg-black p-6 rounded-xl border border-zinc-800 mb-8 space-y-4"
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">
               Select Creator
@@ -2099,6 +2618,23 @@ const BingoCodeManager = () => {
               ))}
             </select>
           </div>
+
+          <div>
+            <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">
+              PIN Usage Limit
+            </label>
+            <select
+              value={pinMaxUses}
+              onChange={e => setPinMaxUses(Number(e.target.value))}
+              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg text-white px-4 py-3 font-bold text-sm cursor-pointer"
+            >
+              <option value={1}>1-Time Fan Gift PIN (1 Use Only)</option>
+              <option value={5}>Flash Giveaway (5 Uses)</option>
+              <option value={10}>Flash Giveaway (10 Uses)</option>
+              <option value={999999}>Live Event PIN (Unlimited Uses)</option>
+            </select>
+          </div>
+
           <div>
             <label className="block text-zinc-500 font-bold uppercase tracking-widest text-[10px] mb-2">
               Duration
@@ -2112,7 +2648,8 @@ const BingoCodeManager = () => {
               <option value="1h">1 Hour</option>
               <option value="12h">12 Hours</option>
               <option value="24h">24 Hours</option>
-              <option value="72h">72 Hours</option>
+              <option value="72h">72 Hours (3 Days)</option>
+              <option value="7d">7 Days</option>
               <option value="permanent">Permanent</option>
             </select>
           </div>
@@ -2129,7 +2666,11 @@ const BingoCodeManager = () => {
 
       <div className="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
         {codes.map(c => {
-          const isExpired = new Date() > new Date(c.expires_at);
+          const isExpired = c.expires_at && new Date() > new Date(c.expires_at);
+          const used = Number(c.times_used || 0);
+          const max = Number(c.max_uses || 999999);
+          const isDepleted = max < 999999 && used >= max;
+
           return (
             <div
               key={c.id}
@@ -2140,12 +2681,22 @@ const BingoCodeManager = () => {
                   <h4 className="font-black tracking-[0.5em] text-white text-2xl">{c.code}</h4>
                   <span
                     className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${
-                      isExpired
+                      isDepleted
+                        ? 'text-zinc-400 border-zinc-700 bg-zinc-900'
+                        : isExpired
                         ? 'text-red-500 border-red-900 bg-red-900/10'
                         : 'text-[#fe9a00] border-[#fe9a00]/50 bg-[#fe9a00]/10'
                     }`}
                   >
-                    {isExpired ? 'EXPIRED' : 'LIVE'}
+                    {isDepleted
+                      ? `CLAIMED (${used}/${max})`
+                      : isExpired
+                      ? 'EXPIRED'
+                      : max === 1
+                      ? `1-TIME PIN (${used}/1)`
+                      : max < 999999
+                      ? `LIVE (${used}/${max} USED)`
+                      : `LIVE EVENT (${used} USED)`}
                   </span>
                 </div>
                 <span className="text-[10px] font-bold text-zinc-400 uppercase">
@@ -2384,9 +2935,9 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
     'avatars' | 'frames' | 'stickers' | 'cardskins' | 'signatures' | 'bingocodes'
   >('avatars');
   const [usersSubTab, setUsersSubTab] = useState<'users' | 'moderation' | 'accesskeys'>('users');
-  const [marketingSubTab, setMarketingSubTab] = useState<'adstudio' | 'hype' | 'notifications'>(
-    'adstudio'
-  );
+  const [marketingSubTab, setMarketingSubTab] = useState<
+    'accesskeys' | 'adstudio' | 'hype' | 'notifications'
+  >('accesskeys');
 
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedWarning(isDirty);
@@ -2553,7 +3104,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
                   </span>
                   {[
                     { id: 'signatures', label: 'Signature Vault' },
-                    { id: 'bingocodes', label: 'Bingo Event PINs' }
+                    { id: 'bingocodes', label: 'Bingo Event & 1-Time PINs' }
                   ].map(item => (
                     <button
                       key={item.id}
@@ -2626,7 +3177,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
                       : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
                   }`}
                 >
-                  <Key className="w-3.5 h-3.5" /> Annual Pro Access Keys
+                  <Key className="w-3.5 h-3.5" /> 1-Year Free Codes & Bundles
                 </button>
               </div>
 
@@ -2639,6 +3190,17 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
           {activeTab === 'marketing' && (
             <div className="space-y-6">
               <div className="flex flex-wrap items-center gap-2 bg-zinc-900 border border-zinc-800 p-3 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setMarketingSubTab('accesskeys')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    marketingSubTab === 'accesskeys'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Key className="w-3.5 h-3.5" /> 1-Year Free Codes & Bundles
+                </button>
                 <button
                   type="button"
                   onClick={() => setMarketingSubTab('adstudio')}
@@ -2674,6 +3236,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
                 </button>
               </div>
 
+              {marketingSubTab === 'accesskeys' && <PromoCodeManager />}
               {marketingSubTab === 'adstudio' && (
                 <HouseAdBuilder Dropzone={Dropzone} setIsDirty={setIsDirty} />
               )}

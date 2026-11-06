@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Search, X, ArrowLeft, Swords, MapPin, Activity, User,
   Lock, Heart, BookOpen, Zap, AlertCircle, FileText
@@ -36,12 +36,10 @@ const getGroupHeaderColor = (groupName: string) => {
   return 'text-[#fe9a00]';
 };
 
-// Helper to break giant walls of text or numbered strings ("1. ... 2. ...") into clean, readable chunks
 const formatLoreChunks = (rawText?: string): string[] => {
   if (!rawText || !rawText.trim()) return [];
   const clean = rawText.trim();
 
-  // Check if text uses numbered points like "1. ... 2. ..."
   if (/\b1\.\s/.test(clean) && /\b2\.\s/.test(clean)) {
     return clean
       .split(/(?=\b\d+\.\s)/)
@@ -49,7 +47,6 @@ const formatLoreChunks = (rawText?: string): string[] => {
       .filter(Boolean);
   }
 
-  // Otherwise split by line breaks or group every 2 sentences so it never forms a giant wall
   const paragraphs = clean.split(/\n+/).map(p => p.trim()).filter(Boolean);
   if (paragraphs.length > 1) return paragraphs;
 
@@ -75,7 +72,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
   const [charLikes, setCharLikes] = useState<Record<string, boolean>>({});
   const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium'; message: string } | null>(null);
 
-  // Notify app overlay listener when character dossier modal is open
   useEffect(() => {
     if (selectedChar) {
       window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
@@ -85,30 +81,37 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     }
   }, [selectedChar]);
 
-  useEffect(() => {
-    const fetchCharacters = async () => {
-      setIsLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('series_characters')
-          .select('*')
-          .or('is_hidden.is.null,is_hidden.eq.false')
-          .order('id', { ascending: true });
-        if (error) throw error;
-        const updatedRoles = (data || []).map(c => ({
-          ...c,
-          role_type: c.role_type === 'Hero' ? 'Support' : c.role_type
-        }));
-        setRawCharacters(updatedRoles);
-      } catch (err) {
-        console.error('Failed to fetch characters:', err);
-        setRawCharacters([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchCharacters();
+  const fetchCharacters = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('series_characters')
+        .select('*')
+        .or('is_hidden.is.null,is_hidden.eq.false')
+        .order('id', { ascending: true });
+      if (error) throw error;
+      const updatedRoles = (data || []).map(c => ({
+        ...c,
+        role_type: c.role_type === 'Hero' ? 'Support' : c.role_type
+      }));
+      setRawCharacters(updatedRoles);
+    } catch (err) {
+      console.error('Failed to fetch characters:', err);
+      setRawCharacters([]);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchCharacters();
+    window.addEventListener('seriesUpdated', fetchCharacters);
+    window.addEventListener('vaultUpdated', fetchCharacters);
+    return () => {
+      window.removeEventListener('seriesUpdated', fetchCharacters);
+      window.removeEventListener('vaultUpdated', fetchCharacters);
+    };
+  }, [fetchCharacters]);
 
   useEffect(() => {
     if (!currentUser || !rawCharacters.length) return;
@@ -139,7 +142,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     });
   }, [rawCharacters, seriesList]);
 
-  // Auto-open character dossier modal when arriving from a "New Character Unlocked!" notification
   useEffect(() => {
     if (isLoading || characters.length === 0) return;
     const targetId = sessionStorage.getItem('am_target_character_id');
@@ -288,15 +290,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
         </div>
       )}
 
-      <div className="fixed inset-0 z-0 bg-black pointer-events-none">
-        <img
-          src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png"
-          alt="Manga Collage"
-          className="w-full h-full object-cover opacity-30 mix-blend-overlay"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-black via-black/50 to-black" />
-      </div>
-
       {/* Top Sticky Filter Header */}
       <div className="sticky top-0 z-50 w-full bg-black/90 backdrop-blur-xl px-6 pt-6 pb-4 border-b border-zinc-800 mb-8 shadow-xl pr-16 sm:pr-24">
         <div className="flex flex-col gap-4 max-w-7xl mx-auto">
@@ -365,7 +358,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
       {/* Main Character Grid */}
       <div className="max-w-7xl mx-auto px-6 py-4 relative z-10">
         {isLoading ? (
-          <div className="text-center py-20 bg-black/40 backdrop-blur-md rounded-2xl border border-zinc-800">
+          <div className="text-center py-20 bg-black/50 rounded-2xl border border-zinc-800">
             <div className="w-10 h-10 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin mx-auto mb-4" />
             <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Loading Roster...</p>
           </div>
@@ -418,7 +411,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
 
                         <button
                           onClick={e => handleToggleGridLike(e, char)}
-                          className="absolute top-2 left-2 z-30 p-1.5 bg-black/70 backdrop-blur-md rounded-full border border-white/10 hover:bg-zinc-800 transition-all shadow-md cursor-pointer"
+                          className="absolute top-2 left-2 z-30 p-1.5 bg-black/75 rounded-full border border-white/10 hover:bg-zinc-800 transition-all shadow-md cursor-pointer"
                         >
                           <Heart
                             className={`w-3.5 h-3.5 transition-colors ${
@@ -451,7 +444,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
             ))}
 
             {groupedChars.length === 0 && (
-              <div className="text-center py-20 text-zinc-500 text-xs font-bold uppercase tracking-widest bg-black/40 backdrop-blur-md rounded-2xl border border-zinc-800">
+              <div className="text-center py-20 text-zinc-500 text-xs font-bold uppercase tracking-widest bg-black/50 rounded-2xl border border-zinc-800">
                 No characters found matching your search.
               </div>
             )}
@@ -468,7 +461,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
         )}
       </div>
 
-      {/* SLEEK TABBED FIGHTER DOSSIER MODAL (WITH SPACER CLEARANCE FOR AM CONSOLE) */}
+      {/* SLEEK TABBED FIGHTER DOSSIER MODAL */}
       {selectedChar && (
         <div
           className="fixed inset-0 z-[6000] bg-black/90 backdrop-blur-xl flex items-center justify-center animate-fade-in px-3 pt-3 pb-24 sm:px-6 sm:pt-6 sm:pb-28"
@@ -478,7 +471,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
             className="w-full max-w-4xl max-h-[82vh] bg-zinc-950 border border-zinc-800 rounded-3xl relative flex flex-col md:flex-row shadow-[0_20px_70px_rgba(0,0,0,0.95)] overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
-            {/* Close Button */}
             <button
               onClick={() => setSelectedChar(null)}
               className="absolute top-4 right-4 z-50 p-2 bg-zinc-900/90 border border-zinc-700 rounded-full text-zinc-400 hover:text-white hover:border-[#fe9a00] transition-colors cursor-pointer"
@@ -486,7 +478,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
               <X className="w-5 h-5" />
             </button>
 
-            {/* LEFT HERO COLUMN: Portrait, Identity & Actions */}
             <div className="w-full md:w-[38%] bg-zinc-950 border-b md:border-b-0 md:border-r border-zinc-800/80 p-6 sm:p-7 flex flex-col items-center justify-between relative z-30 shrink-0">
               <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
                 <div
@@ -498,7 +489,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
               </div>
 
               <div className="flex flex-col items-center w-full relative z-10">
-                {/* Role Pill */}
                 <div className="mb-4">
                   {selectedChar?.is_mc ? (
                     <span className="px-3 py-1 text-[9px] font-black uppercase tracking-widest rounded-full bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/50">
@@ -519,7 +509,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                   )}
                 </div>
 
-                {/* Avatar Portrait */}
                 <div
                   className={`relative w-32 h-32 sm:w-44 sm:h-44 rounded-3xl border-2 overflow-hidden mb-4 bg-zinc-900 flex items-center justify-center ${getModalGlowClasses(
                     selectedChar?.role_type,
@@ -539,7 +528,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                   )}
                 </div>
 
-                {/* Name & Series */}
                 <h2 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tighter text-white text-center leading-none mb-1">
                   {selectedChar?.name || 'UNKNOWN'}
                 </h2>
@@ -554,7 +542,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                   {selectedChar?.series_title} →
                 </button>
 
-                {/* Compact Quick-Stat Strip */}
                 <div className="grid grid-cols-3 gap-2 w-full mb-5">
                   <div className="bg-black/60 border border-zinc-800/90 rounded-xl p-2.5 text-center">
                     <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 block">Affiliation</span>
@@ -577,7 +564,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                 </div>
               </div>
 
-              {/* Action Buttons (Hype Character + Like + Read Series) */}
               <div className="w-full space-y-2.5 relative z-40">
                 <div className="flex gap-2.5 w-full h-12">
                   <div className="flex-1 [&>button]:h-full [&>button]:w-full">
@@ -619,9 +605,7 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
               </div>
             </div>
 
-            {/* RIGHT DOSSIER COLUMN: Sleek Tabbed Views (Combat / Origin / Vital File) */}
             <div className="w-full md:w-[62%] flex flex-col bg-black/95 relative z-10 min-h-[320px] max-h-[46vh] md:max-h-[82vh]">
-              {/* Dossier Navigation Tabs */}
               <div className="flex items-center gap-2 px-6 pt-5 pb-3 border-b border-zinc-800/80 shrink-0 pr-14">
                 <button
                   onClick={() => setActiveTab('combat')}
@@ -657,12 +641,9 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                 </button>
               </div>
 
-              {/* Scrollable Tab Content Area with Dedicated Bottom Spacer */}
               <div className="flex-1 overflow-y-auto no-scrollbar p-6 pb-36 space-y-5">
-                {/* TAB 1: COMBAT & POWERS */}
                 {activeTab === 'combat' && (
                   <div className="space-y-5 animate-fade-in">
-                    {/* Powers Section */}
                     <div className="bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-4 sm:p-5">
                       <div className="flex items-center gap-2 mb-3">
                         <div className="w-6 h-6 rounded-lg bg-[#fe9a00]/15 border border-[#fe9a00]/40 flex items-center justify-center">
@@ -689,7 +670,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                       )}
                     </div>
 
-                    {/* Weaknesses Section */}
                     <div className="bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-4 sm:p-5">
                       <div className="flex items-center gap-2 mb-3">
                         <div className="w-6 h-6 rounded-lg bg-red-500/15 border border-red-500/40 flex items-center justify-center">
@@ -718,7 +698,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                   </div>
                 )}
 
-                {/* TAB 2: ORIGIN STORY */}
                 {activeTab === 'origin' && (
                   <div className="bg-zinc-900/50 border border-zinc-800/90 rounded-2xl p-5 animate-fade-in">
                     <div className="flex items-center gap-2 mb-4">
@@ -749,7 +728,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                   </div>
                 )}
 
-                {/* TAB 3: VITAL FILE */}
                 {activeTab === 'vitals' && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 animate-fade-in">
                     <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4">
@@ -808,7 +786,6 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
                   </div>
                 )}
 
-                {/* Dedicated bottom spacer so the AM Console never covers the last item */}
                 <div className="w-full h-32 shrink-0 pointer-events-none" />
               </div>
             </div>
@@ -818,3 +795,5 @@ export const CharacterRoster = ({ onBack, onNavigate, currentUser, onLoginClick 
     </div>
   );
 };
+
+export default CharacterRoster;

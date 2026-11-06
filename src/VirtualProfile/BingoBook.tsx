@@ -27,7 +27,6 @@ const bingoTutorialSlide = [
   }
 ];
 
-// Canonical alias groups so "Whyt Manga", "Whyt", and "Odunze Oguguo" always resolve to the same creator!
 export const CREATOR_SIGNATURE_ALIAS_GROUPS: string[][] = [
   ['odunze oguguo', 'whyt manga', 'whyt', 'odunze oguguo (whyt manga)'],
   ['jeyodin', 'jey odin'],
@@ -54,7 +53,6 @@ export const getCreatorMatchTokens = (rawName?: string): string[] => {
 
   const tokens = new Set<string>([clean]);
 
-  // Extract parenthetical aliases e.g. "Odunze Oguguo (Whyt Manga)" -> "odunze oguguo" & "whyt manga"
   const parenMatch = clean.match(/^(.+?)\s*\((.+?)\)$/);
   if (parenMatch) {
     tokens.add(parenMatch[1].trim());
@@ -98,7 +96,6 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const [upsellConfig, setUpsellConfig] = useState<{ title: string; message: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Load series_creators and all available master creator_signatures
   const fetchCreatorsAndMasterSigs = useCallback(async () => {
     try {
       const [{ data: creatorData }, { data: sigData }] = await Promise.all([
@@ -139,7 +136,6 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     [masterSignatures]
   );
 
-  // Build unified Creator Targets from both series_creators and seriesList
   const CREATOR_TARGETS = useMemo(() => {
     const uniqueCreatorsMap = new Map<
       string,
@@ -159,7 +155,6 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
         .replace(/\s+/g, ' ');
       if (cleanName.length < 2) return;
 
-      // Find if an existing entry matches via alias (e.g. "Whyt Manga" matches "Odunze Oguguo (Whyt Manga)")
       let matchedKey: string | null = null;
       for (const [k, existing] of uniqueCreatorsMap.entries()) {
         if (doCreatorNamesMatch(cleanName, existing.name)) {
@@ -183,7 +178,6 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
         });
       } else {
         const existing = uniqueCreatorsMap.get(key)!;
-        // Prefer fuller display name if one has parenthetical alias e.g. "Odunze Oguguo (Whyt Manga)"
         if (cleanName.includes('(') && !existing.name.includes('(')) {
           existing.name = cleanName;
           existing.id = cleanName;
@@ -200,14 +194,12 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       }
     };
 
-    // 1. Process official series_creators rows first
     dbCreatorRows.forEach((row: any) => {
       if (row.is_visible === false || !row.name) return;
       const matchedSeries = seriesBySlug.get(row.series_slug) || null;
       addOrMergeCreator(row.name, row.avatar_url || matchedSeries?.creator_avatar || null, matchedSeries);
     });
 
-    // 2. Fallback to seriesList creator_name fields
     seriesList.forEach((series: any) => {
       if (series.is_hidden) return;
       const rawCreator = series.creator_name || series.creator || '';
@@ -241,7 +233,6 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     }
   }, [CREATOR_TARGETS]);
 
-  // Sync user's unlocked autographs from Supabase `bingo_signatures_log` + local cache and resolve all alias URLs
   useEffect(() => {
     if (userTier === 'visitor') return;
 
@@ -286,7 +277,6 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
         }
       }
 
-      // Fetch ALL rows from creator_signatures so alias/case differences NEVER fail a `.in()` filter!
       const { data: allSigsData } = await supabase
         .from('creator_signatures')
         .select('creator_name, signature_url');
@@ -300,7 +290,6 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
         });
       }
 
-      // Build resolved signature map keyed by both raw hunt names and canonical target names
       const resolvedUserSigs: Record<string, string> = { ...knownSigs };
 
       knownHunts.forEach((huntedName: string) => {
@@ -381,7 +370,6 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
         }
       ]);
 
-      // Award +25 Fandom Score for collecting a new creator autograph!
       const { data: prof } = await supabase
         .from('profiles')
         .select('fandom_score')
@@ -452,6 +440,21 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
         return;
       }
 
+      // Enforce single-use / max_uses limit on 1-Time Fan PINs!
+      const timesUsed = Number(codesData.times_used || 0);
+      const maxUses = Number(codesData.max_uses || 999999);
+      if (maxUses > 0 && timesUsed >= maxUses) {
+        setAlertConfig({
+          title: 'PIN Already Claimed',
+          message:
+            maxUses === 1
+              ? 'This 1-Time Fan Gift PIN has already been redeemed!'
+              : 'This PIN has reached its maximum number of redemptions.'
+        });
+        setIsProcessing(false);
+        return;
+      }
+
       const success = await claimSignature(
         selectedTarget.name,
         selectedTarget.id,
@@ -460,7 +463,7 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       if (success) {
         await supabase
           .from('bingo_codes')
-          .update({ times_used: (Number(codesData.times_used) || 0) + 1 })
+          .update({ times_used: timesUsed + 1 })
           .eq('id', codesData.id);
         setIsUnlocked(true);
       }
@@ -559,7 +562,7 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
             <Target className="w-6 h-6 md:w-7 md:h-7" /> The Mission
           </h2>
           <p className="text-white text-sm md:text-base font-bold leading-relaxed">
-            Collect creator autographs via live event PINs or referrals! Collected autographs shine in glowing gold foil on your Bingo Book cards and directly on each creator's Series Detail Page.
+            Collect creator autographs via live event PINs or 1-Time Fan Gift PINs! Collected autographs shine in glowing gold foil on your Bingo Book cards and directly on each creator's Series Detail Page.
           </p>
         </div>
 
@@ -725,7 +728,7 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
                       Unlock Signature
                     </h3>
                     <p className="text-xs text-zinc-400 font-bold uppercase tracking-widest px-4">
-                      Enter the 5-Digit PIN provided by {selectedTarget.name}.
+                      Enter the 5-Digit Event or 1-Time Gift PIN provided by {selectedTarget.name}.
                     </p>
                   </div>
                   <form onSubmit={handlePinSubmit} className="flex flex-col gap-3 w-full max-w-xs mt-4">

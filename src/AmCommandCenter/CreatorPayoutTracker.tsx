@@ -22,6 +22,7 @@ import {
   Save,
   Code2
 } from 'lucide-react';
+import { buildCreatorReferralCode, getCreatorReferralCodeVariants } from '../MainViews/CreatorStudio';
 
 type PayoutSortOption =
   | 'date_desc'
@@ -44,22 +45,18 @@ export const CreatorPayoutTracker = () => {
   const [activeProCount, setActiveProCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // Price Tier Simulator / Active Pricing Selector (Auto-adjusts the 7.5% Dev Cut)
   const [pricingMode, setPricingMode] = useState<'promo' | 'normal'>('promo');
   const activeMonthlyPrice = pricingMode === 'promo' ? 1.99 : 2.99;
   const activeAnnualPrice = pricingMode === 'promo' ? 20.00 : 35.99;
 
-  // Auto-calculated 7.5% Developer Cut per unit
   const devCutPerMonthlySub = Number((activeMonthlyPrice * DEV_CUT_PERCENT).toFixed(2));
   const devCutPerAnnualSub = Number((activeAnnualPrice * DEV_CUT_PERCENT).toFixed(2));
 
-  // Filters & Sorting
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [selectedCreator, setSelectedCreator] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<PayoutSortOption>('date_desc');
 
-  // Manual Entry Modal / Drawer
   const [showAddForm, setShowAddForm] = useState(false);
   const [newCreatorName, setNewCreatorName] = useState('');
   const [newDonorName, setNewDonorName] = useState('');
@@ -69,7 +66,6 @@ export const CreatorPayoutTracker = () => {
   const [newStatus, setNewStatus] = useState('paid');
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
 
-  // Creator Notification Email Manager
   const [showEmailDirectory, setShowEmailDirectory] = useState(false);
   const [creatorEmails, setCreatorEmails] = useState<Record<string, string>>({});
   const [savingCreatorEmail, setSavingCreatorEmail] = useState<string | null>(null);
@@ -107,7 +103,8 @@ export const CreatorPayoutTracker = () => {
         setReferredProfiles(proUsers.filter((p: any) => p.referred_by_code));
         setPartnerProfiles(
           profilesData.filter((p: any) =>
-            ['creator', 'staff', 'influencer', 'core_creator'].includes(String(p.role || '').toLowerCase())
+            ['creator', 'staff', 'influencer', 'core_creator'].includes(String(p.role || '').toLowerCase()) ||
+            Boolean(p.linked_creator_name)
           )
         );
       }
@@ -148,12 +145,45 @@ export const CreatorPayoutTracker = () => {
     fetchPayoutData();
   }, [fetchPayoutData]);
 
-  // Calculate Referral Bounties ($5 Creator/Staff, $2 Influencer)
+  // Calculate Referral Bounties ($5 Creator/Staff, $2 Influencer) — synced with CreatorStudio's VIP- code generator!
   const referralCommissionSummary = useMemo(() => {
-    const partnerByCode = new Map<string, any>();
-    partnerProfiles.forEach((p) => {
-      const code = String(p.referral_code || '').trim().toUpperCase();
-      if (code) partnerByCode.set(code, p);
+    const partnerByCode = new Map<string, { partnerName: string; role: string; canonicalCode: string }>();
+
+    // 1. Register all series_creators by their canonical VIP- referral code variants
+    creators.forEach(c => {
+      const canonicalCode = buildCreatorReferralCode(c.name);
+      const variants = getCreatorReferralCodeVariants(c.name);
+      variants.forEach(v => {
+        partnerByCode.set(v.toUpperCase(), {
+          partnerName: c.name,
+          role: 'creator',
+          canonicalCode
+        });
+      });
+    });
+
+    // 2. Register partnerProfiles (overrides role if influencer or staff)
+    partnerProfiles.forEach(p => {
+      const displayName = p.linked_creator_name || p.username || 'Partner';
+      const rawRole = String(p.role || 'creator').toLowerCase();
+      const role = rawRole === 'core_creator' ? 'creator' : rawRole;
+      const canonicalCode =
+        String(p.referral_code || '').trim().toUpperCase() || buildCreatorReferralCode(displayName);
+
+      const variants = [
+        canonicalCode,
+        ...getCreatorReferralCodeVariants(displayName),
+        ...getCreatorReferralCodeVariants(p.username)
+      ];
+      variants.forEach(v => {
+        if (v) {
+          partnerByCode.set(v.toUpperCase(), {
+            partnerName: displayName,
+            role,
+            canonicalCode
+          });
+        }
+      });
     });
 
     const summaryMap = new Map<string, {
@@ -166,16 +196,16 @@ export const CreatorPayoutTracker = () => {
     }>();
 
     referredProfiles.forEach((sub) => {
-      const code = String(sub.referred_by_code || '').trim().toUpperCase();
-      if (!code) return;
-      const partner = partnerByCode.get(code);
-      const rawRole = String(partner?.role || 'creator').toLowerCase();
-      const role = rawRole === 'core_creator' ? 'creator' : rawRole;
+      const rawCode = String(sub.referred_by_code || '').trim().toUpperCase();
+      if (!rawCode) return;
+      const matchedPartner = partnerByCode.get(rawCode) || partnerByCode.get(`VIP-${rawCode}`);
+      const role = matchedPartner?.role || 'creator';
       const rate = role === 'influencer' ? 2 : 5;
-      const partnerName = partner?.linked_creator_name || partner?.username || code;
+      const partnerName = matchedPartner?.partnerName || rawCode;
+      const groupKey = matchedPartner?.canonicalCode || rawCode;
 
-      const existing = summaryMap.get(code) || {
-        code,
+      const existing = summaryMap.get(groupKey) || {
+        code: groupKey,
         partnerName,
         role,
         rate,
@@ -184,13 +214,12 @@ export const CreatorPayoutTracker = () => {
       };
       existing.referralsCount += 1;
       existing.totalCommission += rate;
-      summaryMap.set(code, existing);
+      summaryMap.set(groupKey, existing);
     });
 
     return Array.from(summaryMap.values()).sort((a, b) => b.totalCommission - a.totalCommission);
-  }, [referredProfiles, partnerProfiles]);
+  }, [referredProfiles, partnerProfiles, creators]);
 
-  // Build available YYYY-MM month options dynamically
   const availableMonths = useMemo(() => {
     const monthSet = new Set<string>();
     const now = new Date();
@@ -216,7 +245,6 @@ export const CreatorPayoutTracker = () => {
     return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   };
 
-  // Lifetime KPI Totals (All-Time)
   const lifetimeStats = useMemo(() => {
     const totalLifetimeDollars = tips.reduce((sum, t) => sum + Number(t.amount_dollars || 0), 0);
     const totalTransactions = tips.length;
@@ -241,7 +269,6 @@ export const CreatorPayoutTracker = () => {
     };
   }, [tips]);
 
-  // Filtered & Sorted Transactions
   const filteredAndSortedTips = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
 
@@ -429,7 +456,6 @@ export const CreatorPayoutTracker = () => {
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl animate-fade-in space-y-6">
-      {/* Header & Top Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
         <div className="flex items-center gap-3">
           <DollarSign className="w-6 h-6 text-[#fe9a00]" />
@@ -484,7 +510,6 @@ export const CreatorPayoutTracker = () => {
         </div>
       </div>
 
-      {/* AUTO-ADJUSTING 7.5% DEVELOPER CUT & REFERRAL BOUNTY ENGINE */}
       <div className="bg-black border border-[#fe9a00]/40 rounded-2xl p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
           <div className="flex items-center gap-2.5">
@@ -649,7 +674,6 @@ export const CreatorPayoutTracker = () => {
         </div>
       </div>
 
-      {/* OPTIONAL DRAWER 1: CREATOR NOTIFICATION EMAILS DIRECTORY */}
       {showEmailDirectory && (
         <div className="bg-black border border-[#fe9a00]/40 rounded-xl p-5 animate-fade-in space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
@@ -702,7 +726,6 @@ export const CreatorPayoutTracker = () => {
         </div>
       )}
 
-      {/* OPTIONAL DRAWER 2: MANUAL PAYOUT / TIP ENTRY FORM */}
       {showAddForm && (
         <form
           onSubmit={handleManualAddTip}
@@ -826,7 +849,6 @@ export const CreatorPayoutTracker = () => {
         </form>
       )}
 
-      {/* CREATOR EARNINGS LEADERBOARD PILLS */}
       {lifetimeStats.creatorBreakdown.length > 0 && (
         <div className="bg-black border border-zinc-800 rounded-xl p-4">
           <div className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-3 flex items-center gap-1.5">
@@ -866,7 +888,6 @@ export const CreatorPayoutTracker = () => {
         </div>
       )}
 
-      {/* FILTER & SORT CONTROLS BAR */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-black p-4 rounded-xl border border-zinc-800">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -916,7 +937,6 @@ export const CreatorPayoutTracker = () => {
         </div>
       </div>
 
-      {/* TRANSACTIONS & FAN MAIL TABLE */}
       <div className="overflow-x-auto no-scrollbar bg-black border border-zinc-800 rounded-xl">
         <table className="w-full text-left border-collapse min-w-[900px]">
           <thead>
