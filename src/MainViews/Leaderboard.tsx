@@ -190,15 +190,23 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
   const [topCharacters, setTopCharacters] = useState<any[]>([]);
   const [topWeeklyChapters, setTopWeeklyChapters] = useState<any[]>([]);
 
-  // 1-second live countdown ticker + midnight rollover detector
+  // 1-second live countdown ticker (only ticks 1s re-renders when on the 'fans' tab!)
   useEffect(() => {
-    const interval = setInterval(() => {
+    if (activeTab === 'fans') {
       setCountdown(formatMonthlyResetCountdown(resetTargetMs));
-      const currentDayKey = getLocalCalendarDateKey();
-      setDayTick(prev => (prev !== currentDayKey ? currentDayKey : prev));
-    }, 1000);
+    }
+    const interval = setInterval(
+      () => {
+        if (activeTab === 'fans') {
+          setCountdown(formatMonthlyResetCountdown(resetTargetMs));
+        }
+        const currentDayKey = getLocalCalendarDateKey();
+        setDayTick(prev => (prev !== currentDayKey ? currentDayKey : prev));
+      },
+      activeTab === 'fans' ? 1000 : 30000
+    );
     return () => clearInterval(interval);
-  }, [resetTargetMs]);
+  }, [resetTargetMs, activeTab]);
 
   useEffect(() => {
     trackTelemetry('leaderboard_visit', {

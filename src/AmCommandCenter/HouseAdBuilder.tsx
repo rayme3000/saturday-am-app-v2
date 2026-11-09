@@ -22,7 +22,10 @@ import {
   BellRing,
   X,
   CreditCard,
-  Layers
+  Layers,
+  Volume2,
+  VolumeX,
+  AlertCircle
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
@@ -83,6 +86,39 @@ export interface HouseAdCampaign {
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 const GLOBAL_CONFIG_PATH = 'house-ads/global_config.json';
+
+/**
+ * Normalizes video URLs (converts single Imgur post links or .gifv links into direct .mp4 URLs)
+ */
+export const normalizeHouseAdVideoUrl = (rawUrl?: string): string => {
+  if (!rawUrl) return '';
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return '';
+
+  // Convert .gifv to .mp4
+  if (/\.gifv(\?.*)?$/i.test(trimmed)) {
+    return trimmed.replace(/\.gifv(\?.*)?$/i, '.mp4');
+  }
+
+  // Convert direct i.imgur.com/<id>.gif to .mp4
+  const directImgurMatch = trimmed.match(/^https?:\/\/i\.imgur\.com\/([a-zA-Z0-9]+)\.(gif|mp4|webm)$/i);
+  if (directImgurMatch) {
+    return `https://i.imgur.com/${directImgurMatch[1]}.mp4`;
+  }
+
+  // Convert non-album imgur.com/<id> to i.imgur.com/<id>.mp4
+  const singleImgurPostMatch = trimmed.match(/^https?:\/\/(?:www\.|m\.)?imgur\.com\/(?!a\/|gallery\/|t\/)([a-zA-Z0-9]+)\/?$/i);
+  if (singleImgurPostMatch) {
+    return `https://i.imgur.com/${singleImgurPostMatch[1]}.mp4`;
+  }
+
+  return trimmed;
+};
+
+export const isImgurAlbumWebpageUrl = (rawUrl?: string): boolean => {
+  if (!rawUrl) return false;
+  return /^https?:\/\/(?:www\.|m\.)?imgur\.com\/(?:a|gallery)\/[a-zA-Z0-9]+/i.test(rawUrl.trim());
+};
 
 const CREATOR_ALIAS_GROUPS: string[][] = [
   ['odunze oguguo', 'whyt manga', 'whyt', 'odunze oguguo (whyt manga)'],
@@ -226,7 +262,26 @@ export const getActiveTimedPopupCampaigns = (): HouseAdCampaign[] => {
   );
 };
 
-export const HouseAdVisualSlide: React.FC<{ ad: HouseAdCampaign }> = ({ ad }) => {
+export const HouseAdVisualSlide: React.FC<{
+  ad: HouseAdCampaign;
+  allowAudio?: boolean;
+}> = ({ ad, allowAudio = false }) => {
+  const [isMuted, setIsMuted] = useState<boolean>(!allowAudio);
+  const [videoLoadFailed, setVideoLoadFailed] = useState<boolean>(false);
+
+  const resolvedVideoUrl = useMemo(
+    () => normalizeHouseAdVideoUrl(ad.videoUrl),
+    [ad.videoUrl]
+  );
+
+  useEffect(() => {
+    setVideoLoadFailed(false);
+  }, [resolvedVideoUrl]);
+
+  useEffect(() => {
+    setIsMuted(!allowAudio);
+  }, [allowAudio]);
+
   const overlayOpacity = (ad.bgOverlayOpacity ?? 35) / 100;
   const accent = ad.accentColor || '#fe9a00';
 
@@ -244,12 +299,51 @@ export const HouseAdVisualSlide: React.FC<{ ad: HouseAdCampaign }> = ({ ad }) =>
   const panX = ad.cropPanX ?? 50;
   const panY = ad.cropPanY ?? 35;
 
+  const showVideoPlayer =
+    Boolean(resolvedVideoUrl) &&
+    !isImgurAlbumWebpageUrl(resolvedVideoUrl) &&
+    !videoLoadFailed;
+
   return (
     <div
       className="w-full h-full relative overflow-hidden bg-zinc-950 select-none flex flex-col justify-between"
       style={{ containerType: 'inline-size' }}
     >
-      {primaryHeroArt ? (
+      {showVideoPlayer ? (
+        <div className="absolute inset-0 overflow-hidden bg-black">
+          <video
+            key={resolvedVideoUrl}
+            src={resolvedVideoUrl}
+            poster={primaryHeroArt || undefined}
+            autoPlay
+            loop
+            muted={isMuted}
+            playsInline
+            // @ts-expect-error referrerPolicy is supported in modern browsers for Imgur/CDN MP4s
+            referrerPolicy="no-referrer"
+            onError={() => setVideoLoadFailed(true)}
+            className={`w-full h-full ${
+              (ad.cropZoom ?? 100) > 100 ? 'object-cover' : 'object-contain'
+            } transition-transform duration-200 pointer-events-none`}
+            style={{
+              objectPosition: `${panX}% ${panY}%`,
+              transform: `scale(${(ad.cropZoom ?? 100) / 100})`,
+              transformOrigin: `${panX}% ${panY}%`
+            }}
+          />
+          <button
+            type="button"
+            onClick={e => {
+              e.stopPropagation();
+              setIsMuted(prev => !prev);
+            }}
+            className="absolute bottom-3 right-3 z-30 p-2 rounded-full bg-black/80 hover:bg-[#fe9a00] text-white hover:text-black border border-white/20 transition-colors cursor-pointer shadow-lg"
+            title={isMuted ? 'Unmute Video' : 'Mute Video'}
+          >
+            {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      ) : primaryHeroArt ? (
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <img
             src={primaryHeroArt}
@@ -279,7 +373,7 @@ export const HouseAdVisualSlide: React.FC<{ ad: HouseAdCampaign }> = ({ ad }) =>
         }}
       />
 
-      <div className="relative z-10 flex items-start justify-between gap-2 p-3 sm:p-4">
+      <div className="relative z-10 flex items-start justify-between gap-2 p-3 sm:p-4 pointer-events-none">
         <div className="flex flex-wrap items-center gap-1.5">
           {ad.logoImageUrl && (
             <img
@@ -319,7 +413,11 @@ export const HouseAdVisualSlide: React.FC<{ ad: HouseAdCampaign }> = ({ ad }) =>
         )}
       </div>
 
-      <div className="relative z-10 w-full px-3.5 sm:px-4 pb-3 pt-6 flex items-end justify-between gap-2.5">
+      <div
+        className={`relative z-10 w-full px-3.5 sm:px-4 pb-3 pt-6 flex items-end justify-between gap-2.5 pointer-events-none ${
+          showVideoPlayer ? 'pr-12' : ''
+        }`}
+      >
         <div className="min-w-0 flex-1">
           <h3
             className="font-black italic uppercase tracking-tight text-white leading-[1.08] drop-shadow-[0_2px_10px_rgba(0,0,0,0.98)] break-words line-clamp-2"
@@ -401,6 +499,7 @@ export const HouseAdBuilder: React.FC<{
   const [selectedIdx, setSelectedIdx] = useState<number>(0);
   const [savedToast, setSavedToast] = useState<boolean>(false);
   const [uploadingField, setUploadingField] = useState<string | null>(null);
+  const [videoUploadError, setVideoUploadError] = useState<string>('');
   const [showAllSkinsLibrary, setShowAllSkinsLibrary] = useState<boolean>(false);
 
   const [storeProducts, setStoreProducts] = useState<any[]>([]);
@@ -647,9 +746,7 @@ export const HouseAdBuilder: React.FC<{
         skinAssets.length ||
         (Array.isArray(prod.card_skin_ids) ? prod.card_skin_ids.length : 0),
       actionType: 'external_url',
-      clickUrl: `${window.location.origin}/?view=shop&item=${encodeURIComponent(
-        prod.slug || prod.id
-      )}`
+      clickUrl: `/?view=shop&item=${encodeURIComponent(prod.slug || prod.id)}`
     });
   };
 
@@ -720,6 +817,48 @@ export const HouseAdBuilder: React.FC<{
     }
   };
 
+  const handleVideoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setVideoUploadError('');
+    setUploadingField('videoUrl');
+    try {
+      const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
+      const contentType =
+        file.type || (ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : 'video/mp4');
+      const filePath = `house-ads/${activeCampaign.id}_video_${Date.now()}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('assets')
+        .upload(filePath, file, { upsert: true, contentType });
+
+      if (!uploadError) {
+        const { data } = supabase.storage.from('assets').getPublicUrl(filePath);
+        if (data?.publicUrl) {
+          updateActiveCampaign({ videoUrl: data.publicUrl });
+          setUploadingField(null);
+          e.target.value = '';
+          return;
+        }
+      }
+
+      // Local object URL fallback for immediate preview if bucket has size/policy restrictions
+      const localPreviewUrl = URL.createObjectURL(file);
+      updateActiveCampaign({ videoUrl: localPreviewUrl });
+      if (uploadError) {
+        setVideoUploadError(
+          `Previewing locally (${uploadError.message}). For permanent hosting, upload to Cloudflare R2 and paste the .mp4 link.`
+        );
+      }
+    } catch (err: any) {
+      setVideoUploadError(err?.message || 'Failed to upload video file.');
+    } finally {
+      setUploadingField(null);
+      e.target.value = '';
+    }
+  };
+
   const handleAddCampaign = () => {
     const newCamp: HouseAdCampaign = {
       id: `custom_ad_${Date.now()}`,
@@ -781,6 +920,7 @@ export const HouseAdBuilder: React.FC<{
   };
 
   const currentPlacement: AdPlacementMode = activeCampaign.placementMode || 'both';
+  const hasImgurAlbumUrl = isImgurAlbumWebpageUrl(activeCampaign.videoUrl);
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl max-w-6xl space-y-6 text-white animate-fade-in">
@@ -847,7 +987,7 @@ export const HouseAdBuilder: React.FC<{
             Cinematic Spotlight &amp; Timed Popup Builder
           </h2>
           <p className="text-xs text-zinc-400 font-medium mt-0.5">
-            Import any Store Bundle, visually pick any included Hype Card or Avatar as your BG art, and choose whether it runs as a Video Reward Ad or Timed Popup!
+            Import any Store Bundle, visually pick any included Hype Card or Avatar (or upload an .MP4 video) as your BG art, and choose whether it runs as a Video Reward Ad or Timed Popup!
           </p>
         </div>
 
@@ -1258,7 +1398,7 @@ export const HouseAdBuilder: React.FC<{
           <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4 space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase tracking-widest text-white flex items-center gap-1.5">
-                <Crop className="w-4 h-4 text-[#fe9a00]" /> 3. Crop, Zoom &amp; Pan Selected Background Art
+                <Crop className="w-4 h-4 text-[#fe9a00]" /> 3. Crop, Zoom &amp; Pan Selected Background Art / Video
               </span>
               <button
                 type="button"
@@ -1279,7 +1419,7 @@ export const HouseAdBuilder: React.FC<{
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-1">
-                  <span>Art Zoom</span>
+                  <span>Art / Video Zoom</span>
                   <span className="text-[#fe9a00]">{activeCampaign.cropZoom ?? 115}%</span>
                 </div>
                 <input
@@ -1382,17 +1522,63 @@ export const HouseAdBuilder: React.FC<{
               </div>
             </div>
 
-            <div className="pt-2 border-t border-zinc-800">
-              <label className="block text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-1 flex items-center gap-1.5">
-                <Film className="w-3.5 h-3.5" /> Optional .MP4 Video URL (If provided, plays video instead of still art)
-              </label>
-              <input
-                type="text"
-                placeholder="Leave blank to use cropped art above, or paste .mp4 URL..."
-                value={activeCampaign.videoUrl || ''}
-                onChange={e => updateActiveCampaign({ videoUrl: e.target.value })}
-                className="w-full bg-black border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-emerald-400"
-              />
+            <div className="pt-2 border-t border-zinc-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
+                  <Film className="w-3.5 h-3.5" /> Optional .MP4 Video Ad (Plays video instead of still art)
+                </label>
+                {activeCampaign.videoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateActiveCampaign({ videoUrl: '' });
+                      setVideoUploadError('');
+                    }}
+                    className="text-[9px] font-black uppercase text-red-400 hover:text-red-300 cursor-pointer"
+                  >
+                    Clear Video
+                  </button>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Paste direct .mp4 URL or click Upload .MP4..."
+                  value={activeCampaign.videoUrl || ''}
+                  onChange={e => {
+                    setVideoUploadError('');
+                    updateActiveCampaign({
+                      videoUrl: normalizeHouseAdVideoUrl(e.target.value)
+                    });
+                  }}
+                  className="flex-1 bg-black border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-emerald-400"
+                />
+
+                <label className="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer shrink-0 shadow-[0_0_15px_rgba(16,185,129,0.25)]">
+                  <Upload className="w-3.5 h-3.5" />
+                  {uploadingField === 'videoUrl' ? 'Uploading...' : 'Upload .MP4'}
+                  <input
+                    type="file"
+                    accept="video/mp4,video/webm,video/quicktime"
+                    onChange={handleVideoFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {hasImgurAlbumUrl && (
+                <div className="bg-amber-950/70 border border-amber-500/60 text-amber-200 rounded-xl p-2.5 text-[10px] font-bold flex items-start gap-2 leading-relaxed">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong className="text-white">Imgur Album Link Detected (`imgur.com/a/...`):</strong> Imgur album webpages hide the actual `.mp4` filename. Either click <strong className="text-emerald-400">&ldquo;Upload .MP4&rdquo;</strong> on the right to upload your video file directly from your PC, or right-click the playing video on Imgur and select <strong className="text-white">&ldquo;Copy video address&rdquo;</strong> (`https://i.imgur.com/...mp4`).
+                  </span>
+                </div>
+              )}
+
+              {videoUploadError && (
+                <p className="text-[10px] text-amber-300 font-bold">{videoUploadError}</p>
+              )}
             </div>
           </div>
 
@@ -1623,7 +1809,7 @@ export const HouseAdBuilder: React.FC<{
             </div>
 
             <div className="relative w-full aspect-video bg-black overflow-hidden">
-              <HouseAdVisualSlide ad={activeCampaign} />
+              <HouseAdVisualSlide ad={activeCampaign} allowAudio={true} />
             </div>
 
             <div className="p-5 bg-zinc-950 border-t border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

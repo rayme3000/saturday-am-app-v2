@@ -780,12 +780,24 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       }
 
       try {
-        const [{ data: slideData }, { data: sectionData }, { data: chapData }, { data: creatorsData }, { data: charsData }] = await Promise.all([
-          supabase.from('hero_slides').select('*').order('id', { ascending: true }),
-          supabase.from('home_sections').select('*').order('display_order', { ascending: true }),
-          supabase.from('chapters').select('*').order('chapter_number', { ascending: true }).limit(2000),
-          supabase.from('series_creators').select('*').order('id', { ascending: false }).limit(30),
-          supabase.from('series_characters').select('*').order('id', { ascending: false }).limit(30)
+        const [
+          { data: slideData },
+          { data: sectionData },
+          { data: chapData },
+          { data: creatorsData },
+          { data: charsData }
+        ] = await Promise.all([
+          supabase.from('hero_slides').select('id, desktop_url, mobile_url, link_type, link_target').order('id', { ascending: true }),
+          supabase.from('home_sections').select('title, display_order').order('display_order', { ascending: true }),
+          supabase
+            .from('chapters')
+            .select('id, series_slug, chapter_number, title, thumbnail_url, is_published, publish_at, created_at')
+            .eq('is_published', true)
+            .order('chapter_number', { ascending: true })
+            .limit(2000),
+          supabase.from('series_creators').select('id, name, series_slug, avatar_url, is_visible, created_at').order('id', { ascending: false }).limit(30),
+          supabase.from('series_characters').select('id, name, series_slug, headshot_url, is_hidden, created_at').order('id', { ascending: false }).limit(30),
+          fetchGlobalNotifications()
         ]);
 
         if (slideData) { setHeroSlides(slideData); memHeroSlides = slideData; }
@@ -793,8 +805,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         if (chapData) { setLatestChapters(chapData); memLatestChapters = chapData; }
         if (creatorsData) { setRecentCreators(creatorsData); memRecentCreators = creatorsData; }
         if (charsData) { setRecentCharacters(charsData); memRecentCharacters = charsData; }
-
-        await fetchGlobalNotifications();
         lastHomeFetchTime = Date.now();
       } catch (err: any) { console.error('Error fetching home data:', err.message); }
       finally { setIsLoadingSlides(false); }

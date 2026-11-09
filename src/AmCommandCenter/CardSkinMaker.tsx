@@ -3,7 +3,7 @@ import Cropper from 'react-easy-crop';
 import { Image as ImageIcon, Scissors, X, Save, RefreshCw, Trash2, Edit, Eye, EyeOff } from 'lucide-react';
 import { supabase } from '../supabase';
 
-const getCroppedImg = async (imageSrc: string, pixelCrop: any) => {
+const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<Blob | null> => {
   const image = new Image();
   image.crossOrigin = 'anonymous';
   image.src = imageSrc;
@@ -30,8 +30,10 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any) => {
 
   return new Promise(resolve => {
     canvas.toBlob(
-      (blob: any) => {
-        if (blob) resolve(new File([blob], 'thumb.webp', { type: 'image/webp' }));
+      (blob: Blob | null) => {
+        canvas.width = 0;
+        canvas.height = 0;
+        resolve(blob);
       },
       'image/webp',
       0.85
@@ -46,7 +48,7 @@ export const CardSkinMaker = () => {
 
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const [selectedFile, setSelectedFile] = useState<any>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const [imageToCrop, setImageToCrop] = useState<string | null>(null);
@@ -73,6 +75,9 @@ export const CardSkinMaker = () => {
   const handleFileSelect = (e: any) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
+    if (imageToCrop && imageToCrop.startsWith('blob:')) {
+      URL.revokeObjectURL(imageToCrop);
+    }
     setImageToCrop(URL.createObjectURL(file));
     setSelectedFile(null);
     setPreviewUrl(null);
@@ -84,13 +89,22 @@ export const CardSkinMaker = () => {
 
   const handleApplyCrop = async () => {
     try {
-      const croppedImageBlob: any = await getCroppedImg(
+      const croppedImageBlob = await getCroppedImg(
         imageToCrop as string,
         croppedAreaPixels
       );
-      const croppedFile = new File([croppedImageBlob], 'cropped_skin.jpg', {
-        type: 'image/jpeg'
+      if (!croppedImageBlob) throw new Error('Could not generate cropped WebP blob.');
+
+      const croppedFile = new File([croppedImageBlob], 'cropped_skin.webp', {
+        type: 'image/webp'
       });
+
+      if (imageToCrop && imageToCrop.startsWith('blob:')) {
+        URL.revokeObjectURL(imageToCrop);
+      }
+      if (previewUrl && previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrl);
+      }
 
       setSelectedFile(croppedFile);
       setPreviewUrl(URL.createObjectURL(croppedFile));
@@ -102,6 +116,12 @@ export const CardSkinMaker = () => {
   };
 
   const clearSelection = () => {
+    if (imageToCrop && imageToCrop.startsWith('blob:')) {
+      URL.revokeObjectURL(imageToCrop);
+    }
+    if (previewUrl && previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrl);
+    }
     setSelectedFile(null);
     setPreviewUrl(null);
     setImageToCrop(null);
@@ -139,12 +159,16 @@ export const CardSkinMaker = () => {
       let finalImageUrl = previewUrl;
 
       if (selectedFile) {
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.webp`;
         const filePath = `skins/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
           .from('card-skins')
-          .upload(filePath, selectedFile);
+          .upload(filePath, selectedFile, {
+            upsert: true,
+            contentType: 'image/webp',
+            cacheControl: '31536000'
+          });
         if (uploadError) throw uploadError;
 
         const {
@@ -205,7 +229,7 @@ export const CardSkinMaker = () => {
             Card Skin Vault
           </h2>
           <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mt-0.5">
-            Upload & crop Hype Card skins to your Vault • List them for sale or bundles in the In-App Store Manager
+            Upload & crop WebP Hype Card skins to your Vault • List them for sale or bundles in the In-App Store Manager
           </p>
         </div>
         {editingId && (
@@ -424,7 +448,7 @@ export const CardSkinMaker = () => {
               key={skin.id}
               className="relative rounded-xl overflow-hidden aspect-[1.58] border-2 border-zinc-800 hover:border-[#fe9a00] group shadow-lg transition-all"
             >
-              <img src={skin.image_url} className="w-full h-full object-cover" alt={skin.name} />
+              <img src={skin.image_url} loading="lazy" decoding="async" className="w-full h-full object-cover" alt={skin.name} />
 
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12 flex justify-between items-end pointer-events-none">
                 <span className="text-[10px] font-black uppercase tracking-widest text-white truncate pr-2 drop-shadow-md">

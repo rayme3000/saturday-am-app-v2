@@ -92,7 +92,7 @@ export const normalizeMangaPageUrl = (rawUrl: string, attempt = 0): string => {
 };
 
 // Self-Healing Manga Page Image Component (Auto-retries on network drop or URL encoding mismatch)
-const SmartMangaImage = React.memo(({ src, alt, className, loading }: any) => {
+const SmartMangaImage = React.memo(({ src, alt, className, loading = 'eager' }: any) => {
   const [attempt, setAttempt] = useState(0);
   const [failedPermanently, setFailedPermanently] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -163,6 +163,7 @@ const SmartMangaImage = React.memo(({ src, alt, className, loading }: any) => {
         src={resolvedSrc}
         alt={alt}
         loading={loading}
+        decoding="async"
         onError={handleError}
         className={className}
       />
@@ -256,6 +257,7 @@ const MemoizedHorizontalImage = React.memo(
           src={src}
           className="w-auto h-auto max-w-[100vw] max-h-[100dvh] object-contain pointer-events-none block"
           alt={alt}
+          loading="eager"
         />
         {pageHotspots?.map((h: any) => {
           if (h.icon_type === 'share') {
@@ -465,9 +467,11 @@ export const MangaReader = ({
   const [forceTutorial, setForceTutorial] = useState(false);
 
   const [isLoadingProgress, setIsLoadingProgress] = useState(true);
-  const [isAuthLoaded, setIsAuthLoaded] = useState(false);
+  const [isAuthLoaded, setIsAuthLoaded] = useState(Boolean(userId));
   const [internalIsPremium, setInternalIsPremium] = useState(isPremium);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<any>(() =>
+    userId ? { id: userId, name: 'Reader', avatar: '' } : null
+  );
 
   const [adMobId, setAdMobId] = useState<string | null>(null);
   const [applixrId, setApplixrId] = useState<string | null>(null);
@@ -628,14 +632,16 @@ export const MangaReader = ({
     fetchHotspots();
   }, [chapterId]);
 
+  // Preload & async-decode neighboring pages (+1, +2, and -1) off the main thread
   useEffect(() => {
     if (!pages || pages.length === 0) return;
-    const pagesToPreload = [currentPage + 1, currentPage + 2];
+    const pagesToPreload = [currentPage + 1, currentPage + 2, currentPage - 1];
     pagesToPreload.forEach(index => {
-      if (index < pages.length) {
+      if (index >= 0 && index < pages.length) {
         const imgUrl = normalizeMangaPageUrl(getUrl(pages[index]), 0);
         if (imgUrl) {
           const img = new Image();
+          img.decoding = 'async';
           img.src = imgUrl;
         }
       }
@@ -710,11 +716,11 @@ export const MangaReader = ({
           .from('profiles')
           .select('username, avatar_url, is_premium')
           .eq('id', user.id)
-          .single();
+          .maybeSingle();
         setCurrentUser({
           id: user.id,
           name: profile?.username || 'Reader',
-          avatar: profile?.avatar_url || 'https://i.pravatar.cc/150?u=99'
+          avatar: profile?.avatar_url || ''
         });
         if (profile?.is_premium) setInternalIsPremium(true);
       }
@@ -723,16 +729,17 @@ export const MangaReader = ({
   }, []);
 
   useEffect(() => {
-    if (!chapterId || !isAuthLoaded) {
-      if (!chapterId) setIsLoadingProgress(false);
+    if (!chapterId) {
+      setIsLoadingProgress(false);
       return;
     }
+
+    const activeUserId = userId || currentUser?.id;
+    if (!activeUserId && !isAuthLoaded) return;
 
     setShowEndPrompt(false);
     qr.setIsReactInputOpen(false);
     setIsUIVisible(true);
-
-    const activeUserId = userId || currentUser?.id;
 
     const fetchProgress = async () => {
       if (initialPage > 0) {
@@ -770,7 +777,7 @@ export const MangaReader = ({
 
     fetchProgress();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chapterId, userId, isAuthLoaded, currentUser, initialPage, pages.length]);
+  }, [chapterId, userId, isAuthLoaded, initialPage, pages.length]);
 
   const saveProgressToDB = useCallback(
     async (pageToSave: number) => {
@@ -1010,11 +1017,20 @@ export const MangaReader = ({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      // If a second finger touches down (pinch-to-zoom on iOS/Android), cancel horizontal page drag immediately
+      if (!e.isPrimary) {
+        setIsDragging(false);
+        setDragOffset(0);
+        return;
+      }
       if (showEndPromptRef.current || isAnimatingPage) return;
       if (
         document
           .elementsFromPoint(e.clientX, e.clientY)
-          .some(el => el.classList.contains('hotspot-button') || el.classList.contains('reader-nav-arrow'))
+          .some(
+            el =>
+              el.classList.contains('hotspot-button') || el.classList.contains('reader-nav-arrow')
+          )
       )
         return;
       touchStartPos.current = { x: e.clientX, y: e.clientY };
@@ -1026,7 +1042,17 @@ export const MangaReader = ({
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      if (showEndPromptRef.current || !isDragging || currentScaleRef.current > 1.05 || isAnimatingPage)
+      if (!e.isPrimary) {
+        setIsDragging(false);
+        setDragOffset(0);
+        return;
+      }
+      if (
+        showEndPromptRef.current ||
+        !isDragging ||
+        currentScaleRef.current > 1.05 ||
+        isAnimatingPage
+      )
         return;
       touchCurrentPos.current = { x: e.clientX, y: e.clientY };
       const deltaX = e.clientX - touchStartPos.current.x;
@@ -1038,6 +1064,7 @@ export const MangaReader = ({
 
   const handlePointerUp = useCallback(
     (e: React.PointerEvent) => {
+      if (!e.isPrimary) return;
       if (showEndPromptRef.current) {
         setIsDragging(false);
         return;
@@ -1045,7 +1072,10 @@ export const MangaReader = ({
       if (
         document
           .elementsFromPoint(e.clientX, e.clientY)
-          .some(el => el.classList.contains('hotspot-button') || el.classList.contains('reader-nav-arrow'))
+          .some(
+            el =>
+              el.classList.contains('hotspot-button') || el.classList.contains('reader-nav-arrow')
+          )
       ) {
         setIsDragging(false);
         return;
@@ -1396,13 +1426,13 @@ export const MangaReader = ({
 
       {mode === 'horizontal' && (
         <div
-          className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center touch-none select-none overscroll-none"
+          className="absolute inset-0 w-full h-full z-0 overflow-hidden bg-[#0a0a0a] flex items-center justify-center touch-none select-none overscroll-none will-change-transform"
           onPointerDownCapture={handlePointerDown}
           onPointerMoveCapture={handlePointerMove}
           onPointerUpCapture={handlePointerUp}
           onPointerCancelCapture={handlePointerUp}
           style={{
-            transform: `translateX(${dragOffset}px)`,
+            transform: `translate3d(${dragOffset}px, 0, 0)`,
             transition: isAnimatingPage ? 'transform 0.2s cubic-bezier(0.25, 1, 0.5, 1)' : 'none'
           }}
         >
@@ -1538,6 +1568,7 @@ export const MangaReader = ({
             style={{ height: '100%', width: '100%' }}
             data={pages}
             initialTopMostItemIndex={currentPage}
+            increaseViewportBy={{ top: 600, bottom: 900 }}
             rangeChanged={range => setCurrentPage(Math.max(0, range.startIndex))}
             itemContent={virtuosoItemContent}
             components={{
@@ -1604,10 +1635,12 @@ export const MangaReader = ({
         </div>
       </div>
 
+      {/* Top-Left Controls (iOS Safe-Area Top Inset Protected) */}
       <div
-        className={`absolute top-2 left-2 sm:top-3 sm:left-3 z-50 flex flex-row items-center gap-2 sm:gap-2.5 transition-all duration-300 ${
+        className={`absolute left-2 sm:left-3 z-50 flex flex-row items-center gap-2 sm:gap-2.5 transition-all duration-300 ${
           isUIVisible ? 'translate-y-0 opacity-100' : '-translate-y-8 opacity-0 pointer-events-none'
         }`}
+        style={{ top: 'max(0.5rem, env(safe-area-inset-top, 0px))' }}
       >
         <button
           type="button"
@@ -1655,12 +1688,16 @@ export const MangaReader = ({
         </div>
       </div>
 
+      {/* Top-Right Page Badge (iOS Safe-Area Top Inset Protected) */}
       <div
         onClick={() => {
           if (isRTL) setShowRtlNotice(prev => !prev);
         }}
-        className={`absolute top-2 right-2 sm:top-3 sm:right-3 bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-2 z-50 flex flex-col items-end transition-all duration-300 shadow-xl ${
-          isRTL ? 'cursor-pointer pointer-events-auto hover:border-[#fe9a00]/60' : 'pointer-events-none'
+        style={{ top: 'max(0.5rem, env(safe-area-inset-top, 0px))' }}
+        className={`absolute right-2 sm:right-3 bg-black/60 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-2 z-50 flex flex-col items-end transition-all duration-300 shadow-xl ${
+          isRTL
+            ? 'cursor-pointer pointer-events-auto hover:border-[#fe9a00]/60'
+            : 'pointer-events-none'
         } ${isUIVisible ? 'translate-y-0 opacity-100' : '-translate-y-8 opacity-0'}`}
       >
         <span className="text-white/90 text-[10px] font-bold tracking-wider">

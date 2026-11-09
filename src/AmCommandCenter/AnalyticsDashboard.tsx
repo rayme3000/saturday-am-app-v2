@@ -35,7 +35,10 @@ import {
   Sliders,
   Stamp,
   Radio,
-  Percent
+  Percent,
+  PlayCircle,
+  Target,
+  Package
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
@@ -72,6 +75,101 @@ export const ELEVATED_CREATOR_STAFF_ROLES = new Set([
   'admin',
   'moderator'
 ]);
+
+// --- SALES GOALS & MILESTONE TARGETS PER STRATEGY PROPOSAL DOC ---
+export interface SalesPlanMilestone {
+  id: string;
+  name: string;
+  shortName: string;
+  targetReaders: number;
+  targetPaidSubs: number;
+  targetMonthlySubs: number;
+  targetAnnualSubs: number;
+  targetMonthlySubNetYr: number;
+  targetAnnualSubNetYr: number;
+  targetSubNetYr: number;
+  targetMonthlyAdViews: number;
+  targetAdNetYr: number;
+  targetBundlesSoldYr: number;
+  targetBundleNetYr: number;
+  targetCombinedNetYr: number;
+  targetMonthlyCashFlow: number;
+}
+
+export const PLAN_MILESTONES: SalesPlanMilestone[] = [
+  {
+    id: 'm1',
+    name: 'Milestone 1: First 1,000',
+    shortName: 'M1: 1,000 Readers',
+    targetReaders: 1000,
+    targetPaidSubs: 30,
+    targetMonthlySubs: 20,
+    targetAnnualSubs: 10,
+    targetMonthlySubNetYr: 355,
+    targetAnnualSubNetYr: 151,
+    targetSubNetYr: 506,
+    targetMonthlyAdViews: 6000,
+    targetAdNetYr: 214,
+    targetBundlesSoldYr: 10,
+    targetBundleNetYr: 175,
+    targetCombinedNetYr: 895,
+    targetMonthlyCashFlow: 75
+  },
+  {
+    id: 'm2',
+    name: 'Milestone 2: Traction',
+    shortName: 'M2: 2,500 Readers',
+    targetReaders: 2500,
+    targetPaidSubs: 75,
+    targetMonthlySubs: 50,
+    targetAnnualSubs: 25,
+    targetMonthlySubNetYr: 888,
+    targetAnnualSubNetYr: 378,
+    targetSubNetYr: 1266,
+    targetMonthlyAdViews: 15000,
+    targetAdNetYr: 535,
+    targetBundlesSoldYr: 25,
+    targetBundleNetYr: 437,
+    targetCombinedNetYr: 2238,
+    targetMonthlyCashFlow: 187
+  },
+  {
+    id: 'm3',
+    name: 'Milestone 3: Core Indie',
+    shortName: 'M3: 5,000 Readers',
+    targetReaders: 5000,
+    targetPaidSubs: 150,
+    targetMonthlySubs: 100,
+    targetAnnualSubs: 50,
+    targetMonthlySubNetYr: 1776,
+    targetAnnualSubNetYr: 756,
+    targetSubNetYr: 2532,
+    targetMonthlyAdViews: 30000,
+    targetAdNetYr: 1071,
+    targetBundlesSoldYr: 50,
+    targetBundleNetYr: 874,
+    targetCombinedNetYr: 4477,
+    targetMonthlyCashFlow: 373
+  },
+  {
+    id: 'm4',
+    name: 'Milestone 4: First 10k',
+    shortName: 'M4: 10,000 Readers',
+    targetReaders: 10000,
+    targetPaidSubs: 300,
+    targetMonthlySubs: 200,
+    targetAnnualSubs: 100,
+    targetMonthlySubNetYr: 3552,
+    targetAnnualSubNetYr: 1512,
+    targetSubNetYr: 5064,
+    targetMonthlyAdViews: 60000,
+    targetAdNetYr: 2142,
+    targetBundlesSoldYr: 120,
+    targetBundleNetYr: 2096,
+    targetCombinedNetYr: 9302,
+    targetMonthlyCashFlow: 775
+  }
+];
 
 const isUuidFormat = (str: string): boolean =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
@@ -510,10 +608,11 @@ type AudienceFilterMode = 'fans_only' | 'staff_creators_only' | 'all_combined';
 
 export const AnalyticsDashboard = () => {
   const { seriesList = [] } = useSeriesData();
-  const [activeTab, setActiveTab] = useState<'global' | 'engagement' | 'series' | 'leaderboards'>(
-    'global'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'global' | 'sales_goals' | 'engagement' | 'series' | 'leaderboards'
+  >('global');
   const [audienceMode, setAudienceMode] = useState<AudienceFilterMode>('fans_only');
+  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string>('auto');
 
   const [isLoading, setIsLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
@@ -556,6 +655,7 @@ export const AnalyticsDashboard = () => {
         profilesRes,
         adminDirRes,
         promoCodesRes,
+        storeProductsRes,
         seriesTableRes,
         chaptersTableRes,
         charactersTableRes,
@@ -578,8 +678,9 @@ export const AnalyticsDashboard = () => {
         supabase.rpc('get_admin_user_directory', { p_search: '', p_limit: 5000, p_offset: 0 }),
         supabase
           .from('promo_codes')
-          .select('buyer_email, created_at, order_number, times_used')
+          .select('*')
           .order('created_at', { ascending: false }),
+        supabase.from('in_app_store_products').select('*'),
         supabase.from('series').select('*'),
         supabase.from('chapters').select('id, series_slug, chapter_number, title'),
         supabase.from('series_characters').select('id, name, series_slug'),
@@ -589,7 +690,13 @@ export const AnalyticsDashboard = () => {
         supabase.from('completed_reads').select('*').limit(25000),
         supabase.from('hypes').select('*').neq('target_type', 'comment').limit(25000),
         supabase.from('super_hypes').select('*').limit(25000),
-        supabase.from('pageReacts').select('*').limit(25000).then(res => res.error ? supabase.from('page_reacts').select('*').limit(25000) : res),
+        supabase
+          .from('pageReacts')
+          .select('*')
+          .limit(25000)
+          .then(res =>
+            res.error ? supabase.from('page_reacts').select('*').limit(25000) : res
+          ),
         supabase.from('series_comments').select('*').limit(25000),
         supabase.from('series_likes').select('*').limit(25000),
         supabase.from('chapter_likes').select('*').limit(25000),
@@ -646,6 +753,7 @@ export const AnalyticsDashboard = () => {
       setRawTables({
         profiles: rawProfiles,
         promoCodes: promoCodesRes.data || [],
+        storeProducts: storeProductsRes.data || [],
         series: seriesTableRes.data || [],
         chapters: chaptersTableRes.data || [],
         characters: charactersTableRes.data || [],
@@ -692,9 +800,13 @@ export const AnalyticsDashboard = () => {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'hypes' }, () => {
         fetchAnalytics();
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'telemetry_events' }, () => {
-        fetchAnalytics();
-      })
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'telemetry_events' },
+        () => {
+          fetchAnalytics();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -912,10 +1024,14 @@ export const AnalyticsDashboard = () => {
       const actor = meta?.visitor_id || t.session_id || t.user_id;
       registerVisitorImpression(actor, t.created_at);
     });
-    historyRows.forEach((r: any) => registerVisitorImpression(r.user_id, r.updated_at || r.created_at));
+    historyRows.forEach((r: any) =>
+      registerVisitorImpression(r.user_id, r.updated_at || r.created_at)
+    );
     completedRows.forEach((r: any) => registerVisitorImpression(r.user_id, r.created_at));
     allUnifiedHypes.forEach((r: any) => registerVisitorImpression(r.user_id, r.created_at));
-    activeProfiles.forEach((p: any) => registerVisitorImpression(p.id, p.created_at || p.updated_at));
+    activeProfiles.forEach((p: any) =>
+      registerVisitorImpression(p.id, p.created_at || p.updated_at)
+    );
 
     const vToday = Math.max(visitorsTodaySet.size, growthStats.newUsersToday);
     const vYesterday = Math.max(visitorsYesterdaySet.size, growthStats.newUsersYesterday);
@@ -1172,6 +1288,13 @@ export const AnalyticsDashboard = () => {
     let loadoutTelemetrySaves = 0;
     let bingoTelemetryEvents = 0;
     let leaderboardTelemetryEvents = 0;
+
+    // --- REWARDED VIDEO AD TELEMETRY COUNTERS ---
+    let rewardedAdStarted = 0;
+    let rewardedAdCompleted = 0;
+    let rewardedAdUnlockClaimed = 0;
+    let rewardedAdClicks = 0;
+
     const seriesVisitsPerSlug: Record<string, number> = {};
 
     telemetryRows.forEach((t: any) => {
@@ -1179,17 +1302,29 @@ export const AnalyticsDashboard = () => {
       if (t.user_id) uniqueVisitorIds.add(String(t.user_id));
       else if (t.session_id) uniqueVisitorIds.add(String(t.session_id));
 
-      const evType = String(t.event_type || '').toLowerCase();
+      const evType = String(t.event_type || t.event_name || '').toLowerCase();
       const meta = t.metadata || t.event_data || {};
       const slug = meta?.series_slug || meta?.slug;
 
-      if (evType === 'series_page_visit' || evType === 'series_visit') {
+      if (evType === 'rewarded_ad_started') {
+        rewardedAdStarted += 1;
+      } else if (evType === 'rewarded_ad_completed') {
+        rewardedAdCompleted += 1;
+      } else if (evType === 'rewarded_ad_unlock_claimed') {
+        rewardedAdUnlockClaimed += 1;
+      } else if (evType === 'rewarded_ad_clicked') {
+        rewardedAdClicks += 1;
+      } else if (evType === 'series_page_visit' || evType === 'series_visit') {
         if (slug) {
           seriesVisitsPerSlug[slug] = (seriesVisitsPerSlug[slug] || 0) + 1;
         }
       } else if (evType.includes('store') || evType.includes('shop')) {
         storeClicks += 1;
-      } else if (evType.includes('banner') || evType.includes('slide') || evType.includes('hero')) {
+      } else if (
+        evType.includes('banner') ||
+        evType.includes('slide') ||
+        evType.includes('hero')
+      ) {
         bannerClicks += 1;
       } else if (evType.includes('hype_card') || evType.includes('flex_card')) {
         hypeCardTelemetryOpens += 1;
@@ -1202,11 +1337,21 @@ export const AnalyticsDashboard = () => {
       }
     });
 
+    const totalRewardedAdWatches = Math.max(
+      rewardedAdStarted,
+      rewardedAdCompleted,
+      rewardedAdUnlockClaimed
+    );
+    const totalRewardedAdUnlocks = Math.max(rewardedAdCompleted, rewardedAdUnlockClaimed);
+
     const telemetryStats = {
       total_sessions: Math.max(uniqueSessions.size, vLifetime),
       unique_visitors: Math.max(uniqueVisitorIds.size, vLifetime),
       store_visits: storeClicks,
-      banner_clicks: bannerClicks
+      banner_clicks: bannerClicks,
+      rewarded_ad_watches: totalRewardedAdWatches,
+      rewarded_ad_unlocks: totalRewardedAdUnlocks,
+      rewarded_ad_clicks: rewardedAdClicks
     };
 
     let profilesWithTopFive = 0;
@@ -1302,7 +1447,135 @@ export const AnalyticsDashboard = () => {
       bingoBookInteractions: totalBingoBookInteractions,
       activeBingoCodesCount: bingoCodesList.length,
       leaderboardEngagements: totalLeaderboardEngagements,
-      activeRankedLeaderboardFans
+      activeRankedLeaderboardFans,
+      rewardedAdWatches: totalRewardedAdWatches,
+      rewardedAdUnlocks: totalRewardedAdUnlocks,
+      rewardedAdClicks: rewardedAdClicks
+    };
+
+    // =========================================================================
+    // REAL-TIME SALES GOALS & UNIT ECONOMICS ENGINE (PER PLAN DOC)
+    // =========================================================================
+    const promoCodesRows: any[] = rawTables.promoCodes || [];
+    const storeProductsRows: any[] = rawTables.storeProducts || [];
+
+    // Count organic vs creator-referred annual subs
+    const creatorReferredAnnualCount = annualPlanProfiles.filter((p: any) =>
+      Boolean(p.referred_by || p.referral_code || p.creator_referral)
+    ).length;
+    const organicAnnualCount = Math.max(
+      0,
+      annualPlanProfiles.length - creatorReferredAnnualCount
+    );
+
+    // Count bundle purchases / redemptions from promo_codes + unlocked paid bundle skins
+    const paidBundleSkinIds = new Set<string>();
+    storeProductsRows.forEach((prod: any) => {
+      if (Number(prod.listed_price_dollars || 0) >= 15 || prod.product_type === 'bundle') {
+        if (Array.isArray(prod.card_skin_ids)) {
+          prod.card_skin_ids.forEach((id: any) => paidBundleSkinIds.add(String(id)));
+        }
+        if (prod.card_skin_id) paidBundleSkinIds.add(String(prod.card_skin_id));
+        if (prod.card_skin_url) paidBundleSkinIds.add(String(prod.card_skin_url));
+      }
+    });
+
+    let profilesWithPaidBundle = 0;
+    let totalUnlockedPaidSkinsCount = 0;
+    activeProfiles.forEach((p: any) => {
+      const unlocked: string[] = Array.isArray(p.unlocked_skins)
+        ? p.unlocked_skins.map(String)
+        : [];
+      if (unlocked.length > 0) {
+        const hasBundleSkin = unlocked.some(idOrUrl => paidBundleSkinIds.has(idOrUrl));
+        if (hasBundleSkin) profilesWithPaidBundle += 1;
+        totalUnlockedPaidSkinsCount += unlocked.length;
+      }
+    });
+
+    const redeemedBundlePromoCount = promoCodesRows
+      .filter((r: any) => {
+        const code = String(r.code || '').toUpperCase();
+        const isCreatorInvite =
+          code.startsWith('SAM-CR-') ||
+          String(r.order_number || '').startsWith('CREATOR_INVITE:');
+        if (isCreatorInvite) return false;
+        return Boolean(r.bundle_config || code.includes('BUNDLE') || code.includes('DIWALI'));
+      })
+      .reduce((sum: number, r: any) => sum + Number(r.times_used || 0), 0);
+
+    const actualBundlesSoldCount = Math.max(profilesWithPaidBundle, redeemedBundlePromoCount);
+    const aLaCarteSkinsSoldCount = Math.max(
+      0,
+      totalUnlockedPaidSkinsCount - actualBundlesSoldCount * 2
+    );
+
+    // Net Retained Cash calculations per Plan Doc:
+    // - Monthly Sub ($1.99/mo): $17.75 net annual run-rate ($1.48/mo net after Stripe + $0.15/mo Dev)
+    // - Organic $20 Annual Sub: $17.62 net retained ($1.50/yr Dev, $0.88 Stripe)
+    // - Creator-Referred $20 Annual Sub: $12.62 net retained ($5.00 Creator Bounty, $1.50/yr Dev, $0.88 Stripe)
+    // - Promo $25 Series Bundle: $17.47 net retained ($5.00 Creator Bounty, $1.50/yr Dev, $1.03 Stripe)
+    // - GAM / Rewarded Video Ads ($3.50 blended eCPM, 85% retained by Saturday AM = $2.975 net per 1,000 views)
+    const monthlySubsCount = monthlyPlanProfiles.length;
+    const annualSubsCount = annualPlanProfiles.length;
+
+    const netMonthlySubsAnnualRunRate = monthlySubsCount * 17.75;
+    const netOrganicAnnualCash = organicAnnualCount * 17.62;
+    const netReferredAnnualCash = creatorReferredAnnualCount * 12.62;
+    const netTotalSubCashYr =
+      netMonthlySubsAnnualRunRate + netOrganicAnnualCash + netReferredAnnualCash;
+
+    const netBundleCashYr = actualBundlesSoldCount * 17.47;
+    const netALaCarteCashYr = aLaCarteSkinsSoldCount * 0.99;
+
+    // Monthly ad impressions = 30d chapter reads + rewarded video ad watches + banner impressions
+    const monthlyAdImpressions =
+      globalStats.reads_month + totalRewardedAdWatches * 2 + bannerClicks;
+    const annualizedAdImpressions = monthlyAdImpressions * 12;
+    const grossAdCashYr = (annualizedAdImpressions / 1000) * 3.5;
+    const netAdCashYr = grossAdCashYr * 0.85;
+    const adInfraAllocationYr = grossAdCashYr * 0.15;
+
+    // Developer Infrastructure Allocation ($0.15/mo on monthly + $1.50/yr on annual & bundles)
+    const devMonthlyAllocationYr = monthlySubsCount * 0.15 * 12;
+    const devAnnualAllocationYr = (annualSubsCount + actualBundlesSoldCount) * 1.5;
+    const totalDevAllocationYr =
+      devMonthlyAllocationYr + devAnnualAllocationYr + adInfraAllocationYr;
+
+    // Creator Bounties ($5.00 per referred annual sub or series bundle)
+    const totalCreatorBountiesYr =
+      (creatorReferredAnnualCount + actualBundlesSoldCount) * 5.0 + totalTipDollars;
+
+    const combinedCompanyNetCashYr =
+      netTotalSubCashYr + netBundleCashYr + netALaCarteCashYr + netAdCashYr;
+    const estMonthlyNetCashFlow = combinedCompanyNetCashYr / 12;
+
+    const currentConversionPct =
+      totalUsers > 0 ? Number(((premiumUsers / totalUsers) * 100).toFixed(2)) : 0;
+
+    const salesPlanProgress = {
+      totalReaders: totalUsers,
+      paidSubs: premiumUsers,
+      monthlySubsCount,
+      annualSubsCount,
+      organicAnnualCount,
+      creatorReferredAnnualCount,
+      actualBundlesSoldCount,
+      aLaCarteSkinsSoldCount,
+      currentConversionPct,
+      targetConversionBenchmarkPct: 3.0,
+      netMonthlySubsAnnualRunRate,
+      netOrganicAnnualCash,
+      netReferredAnnualCash,
+      netTotalSubCashYr,
+      netBundleCashYr,
+      netALaCarteCashYr,
+      monthlyAdImpressions,
+      netAdCashYr,
+      totalDevAllocationYr,
+      totalCreatorBountiesYr,
+      combinedCompanyNetCashYr,
+      estMonthlyNetCashFlow
     };
 
     const rawSeriesSource =
@@ -1396,18 +1669,28 @@ export const AnalyticsDashboard = () => {
     });
     telemetryRows
       .filter((t: any) => {
-        const et = String(t.event_type || '').toLowerCase();
+        const et = String(t.event_type || t.event_name || '').toLowerCase();
         return (
           et.includes('hype_card') ||
           et.includes('loadout') ||
           et.includes('bingo') ||
-          et.includes('leaderboard')
+          et.includes('leaderboard') ||
+          et.includes('rewarded_ad')
         );
       })
-      .slice(-8)
+      .slice(-10)
       .forEach((t: any) => {
-        const et = String(t.event_type || '').toLowerCase();
-        const label = et.includes('hype_card')
+        const et = String(t.event_type || t.event_name || '').toLowerCase();
+        const meta = t.metadata || t.event_data || {};
+        const label = et.includes('rewarded_ad_completed') || et.includes('rewarded_ad_unlock')
+          ? `Fan watched Rewarded Video Ad to unlock ${meta?.series_title || 'a chapter'}${
+              meta?.chapter_number ? ` Ch. ${meta.chapter_number}` : ''
+            }`
+          : et.includes('rewarded_ad_clicked')
+          ? `Fan clicked Rewarded Ad CTA (${meta?.headline || 'Spotlight'})`
+          : et.includes('rewarded_ad_started')
+          ? `Fan started watching Rewarded Video Ad (${meta?.headline || 'Spotlight'})`
+          : et.includes('hype_card')
           ? 'Fan flexed their Virtual Hype Card'
           : et.includes('loadout')
           ? 'Fan customized their Profile Loadout'
@@ -1558,6 +1841,7 @@ export const AnalyticsDashboard = () => {
       recentUsers,
       telemetryStats,
       engagementBreakdown,
+      salesPlanProgress,
       recentActivityFeed: feedItems.slice(0, 12),
       seriesStats
     };
@@ -1647,6 +1931,7 @@ export const AnalyticsDashboard = () => {
     recentUsers,
     telemetryStats,
     engagementBreakdown,
+    salesPlanProgress,
     recentActivityFeed
   } = computed;
 
@@ -1666,6 +1951,16 @@ export const AnalyticsDashboard = () => {
           1
         )
       : '0.0';
+
+  const activeMilestone: SalesPlanMilestone = (() => {
+    if (selectedMilestoneId !== 'auto') {
+      return PLAN_MILESTONES.find(m => m.id === selectedMilestoneId) || PLAN_MILESTONES[0];
+    }
+    return (
+      PLAN_MILESTONES.find(m => salesPlanProgress.totalReaders < m.targetReaders) ||
+      PLAN_MILESTONES[PLAN_MILESTONES.length - 1]
+    );
+  })();
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl max-w-6xl mx-auto relative text-white space-y-6">
@@ -1800,6 +2095,17 @@ export const AnalyticsDashboard = () => {
         </button>
 
         <button
+          onClick={() => setActiveTab('sales_goals')}
+          className={`flex-1 min-w-[150px] py-2.5 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2 ${
+            activeTab === 'sales_goals'
+              ? 'bg-[#fe9a00] text-black shadow-[0_0_20px_rgba(254,154,0,0.3)]'
+              : 'text-emerald-400 hover:text-white border border-emerald-500/30 bg-emerald-950/20'
+          }`}
+        >
+          <Target className="w-3.5 h-3.5" /> Sales Goals & Plan
+        </button>
+
+        <button
           onClick={() => setActiveTab('engagement')}
           className={`flex-1 min-w-[140px] py-2.5 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2 ${
             activeTab === 'engagement'
@@ -1832,6 +2138,586 @@ export const AnalyticsDashboard = () => {
           <Award className="w-3.5 h-3.5" /> Leaderboard Archive
         </button>
       </div>
+
+      {/* ===================================================================== */}
+      {/* TAB: SALES GOALS & PLAN MILESTONES (PER STRATEGY PROPOSAL DOC)        */}
+      {/* ===================================================================== */}
+      {activeTab === 'sales_goals' && (
+        <div className="space-y-6 animate-fade-in">
+          {/* MILESTONE TARGET SELECTOR BAR */}
+          <div className="bg-gradient-to-r from-zinc-950 via-amber-950/25 to-zinc-950 border border-[#fe9a00]/50 rounded-2xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-xl">
+            <div>
+              <div className="flex items-center gap-2 text-[#fe9a00] text-[10px] font-black uppercase tracking-widest mb-1">
+                <Target className="w-3.5 h-3.5" /> Saturday AM Platform Architecture & Growth Strategy Plan
+              </div>
+              <h3 className="text-lg sm:text-xl font-black uppercase italic tracking-tight text-white">
+                Real-Time Progress vs. {activeMilestone.name}
+              </h3>
+              <p className="text-[11px] text-zinc-400 font-bold mt-0.5">
+                Benchmarked at 3.0% Freemium-to-Paid Conversion • $1.99/mo & $20/yr Protected Pricing • $25–$35 Series Bundles • $3.50 Blended Ad eCPM
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setSelectedMilestoneId('auto')}
+                className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer border transition-all ${
+                  selectedMilestoneId === 'auto'
+                    ? 'bg-[#fe9a00] text-black border-[#fe9a00]'
+                    : 'bg-black text-zinc-400 border-zinc-800 hover:text-white'
+                }`}
+              >
+                AutoCurrent
+              </button>
+              {PLAN_MILESTONES.map(m => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setSelectedMilestoneId(m.id)}
+                  className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest cursor-pointer border transition-all ${
+                    activeMilestone.id === m.id && selectedMilestoneId !== 'auto'
+                      ? 'bg-[#fe9a00] text-black border-[#fe9a00]'
+                      : activeMilestone.id === m.id && selectedMilestoneId === 'auto'
+                      ? 'bg-[#fe9a00]/20 text-[#fe9a00] border-[#fe9a00]'
+                      : 'bg-black text-zinc-400 border-zinc-800 hover:text-white'
+                  }`}
+                >
+                  {m.shortName}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 4 CORE GOAL PROGRESS CARDS AGAINST ACTIVE MILESTONE */}
+          {(() => {
+            const readerPct = Math.min(
+              100,
+              Math.round((salesPlanProgress.totalReaders / activeMilestone.targetReaders) * 100)
+            );
+            const paidSubPct = Math.min(
+              100,
+              Math.round((salesPlanProgress.paidSubs / activeMilestone.targetPaidSubs) * 100)
+            );
+            const bundlePct = Math.min(
+              100,
+              Math.round(
+                (salesPlanProgress.actualBundlesSoldCount / activeMilestone.targetBundlesSoldYr) *
+                  100
+              )
+            );
+            const netCashPct = Math.min(
+              100,
+              Math.round(
+                (salesPlanProgress.combinedCompanyNetCashYr /
+                  activeMilestone.targetCombinedNetYr) *
+                  100
+              )
+            );
+
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. ACTIVE READERS GOAL */}
+                <div className="bg-black border border-zinc-800 rounded-2xl p-5 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-blue-400 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5" /> Active Readers Goal
+                      </span>
+                      <span className="text-[10px] font-black text-white bg-blue-500/20 border border-blue-500/40 px-2 py-0.5 rounded-full">
+                        {readerPct}%
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-1.5 mt-2">
+                      <span className="text-3xl font-black text-white">
+                        {salesPlanProgress.totalReaders.toLocaleString()}
+                      </span>
+                      <span className="text-xs font-bold text-zinc-500">
+                        / {activeMilestone.targetReaders.toLocaleString()} target
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                      <div
+                        className="h-full bg-gradient-to-r from-blue-600 to-cyan-400 rounded-full transition-all duration-700"
+                        style={{ width: `${Math.max(4, readerPct)}%` }}
+                      />
+                    </div>
+                    <p className="text-[9px] text-zinc-400 font-bold mt-2">
+                      {Math.max(
+                        0,
+                        activeMilestone.targetReaders - salesPlanProgress.totalReaders
+                      ).toLocaleString()}{' '}
+                      readers remaining to hit {activeMilestone.shortName}
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. PAID SUBSCRIBERS GOAL (3.0% BENCHMARK) */}
+                <div className="bg-black border border-purple-500/40 rounded-2xl p-5 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-purple-400 flex items-center gap-1.5">
+                        <Crown className="w-3.5 h-3.5" /> Paying Subscribers (3% Target)
+                      </span>
+                      <span className="text-[10px] font-black text-purple-200 bg-purple-500/20 border border-purple-500/40 px-2 py-0.5 rounded-full">
+                        {paidSubPct}%
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-1.5 mt-2">
+                      <span className="text-3xl font-black text-white">
+                        {salesPlanProgress.paidSubs.toLocaleString()}
+                      </span>
+                      <span className="text-xs font-bold text-zinc-500">
+                        / {activeMilestone.targetPaidSubs.toLocaleString()} subs
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                      <div
+                        className="h-full bg-gradient-to-r from-purple-600 to-[#fe9a00] rounded-full transition-all duration-700"
+                        style={{ width: `${Math.max(4, paidSubPct)}%` }}
+                      />
+                    </div>
+                    <p className="text-[9px] text-zinc-400 font-bold mt-2">
+                      Mix: <strong className="text-white">{salesPlanProgress.monthlySubsCount}</strong>{' '}
+                      Monthly ({activeMilestone.targetMonthlySubs} goal) •{' '}
+                      <strong className="text-white">{salesPlanProgress.annualSubsCount}</strong>{' '}
+                      Annual ({activeMilestone.targetAnnualSubs} goal)
+                    </p>
+                  </div>
+                </div>
+
+                {/* 3. SERIES BUNDLE ATTACH GOAL ($25 PROMO / $35 BASE) */}
+                <div className="bg-black border border-[#fe9a00]/40 rounded-2xl p-5 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
+                        <Package className="w-3.5 h-3.5" /> Series Bundles Sold
+                      </span>
+                      <span className="text-[10px] font-black text-black bg-[#fe9a00] px-2 py-0.5 rounded-full">
+                        {bundlePct}%
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-1.5 mt-2">
+                      <span className="text-3xl font-black text-white">
+                        {salesPlanProgress.actualBundlesSoldCount.toLocaleString()}
+                      </span>
+                      <span className="text-xs font-bold text-zinc-500">
+                        / {activeMilestone.targetBundlesSoldYr} bundles/yr
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#fe9a00] to-yellow-300 rounded-full transition-all duration-700"
+                        style={{ width: `${Math.max(4, bundlePct)}%` }}
+                      />
+                    </div>
+                    <p className="text-[9px] text-zinc-400 font-bold mt-2">
+                      Net Retained:{' '}
+                      <strong className="text-[#fe9a00]">
+                        ${Math.round(salesPlanProgress.netBundleCashYr).toLocaleString()}
+                      </strong>{' '}
+                      / ${activeMilestone.targetBundleNetYr.toLocaleString()} goal ($17.47 net/bundle)
+                    </p>
+                  </div>
+                </div>
+
+                {/* 4. COMBINED NET COMPANY CASH RUN-RATE */}
+                <div className="bg-gradient-to-br from-emerald-950/40 via-black to-zinc-950 border border-emerald-500/50 rounded-2xl p-5 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5" /> Combined Net Cash (Yr)
+                      </span>
+                      <span className="text-[10px] font-black text-black bg-emerald-400 px-2 py-0.5 rounded-full">
+                        {netCashPct}%
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-1.5 mt-2">
+                      <span className="text-3xl font-black text-emerald-400">
+                        ${Math.round(salesPlanProgress.combinedCompanyNetCashYr).toLocaleString()}
+                      </span>
+                      <span className="text-xs font-bold text-zinc-400">
+                        / ${activeMilestone.targetCombinedNetYr.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                      <div
+                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-300 rounded-full transition-all duration-700"
+                        style={{ width: `${Math.max(4, netCashPct)}%` }}
+                      />
+                    </div>
+                    <p className="text-[9px] text-emerald-300 font-bold mt-2">
+                      Est. Monthly Cash Inflow:{' '}
+                      <strong>
+                        ${Math.round(salesPlanProgress.estMonthlyNetCashFlow).toLocaleString()}/mo
+                      </strong>{' '}
+                      (Goal: ~${activeMilestone.targetMonthlyCashFlow}/mo)
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* CONVERSION BENCHMARK + NET RETAINED REVENUE & SPLITS BREAKDOWN */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* LEFT: UNIT ECONOMICS & REVENUE STREAM BREAKDOWN */}
+            <div className="lg:col-span-7 bg-black/80 border border-zinc-800 rounded-2xl p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-[#fe9a00]">
+                    Net Retained Cash Breakdown vs. {activeMilestone.shortName} Targets
+                  </h3>
+                  <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                    Actual net cash retained by Saturday AM after Stripe fees, $5.00 Creator Bounties, and Dev Allocations
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[9px] font-black uppercase tracking-wider">
+                  Net Retained Model
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {/* 1. Monthly Subscriptions */}
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase text-white">
+                        Base Monthly Subscriptions ($1.99/mo)
+                      </span>
+                      <span className="text-[9px] font-black text-[#fe9a00] bg-[#fe9a00]/15 px-2 py-0.5 rounded">
+                        {salesPlanProgress.monthlySubsCount} Active / {activeMilestone.targetMonthlySubs} Goal
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                      ~$17.75 net/yr per sub after Stripe processing & $0.15/mo Dev Infrastructure allocation
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-sm font-black text-white block">
+                      ${Math.round(salesPlanProgress.netMonthlySubsAnnualRunRate).toLocaleString()} / yr
+                    </span>
+                    <span className="text-[9px] font-bold text-zinc-500">
+                      Goal: ${activeMilestone.targetMonthlySubNetYr.toLocaleString()}/yr
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Core Annual Subscriptions ($20/yr) */}
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase text-white">
+                        Core Annual Subscriptions ($20.00/yr)
+                      </span>
+                      <span className="text-[9px] font-black text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded">
+                        {salesPlanProgress.annualSubsCount} Active / {activeMilestone.targetAnnualSubs} Goal
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                      Organic: {salesPlanProgress.organicAnnualCount} ($17.62 net • 88.1%) • Creator Referred:{' '}
+                      {salesPlanProgress.creatorReferredAnnualCount} ($12.62 net • 63.1%)
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-sm font-black text-white block">
+                      $
+                      {Math.round(
+                        salesPlanProgress.netOrganicAnnualCash +
+                          salesPlanProgress.netReferredAnnualCash
+                      ).toLocaleString()}{' '}
+                      / yr
+                    </span>
+                    <span className="text-[9px] font-bold text-zinc-500">
+                      Goal: ${activeMilestone.targetAnnualSubNetYr.toLocaleString()}/yr
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Series-Themed Annual Bundles ($25 Promo / $35 Base) */}
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase text-white">
+                        Series-Themed Annual Bundles ($25 Promo / $35 Base)
+                      </span>
+                      <span className="text-[9px] font-black text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded">
+                        {salesPlanProgress.actualBundlesSoldCount} Sold / {activeMilestone.targetBundlesSoldYr} Goal
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                      $17.47 net retained at $25 promo (69.9%) • $27.18 net at $35 base (77.7%) after $5 Creator Bounty & $1.50 Dev
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-sm font-black text-emerald-400 block">
+                      ${Math.round(salesPlanProgress.netBundleCashYr).toLocaleString()} / yr
+                    </span>
+                    <span className="text-[9px] font-bold text-zinc-500">
+                      Goal: ${activeMilestone.targetBundleNetYr.toLocaleString()}/yr
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4. GAM Display & Rewarded Video Ads ($3.50 Blended eCPM) */}
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase text-white">
+                        GAM & Rewarded Video Ad Monetization ($3.50 eCPM)
+                      </span>
+                      <span className="text-[9px] font-black text-cyan-300 bg-cyan-500/20 px-2 py-0.5 rounded">
+                        {salesPlanProgress.monthlyAdImpressions.toLocaleString()} /{' '}
+                        {activeMilestone.targetMonthlyAdViews.toLocaleString()} Monthly Views
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                      85% Net Retained by Saturday AM • 15% Allocated to Ad Infrastructure
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-sm font-black text-cyan-400 block">
+                      ${Math.round(salesPlanProgress.netAdCashYr).toLocaleString()} / yr
+                    </span>
+                    <span className="text-[9px] font-bold text-zinc-500">
+                      Goal: ${activeMilestone.targetAdNetYr.toLocaleString()}/yr
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT: CONVERSION BENCHMARK & ECOSYSTEM ALLOCATIONS */}
+            <div className="lg:col-span-5 bg-black/80 border border-zinc-800 rounded-2xl p-6 flex flex-col justify-between space-y-5">
+              <div className="space-y-4">
+                <div className="border-b border-zinc-800 pb-3">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
+                    <Percent className="w-4 h-4 text-[#fe9a00]" /> Freemium-to-Paid Conversion Benchmark
+                  </h3>
+                  <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                    Plan Target: 3.0% Baseline Conversion (~30 paid subscribers per 1,000 free readers)
+                  </p>
+                </div>
+
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+                  <div className="flex items-baseline justify-between mb-2">
+                    <div>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block">
+                        Current Paid Conversion Rate
+                      </span>
+                      <span className="text-3xl font-black text-[#fe9a00]">
+                        {salesPlanProgress.currentConversionPct}%
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block">
+                        Plan Benchmark
+                      </span>
+                      <span className="text-lg font-black text-emerald-400">3.0% Target</span>
+                    </div>
+                  </div>
+                  <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
+                    <div
+                      className="h-full bg-gradient-to-r from-[#fe9a00] to-emerald-400 rounded-full transition-all duration-700"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.round((salesPlanProgress.currentConversionPct / 3.0) * 100)
+                        )}%`
+                      }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-zinc-400 font-bold mt-2">
+                    {salesPlanProgress.currentConversionPct >= 3.0
+                      ? '✓ Exceeding the 3.0% industry conversion benchmark!'
+                      : `Converting ${salesPlanProgress.paidSubs} of ${salesPlanProgress.totalReaders} registered readers`}
+                  </p>
+                </div>
+
+                {/* CREATOR BOUNTIES & DEV INFRASTRUCTURE ALLOCATIONS */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-zinc-950 border border-amber-500/30 rounded-xl p-3.5">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] block mb-1">
+                      Creator Bounties & Tips
+                    </span>
+                    <span className="text-xl font-black text-white">
+                      ${Math.round(salesPlanProgress.totalCreatorBountiesYr).toLocaleString()}
+                    </span>
+                    <span className="text-[9px] text-zinc-400 font-bold block mt-1">
+                      $5.00 flat bounty per annual sub/bundle + fan tips
+                    </span>
+                  </div>
+
+                  <div className="bg-zinc-950 border border-cyan-500/30 rounded-xl p-3.5">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-cyan-400 block mb-1">
+                      Dev Infra Allocation
+                    </span>
+                    <span className="text-xl font-black text-white">
+                      ${salesPlanProgress.totalDevAllocationYr.toFixed(2)}
+                    </span>
+                    <span className="text-[9px] text-zinc-400 font-bold block mt-1">
+                      $0.15/mo monthly • $1.50/yr annual • 15% ads
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 text-[10px] text-zinc-400 font-bold flex items-center justify-between">
+                <span>Creator Monthly Gift Codes Quota:</span>
+                <span className="text-white font-black">
+                  {salesPlanProgress.totalReaders >= 10000
+                    ? '3 Free Gift Codes / Creator / Mo (10k+ Unlocked)'
+                    : '1 Free Gift Code / Creator / Mo (Scales to 3 at 10k)'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* COMPLETE 4-MILESTONE PLAN TABLE (1,000 TO 10,000 READERS) */}
+          <div className="bg-black border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-5 border-b border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-zinc-950">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-[#fe9a00]" /> Master Plan Roadmap: 1,000 to 10,000 Active Readers
+                </h3>
+                <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                  Side-by-side comparison of your live metrics against all 4 Strategy Proposal milestones
+                </p>
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00]">
+                Live Combined Net Run-Rate: $
+                {Math.round(salesPlanProgress.combinedCompanyNetCashYr).toLocaleString()}/yr (~$
+                {Math.round(salesPlanProgress.estMonthlyNetCashFlow)}/mo)
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[920px]">
+                <thead>
+                  <tr className="bg-zinc-900/90 border-b border-zinc-800 text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                    <th className="p-4">Milestone Tier</th>
+                    <th className="p-4 text-right">Active Readers</th>
+                    <th className="p-4 text-right">Paying Subs (3%)</th>
+                    <th className="p-4 text-right">Subscriptions (Net/Yr)</th>
+                    <th className="p-4 text-right">Ad Views (Net/Yr)</th>
+                    <th className="p-4 text-right">Bundle Sales (Net/Yr)</th>
+                    <th className="p-4 text-right text-[#fe9a00]">Combined Net Cash</th>
+                    <th className="p-4 text-right text-emerald-400">Est. Monthly Cash</th>
+                    <th className="p-4 text-center">Live Progress</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/70 text-xs font-bold">
+                  {/* CURRENT LIVE ROW */}
+                  <tr className="bg-[#fe9a00]/10 border-b-2 border-[#fe9a00]/50">
+                    <td className="p-4 font-black uppercase text-[#fe9a00] flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                      Current Live Actuals
+                    </td>
+                    <td className="p-4 text-right font-black text-white">
+                      {salesPlanProgress.totalReaders.toLocaleString()}
+                    </td>
+                    <td className="p-4 text-right font-black text-white">
+                      {salesPlanProgress.paidSubs} ({salesPlanProgress.monthlySubsCount}M /{' '}
+                      {salesPlanProgress.annualSubsCount}A)
+                    </td>
+                    <td className="p-4 text-right font-black text-white">
+                      ${Math.round(salesPlanProgress.netTotalSubCashYr).toLocaleString()}
+                    </td>
+                    <td className="p-4 text-right font-black text-cyan-300">
+                      ${Math.round(salesPlanProgress.netAdCashYr).toLocaleString()}
+                    </td>
+                    <td className="p-4 text-right font-black text-amber-300">
+                      ${Math.round(salesPlanProgress.netBundleCashYr).toLocaleString()} (
+                      {salesPlanProgress.actualBundlesSoldCount} sold)
+                    </td>
+                    <td className="p-4 text-right font-black text-[#fe9a00] text-sm">
+                      ${Math.round(salesPlanProgress.combinedCompanyNetCashYr).toLocaleString()}
+                    </td>
+                    <td className="p-4 text-right font-black text-emerald-400">
+                      ~${Math.round(salesPlanProgress.estMonthlyNetCashFlow).toLocaleString()} / mo
+                    </td>
+                    <td className="p-4 text-center">
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-500 text-black text-[9px] font-black uppercase tracking-widest">
+                        Live Now
+                      </span>
+                    </td>
+                  </tr>
+
+                  {PLAN_MILESTONES.map(m => {
+                    const pct = Math.min(
+                      100,
+                      Math.round(
+                        (salesPlanProgress.combinedCompanyNetCashYr / m.targetCombinedNetYr) * 100
+                      )
+                    );
+                    const isSelected = activeMilestone.id === m.id;
+                    return (
+                      <tr
+                        key={m.id}
+                        onClick={() => setSelectedMilestoneId(m.id)}
+                        className={`transition-colors cursor-pointer ${
+                          isSelected ? 'bg-zinc-900/90' : 'hover:bg-zinc-900/50'
+                        }`}
+                      >
+                        <td className="p-4 font-black text-white">
+                          {m.name}
+                          {isSelected && (
+                            <span className="ml-2 px-2 py-0.5 rounded bg-[#fe9a00] text-black text-[8px] font-black uppercase">
+                              Active Target
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4 text-right text-zinc-300">
+                          {m.targetReaders.toLocaleString()} Readers
+                        </td>
+                        <td className="p-4 text-right text-zinc-300">
+                          {m.targetPaidSubs} Subs ({m.targetMonthlySubs}M / {m.targetAnnualSubs}A)
+                        </td>
+                        <td className="p-4 text-right text-zinc-300">
+                          ${m.targetSubNetYr.toLocaleString()}
+                        </td>
+                        <td className="p-4 text-right text-zinc-300">
+                          ${m.targetAdNetYr.toLocaleString()} ({m.targetMonthlyAdViews / 1000}k/mo)
+                        </td>
+                        <td className="p-4 text-right text-zinc-300">
+                          ${m.targetBundleNetYr.toLocaleString()} (~{m.targetBundlesSoldYr} bundles)
+                        </td>
+                        <td className="p-4 text-right font-black text-[#fe9a00]">
+                          ${m.targetCombinedNetYr.toLocaleString()}
+                        </td>
+                        <td className="p-4 text-right font-black text-emerald-400">
+                          ~${m.targetMonthlyCashFlow} / mo
+                        </td>
+                        <td className="p-4 w-36">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-[#fe9a00] rounded-full"
+                                style={{ width: `${Math.max(3, pct)}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] font-black text-white w-9 text-right">
+                              {pct}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===================================================================== */}
       {/* TAB 1: GROWTH & OVERVIEW                                              */}
@@ -2603,6 +3489,26 @@ export const AnalyticsDashboard = () => {
                       {(telemetryStats?.banner_clicks || 0).toLocaleString()}
                     </span>
                   </div>
+
+                  <div className="col-span-2 bg-zinc-950 border border-emerald-500/30 p-3.5 rounded-xl flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <PlayCircle className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest">
+                          Rewarded Video Ad Watches
+                        </span>
+                      </div>
+                      <span className="text-xl font-black text-white">
+                        {(telemetryStats?.rewarded_ad_watches || 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="text-right text-[9px] font-bold text-zinc-400">
+                      <span className="text-emerald-400 font-black block">
+                        {(telemetryStats?.rewarded_ad_unlocks || 0).toLocaleString()} Unlocks
+                      </span>
+                      <span>{(telemetryStats?.rewarded_ad_clicks || 0).toLocaleString()} CTA Clicks</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -2713,26 +3619,25 @@ export const AnalyticsDashboard = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div className="bg-gradient-to-br from-black via-zinc-950 to-purple-950/25 border border-purple-500/30 p-4 rounded-2xl flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2 text-purple-400 mb-1">
                   <Sliders className="w-4 h-4" />
                   <span className="text-[9px] font-black uppercase tracking-widest">
-                    Profile Loadout Customizations
+                    Profile Loadouts
                   </span>
                 </div>
                 <p className="text-2xl font-black text-white">
                   {engagementBreakdown.profileLoadoutCustomizations.toLocaleString()}
                 </p>
                 <p className="text-[9px] text-zinc-400 font-bold mt-1">
-                  Top 5: {engagementBreakdown.profilesWithTopFive} • Avatars:{' '}
-                  {engagementBreakdown.profilesWithAvatar} • Frames:{' '}
-                  {engagementBreakdown.profilesWithFrame} • Skins:{' '}
+                  Top 5: {engagementBreakdown.profilesWithTopFive} • Av:{' '}
+                  {engagementBreakdown.profilesWithAvatar} • Skins:{' '}
                   {engagementBreakdown.profilesWithCardSkin}
                 </p>
               </div>
-              <span className="px-2.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[9px] font-black uppercase tracking-wider shrink-0">
+              <span className="px-2 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 text-[8px] font-black uppercase tracking-wider shrink-0">
                 {engagementBreakdown.profilesWithAnyLoadout} Fans
               </span>
             </div>
@@ -2742,17 +3647,17 @@ export const AnalyticsDashboard = () => {
                 <div className="flex items-center gap-2 text-[#fe9a00] mb-1">
                   <CreditCard className="w-4 h-4" />
                   <span className="text-[9px] font-black uppercase tracking-widest">
-                    Hype Card Opens & Equips
+                    Hype Card Opens
                   </span>
                 </div>
                 <p className="text-2xl font-black text-white">
                   {engagementBreakdown.hypeCardOpens.toLocaleString()}
                 </p>
                 <p className="text-[9px] text-zinc-400 font-bold mt-1">
-                  Custom Card Skins Equipped: {engagementBreakdown.profilesWithCardSkin}
+                  Custom Skins Equipped: {engagementBreakdown.profilesWithCardSkin}
                 </p>
               </div>
-              <span className="px-2.5 py-1 rounded-full bg-[#fe9a00]/15 border border-[#fe9a00]/30 text-[#fe9a00] text-[9px] font-black uppercase tracking-wider shrink-0">
+              <span className="px-2 py-1 rounded-full bg-[#fe9a00]/15 border border-[#fe9a00]/30 text-[#fe9a00] text-[8px] font-black uppercase tracking-wider shrink-0">
                 Flex Pass
               </span>
             </div>
@@ -2762,17 +3667,17 @@ export const AnalyticsDashboard = () => {
                 <div className="flex items-center gap-2 text-emerald-400 mb-1">
                   <Stamp className="w-4 h-4" />
                   <span className="text-[9px] font-black uppercase tracking-widest">
-                    Bingo Book Hunts & Opens
+                    Bingo Book Hunts
                   </span>
                 </div>
                 <p className="text-2xl font-black text-white">
                   {engagementBreakdown.bingoBookInteractions.toLocaleString()}
                 </p>
                 <p className="text-[9px] text-zinc-400 font-bold mt-1">
-                  Active Event PINs in Vault: {engagementBreakdown.activeBingoCodesCount}
+                  Active Event PINs: {engagementBreakdown.activeBingoCodesCount}
                 </p>
               </div>
-              <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[9px] font-black uppercase tracking-wider shrink-0">
+              <span className="px-2 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[8px] font-black uppercase tracking-wider shrink-0">
                 Autographs
               </span>
             </div>
@@ -2782,18 +3687,39 @@ export const AnalyticsDashboard = () => {
                 <div className="flex items-center gap-2 text-yellow-400 mb-1">
                   <Trophy className="w-4 h-4" />
                   <span className="text-[9px] font-black uppercase tracking-widest">
-                    Leaderboard Engagement
+                    Leaderboards
                   </span>
                 </div>
                 <p className="text-2xl font-black text-white">
                   {engagementBreakdown.leaderboardEngagements.toLocaleString()}
                 </p>
                 <p className="text-[9px] text-zinc-400 font-bold mt-1">
-                  Ranked Fans on Board: {engagementBreakdown.activeRankedLeaderboardFans}
+                  Ranked Fans: {engagementBreakdown.activeRankedLeaderboardFans}
                 </p>
               </div>
-              <span className="px-2.5 py-1 rounded-full bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 text-[9px] font-black uppercase tracking-wider shrink-0">
+              <span className="px-2 py-1 rounded-full bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 text-[8px] font-black uppercase tracking-wider shrink-0">
                 Rankings
+              </span>
+            </div>
+
+            <div className="bg-gradient-to-br from-black via-zinc-950 to-cyan-950/30 border border-cyan-500/40 p-4 rounded-2xl flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-cyan-400 mb-1">
+                  <PlayCircle className="w-4 h-4" />
+                  <span className="text-[9px] font-black uppercase tracking-widest">
+                    Video Ad Watches
+                  </span>
+                </div>
+                <p className="text-2xl font-black text-white">
+                  {engagementBreakdown.rewardedAdWatches.toLocaleString()}
+                </p>
+                <p className="text-[9px] text-zinc-400 font-bold mt-1">
+                  Unlocks: {engagementBreakdown.rewardedAdUnlocks} • Clicks:{' '}
+                  {engagementBreakdown.rewardedAdClicks}
+                </p>
+              </div>
+              <span className="px-2 py-1 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 text-[8px] font-black uppercase tracking-wider shrink-0">
+                Reward Ads
               </span>
             </div>
           </div>
@@ -2806,7 +3732,7 @@ export const AnalyticsDashboard = () => {
                 </h3>
                 <p className="text-[11px] text-zinc-400 font-medium mt-0.5">
                   De-duplicated breakdown of community actions across reading, profile loadouts,
-                  Hype Cards, Leaderboards, and Bingo Book.
+                  Hype Cards, Rewarded Video Ads, Leaderboards, and Bingo Book.
                 </p>
               </div>
 
@@ -2838,6 +3764,11 @@ export const AnalyticsDashboard = () => {
                     color: 'bg-amber-400'
                   },
                   {
+                    label: 'Rewarded Video Ad Watches & Chapter Unlocks',
+                    count: engagementBreakdown.rewardedAdWatches,
+                    color: 'bg-cyan-400'
+                  },
+                  {
                     label: 'Bingo Book Opens & Autograph Hunts',
                     count: engagementBreakdown.bingoBookInteractions,
                     color: 'bg-emerald-400'
@@ -2845,7 +3776,7 @@ export const AnalyticsDashboard = () => {
                   {
                     label: 'In-Reader Smart Comments (Page Quick Reacts)',
                     count: engagementBreakdown.quickReacts,
-                    color: 'bg-cyan-400'
+                    color: 'bg-sky-400'
                   },
                   {
                     label: 'Series Discussion Comments',

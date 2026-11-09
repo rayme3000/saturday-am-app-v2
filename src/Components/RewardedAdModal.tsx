@@ -11,11 +11,12 @@ import {
   Sparkles,
   Film
 } from 'lucide-react';
-import { supabase } from '../supabase';
+import { supabase, trackTelemetry } from '../supabase';
 import {
   DEFAULT_HOUSE_AD_CAMPAIGNS,
   HouseAdVisualSlide,
-  loadSavedHouseAdCampaigns
+  loadSavedHouseAdCampaigns,
+  normalizeHouseAdVideoUrl
 } from '../AmCommandCenter/HouseAdBuilder';
 import type { HouseAdCampaign } from '../AmCommandCenter/HouseAdBuilder';
 
@@ -122,6 +123,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   dailyUnlocksUsed = 0,
   maxDailyUnlocks = MAX_DAILY_AD_UNLOCKS
 }) => {
+  const [totalDuration, setTotalDuration] = useState<number>(15);
   const [secondsLeft, setSecondsLeft] = useState<number>(15);
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -132,16 +134,19 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hasLoggedCompletionRef = useRef<boolean>(false);
 
-  // Pick the next active campaign in rotation when the modal opens (prioritizing video campaigns on first view)
+  // Pick the next active campaign in rotation when the modal opens
   useEffect(() => {
     if (!isOpen) return;
 
-    setSecondsLeft(15);
-    setIsCompleted(false);
-    setVideoFailed(false);
-
-    const allCampaigns = loadSavedHouseAdCampaigns().filter(c => c.enabled !== false);
+    const allCampaigns = loadSavedHouseAdCampaigns().filter(
+      c =>
+        c.enabled !== false &&
+        (c.placementMode === 'rewarded_unlock' ||
+          c.placementMode === 'both' ||
+          !c.placementMode)
+    );
     const pool = allCampaigns.length > 0 ? allCampaigns : DEFAULT_HOUSE_AD_CAMPAIGNS;
 
     let nextIdx = 0;
@@ -153,11 +158,25 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
       nextIdx = 0;
     }
 
-    setActiveCampaign(pool[nextIdx] || pool[0]);
+    const chosenCampaign = pool[nextIdx] || pool[0];
+    const durationSec = Math.max(5, Number(chosenCampaign?.rewardDurationSeconds) || 15);
 
-    // GAM / Ad Network Waterfall Check:
-    // If Google Publisher Tags (GAM) rewarded ad slot is configured on window, attempt GAM fill first;
-    // on no-fill, ad-blocker, or if GAM is not yet configured, immediately run the In-House campaign!
+    setActiveCampaign(chosenCampaign);
+    setTotalDuration(durationSec);
+    setSecondsLeft(durationSec);
+    setIsCompleted(false);
+    setVideoFailed(false);
+    hasLoggedCompletionRef.current = false;
+
+    trackTelemetry('rewarded_ad_started', {
+      campaign_id: chosenCampaign?.id || 'default',
+      headline: chosenCampaign?.headline || '',
+      has_video: Boolean(chosenCampaign?.videoUrl),
+      series_title: seriesTitle || '',
+      chapter_number: String(chapterNumber || ''),
+      duration_seconds: durationSec
+    });
+
     const win = window as any;
     if (win.googletag && win.amGamRewardedSlotReady) {
       setAdSourceMode('checking_gam');
@@ -168,14 +187,25 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
     } else {
       setAdSourceMode('in_house');
     }
-  }, [isOpen]);
+  }, [isOpen, seriesTitle, chapterNumber]);
 
-  // 15-Second Countdown Timer
+  // Countdown Timer
   useEffect(() => {
     if (!isOpen || adSourceMode === 'checking_gam') return;
 
     if (secondsLeft <= 0) {
       setIsCompleted(true);
+      if (!hasLoggedCompletionRef.current) {
+        hasLoggedCompletionRef.current = true;
+        trackTelemetry('rewarded_ad_completed', {
+          campaign_id: activeCampaign?.id || 'default',
+          headline: activeCampaign?.headline || '',
+          has_video: Boolean(activeCampaign?.videoUrl),
+          series_title: seriesTitle || '',
+          chapter_number: String(chapterNumber || ''),
+          duration_seconds: totalDuration
+        });
+      }
       return;
     }
 
@@ -190,11 +220,16 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isOpen, secondsLeft, adSourceMode]);
+  }, [isOpen, secondsLeft, adSourceMode, activeCampaign, seriesTitle, chapterNumber, totalDuration]);
+
+  const resolvedVideoUrl = useMemo(
+    () => normalizeHouseAdVideoUrl(activeCampaign?.videoUrl),
+    [activeCampaign?.videoUrl]
+  );
 
   // Ensure video plays smoothly when modal opens (falls back to muted autoplay if browser blocks unmuted autoplay)
   useEffect(() => {
-    if (!isOpen || !activeCampaign?.videoUrl || videoFailed) return;
+    if (!isOpen || !resolvedVideoUrl || videoFailed) return;
     const vid = videoRef.current;
     if (!vid) return;
 
@@ -211,18 +246,31 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
         }
       });
     }
-  }, [isOpen, activeCampaign?.videoUrl, videoFailed]);
+  }, [isOpen, resolvedVideoUrl, videoFailed]);
 
   const progressPercentage = useMemo(() => {
-    return Math.min(100, Math.max(0, ((15 - secondsLeft) / 15) * 100));
-  }, [secondsLeft]);
+    return Math.min(100, Math.max(0, ((totalDuration - secondsLeft) / Math.max(1, totalDuration)) * 100));
+  }, [secondsLeft, totalDuration]);
 
   if (!isOpen) return null;
 
   const remainingAfterThis = Math.max(0, maxDailyUnlocks - dailyUnlocksUsed - 1);
-  const hasActiveVideo = Boolean(activeCampaign?.videoUrl && !videoFailed);
+  const hasActiveVideo = Boolean(resolvedVideoUrl && !videoFailed);
+
+  const zoom = (activeCampaign.cropZoom ?? 100) / 100;
+  const panX = activeCampaign.cropPanX ?? 50;
+  const panY = activeCampaign.cropPanY ?? 50;
 
   const handleCtaClick = () => {
+    trackTelemetry('rewarded_ad_clicked', {
+      campaign_id: activeCampaign?.id || 'default',
+      headline: activeCampaign?.headline || '',
+      has_video: Boolean(resolvedVideoUrl),
+      click_url: activeCampaign?.clickUrl || '',
+      series_title: seriesTitle || '',
+      chapter_number: String(chapterNumber || '')
+    });
+
     if (activeCampaign.actionType === 'in_app_plus_upgrade') {
       onUpgradeClick();
       return;
@@ -230,6 +278,17 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
     if (activeCampaign.clickUrl) {
       window.open(activeCampaign.clickUrl, '_blank', 'noopener,noreferrer');
     }
+  };
+
+  const handleClaimReward = () => {
+    trackTelemetry('rewarded_ad_unlock_claimed', {
+      campaign_id: activeCampaign?.id || 'default',
+      headline: activeCampaign?.headline || '',
+      has_video: Boolean(resolvedVideoUrl),
+      series_title: seriesTitle || '',
+      chapter_number: String(chapterNumber || '')
+    });
+    onRewardEarned();
   };
 
   return (
@@ -290,15 +349,24 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
           {hasActiveVideo ? (
             <video
               ref={videoRef}
-              key={activeCampaign.videoUrl}
-              src={activeCampaign.videoUrl}
+              key={resolvedVideoUrl}
+              src={resolvedVideoUrl}
               autoPlay
               playsInline
               muted={isMuted}
               loop
+              // @ts-expect-error referrerPolicy is supported in modern browsers for Imgur/CDN MP4s
+              referrerPolicy="no-referrer"
               onError={() => setVideoFailed(true)}
               onClick={handleCtaClick}
-              className="w-full h-full object-cover cursor-pointer"
+              className={`w-full h-full ${
+                (activeCampaign.cropZoom ?? 100) > 100 ? 'object-cover' : 'object-contain'
+              } cursor-pointer transition-transform duration-200`}
+              style={{
+                objectPosition: `${panX}% ${panY}%`,
+                transform: `scale(${zoom})`,
+                transformOrigin: `${panX}% ${panY}%`
+              }}
             />
           ) : (
             <div onClick={handleCtaClick} className="w-full h-full cursor-pointer">
@@ -333,7 +401,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
             <button
               type="button"
               onClick={handleCtaClick}
-              className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-white text-[#fe9a00] hover:text-black border border-[#fe9a00]/50 font-black uppercase uppercase tracking-widest text-[10px] flex items-center justify-center gap-1.5 transition-all shrink-0 cursor-pointer"
+              className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-white text-[#fe9a00] hover:text-black border border-[#fe9a00]/50 font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-1.5 transition-all shrink-0 cursor-pointer"
             >
               <span>{activeCampaign.ctaLabel || 'Learn More'}</span>
               <ExternalLink className="w-3.5 h-3.5" />
@@ -345,7 +413,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
             <button
               type="button"
               disabled={!isCompleted}
-              onClick={onRewardEarned}
+              onClick={handleClaimReward}
               className={`flex-1 py-3.5 px-5 rounded-xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all ${
                 isCompleted
                   ? 'bg-[#fe9a00] hover:bg-white text-black shadow-[0_0_25px_rgba(254,154,0,0.4)] cursor-pointer'

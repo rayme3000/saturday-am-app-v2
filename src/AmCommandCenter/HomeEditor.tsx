@@ -667,7 +667,15 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
     }
 
     return new Promise(resolve => {
-      canvas.toBlob(blob => resolve(blob), 'image/png', 0.95);
+      canvas.toBlob(
+        blob => {
+          canvas.width = 0;
+          canvas.height = 0;
+          resolve(blob);
+        },
+        'image/webp',
+        0.85
+      );
     });
   };
 
@@ -689,16 +697,24 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
       }
 
       const ts = Date.now();
-      const desktopPath = `hero-banners/store_hero_pc_${ts}.png`;
-      const mobilePath = `hero-banners/store_hero_mobile_${ts}.png`;
+      const desktopPath = `hero-banners/store_hero_pc_${ts}.webp`;
+      const mobilePath = `hero-banners/store_hero_mobile_${ts}.webp`;
 
       const [upDesktop, upMobile] = await Promise.all([
         supabase.storage
           .from('assets')
-          .upload(desktopPath, desktopBlob, { upsert: true, contentType: 'image/png' }),
+          .upload(desktopPath, desktopBlob, {
+            upsert: true,
+            contentType: 'image/webp',
+            cacheControl: '31536000'
+          }),
         supabase.storage
           .from('assets')
-          .upload(mobilePath, mobileBlob, { upsert: true, contentType: 'image/png' })
+          .upload(mobilePath, mobileBlob, {
+            upsert: true,
+            contentType: 'image/webp',
+            cacheControl: '31536000'
+          })
       ]);
 
       let desktopFinalUrl = '';
@@ -717,10 +733,10 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
       if (!mobileFinalUrl) mobileFinalUrl = URL.createObjectURL(mobileBlob);
 
       const storeLink = selectedStudioProduct
-        ? `${window.location.origin}/?view=shop&item=${encodeURIComponent(
+        ? `/?view=shop&item=${encodeURIComponent(
             selectedStudioProduct.slug || selectedStudioProduct.id
           )}`
-        : `${window.location.origin}/?view=shop`;
+        : `/?view=shop`;
 
       setSlides(prev =>
         prev.map((s: any) =>
@@ -1218,7 +1234,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
             <LayoutGrid className="w-4 h-4 text-[#fe9a00]" /> Home Page Layout &amp; Hero Editor
           </h2>
           <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mt-0.5">
-            Upload custom banners or auto-generate edge-to-edge PC &amp; Mobile banners from any Store Drop in 1 click!
+            Upload custom banners or auto-generate edge-to-edge PC &amp; Mobile WebP banners from any Store Drop in 1 click!
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -1800,7 +1816,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
                     {slide.linkType === 'external' ? (
                       <input
                         type="text"
-                        placeholder="https://..."
+                        placeholder="https://... or /?view=shop"
                         value={slide.linkTarget}
                         onChange={e => updateSlide(slide.id, 'linkTarget', e.target.value)}
                         className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg p-2.5 text-white text-xs focus:border-[#fe9a00]"

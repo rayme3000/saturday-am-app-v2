@@ -373,7 +373,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     try {
       const { data, error } = await supabase
         .from('chapters')
-        .select('*')
+        .select('id, series_slug, chapter_number, title, thumbnail_url, is_published, publish_at, created_at')
         .order('series_slug', { ascending: true })
         .order('chapter_number', { ascending: true });
 

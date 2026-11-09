@@ -163,8 +163,11 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
       setStoreProducts(prodRows);
       const params = new URLSearchParams(window.location.search);
       const targetItem =
-        params.get('item') || sessionStorage.getItem('am_pending_store_item_inspect');
+        params.get('item') ||
+        sessionStorage.getItem('am_target_store_item') ||
+        sessionStorage.getItem('am_pending_store_item_inspect');
       if (targetItem) {
+        sessionStorage.removeItem('am_target_store_item');
         sessionStorage.removeItem('am_pending_store_item_inspect');
         const matched = prodRows.find(
           (p: any) => p.slug === targetItem || String(p.id) === targetItem
@@ -210,7 +213,7 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
           : [];
         let localSkins: string[] = [];
         try {
-          localSkins = JSON.parse(localStorage.getItem('am_unlocked_skins') || '[]').map(String);
+          localSkins = JSON.parse(localStorage.getItem(`am_unlocked_skins_${user.id}`) || '[]').map(String);
         } catch {
           // ignore
         }
@@ -335,7 +338,7 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
             JSON.stringify(Array.from(new Set([...savedHunts, ...prodAutographs])))
           );
         }
-        localStorage.setItem('am_unlocked_skins', JSON.stringify(nextSkins));
+        localStorage.setItem(`am_unlocked_skins_${userId}`, JSON.stringify(nextSkins));
       } catch {
         // ignore
       }

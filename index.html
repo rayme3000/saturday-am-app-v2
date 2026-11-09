@@ -9,7 +9,8 @@
     <!-- Apple Touch Icon (iOS Home Screen) -->
     <link rel="apple-touch-icon" href="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/pwa-512x512-v4.png?v=4" />
     
-    <!-- iOS PWA Standalone Support -->
+    <!-- iOS & Android PWA Standalone Support -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Saturday AM" />
@@ -24,9 +25,12 @@
     <!-- Comprehensive Meta Description for Search Engine Indexing -->
     <meta name="description" content="Read original diverse manga online with Saturday AM. Explore Apple Black, Clock Striker, Hammer, Underground, Gun+Bone, Orisha, Oblivion Rouge, and more by global creators." />
     
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <!-- Early Preconnects to Cloudflare R2 CDN, Supabase, and Google Fonts -->
+    <link rel="preconnect" href="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev" crossorigin />
+    <link rel="preconnect" href="https://zcadkovymnjpjaxvnao.supabase.co" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Unbounded:ital,wght@0,700;0,800;0,900;1,700;1,800;1,900&display=swap" rel="stylesheet" />
 
     <!-- Preload the Hype Flame Loader Image so it renders instantaneously -->
     <link rel="preload" as="image" href="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Hype%20flame.png" />

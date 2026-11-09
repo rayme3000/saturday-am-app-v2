@@ -351,7 +351,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         seriesLikesRes
       ] = await Promise.all([
         supabase.from('series').select('*').eq('slug', targetSeriesSlug).single(),
-        supabase.from('chapters').select('*').eq('series_slug', targetSeriesSlug).order('chapter_number', { ascending: true }),
+        supabase
+          .from('chapters')
+          .select('id, series_slug, chapter_number, title, thumbnail_url, thumbnail_position, thumbnail_scale, is_published, publish_at, created_at, page_count, hype_count, react_count, reading_direction')
+          .eq('series_slug', targetSeriesSlug)
+          .order('chapter_number', { ascending: true }),
         supabase.from('series_creators').select('*').eq('series_slug', targetSeriesSlug).order('id', { ascending: true }),
         supabase.from('series_characters').select('*').eq('series_slug', targetSeriesSlug).order('id', { ascending: true }),
         supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('target_type', 'series').eq('target_id', targetSeriesSlug),
