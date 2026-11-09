@@ -690,13 +690,7 @@ export const AnalyticsDashboard = () => {
         supabase.from('completed_reads').select('*').limit(25000),
         supabase.from('hypes').select('*').neq('target_type', 'comment').limit(25000),
         supabase.from('super_hypes').select('*').limit(25000),
-        supabase
-          .from('pageReacts')
-          .select('*')
-          .limit(25000)
-          .then(res =>
-            res.error ? supabase.from('page_reacts').select('*').limit(25000) : res
-          ),
+        supabase.from('page_reacts').select('*').limit(25000),
         supabase.from('series_comments').select('*').limit(25000),
         supabase.from('series_likes').select('*').limit(25000),
         supabase.from('chapter_likes').select('*').limit(25000),
