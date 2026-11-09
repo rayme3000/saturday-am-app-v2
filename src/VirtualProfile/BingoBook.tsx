@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ArrowLeft, Target, Lock, X, Sparkles, KeyRound, User, BookOpen, CheckCircle2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  Target,
+  Lock,
+  X,
+  Sparkles,
+  KeyRound,
+  User,
+  BookOpen,
+  CheckCircle2,
+  RefreshCw
+} from 'lucide-react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
@@ -10,20 +21,26 @@ const bingoTutorialSlide = [
   {
     id: 'bingo-1',
     title: 'The Bingo Book',
-    description: 'Hunt down Saturday AM creators at live conventions or virtual events to collect their exclusive digital signatures.',
-    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/S1%20bingo%20book%20page.png'
+    description:
+      'Hunt down Saturday AM creators at live conventions or virtual events to collect their exclusive digital signatures.',
+    mediaUrl:
+      'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/S1%20bingo%20book%20page.png'
   },
   {
     id: 'bingo-2',
     title: 'Unlock Autographs',
-    description: "Unlock an autograph using a creator's secret 5-digit PIN. Each collected signature earns you a +25 pt boost to your Fandom Score!",
-    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/S2%20autographs.png'
+    description:
+      "Unlock an autograph using a creator's secret 5-digit PIN. Each collected signature earns you a +25 pt boost to your Fandom Score!",
+    mediaUrl:
+      'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/S2%20autographs.png'
   },
   {
     id: 'bingo-3',
     title: 'Premium Display',
-    description: "Once unlocked, the creator's signature will be permanently displayed in glowing gold foil on all of their series pages.",
-    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/S3%20seriespage.png'
+    description:
+      "Once unlocked, the creator's signature will be permanently displayed in glowing gold foil on all of their series pages.",
+    mediaUrl:
+      'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/S3%20seriespage.png'
   }
 ];
 
@@ -43,7 +60,8 @@ export const CREATOR_SIGNATURE_ALIAS_GROUPS: string[][] = [
   ['tony dawkins'],
   ['pap souleye fall'],
   ['issaka galadima'],
-  ['austin harvey-younis', 'austin harvey younis']
+  ['austin harvey-younis', 'austin harvey younis'],
+  ['stephanie williams', 'steffany williams']
 ];
 
 export const getCreatorMatchTokens = (rawName?: string): string[] => {
@@ -74,13 +92,16 @@ export const doCreatorNamesMatch = (nameA?: string, nameB?: string): boolean => 
   if (tokensA.length === 0 || tokensB.length === 0) return false;
 
   return tokensA.some(a =>
-    tokensB.some(b => a === b || (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))))
+    tokensB.some(
+      b => a === b || (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a)))
+    )
   );
 };
 
 export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [forceTutorial, setForceTutorial] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [dbCreatorRows, setDbCreatorRows] = useState<any[]>([]);
   const [masterSignatures, setMasterSignatures] = useState<Record<string, string>>({});
@@ -88,7 +109,11 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const [signatures, setSignatures] = useState<Record<string, string>>({});
 
   const [selectedTarget, setSelectedTarget] = useState<any | null>(null);
-  const [viewingAutograph, setViewingAutograph] = useState<{ name: string; url: string; seriesObjs: any[] } | null>(null);
+  const [viewingAutograph, setViewingAutograph] = useState<{
+    name: string;
+    url: string;
+    seriesObjs: any[];
+  } | null>(null);
 
   const [pinInput, setPinInput] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -97,6 +122,7 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const fetchCreatorsAndMasterSigs = useCallback(async () => {
+    setIsRefreshing(true);
     try {
       const [{ data: creatorData }, { data: sigData }] = await Promise.all([
         supabase.from('series_creators').select('*').order('id', { ascending: true }),
@@ -116,11 +142,20 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       }
     } catch (err) {
       console.error('Failed to load Bingo Book catalog:', err);
+    } finally {
+      setIsRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     fetchCreatorsAndMasterSigs();
+    const handleRefresh = () => fetchCreatorsAndMasterSigs();
+    window.addEventListener('creatorVisibilityUpdated', handleRefresh);
+    window.addEventListener('focus', handleRefresh);
+    return () => {
+      window.removeEventListener('creatorVisibilityUpdated', handleRefresh);
+      window.removeEventListener('focus', handleRefresh);
+    };
   }, [fetchCreatorsAndMasterSigs]);
 
   const findSignatureUrlForCreator = useCallback(
@@ -142,18 +177,56 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       { id: string; name: string; avatar: string; series: string[]; seriesObjs: any[] }
     >();
 
+    // 1. Build a strict blocklist of any creator marked Hidden (is_visible === false or is_hidden === true) in series_creators
+    const hiddenCreatorNames: string[] = [];
+    const explicitlyVisibleCreatorNames: string[] = [];
+
+    dbCreatorRows.forEach((row: any) => {
+      const rawName = String(row.name || row.creator_name || '').trim();
+      if (!rawName) return;
+      const isHiddenRow =
+        row.is_visible === false ||
+        row.is_hidden === true ||
+        String(row.status || '').toLowerCase() === 'hidden';
+      if (isHiddenRow) {
+        hiddenCreatorNames.push(rawName);
+      } else {
+        explicitlyVisibleCreatorNames.push(rawName);
+      }
+    });
+
+    const isCreatorHidden = (candidateName: string): boolean => {
+      if (!candidateName) return true;
+      // If a creator has ANY row marked hidden and NO row explicitly marked visible, hide them from Bingo Book
+      const matchesHidden = hiddenCreatorNames.some(hName =>
+        doCreatorNamesMatch(candidateName, hName)
+      );
+      if (!matchesHidden) return false;
+      const matchesVisible = explicitlyVisibleCreatorNames.some(vName =>
+        doCreatorNamesMatch(candidateName, vName)
+      );
+      return !matchesVisible;
+    };
+
     const seriesBySlug = new Map<string, any>();
     seriesList.forEach((s: any) => {
       if (s.slug && !s.is_hidden) seriesBySlug.set(s.slug, s);
     });
 
-    const addOrMergeCreator = (rawName: string, avatarUrl: string | null, matchedSeries: any | null) => {
+    const addOrMergeCreator = (
+      rawName: string,
+      avatarUrl: string | null,
+      matchedSeries: any | null
+    ) => {
       if (!rawName) return;
       const cleanName = rawName
         .replace(/^(written by|art by|created by|story by|illustrated by)[:\s]+/i, '')
         .trim()
         .replace(/\s+/g, ' ');
       if (cleanName.length < 2) return;
+
+      // Strictly block hidden creators (e.g. Stephanie Williams, Pap Souleye Fall) from appearing!
+      if (isCreatorHidden(cleanName)) return;
 
       let matchedKey: string | null = null;
       for (const [k, existing] of uniqueCreatorsMap.entries()) {
@@ -172,7 +245,9 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
           name: cleanName,
           avatar:
             avatarUrl ||
-            `https://ui-avatars.com/api/?name=${encodeURIComponent(cleanName)}&background=18181b&color=fe9a00&bold=true`,
+            `https://ui-avatars.com/api/?name=${encodeURIComponent(
+              cleanName
+            )}&background=18181b&color=fe9a00&bold=true`,
           series: sTitle ? [sTitle] : [],
           seriesObjs: matchedSeries ? [matchedSeries] : []
         });
@@ -194,18 +269,27 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       }
     };
 
+    // 2. Add visible creators from series_creators table
     dbCreatorRows.forEach((row: any) => {
-      if (row.is_visible === false || !row.name) return;
+      const rName = String(row.name || row.creator_name || '').trim();
+      if (row.is_visible === false || row.is_hidden === true || !rName) return;
       const matchedSeries = seriesBySlug.get(row.series_slug) || null;
-      addOrMergeCreator(row.name, row.avatar_url || matchedSeries?.creator_avatar || null, matchedSeries);
+      addOrMergeCreator(
+        rName,
+        row.avatar_url || matchedSeries?.creator_avatar || null,
+        matchedSeries
+      );
     });
 
+    // 3. Merge series titles/links from seriesList (only if the creator is NOT hidden)
     seriesList.forEach((series: any) => {
       if (series.is_hidden) return;
       const rawCreator = series.creator_name || series.creator || '';
       if (!rawCreator) return;
       const parts = String(rawCreator).split(/,|\s+&\s+|\s+and\s+|\s*\/\s*/i);
       parts.forEach(part => {
+        // If dbCreatorRows has already loaded, only allow creators who aren't hidden
+        if (isCreatorHidden(part)) return;
         addOrMergeCreator(part, series.creator_avatar || null, series);
       });
     });
@@ -225,7 +309,9 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   }, [CREATOR_TARGETS, isTargetUnlocked]);
 
   const progressPercentage =
-    CREATOR_TARGETS.length > 0 ? Math.min(100, (unlockedTargetsCount / CREATOR_TARGETS.length) * 100) : 0;
+    CREATOR_TARGETS.length > 0
+      ? Math.min(100, (unlockedTargetsCount / CREATOR_TARGETS.length) * 100)
+      : 0;
 
   useEffect(() => {
     if (CREATOR_TARGETS.length > 0) {
@@ -237,7 +323,9 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     if (userTier === 'visitor') return;
 
     const syncUserSignatures = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
 
       let knownHunts: string[] = [];
       let knownSigs: Record<string, string> = {};
@@ -250,13 +338,19 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       }
 
       if (user) {
-        const { data: logs, error } = await supabase
-          .from('bingo_signatures_log')
-          .select('creator_name')
-          .eq('user_id', user.id);
+        const [{ data: logs, error }, { data: prof }] = await Promise.all([
+          supabase.from('bingo_signatures_log').select('creator_name').eq('user_id', user.id),
+          supabase.from('profiles').select('unlocked_autographs').eq('id', user.id).maybeSingle()
+        ]);
+
+        const profAutographs: string[] = Array.isArray(prof?.unlocked_autographs)
+          ? prof.unlocked_autographs.map((a: any) => String(a || '').trim()).filter(Boolean)
+          : [];
 
         if (!error && Array.isArray(logs)) {
-          const dbHunts = logs.map((log: any) => String(log.creator_name || '').trim()).filter(Boolean);
+          const dbHunts = logs
+            .map((log: any) => String(log.creator_name || '').trim())
+            .filter(Boolean);
 
           const unsavedLocalHunts = knownHunts.filter(
             (localName: string) =>
@@ -273,7 +367,9 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
             await supabase.from('bingo_signatures_log').insert(backups);
           }
 
-          knownHunts = Array.from(new Set([...knownHunts, ...dbHunts]));
+          knownHunts = Array.from(new Set([...knownHunts, ...dbHunts, ...profAutographs]));
+        } else if (profAutographs.length > 0) {
+          knownHunts = Array.from(new Set([...knownHunts, ...profAutographs]));
         }
       }
 
@@ -324,7 +420,11 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
     syncUserSignatures();
   }, [userTier, CREATOR_TARGETS, masterSignatures]);
 
-  const claimSignature = async (creatorName: string, creatorId: string, codeCreatorName?: string) => {
+  const claimSignature = async (
+    creatorName: string,
+    creatorId: string,
+    codeCreatorName?: string
+  ) => {
     const { data: allSigs } = await supabase
       .from('creator_signatures')
       .select('creator_name, signature_url');
@@ -357,7 +457,9 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
       return false;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
     const alreadyHadCreator = isTargetUnlocked(creatorName);
 
     if (user && !alreadyHadCreator) {
@@ -440,7 +542,6 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
         return;
       }
 
-      // Enforce single-use / max_uses limit on 1-Time Fan PINs!
       const timesUsed = Number(codesData.times_used || 0);
       const maxUses = Number(codesData.max_uses || 999999);
       if (maxUses > 0 && timesUsed >= maxUses) {
@@ -515,7 +616,7 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
   }
 
   return (
-    <div className="min-h-screen bg-transparent text-white pb-28 animate-fade-in relative">
+    <div className="min-h-screen bg-transparent text-white pb-36 animate-fade-in relative">
       <FeatureTutorialModal
         tutorialId="bingo_book_page"
         slides={bingoTutorialSlide}
@@ -548,8 +649,16 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
             <h1 className="text-xl md:text-2xl font-black uppercase italic tracking-widest text-white flex items-center gap-2">
               Bingo <span className="text-red-600">Book</span>
             </h1>
-            <div className="ml-1 md:ml-3">
+            <div className="ml-1 md:ml-3 flex items-center gap-2">
               <TutorialHelpButton onClick={() => setForceTutorial(true)} />
+              <button
+                type="button"
+                onClick={fetchCreatorsAndMasterSigs}
+                title="Refresh Creator Roster"
+                className="p-2 rounded-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-[#fe9a00] transition-colors cursor-pointer"
+              >
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-[#fe9a00]' : ''}`} />
+              </button>
             </div>
           </div>
         </div>
@@ -562,7 +671,7 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
             <Target className="w-6 h-6 md:w-7 md:h-7" /> The Mission
           </h2>
           <p className="text-white text-sm md:text-base font-bold leading-relaxed">
-            Collect creator autographs via live event PINs or 1-Time Fan Gift PINs! Collected autographs shine in glowing gold foil on your Bingo Book cards and directly on each creator's Series Detail Page.
+            Collect creator autographs via live event PINs or 1-Time Fan Gift PINs! Collected autographs shine in glowing gold foil on your Bingo Book cards and directly on each creator&apos;s Series Detail Page.
           </p>
         </div>
 
@@ -760,7 +869,7 @@ export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {
                     Autograph Unlocked!
                   </h3>
                   <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-5 px-4">
-                    Displayed in glowing gold foil on {selectedTarget.name}'s series pages!
+                    Displayed in glowing gold foil on {selectedTarget.name}&apos;s series pages!
                   </p>
 
                   {(() => {

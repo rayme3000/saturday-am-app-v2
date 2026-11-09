@@ -20,7 +20,9 @@ import {
   Loader2,
   Users,
   Save,
-  Code2
+  Code2,
+  ShoppingBag,
+  ShieldCheck
 } from 'lucide-react';
 import { buildCreatorReferralCode, getCreatorReferralCodeVariants } from '../MainViews/CreatorStudio';
 
@@ -38,7 +40,9 @@ export const DEV_RECIPIENT_EMAIL = 'rayme3000@gmail.com';
 export const DEV_CUT_PERCENT = 0.075; // 7.5% auto-adjusting across all monthly & annual prices
 
 export const CreatorPayoutTracker = () => {
+  const [ledgerTab, setLedgerTab] = useState<'tips' | 'store'>('tips');
   const [tips, setTips] = useState<any[]>([]);
+  const [storeLedger, setStoreLedger] = useState<any[]>([]);
   const [creators, setCreators] = useState<any[]>([]);
   const [referredProfiles, setReferredProfiles] = useState<any[]>([]);
   const [partnerProfiles, setPartnerProfiles] = useState<any[]>([]);
@@ -47,7 +51,7 @@ export const CreatorPayoutTracker = () => {
 
   const [pricingMode, setPricingMode] = useState<'promo' | 'normal'>('promo');
   const activeMonthlyPrice = pricingMode === 'promo' ? 1.99 : 2.99;
-  const activeAnnualPrice = pricingMode === 'promo' ? 20.00 : 35.99;
+  const activeAnnualPrice = pricingMode === 'promo' ? 20.00 : 35.00;
 
   const devCutPerMonthlySub = Number((activeMonthlyPrice * DEV_CUT_PERCENT).toFixed(2));
   const devCutPerAnnualSub = Number((activeAnnualPrice * DEV_CUT_PERCENT).toFixed(2));
@@ -75,11 +79,16 @@ export const CreatorPayoutTracker = () => {
     try {
       const [
         { data: tipsData, error: tipsErr },
+        storeLedgerRes,
         { data: creatorsData },
         { data: profilesData }
       ] = await Promise.all([
         supabase
           .from('creator_tips')
+          .select('*')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('store_payout_ledger')
           .select('*')
           .order('created_at', { ascending: false }),
         supabase
@@ -95,6 +104,10 @@ export const CreatorPayoutTracker = () => {
         console.error('Error fetching creator_tips:', tipsErr.message);
       } else {
         setTips(tipsData || []);
+      }
+
+      if (storeLedgerRes?.data) {
+        setStoreLedger(storeLedgerRes.data);
       }
 
       if (profilesData) {
@@ -145,11 +158,64 @@ export const CreatorPayoutTracker = () => {
     fetchPayoutData();
   }, [fetchPayoutData]);
 
-  // Calculate Referral Bounties ($5 Creator/Staff, $2 Influencer) — synced with CreatorStudio's VIP- code generator!
+  // Calculate Store & Bundle Economics Totals from store_payout_ledger
+  const storeEconomicsSummary = useMemo(() => {
+    let grossTotal = 0;
+    let stripeFeesTotal = 0;
+    let creatorBountiesTotal = 0;
+    let devAllocationTotal = 0;
+    let netSatAmTotal = 0;
+
+    const creatorBundleBountyMap = new Map<string, { name: string; totalBounty: number; salesCount: number }>();
+
+    storeLedger.forEach((row: any) => {
+      const gross = Number(row.gross_amount_dollars || 0);
+      const fee = Number(row.stripe_fee_dollars || 0);
+      const bounty = Number(row.creator_bounty_dollars || 0);
+      const dev = Number(row.dev_allocation_dollars || 0);
+      const net = Number(row.net_saturday_am_dollars || 0);
+
+      grossTotal += gross;
+      stripeFeesTotal += fee;
+      creatorBountiesTotal += bounty;
+      devAllocationTotal += dev;
+      netSatAmTotal += net;
+
+      const cNames: string[] = Array.isArray(row.creator_names)
+        ? row.creator_names.filter(Boolean)
+        : [];
+      if (bounty > 0 && cNames.length > 0) {
+        const splitBounty = Number((bounty / cNames.length).toFixed(2));
+        cNames.forEach((cName) => {
+          const clean = cName.trim();
+          const existing = creatorBundleBountyMap.get(clean) || {
+            name: clean,
+            totalBounty: 0,
+            salesCount: 0
+          };
+          existing.totalBounty += splitBounty;
+          existing.salesCount += 1;
+          creatorBundleBountyMap.set(clean, existing);
+        });
+      }
+    });
+
+    return {
+      grossTotal,
+      stripeFeesTotal,
+      creatorBountiesTotal,
+      devAllocationTotal,
+      netSatAmTotal,
+      creatorBundleBounties: Array.from(creatorBundleBountyMap.values()).sort(
+        (a, b) => b.totalBounty - a.totalBounty
+      )
+    };
+  }, [storeLedger]);
+
+  // Calculate Referral Bounties ($5 Creator/Staff, $2 Influencer)
   const referralCommissionSummary = useMemo(() => {
     const partnerByCode = new Map<string, { partnerName: string; role: string; canonicalCode: string }>();
 
-    // 1. Register all series_creators by their canonical VIP- referral code variants
     creators.forEach(c => {
       const canonicalCode = buildCreatorReferralCode(c.name);
       const variants = getCreatorReferralCodeVariants(c.name);
@@ -162,7 +228,6 @@ export const CreatorPayoutTracker = () => {
       });
     });
 
-    // 2. Register partnerProfiles (overrides role if influencer or staff)
     partnerProfiles.forEach(p => {
       const displayName = p.linked_creator_name || p.username || 'Partner';
       const rawRole = String(p.role || 'creator').toLowerCase();
@@ -226,7 +291,7 @@ export const CreatorPayoutTracker = () => {
     const currentYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     monthSet.add(currentYm);
 
-    tips.forEach((t) => {
+    [...tips, ...storeLedger].forEach((t) => {
       if (t.created_at) {
         const d = new Date(t.created_at);
         if (!isNaN(d.getTime())) {
@@ -237,7 +302,7 @@ export const CreatorPayoutTracker = () => {
     });
 
     return Array.from(monthSet).sort((a, b) => b.localeCompare(a));
-  }, [tips]);
+  }, [tips, storeLedger]);
 
   const formatMonthLabel = (ym: string) => {
     const [year, month] = ym.split('-');
@@ -324,6 +389,31 @@ export const CreatorPayoutTracker = () => {
     });
   }, [tips, selectedMonth, selectedCreator, searchQuery, sortBy]);
 
+  const filteredStoreLedger = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return storeLedger.filter((row: any) => {
+      if (selectedMonth !== 'all' && row.created_at) {
+        const d = new Date(row.created_at);
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (ym !== selectedMonth) return false;
+      }
+      if (selectedCreator !== 'all') {
+        const cNames: string[] = Array.isArray(row.creator_names) ? row.creator_names : [];
+        const hasMatch = cNames.some(
+          (n) => String(n || '').toLowerCase() === selectedCreator.toLowerCase()
+        );
+        if (!hasMatch) return false;
+      }
+      if (!q) return true;
+      const cJoined = Array.isArray(row.creator_names) ? row.creator_names.join(' ') : '';
+      return (
+        String(row.product_title || '').toLowerCase().includes(q) ||
+        String(row.user_email || '').toLowerCase().includes(q) ||
+        cJoined.toLowerCase().includes(q)
+      );
+    });
+  }, [storeLedger, selectedMonth, selectedCreator, searchQuery]);
+
   const filteredPeriodTotal = useMemo(() => {
     return filteredAndSortedTips.reduce((sum, t) => sum + Number(t.amount_dollars || 0), 0);
   }, [filteredAndSortedTips]);
@@ -404,6 +494,19 @@ export const CreatorPayoutTracker = () => {
     }
   };
 
+  const handleToggleStoreLedgerStatus = async (row: any) => {
+    const nextStatus = row.status === 'paid' || row.status === 'completed' ? 'pending' : 'completed';
+    const { error } = await supabase
+      .from('store_payout_ledger')
+      .update({ status: nextStatus })
+      .eq('id', row.id);
+    if (!error) {
+      setStoreLedger((prev) =>
+        prev.map((r) => (r.id === row.id ? { ...r, status: nextStatus } : r))
+      );
+    }
+  };
+
   const handleDeleteTip = async (id: string) => {
     if (!window.confirm('Remove this transaction from the payout ledger?')) return;
     const { error } = await supabase.from('creator_tips').delete().eq('id', id);
@@ -412,7 +515,59 @@ export const CreatorPayoutTracker = () => {
     }
   };
 
+  const handleDeleteStoreLedgerRow = async (id: string) => {
+    if (!window.confirm('Remove this store sale entry from the ledger?')) return;
+    const { error } = await supabase.from('store_payout_ledger').delete().eq('id', id);
+    if (!error) {
+      setStoreLedger((prev) => prev.filter((r) => r.id !== id));
+    }
+  };
+
   const handleExportCSV = () => {
+    const escapeCsv = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+
+    if (ledgerTab === 'store') {
+      const headers = [
+        'Date',
+        'Product Title',
+        'Product Type',
+        'Buyer Email',
+        'Gross (USD)',
+        'Stripe Fee (USD)',
+        'Creator Bounty ($5 Flat)',
+        'Attributed Creators',
+        'Dev Allocation (USD)',
+        'Saturday AM Net Retained (USD)',
+        'Status'
+      ];
+      const rows = filteredStoreLedger.map((r) =>
+        [
+          escapeCsv(r.created_at ? new Date(r.created_at).toLocaleString() : ''),
+          escapeCsv(r.product_title),
+          escapeCsv(r.product_type),
+          escapeCsv(r.user_email || ''),
+          escapeCsv(Number(r.gross_amount_dollars || 0).toFixed(2)),
+          escapeCsv(Number(r.stripe_fee_dollars || 0).toFixed(2)),
+          escapeCsv(Number(r.creator_bounty_dollars || 0).toFixed(2)),
+          escapeCsv(Array.isArray(r.creator_names) ? r.creator_names.join(' & ') : ''),
+          escapeCsv(Number(r.dev_allocation_dollars || 0).toFixed(2)),
+          escapeCsv(Number(r.net_saturday_am_dollars || 0).toFixed(2)),
+          escapeCsv(r.status || 'completed')
+        ].join(',')
+      );
+      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
+      const link = document.createElement('a');
+      link.setAttribute('href', encodeURI(csvContent));
+      link.setAttribute(
+        'download',
+        `SaturdayAM_Store_Bundle_Ledger_${selectedMonth === 'all' ? 'AllTime' : selectedMonth}.csv`
+      );
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     const headers = [
       'Date',
       'Creator Name',
@@ -424,8 +579,6 @@ export const CreatorPayoutTracker = () => {
       'Fan Mail Message',
       'Transaction ID'
     ];
-
-    const escapeCsv = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
 
     const rows = filteredAndSortedTips.map((t) =>
       [
@@ -461,10 +614,10 @@ export const CreatorPayoutTracker = () => {
           <DollarSign className="w-6 h-6 text-[#fe9a00]" />
           <div>
             <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
-              Creator Payouts, Referrals & Dev Split Ledger
+              Creator Payouts, Bundle Bounties & Dev Split Ledger
             </h2>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-              Track 100% creator tips, $5/$2 annual referral bounties, and auto-scaling 7.5% backend dev share
+              Track 100% creator tips, $5.00 Annual Bundle/Sub Bounties, 100% Platform Skins/Packs & Dev Allocations
             </p>
           </div>
         </div>
@@ -494,7 +647,7 @@ export const CreatorPayoutTracker = () => {
             type="button"
             onClick={handleExportCSV}
             className="px-3 py-2 rounded-lg bg-black border border-zinc-700 text-zinc-300 hover:text-black hover:bg-[#fe9a00] hover:border-[#fe9a00] text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="Export filtered payouts to CSV"
+            title="Export active ledger view to CSV"
           >
             <Download className="w-3.5 h-3.5" /> Export CSV
           </button>
@@ -510,16 +663,116 @@ export const CreatorPayoutTracker = () => {
         </div>
       </div>
 
-      <div className="bg-black border border-[#fe9a00]/40 rounded-2xl p-5 space-y-4">
+      {/* =====================================================================
+          IN-APP STORE & BUNDLE ECONOMICS SUMMARY (SECTION 5 & 6 RULES)
+      ===================================================================== */}
+      <div className="bg-black border border-[#fe9a00]/50 rounded-2xl p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+          <div className="flex items-center gap-2">
+            <ShoppingBag className="w-5 h-5 text-[#fe9a00]" />
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-white">
+                In-App Store & Annual Bundle Economics ({storeLedger.length} Sales)
+              </h3>
+              <p className="text-[10px] text-zinc-400 font-bold">
+                Bundles: Flat $5.00 Creator Bounty + $1.50 Dev Allocation • Individual Skins ($10+) & Avatar Packs ($5+): 100% Platform Revenue
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLedgerTab(ledgerTab === 'store' ? 'tips' : 'store')}
+            className="px-3 py-1.5 rounded-lg bg-[#fe9a00]/15 hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border border-[#fe9a00]/40 text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer self-start sm:self-auto"
+          >
+            {ledgerTab === 'store' ? 'Switch to Fan Tips Table' : `View Store Sales Table (${storeLedger.length})`}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5">
+            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-400">
+              Gross Store & Bundle Sales
+            </div>
+            <div className="text-lg font-black text-white mt-1">
+              {formatCurrency(storeEconomicsSummary.grossTotal)}
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold mt-1">
+              Est. Stripe Fees: {formatCurrency(storeEconomicsSummary.stripeFeesTotal)}
+            </div>
+          </div>
+
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5">
+            <div className="text-[9px] font-black uppercase tracking-widest text-emerald-400">
+              Creator Bundle Bounties ($5 Flat)
+            </div>
+            <div className="text-lg font-black text-emerald-400 mt-1">
+              {formatCurrency(storeEconomicsSummary.creatorBountiesTotal)}
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold mt-1">
+              $0 on Individual Skins & Packs
+            </div>
+          </div>
+
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5">
+            <div className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
+              Store Dev Allocations ($1.50 / 7.5%)
+            </div>
+            <div className="text-lg font-black text-[#fe9a00] mt-1">
+              {formatCurrency(storeEconomicsSummary.devAllocationTotal)}
+            </div>
+            <div className="text-[10px] text-zinc-500 font-bold mt-1">
+              Recipient: {DEV_RECIPIENT_EMAIL}
+            </div>
+          </div>
+
+          <div className="bg-zinc-950 border border-emerald-500/40 rounded-xl p-3.5">
+            <div className="text-[9px] font-black uppercase tracking-widest text-emerald-300 flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3" /> Sat AM Net Retained
+            </div>
+            <div className="text-lg font-black text-white mt-1">
+              {formatCurrency(storeEconomicsSummary.netSatAmTotal)}
+            </div>
+            <div className="text-[10px] text-emerald-400 font-bold mt-1">
+              Net Platform Cash After Splits
+            </div>
+          </div>
+        </div>
+
+        {storeEconomicsSummary.creatorBundleBounties.length > 0 && (
+          <div className="pt-2">
+            <div className="text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">
+              Creator Bundle Bounties Earned ($5.00 per Bundle)
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {storeEconomicsSummary.creatorBundleBounties.map((cb) => (
+                <div
+                  key={cb.name}
+                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-[10px] font-bold flex items-center gap-2"
+                >
+                  <span className="text-white font-black uppercase">{cb.name}</span>
+                  <span className="text-emerald-400 font-black">
+                    {formatCurrency(cb.totalBounty)} ({cb.salesCount} Bundle{cb.salesCount > 1 ? 's' : ''})
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* =====================================================================
+          SUBSCRIPTION DEV SHARE & REFERRAL BOUNTY RULES
+      ===================================================================== */}
+      <div className="bg-black border border-zinc-800 rounded-2xl p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
           <div className="flex items-center gap-2.5">
             <Code2 className="w-5 h-5 text-[#fe9a00]" />
             <div>
               <h3 className="text-xs font-black uppercase tracking-widest text-white">
-                Auto-Scaling 7.5% Backend Dev Share ({DEV_RECIPIENT_EMAIL}) & Referral Rules
+                Recurring Subscription Dev Allocation ({DEV_RECIPIENT_EMAIL}) & Referral Bounties
               </h3>
               <p className="text-[10px] text-zinc-400 font-bold">
-                Automatically calculates 7.5% across all Monthly & Annual subscriptions and adjusts if prices increase
+                $0.15/mo on $1.99 Monthly • $1.50/yr on $20.00 Annual • $5.00 Creator Annual Referral Bounty
               </p>
             </div>
           </div>
@@ -532,7 +785,7 @@ export const CreatorPayoutTracker = () => {
                 pricingMode === 'promo' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Launch Promo ($1.99 / $20.00)
+              Protected Rate ($1.99 / $20.00)
             </button>
             <button
               type="button"
@@ -541,7 +794,7 @@ export const CreatorPayoutTracker = () => {
                 pricingMode === 'normal' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'
               }`}
             >
-              Normal Price ($2.99 / $35.99)
+              Standard Bundle ($2.99 / $35.00)
             </button>
           </div>
         </div>
@@ -642,14 +895,14 @@ export const CreatorPayoutTracker = () => {
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-[#fe9a00]" />
-              {selectedMonth === 'all' ? 'Filtered View Volume' : formatMonthLabel(selectedMonth)}
+              {selectedMonth === 'all' ? 'Filtered Tips Volume' : formatMonthLabel(selectedMonth)}
             </span>
           </div>
           <div className="text-2xl sm:text-3xl font-black text-[#fe9a00] tracking-tight my-1">
             {formatCurrency(filteredPeriodTotal)}
           </div>
           <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-            {filteredAndSortedTips.length} Transactions in Selected View
+            {filteredAndSortedTips.length} Fan Tips in Selected View
           </p>
         </div>
 
@@ -888,12 +1141,38 @@ export const CreatorPayoutTracker = () => {
         </div>
       )}
 
+      {/* TABLE SWITCHER + SEARCH + FILTERS */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-black p-4 rounded-xl border border-zinc-800">
+        <div className="flex bg-zinc-900 p-1 rounded-lg border border-zinc-800 shrink-0">
+          <button
+            type="button"
+            onClick={() => setLedgerTab('tips')}
+            className={`px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer ${
+              ledgerTab === 'tips' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Fan Tips ({tips.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setLedgerTab('store')}
+            className={`px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer ${
+              ledgerTab === 'store' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            Store & Bundles ({storeLedger.length})
+          </button>
+        </div>
+
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search donor name, email, creator, or fan mail message..."
+            placeholder={
+              ledgerTab === 'store'
+                ? 'Search bundle title, buyer email, or creator...'
+                : 'Search donor name, email, creator, or fan mail message...'
+            }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-zinc-900 border border-zinc-700 text-white pl-9 pr-3 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00]"
@@ -917,161 +1196,271 @@ export const CreatorPayoutTracker = () => {
             </select>
           </div>
 
-          <div className="relative">
-            <ArrowUpDown className="w-3.5 h-3.5 text-[#fe9a00] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as PayoutSortOption)}
-              className="bg-zinc-900 border border-zinc-700 text-white pl-8 pr-4 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
-            >
-              <option value="date_desc">Sort: Newest Activity First</option>
-              <option value="date_asc">Sort: Oldest Activity First</option>
-              <option value="amount_desc">Sort: Highest Amount ($ → $)</option>
-              <option value="amount_asc">Sort: Lowest Amount ($ → $)</option>
-              <option value="creator_asc">Sort: Creator Name (A → Z)</option>
-              <option value="creator_desc">Sort: Creator Name (Z → A)</option>
-              <option value="donor_asc">Sort: Donor Name (A → Z)</option>
-              <option value="donor_desc">Sort: Donor Name (Z → A)</option>
-            </select>
-          </div>
+          {ledgerTab === 'tips' && (
+            <div className="relative">
+              <ArrowUpDown className="w-3.5 h-3.5 text-[#fe9a00] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as PayoutSortOption)}
+                className="bg-zinc-900 border border-zinc-700 text-white pl-8 pr-4 py-2 rounded-lg text-xs font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
+              >
+                <option value="date_desc">Sort: Newest Activity First</option>
+                <option value="date_asc">Sort: Oldest Activity First</option>
+                <option value="amount_desc">Sort: Highest Amount ($ → $)</option>
+                <option value="amount_asc">Sort: Lowest Amount ($ → $)</option>
+                <option value="creator_asc">Sort: Creator Name (A → Z)</option>
+                <option value="creator_desc">Sort: Creator Name (Z → A)</option>
+                <option value="donor_asc">Sort: Donor Name (A → Z)</option>
+                <option value="donor_desc">Sort: Donor Name (Z → A)</option>
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="overflow-x-auto no-scrollbar bg-black border border-zinc-800 rounded-xl">
-        <table className="w-full text-left border-collapse min-w-[900px]">
-          <thead>
-            <tr className="border-b border-zinc-800 text-[9px] font-black uppercase tracking-widest text-zinc-500">
-              <th className="py-3.5 px-4">Date & Time</th>
-              <th className="py-3.5 px-4">Creator Recipient</th>
-              <th className="py-3.5 px-4">Donor / Supporter Info</th>
-              <th className="py-3.5 px-4">Fan Mail Message</th>
-              <th className="py-3.5 px-4 text-center">Payout Status</th>
-              <th className="py-3.5 px-4 text-right text-[#fe9a00]">Tip Amount</th>
-              <th className="py-3.5 px-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-800/60 text-xs">
-            {loading ? (
-              <tr>
-                <td colSpan={7} className="py-12 text-center text-zinc-500 font-bold uppercase tracking-widest text-[10px]">
-                  <Loader2 className="w-6 h-6 animate-spin text-[#fe9a00] mx-auto mb-2" />
-                  Loading Creator Payout Ledger...
-                </td>
+      {/* =====================================================================
+          LEDGER TABLE (SWITCHES BETWEEN FAN TIPS & STORE / BUNDLE SALES)
+      ===================================================================== */}
+      {ledgerTab === 'store' ? (
+        <div className="overflow-x-auto no-scrollbar bg-black border border-zinc-800 rounded-xl">
+          <table className="w-full text-left border-collapse min-w-[900px]">
+            <thead>
+              <tr className="border-b border-zinc-800 text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                <th className="py-3.5 px-4">Date</th>
+                <th className="py-3.5 px-4">Product / Bundle</th>
+                <th className="py-3.5 px-4">Buyer</th>
+                <th className="py-3.5 px-4 text-right">Gross</th>
+                <th className="py-3.5 px-4 text-right text-emerald-400">Creator Bounty</th>
+                <th className="py-3.5 px-4 text-right text-[#fe9a00]">Dev Alloc</th>
+                <th className="py-3.5 px-4 text-right text-white">Sat AM Net</th>
+                <th className="py-3.5 px-4 text-center">Status</th>
+                <th className="py-3.5 px-3 text-right">Actions</th>
               </tr>
-            ) : filteredAndSortedTips.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="py-12 text-center text-zinc-500 font-bold italic">
-                  No creator tips or payouts match this filter yet.
-                </td>
-              </tr>
-            ) : (
-              filteredAndSortedTips.map((t) => {
-                const isPaid = (t.payout_status || 'paid') === 'paid';
-                const cEmail = t.creator_email || creatorEmails[t.creator_name] || '';
-
-                return (
-                  <tr key={t.id} className="hover:bg-zinc-900/60 transition-colors">
-                    <td className="py-3.5 px-4 align-top font-mono text-[11px] text-zinc-300 whitespace-nowrap">
-                      {t.created_at ? (
-                        <div>
-                          <div className="font-bold text-white">
-                            {new Date(t.created_at).toLocaleDateString(undefined, {
+            </thead>
+            <tbody className="divide-y divide-zinc-800/60 text-xs">
+              {filteredStoreLedger.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-12 text-center text-zinc-500 font-bold italic">
+                    No store or bundle transactions recorded yet.
+                  </td>
+                </tr>
+              ) : (
+                filteredStoreLedger.map((r: any) => {
+                  const isCompleted = r.status === 'completed' || r.status === 'paid';
+                  const cNames: string[] = Array.isArray(r.creator_names)
+                    ? r.creator_names.filter(Boolean)
+                    : [];
+                  return (
+                    <tr key={r.id} className="hover:bg-zinc-900/60 transition-colors">
+                      <td className="py-3.5 px-4 font-mono text-[11px] text-zinc-300 whitespace-nowrap">
+                        {r.created_at
+                          ? new Date(r.created_at).toLocaleDateString(undefined, {
                               month: 'short',
                               day: 'numeric',
                               year: 'numeric'
-                            })}
+                            })
+                          : '—'}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="font-black text-white uppercase tracking-wider">
+                          {r.product_title}
+                        </div>
+                        <div className="text-[10px] text-zinc-400 uppercase font-bold">
+                          {r.product_type}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-zinc-300 font-bold">
+                        {r.user_email || 'Registered Fan'}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-bold text-white">
+                        {formatCurrency(Number(r.gross_amount_dollars || 0))}
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="font-black text-emerald-400">
+                          {formatCurrency(Number(r.creator_bounty_dollars || 0))}
+                        </div>
+                        {cNames.length > 0 && (
+                          <div className="text-[9px] text-zinc-400 font-bold">
+                            {cNames.join(' & ')}
                           </div>
-                          <div className="text-[10px] text-zinc-500">
-                            {new Date(t.created_at).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </div>
-                        </div>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-
-                    <td className="py-3.5 px-4 align-top">
-                      <div className="font-black text-white uppercase tracking-wider text-xs">
-                        {t.creator_name}
-                      </div>
-                      {cEmail ? (
-                        <div className="text-[10px] text-[#fe9a00] flex items-center gap-1 mt-0.5">
-                          <Mail className="w-3 h-3 shrink-0" /> {cEmail}
-                        </div>
-                      ) : (
-                        <div className="text-[10px] text-zinc-600 italic mt-0.5">
-                          No creator email assigned
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="py-3.5 px-4 align-top">
-                      <div className="font-bold text-zinc-200 flex items-center gap-1.5">
-                        <User className="w-3 h-3 text-[#fe9a00] shrink-0" />
-                        <span>{t.donor_name || 'Saturday AM Fan'}</span>
-                      </div>
-                      {t.donor_email && (
-                        <div className="text-[10px] text-zinc-400 flex items-center gap-1 mt-0.5">
-                          <Mail className="w-3 h-3 text-zinc-500 shrink-0" />
-                          <span>{t.donor_email}</span>
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="py-3.5 px-4 align-top max-w-xs">
-                      {t.fan_message ? (
-                        <div className="bg-zinc-900 border-l-2 border-[#fe9a00] px-3 py-2 rounded text-zinc-200 italic text-xs leading-relaxed">
-                          <MessageSquare className="w-3 h-3 text-[#fe9a00] inline mr-1.5 -mt-0.5" />
-                          "{t.fan_message}"
-                        </div>
-                      ) : (
-                        <span className="text-zinc-600 italic text-[11px]">No fan mail message</span>
-                      )}
-                    </td>
-
-                    <td className="py-3.5 px-4 align-top text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleTogglePayoutStatus(t)}
-                        title="Click to toggle Paid / Pending status"
-                        className="cursor-pointer"
-                      >
-                        {isPaid ? (
-                          <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/40 border border-emerald-800/60 px-2.5 py-1 rounded-full">
-                            <CheckCircle2 className="w-3 h-3" /> Paid
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-950/40 border border-amber-800/60 px-2.5 py-1 rounded-full">
-                            <Clock className="w-3 h-3" /> Pending
-                          </span>
                         )}
-                      </button>
-                    </td>
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-black text-[#fe9a00]">
+                        {formatCurrency(Number(r.dev_allocation_dollars || 0))}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-black text-white">
+                        {formatCurrency(Number(r.net_saturday_am_dollars || 0))}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStoreLedgerStatus(r)}
+                          className="cursor-pointer"
+                        >
+                          {isCompleted ? (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/40 border border-emerald-800/60 px-2.5 py-1 rounded-full">
+                              <CheckCircle2 className="w-3 h-3" /> Paid
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-950/40 border border-amber-800/60 px-2.5 py-1 rounded-full">
+                              <Clock className="w-3 h-3" /> Pending
+                            </span>
+                          )}
+                        </button>
+                      </td>
+                      <td className="py-3.5 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteStoreLedgerRow(r.id)}
+                          className="p-1.5 text-zinc-600 hover:text-red-500 rounded-lg cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="overflow-x-auto no-scrollbar bg-black border border-zinc-800 rounded-xl">
+          <table className="w-full text-left border-collapse min-w-[900px]">
+            <thead>
+              <tr className="border-b border-zinc-800 text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                <th className="py-3.5 px-4">Date & Time</th>
+                <th className="py-3.5 px-4">Creator Recipient</th>
+                <th className="py-3.5 px-4">Donor / Supporter Info</th>
+                <th className="py-3.5 px-4">Fan Mail Message</th>
+                <th className="py-3.5 px-4 text-center">Payout Status</th>
+                <th className="py-3.5 px-4 text-right text-[#fe9a00]">Tip Amount</th>
+                <th className="py-3.5 px-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800/60 text-xs">
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-zinc-500 font-bold uppercase tracking-widest text-[10px]">
+                    <Loader2 className="w-6 h-6 animate-spin text-[#fe9a00] mx-auto mb-2" />
+                    Loading Creator Payout Ledger...
+                  </td>
+                </tr>
+              ) : filteredAndSortedTips.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-zinc-500 font-bold italic">
+                    No creator tips or payouts match this filter yet.
+                  </td>
+                </tr>
+              ) : (
+                filteredAndSortedTips.map((t) => {
+                  const isPaid = (t.payout_status || 'paid') === 'paid';
+                  const cEmail = t.creator_email || creatorEmails[t.creator_name] || '';
 
-                    <td className="py-3.5 px-4 align-top text-right font-black text-base text-[#fe9a00] whitespace-nowrap">
-                      {formatCurrency(Number(t.amount_dollars || 0))}
-                    </td>
+                  return (
+                    <tr key={t.id} className="hover:bg-zinc-900/60 transition-colors">
+                      <td className="py-3.5 px-4 align-top font-mono text-[11px] text-zinc-300 whitespace-nowrap">
+                        {t.created_at ? (
+                          <div>
+                            <div className="font-bold text-white">
+                              {new Date(t.created_at).toLocaleDateString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric'
+                              })}
+                            </div>
+                            <div className="text-[10px] text-zinc-500">
+                              {new Date(t.created_at).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
 
-                    <td className="py-3.5 px-3 align-top text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTip(t.id)}
-                        className="p-1.5 text-zinc-600 hover:text-red-500 hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
-                        title="Delete Transaction"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                      <td className="py-3.5 px-4 align-top">
+                        <div className="font-black text-white uppercase tracking-wider text-xs">
+                          {t.creator_name}
+                        </div>
+                        {cEmail ? (
+                          <div className="text-[10px] text-[#fe9a00] flex items-center gap-1 mt-0.5">
+                            <Mail className="w-3 h-3 shrink-0" /> {cEmail}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-zinc-600 italic mt-0.5">
+                            No creator email assigned
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4 align-top">
+                        <div className="font-bold text-zinc-200 flex items-center gap-1.5">
+                          <User className="w-3 h-3 text-[#fe9a00] shrink-0" />
+                          <span>{t.donor_name || 'Saturday AM Fan'}</span>
+                        </div>
+                        {t.donor_email && (
+                          <div className="text-[10px] text-zinc-400 flex items-center gap-1 mt-0.5">
+                            <Mail className="w-3 h-3 text-zinc-500 shrink-0" />
+                            <span>{t.donor_email}</span>
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4 align-top max-w-xs">
+                        {t.fan_message ? (
+                          <div className="bg-zinc-900 border-l-2 border-[#fe9a00] px-3 py-2 rounded text-zinc-200 italic text-xs leading-relaxed">
+                            <MessageSquare className="w-3 h-3 text-[#fe9a00] inline mr-1.5 -mt-0.5" />
+                            "{t.fan_message}"
+                          </div>
+                        ) : (
+                          <span className="text-zinc-600 italic text-[11px]">No fan mail message</span>
+                        )}
+                      </td>
+
+                      <td className="py-3.5 px-4 align-top text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePayoutStatus(t)}
+                          title="Click to toggle Paid / Pending status"
+                          className="cursor-pointer"
+                        >
+                          {isPaid ? (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/40 border border-emerald-800/60 px-2.5 py-1 rounded-full">
+                              <CheckCircle2 className="w-3 h-3" /> Paid
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-950/40 border border-amber-800/60 px-2.5 py-1 rounded-full">
+                              <Clock className="w-3 h-3" /> Pending
+                            </span>
+                          )}
+                        </button>
+                      </td>
+
+                      <td className="py-3.5 px-4 align-top text-right font-black text-base text-[#fe9a00] whitespace-nowrap">
+                        {formatCurrency(Number(t.amount_dollars || 0))}
+                      </td>
+
+                      <td className="py-3.5 px-3 align-top text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTip(t.id)}
+                          className="p-1.5 text-zinc-600 hover:text-red-500 hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
+                          title="Delete Transaction"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 };

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabase';
 import {
   ArrowLeft, DollarSign, Sparkles, Flame, BookOpen, KeyRound, Copy, Check,
-  ExternalLink, Heart, RefreshCw, Award, Eye, QrCode, Download, X, Link2, Gift, Plus, Trash2, MessageSquare, Zap, Users, ChevronDown, ChevronUp
+  ExternalLink, Heart, RefreshCw, Award, Eye, QrCode, Download, X, Link2, Gift, Plus, Trash2, MessageSquare, Zap, Users, ChevronDown, ChevronUp, Crown, Calendar
 } from 'lucide-react';
 import { resolveCreatorStripeAccountId, normalizeCreatorKey } from './CreatorsPage';
 
@@ -71,6 +71,17 @@ export const getCreatorReferralCodeVariants = (rawCreatorName?: string): string[
   }
 
   return Array.from(variants);
+};
+
+// Helper: Current Year-Month key (e.g. "2026-11") and End-of-Month ISO timestamp
+const getCurrentMonthKeyAndExpiry = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const monthIdx = now.getMonth();
+  const monthKey = `${year}-${String(monthIdx + 1).padStart(2, '0')}`;
+  const monthLabel = now.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const endOfMonth = new Date(year, monthIdx + 1, 0, 23, 59, 59, 999).toISOString();
+  return { monthKey, monthLabel, endOfMonth };
 };
 
 const getNormalizedSeriesKeys = (val: string): string[] => {
@@ -225,6 +236,10 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
   const [generatingPin, setGeneratingPin] = useState(false);
   const [generatingOneTimePin, setGeneratingOneTimePin] = useState(false);
 
+  // Monthly 1-Year Gift Sub Code State (1 Per Month, Non-Stacking)
+  const [monthlyGiftCodes, setMonthlyGiftCodes] = useState<any[]>([]);
+  const [generatingMonthlyGift, setGeneratingMonthlyGift] = useState(false);
+
   const [seriesList, setSeriesList] = useState<any[]>([]);
   const [selectedBioSeriesSlug, setSelectedBioSeriesSlug] = useState<string>('');
   const [chaptersList, setChaptersList] = useState<any[]>([]);
@@ -232,7 +247,6 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
 
-  // Collapsible Series Section & Per-Series Chapter Pagination State
   const [isSeriesSectionOpen, setIsSeriesSectionOpen] = useState<boolean>(true);
   const [visibleChaptersBySeries, setVisibleChaptersBySeries] = useState<Record<string, number>>({});
 
@@ -247,6 +261,26 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
   }, [userEmail, rawRole]);
 
   const commissionPerSale = effectiveRole === 'influencer' ? 2 : 5;
+
+  const { monthKey: currentMonthKey, monthLabel: currentMonthLabel } = useMemo(
+    () => getCurrentMonthKeyAndExpiry(),
+    []
+  );
+
+  // Check if the selected creator has already generated their 1 Gift Sub Code for the current calendar month
+  const currentMonthGiftCodeRow = useMemo(() => {
+    return monthlyGiftCodes.find((row: any) => {
+      const rowMonthKey =
+        row.gift_month_key ||
+        row.bundle_config?.gift_month_key ||
+        (row.created_at
+          ? `${new Date(row.created_at).getFullYear()}-${String(
+              new Date(row.created_at).getMonth() + 1
+            ).padStart(2, '0')}`
+          : '');
+      return rowMonthKey === currentMonthKey;
+    });
+  }, [monthlyGiftCodes, currentMonthKey]);
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -433,12 +467,20 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
       setReferredAnnualCount(matchedRefCount);
 
       const searchName = parenMatch ? parenMatch[1].trim() : cleanName;
-      const { data: pinRows } = await supabase
-        .from('bingo_codes')
-        .select('*')
-        .ilike('creator_name', `%${searchName}%`)
-        .order('created_at', { ascending: false })
-        .limit(25);
+      const [{ data: pinRows }, { data: giftCodeRows }] = await Promise.all([
+        supabase
+          .from('bingo_codes')
+          .select('*')
+          .ilike('creator_name', `%${searchName}%`)
+          .order('created_at', { ascending: false })
+          .limit(25),
+        supabase
+          .from('promo_codes')
+          .select('*')
+          .ilike('creator_name', `%${searchName}%`)
+          .order('created_at', { ascending: false })
+          .limit(24)
+      ]);
 
       const allPins = Array.isArray(pinRows) ? pinRows : [];
       const latestEventPin = allPins.find((p: any) => Number(p.max_uses || 999999) > 1);
@@ -446,6 +488,15 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
 
       setBingoPin(latestEventPin?.code || latestEventPin?.pin || '');
       setOneTimePins(singleUseList);
+
+      // Filter promo_codes to Monthly Creator Gift Sub Codes
+      const filteredGiftCodes = (giftCodeRows || []).filter(
+        (r: any) =>
+          Boolean(r.gift_month_key) ||
+          Boolean(r.bundle_config?.is_creator_monthly_gift) ||
+          String(r.code || '').startsWith('GIFT-')
+      );
+      setMonthlyGiftCodes(filteredGiftCodes);
 
       const { data: allSeries } = await supabase
         .from('series')
@@ -843,6 +894,114 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
     }
   }, [selectedCreatorName, fetchCreatorStudioData]);
 
+  // Generate 1 Monthly 1-Year Gift Sub Code (Strictly 1 Per Creator Per Calendar Month, Non-Stacking)
+  const handleGenerateMonthlyGiftSub = async () => {
+    if (!selectedCreatorName) return;
+    if (currentMonthGiftCodeRow) {
+      alert(`You have already generated your 1 Monthly Gift Sub Code for ${currentMonthLabel} (${currentMonthGiftCodeRow.code}). Monthly gift codes do not stack!`);
+      return;
+    }
+
+    setGeneratingMonthlyGift(true);
+    try {
+      const cleanName = selectedCreatorName.trim();
+      const parenMatch = cleanName.match(/^(.+?)\s*\((.+?)\)$/);
+      const searchName = parenMatch ? parenMatch[1].trim() : cleanName;
+      const { monthKey, monthLabel, endOfMonth } = getCurrentMonthKeyAndExpiry();
+
+      // Database-level verification to guarantee no duplicate code exists for this creator in this month
+      const { data: existingRows } = await supabase
+        .from('promo_codes')
+        .select('*')
+        .ilike('creator_name', `%${searchName}%`)
+        .order('created_at', { ascending: false })
+        .limit(15);
+
+      const alreadyCreatedThisMonth = (existingRows || []).find((r: any) => {
+        const rMonthKey =
+          r.gift_month_key ||
+          r.bundle_config?.gift_month_key ||
+          (r.created_at
+            ? `${new Date(r.created_at).getFullYear()}-${String(
+                new Date(r.created_at).getMonth() + 1
+              ).padStart(2, '0')}`
+            : '');
+        const isGiftRow =
+          Boolean(r.gift_month_key) ||
+          Boolean(r.bundle_config?.is_creator_monthly_gift) ||
+          String(r.code || '').startsWith('GIFT-');
+        return isGiftRow && rMonthKey === monthKey;
+      });
+
+      if (alreadyCreatedThisMonth) {
+        setMonthlyGiftCodes(prev => [
+          alreadyCreatedThisMonth,
+          ...prev.filter(p => p.id !== alreadyCreatedThisMonth.id)
+        ]);
+        alert(`Your ${monthLabel} Gift Sub Code (${alreadyCreatedThisMonth.code}) is already active!`);
+        return;
+      }
+
+      const creatorTag = searchName
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, '')
+        .slice(0, 6) || 'SAM';
+      const yymm = `${monthKey.slice(2, 4)}${monthKey.slice(5, 7)}`;
+      const randSuffix = Math.random()
+        .toString(36)
+        .substring(2, 6)
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, 'X');
+      const generatedCode = `GIFT-${creatorTag}-${yymm}-${randSuffix}`;
+
+      const bundlePayload = {
+        include_1yr_sub: true,
+        is_creator_monthly_gift: true,
+        non_stackable: true,
+        no_extra_perks: true,
+        gift_month_key: monthKey,
+        bundle_title: `${cleanName} Monthly 1-Year PLUS Gift Pass (${monthLabel})`
+      };
+
+      const insertPayload: Record<string, any> = {
+        code: generatedCode,
+        tier: 'premium',
+        creator_name: cleanName,
+        gift_month_key: monthKey,
+        max_uses: 1,
+        times_used: 0,
+        expires_at: endOfMonth,
+        bundle_config: bundlePayload
+      };
+
+      let { data: insertedGift, error: insertErr } = await supabase
+        .from('promo_codes')
+        .insert([insertPayload])
+        .select()
+        .single();
+
+      // Fallback if gift_month_key column hasn't been added via SQL yet
+      if (insertErr) {
+        const { gift_month_key, ...fallbackPayload } = insertPayload;
+        const retryRes = await supabase
+          .from('promo_codes')
+          .insert([fallbackPayload])
+          .select()
+          .single();
+        if (retryRes.error) throw retryRes.error;
+        insertedGift = retryRes.data;
+      }
+
+      if (insertedGift) {
+        setMonthlyGiftCodes(prev => [insertedGift, ...prev]);
+      }
+    } catch (err: any) {
+      alert('Could not generate Monthly Gift Sub Code: ' + (err.message || 'Please check promo_codes table.'));
+    } finally {
+      setGeneratingMonthlyGift(false);
+    }
+  };
+
   const handleGeneratePin = async () => {
     if (!selectedCreatorName) return;
     setGeneratingPin(true);
@@ -1009,7 +1168,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
               </span>
             </div>
             <p className="text-xs text-zinc-400 font-bold mt-1">
-              Real-time series stats, live fan activity pulse, 100% pass-through fan tips, autograph PINs & direct links
+              Real-time series stats, live fan activity pulse, 100% pass-through fan tips, monthly gift sub & autograph PINs
             </p>
           </div>
         </div>
@@ -1130,6 +1289,152 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
             </span>
           </div>
         </div>
+      </div>
+
+      {/* =========================================================================
+          MONTHLY 1-YEAR PLUS GIFT SUB CODE GENERATOR (1 PER MONTH • NON-STACKING)
+      ========================================================================= */}
+      <div className="bg-zinc-950 border-2 border-[#fe9a00]/60 rounded-2xl p-5 sm:p-6 mb-6 shadow-[0_0_30px_rgba(254,154,0,0.12)]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 mb-4 border-b border-zinc-800">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#fe9a00]/15 border border-[#fe9a00]/50 flex items-center justify-center text-[#fe9a00] shrink-0 mt-0.5">
+              <Crown className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm sm:text-base font-black italic uppercase tracking-wider text-white">
+                  Monthly 1-Year PLUS Gift Sub Code
+                </h3>
+                <span className="text-[9px] font-black uppercase tracking-widest bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/40 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <Calendar className="w-3 h-3" /> {currentMonthLabel}: {currentMonthGiftCodeRow ? '0 / 1 Remaining' : '1 / 1 Available'}
+                </span>
+                <span className="text-[9px] font-black uppercase tracking-widest bg-zinc-900 text-zinc-400 border border-zinc-700 px-2 py-0.5 rounded-full">
+                  Non-Stacking • Membership Only
+                </span>
+              </div>
+              <p className="text-xs text-zinc-400 font-bold mt-1 leading-relaxed">
+                Every creator can generate <span className="text-white font-black">1 Free 1-Year Saturday AM+ PLUS Gift Code per calendar month</span> to give to a fan or contest winner. Unused monthly allowances do not roll over, and fans cannot stack multiple gift codes. Once redeemed, the fan&apos;s PLUS membership is active for 1 full year!
+              </p>
+            </div>
+          </div>
+
+          {currentMonthGiftCodeRow ? (
+            <div className="px-4 py-3 bg-zinc-900 border border-emerald-500/40 text-emerald-300 font-black uppercase tracking-widest text-[10px] rounded-xl flex items-center justify-center gap-1.5 shrink-0">
+              <Check className="w-4 h-4 text-emerald-400" /> {currentMonthLabel} Code Generated
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleGenerateMonthlyGiftSub}
+              disabled={generatingMonthlyGift}
+              className="px-5 py-3.5 bg-gradient-to-r from-[#fe9a00] via-amber-400 to-[#fe9a00] hover:from-white hover:to-white text-black font-black uppercase tracking-widest text-[10px] rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(254,154,0,0.35)] cursor-pointer shrink-0 disabled:opacity-50"
+            >
+              <Crown className="w-4 h-4 fill-black" />
+              {generatingMonthlyGift ? 'Generating...' : `Generate ${currentMonthLabel} Gift Sub`}
+            </button>
+          )}
+        </div>
+
+        {monthlyGiftCodes.length === 0 ? (
+          <div className="text-center py-5 bg-black/60 border border-dashed border-zinc-800 rounded-xl text-xs text-zinc-400 font-bold">
+            You haven&apos;t generated your <span className="text-[#fe9a00]">{currentMonthLabel}</span> 1-Year PLUS Gift Code yet. Click <span className="text-white">&ldquo;Generate {currentMonthLabel} Gift Sub&rdquo;</span> above when you&apos;re ready to gift it!
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {monthlyGiftCodes.slice(0, 6).map((giftRow: any) => {
+              const codeStr = String(giftRow.code || '');
+              const usedCount = Number(giftRow.times_used || 0);
+              const isClaimed = usedCount >= Number(giftRow.max_uses || 1);
+              const isExpired =
+                !isClaimed && giftRow.expires_at && new Date() > new Date(giftRow.expires_at);
+              const monthTag =
+                giftRow.gift_month_key ||
+                giftRow.bundle_config?.gift_month_key ||
+                (giftRow.created_at
+                  ? new Date(giftRow.created_at).toLocaleDateString(undefined, {
+                      month: 'short',
+                      year: 'numeric'
+                    })
+                  : 'Monthly Gift');
+
+              const giftDmText = `Congrats! You won my ${selectedCreatorName} Monthly 1-Year Saturday AM+ PLUS Gift Sub! 👑\n\nYour 1-Time Code: ${codeStr}\n\nHow to Redeem: Go to https://www.mangahype.com/?view=sub, scroll to the "Redeem Code" box, and enter ${codeStr} to unlock 1 full year of Saturday AM+ PLUS! (Note: Must be redeemed this month on a Free account; codes cannot be stacked.)`;
+
+              return (
+                <div
+                  key={giftRow.id || codeStr}
+                  className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    isClaimed
+                      ? 'bg-zinc-900/50 border-zinc-800'
+                      : isExpired
+                      ? 'bg-red-950/20 border-red-900/40 opacity-60'
+                      : 'bg-black border-[#fe9a00]/60 shadow-[0_0_20px_rgba(254,154,0,0.1)]'
+                  }`}
+                >
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-base sm:text-lg font-mono font-black tracking-widest text-[#fe9a00]">
+                        {codeStr}
+                      </span>
+                      <span
+                        className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${
+                          isClaimed
+                            ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40'
+                            : isExpired
+                            ? 'bg-red-950 text-red-400 border-red-800'
+                            : 'bg-[#fe9a00]/20 text-[#fe9a00] border-[#fe9a00]/50'
+                        }`}
+                      >
+                        {isClaimed
+                          ? '✓ Redeemed (1-Yr PLUS Active)'
+                          : isExpired
+                          ? 'Expired Unclaimed'
+                          : 'Ready to Gift (0/1 Used)'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold text-zinc-400 block mt-1">
+                      Allowance Period: <strong className="text-white">{monthTag}</strong> •{' '}
+                      {isClaimed
+                        ? 'Membership expires 1 year from fan redemption'
+                        : giftRow.expires_at
+                        ? `Must be claimed by ${new Date(giftRow.expires_at).toLocaleDateString()}`
+                        : '1-Year PLUS Pass'}
+                    </span>
+                  </div>
+
+                  {!isClaimed && !isExpired && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(codeStr, `giftcode_${codeStr}`)}
+                        className="px-3 py-2 bg-zinc-900 hover:bg-white text-zinc-200 hover:text-black border border-zinc-700 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Copy Code Only"
+                      >
+                        {copiedKey === `giftcode_${codeStr}` ? (
+                          <><Check className="w-3 h-3 text-emerald-400" /> Code Copied</>
+                        ) : (
+                          <><Copy className="w-3 h-3" /> Copy Code</>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(giftDmText, `giftdm_${codeStr}`)}
+                        className="px-3 py-2 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-wider rounded-lg text-[9px] flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Copy Code + Full Fan Redemption DM Instructions"
+                      >
+                        {copiedKey === `giftdm_${codeStr}` ? (
+                          <><Check className="w-3 h-3" /> DM Copied</>
+                        ) : (
+                          <><Copy className="w-3 h-3" /> Copy Gift DM</>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* 1-TIME FAN GIFT AUTOGRAPH PIN GENERATOR & TRACKER */}
@@ -1455,9 +1760,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
             </div>
           )}
 
-          {/* =================================================================
-              COLLAPSIBLE MY SERIES, DEEP LINKS & CHAPTER STATS (10 CH DEFAULT)
-          ================================================================= */}
+          {/* COLLAPSIBLE MY SERIES, DEEP LINKS & CHAPTER STATS */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-6">
             <div
               onClick={() => setIsSeriesSectionOpen(prev => !prev)}
@@ -1627,7 +1930,6 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
                                 })}
                               </div>
 
-                              {/* Pagination Footer: Load 10 More / View All / Show First 10 */}
                               {sChapters.length > DEFAULT_VISIBLE_CHAPTERS && (
                                 <div className="flex flex-wrap items-center justify-between gap-2 pt-3 mt-3 border-t border-zinc-800/80">
                                   <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
@@ -1693,9 +1995,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
           </div>
         </div>
 
-        {/* =====================================================================
-            RIGHT COLUMN: UNIFIED LIVE SERIES ACTIVITY PULSE & FAN TIPS HUB
-        ===================================================================== */}
+        {/* RIGHT COLUMN: UNIFIED LIVE SERIES ACTIVITY PULSE & FAN TIPS HUB */}
         <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 sm:p-6 flex flex-col max-h-[700px]">
           <div className="flex items-center gap-1.5 bg-black p-1 rounded-xl border border-zinc-800 mb-3 shrink-0">
             <button

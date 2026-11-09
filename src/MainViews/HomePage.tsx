@@ -918,7 +918,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   }, [seriesList, isLoading, currentUser, isPlusSubscriber]);
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentSlide(prev => (heroSlides.length > 0 ? (prev + 1) % heroSlides.length : 0)), 5000);
+    const timer = setInterval(() => setCurrentSlide(prev => (heroSlides.length > 0 ? (prev + 1) % heroSlides.length : 0)), 9000);
     return () => clearInterval(timer);
   }, [heroSlides.length]);
 

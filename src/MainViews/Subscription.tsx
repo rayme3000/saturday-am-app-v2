@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ArrowLeft,
   Check,
@@ -14,32 +14,50 @@ import {
   Layers,
   PenTool,
   UserCheck,
-  Flame
+  Flame,
+  X,
+  ArrowDown
 } from 'lucide-react';
 import { supabase } from '../supabase';
+import { useSeriesData } from '../userSeriesData';
 import { doCreatorNamesMatch } from '../VirtualProfile/BingoBook';
+import { isItemWithinSchedule } from './InAppStoreSection';
 
 export interface BundlePayload {
   include_1yr_sub?: boolean;
   card_skin_id?: string;
   card_skin_name?: string;
   card_skin_url?: string;
+  card_skin_2_id?: string;
+  card_skin_2_name?: string;
+  card_skin_2_url?: string;
   avatar_urls?: string[];
   avatar_names?: string[];
   creator_autograph?: string;
+  creator_autograph_2?: string;
   bonus_hypes?: number;
   bundle_title?: string;
+  price_dollars?: number;
 }
 
 export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any) => {
+  const { cardSkins = [] } = useSeriesData();
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isPremium, setIsPremium] = useState(userTier === 'premium');
   const [isLoadingCheckout, setIsLoadingCheckout] = useState(false);
   const [loadingBundleId, setLoadingBundleId] = useState<string | null>(null);
 
-  const [themedBundles, setThemedBundles] = useState<any[]>([]);
+  // Synced Bundles from both in_app_store_products (Live Store Manager) & themed_annual_bundles
+  const [storeBundles, setStoreBundles] = useState<any[]>([]);
+  const [legacyThemedBundles, setLegacyThemedBundles] = useState<any[]>([]);
   const [masterSignatures, setMasterSignatures] = useState<Record<string, string>>({});
+  const [purchasedProductIds, setPurchasedProductIds] = useState<string[]>([]);
+  const [unlockedSkins, setUnlockedSkins] = useState<string[]>([]);
+
+  // Pre-Checkout Upsell Modal State
+  const [showBundleUpsellModal, setShowBundleUpsellModal] = useState(false);
+  const collectorBundlesRef = useRef<HTMLDivElement | null>(null);
 
   const [promoCode, setPromoCode] = useState('');
   const [isRedeeming, setIsRedeeming] = useState(false);
@@ -47,6 +65,22 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   const [redeemError, setRedeemError] = useState<string | null>(null);
 
   const [referralCode, setReferralCode] = useState('');
+
+  // Hide floating Hype pill when the Upsell Modal is open
+  useEffect(() => {
+    if (!showBundleUpsellModal) return;
+    window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
+    return () => {
+      window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: false }));
+    };
+  }, [showBundleUpsellModal]);
+
+  const scrollToCollectorBundles = () => {
+    setShowBundleUpsellModal(false);
+    setTimeout(() => {
+      collectorBundlesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  };
 
   // Shared helper to unlock a creator's Bingo Book autograph
   const unlockFlashContestAutograph = useCallback(async (userId: string, creatorNameRaw?: string) => {
@@ -108,7 +142,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
   }, []);
 
-  // Unified reward granter for both Custom Bundle Codes and $30-$35 Themed Bundle Purchases
+  // Unified reward granter for Custom Bundle Codes & Legacy Themed Bundles
   const grantBundleRewardsToUser = useCallback(
     async (userId: string, bundle: BundlePayload, alreadyPremium: boolean) => {
       const { data: currentProf } = await supabase
@@ -125,20 +159,26 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           : now;
       const nextYearDate = new Date(baseDate.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
 
-      const currentHypes = Number(
-        currentProf?.hypes_remaining ?? currentProf?.super_hypes_left ?? 3
+      const currentActiveHypes = Math.max(
+        0,
+        Number(currentProf?.hypes_remaining ?? currentProf?.super_hypes_left ?? 1)
       );
-      const extraHypes = Math.max(0, Number(bundle.bonus_hypes || 0));
-      const stackedSubHypes =
-        includeSub && alreadyPremium && extraHypes === 0 ? 3 : extraHypes;
-      const newHypeBalance =
-        (includeSub && !alreadyPremium ? Math.max(3, currentHypes) : currentHypes) +
-        stackedSubHypes;
+      const nextActiveHypes = includeSub
+        ? Math.min(10, Math.max(3, alreadyPremium ? currentActiveHypes : currentActiveHypes + 2))
+        : currentActiveHypes;
+
+      const currentVaultedHypes = Math.max(0, Number(currentProf?.vaulted_hypes || 0));
+      const extraVaultedHypes = Math.max(0, Number(bundle.bonus_hypes || 0));
+      const nextVaultedHypes = currentVaultedHypes + extraVaultedHypes;
 
       const unlockedParts: string[] = [];
       let bonusFandomPts = includeSub ? (alreadyPremium ? 30 : 15) : 0;
 
-      const profilePatch: Record<string, any> = {};
+      const profilePatch: Record<string, any> = {
+        hypes_remaining: nextActiveHypes,
+        super_hypes_left: nextActiveHypes,
+        vaulted_hypes: nextVaultedHypes
+      };
 
       if (includeSub) {
         profilePatch.is_premium = true;
@@ -146,41 +186,50 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         unlockedParts.push(alreadyPremium ? '+1 Year PLUS Extended' : '1-Year PLUS Pass');
       }
 
-      if (stackedSubHypes > 0 || includeSub) {
-        profilePatch.hypes_remaining = newHypeBalance;
-        profilePatch.super_hypes_left = newHypeBalance;
-        if (stackedSubHypes > 0) {
-          unlockedParts.push(`+${stackedSubHypes} Bonus Hypes`);
-        }
+      if (extraVaultedHypes > 0) {
+        unlockedParts.push(`+${extraVaultedHypes} Vaulted Gold Hypes`);
       }
 
-      // 1. Unlock & Equip Card Skin
-      if (bundle.card_skin_id) {
+      const skinItemsToUnlock = [
+        bundle.card_skin_id ? String(bundle.card_skin_id) : '',
+        bundle.card_skin_url ? String(bundle.card_skin_url) : '',
+        bundle.card_skin_2_id ? String(bundle.card_skin_2_id) : '',
+        bundle.card_skin_2_url ? String(bundle.card_skin_2_url) : ''
+      ].filter(Boolean);
+
+      if (skinItemsToUnlock.length > 0) {
         const existingSkins: string[] = Array.isArray(currentProf?.unlocked_skins)
-          ? currentProf.unlocked_skins
+          ? currentProf.unlocked_skins.map(String)
           : [];
-        const skinIdStr = String(bundle.card_skin_id);
-        if (!existingSkins.includes(skinIdStr)) {
-          profilePatch.unlocked_skins = [...existingSkins, skinIdStr];
+        const mergedSkins = Array.from(new Set([...existingSkins, ...skinItemsToUnlock]));
+        profilePatch.unlocked_skins = mergedSkins;
+
+        if (bundle.card_skin_url) {
+          profilePatch.card_skin = bundle.card_skin_url;
         }
-        profilePatch.card_skin_id = bundle.card_skin_id;
+        if (bundle.card_skin_id) {
+          profilePatch.card_skin_id = bundle.card_skin_id;
+        }
 
         try {
           const localSkins: string[] = JSON.parse(
             localStorage.getItem('am_unlocked_skins') || '[]'
           );
-          if (!localSkins.includes(skinIdStr)) {
-            localSkins.push(skinIdStr);
-            localStorage.setItem('am_unlocked_skins', JSON.stringify(localSkins));
-          }
+          localStorage.setItem(
+            'am_unlocked_skins',
+            JSON.stringify(Array.from(new Set([...localSkins, ...skinItemsToUnlock])))
+          );
         } catch {
           // ignore
         }
-        unlockedParts.push(`${bundle.card_skin_name || 'Themed'} Hype Card Skin`);
+
+        const skinNames = [bundle.card_skin_name, bundle.card_skin_2_name].filter(Boolean);
+        unlockedParts.push(
+          skinNames.length > 0 ? `${skinNames.join(' & ')} Card Skin(s)` : 'Exclusive Hype Card Skin(s)'
+        );
         bonusFandomPts += 15;
       }
 
-      // 2. Unlock 3 Themed Character Avatars (& Equip #1)
       const validAvatars = (bundle.avatar_urls || []).filter(Boolean);
       if (validAvatars.length > 0) {
         const existingAvatars: string[] = Array.isArray(currentProf?.unlocked_avatars)
@@ -205,35 +254,43 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         bonusFandomPts += validAvatars.length * 10;
       }
 
-      // 3. Unlock Creator / Event Signature Badge
-      if (bundle.creator_autograph) {
-        const unlockedCreator = await unlockFlashContestAutograph(
-          userId,
-          bundle.creator_autograph
+      const creatorsToUnlock = [bundle.creator_autograph, bundle.creator_autograph_2].filter(
+        Boolean
+      ) as string[];
+      if (creatorsToUnlock.length > 0) {
+        const existingAutographs: string[] = Array.isArray(currentProf?.unlocked_autographs)
+          ? currentProf.unlocked_autographs.map(String)
+          : [];
+        profilePatch.unlocked_autographs = Array.from(
+          new Set([...existingAutographs, ...creatorsToUnlock])
         );
-        if (unlockedCreator) {
-          unlockedParts.push(`${unlockedCreator} Gold Signature Badge`);
-          bonusFandomPts += 25;
+
+        for (const cName of creatorsToUnlock) {
+          const unlockedCreator = await unlockFlashContestAutograph(userId, cName);
+          if (unlockedCreator) {
+            unlockedParts.push(`${unlockedCreator} Gold Autograph`);
+            bonusFandomPts += 25;
+          }
         }
       }
 
       profilePatch.fandom_score = (Number(currentProf?.fandom_score) || 0) + bonusFandomPts;
 
-      let { error: profErr } = await supabase
+      const { error: profErr } = await supabase
         .from('profiles')
         .update(profilePatch)
         .eq('id', userId);
 
-      // Graceful fallback if optional array columns haven't been created in SQL yet
       if (profErr) {
         const fallbackPatch: Record<string, any> = {
           is_premium: includeSub ? true : Boolean(currentProf?.is_premium),
-          hypes_remaining: newHypeBalance,
-          super_hypes_left: newHypeBalance,
+          hypes_remaining: nextActiveHypes,
+          super_hypes_left: nextActiveHypes,
+          vaulted_hypes: nextVaultedHypes,
           fandom_score: profilePatch.fandom_score
         };
         if (profilePatch.avatar_url) fallbackPatch.avatar_url = profilePatch.avatar_url;
-        if (profilePatch.card_skin_id) fallbackPatch.card_skin_id = profilePatch.card_skin_id;
+        if (profilePatch.card_skin) fallbackPatch.card_skin = profilePatch.card_skin;
         await supabase.from('profiles').update(fallbackPatch).eq('id', userId);
       }
 
@@ -256,16 +313,25 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       setReferralCode(savedRef);
     }
 
-    // Load active Themed Annual Bundles & Master Signatures
     Promise.all([
+      supabase
+        .from('in_app_store_products')
+        .select('*')
+        .eq('is_active', true)
+        .eq('product_type', 'bundle')
+        .order('created_at', { ascending: false }),
       supabase
         .from('themed_annual_bundles')
         .select('*')
         .eq('is_active', true)
         .order('created_at', { ascending: false }),
       supabase.from('creator_signatures').select('creator_name, signature_url')
-    ]).then(([{ data: bundleRows }, { data: sigRows }]) => {
-      if (bundleRows) setThemedBundles(bundleRows);
+    ]).then(([{ data: storeProdRows }, { data: legacyBundleRows }, { data: sigRows }]) => {
+      if (storeProdRows) {
+        const activeSched = storeProdRows.filter((p: any) => isItemWithinSchedule(p));
+        setStoreBundles(activeSched);
+      }
+      if (legacyBundleRows) setLegacyThemedBundles(legacyBundleRows);
       if (sigRows) {
         const map: Record<string, string> = {};
         sigRows.forEach((r: any) => {
@@ -279,13 +345,31 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .maybeSingle();
-        setCurrentUser(profile || { id: user.id, email: user.email });
-        if (profile?.is_premium) setIsPremium(true);
+        const [{ data: profile }, { data: ledgerRows }] = await Promise.all([
+          supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+          supabase.from('store_payout_ledger').select('product_id').eq('user_id', user.id)
+        ]);
+
+        if (ledgerRows) {
+          setPurchasedProductIds(
+            Array.from(
+              new Set(ledgerRows.map((r: any) => String(r.product_id || '')).filter(Boolean))
+            )
+          );
+        }
+
+        if (profile) {
+          setCurrentUser(profile);
+          if (profile.is_premium) setIsPremium(true);
+          const dbSkins: string[] = Array.isArray(profile.unlocked_skins)
+            ? profile.unlocked_skins.map(String)
+            : [];
+          setUnlockedSkins(
+            Array.from(new Set([...dbSkins, profile.card_skin || ''].filter(Boolean)))
+          );
+        } else {
+          setCurrentUser({ id: user.id, email: user.email });
+        }
 
         const params = new URLSearchParams(window.location.search);
         const bundleIdParam = params.get('bundle_id');
@@ -308,10 +392,16 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                 include_1yr_sub: true,
                 card_skin_id: purchasedBundle.card_skin_id,
                 card_skin_name: purchasedBundle.card_skin_name,
+                card_skin_url: purchasedBundle.card_skin_url,
+                card_skin_2_id: purchasedBundle.card_skin_2_id,
+                card_skin_2_name: purchasedBundle.card_skin_2_name,
+                card_skin_2_url: purchasedBundle.card_skin_2_url,
                 avatar_urls: purchasedBundle.avatar_urls || [],
                 creator_autograph: purchasedBundle.creator_autograph,
+                creator_autograph_2: purchasedBundle.creator_autograph_2,
                 bonus_hypes: purchasedBundle.bonus_hypes || 0,
-                bundle_title: purchasedBundle.title
+                bundle_title: purchasedBundle.title,
+                price_dollars: purchasedBundle.price_dollars
               },
               Boolean(profile?.is_premium)
             );
@@ -322,20 +412,114 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           window.history.replaceState({}, '', window.location.pathname);
           return;
         }
-      }
 
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('status') === 'sub_success' || params.get('sub_status') === 'success') {
-        setIsPremium(true);
-        setRedeemSuccess('Welcome to Saturday AM+ PLUS! Your membership is now active.');
-        window.dispatchEvent(new Event('profileUpdated'));
-        window.history.replaceState({}, '', window.location.pathname);
+        if (params.get('status') === 'sub_success' || params.get('sub_status') === 'success') {
+          const curActive = Math.max(
+            0,
+            Number(profile?.hypes_remaining ?? profile?.super_hypes_left ?? 1)
+          );
+          const upgradedActive = Math.min(10, Math.max(3, curActive + 2));
+
+          await supabase
+            .from('profiles')
+            .update({
+              is_premium: true,
+              hypes_remaining: upgradedActive,
+              super_hypes_left: upgradedActive
+            })
+            .eq('id', user.id);
+
+          setIsPremium(true);
+          setRedeemSuccess(
+            'Welcome to Saturday AM+ PLUS! Your membership and 3 Weekly Super Hypes are now active.'
+          );
+          window.dispatchEvent(new Event('profileUpdated'));
+          window.history.replaceState({}, '', window.location.pathname);
+        }
       }
     });
   }, [userTier, grantBundleRewardsToUser]);
 
-  const handleStartSubscription = async (plan: 'monthly' | 'annual') => {
-    const { data: { user } } = await supabase.auth.getUser();
+  // Unified list of available Collector's Bundles
+  const unifiedBundles = useMemo(() => {
+    const normalizedStore = storeBundles.map((b: any) => ({
+      id: b.id,
+      source: 'store_product',
+      rawProduct: b,
+      title: b.title,
+      subtitle: b.description,
+      theme_badge: b.promo_badge || 'SPECIAL EDITION ANNUAL BUNDLE',
+      price_dollars: Number(b.listed_price_dollars ?? 24.99),
+      original_price_dollars: Number(b.normal_price_dollars ?? 35),
+      include_1yr_sub: b.include_1yr_sub !== false,
+      bonus_hypes: Number(b.bonus_vaulted_hypes ?? 10),
+      card_skin_ids: Array.isArray(b.card_skin_ids) ? b.card_skin_ids : [],
+      avatar_urls: Array.isArray(b.avatar_urls) ? b.avatar_urls.filter(Boolean) : [],
+      autograph_creators: Array.isArray(b.autograph_creators)
+        ? b.autograph_creators.filter(Boolean)
+        : [],
+      commission_creators: Array.isArray(b.commission_creators)
+        ? b.commission_creators.filter(Boolean)
+        : [],
+      commission_bounty_dollars: Number(b.commission_bounty_dollars ?? 5.0)
+    }));
+
+    const storeTitlesLower = new Set(
+      normalizedStore.map(b => String(b.title || '').trim().toLowerCase())
+    );
+
+    const normalizedLegacy = legacyThemedBundles
+      .filter(lb => !storeTitlesLower.has(String(lb.title || '').trim().toLowerCase()))
+      .map((lb: any) => ({
+        id: lb.id,
+        source: 'legacy_themed',
+        rawProduct: lb,
+        title: lb.title,
+        subtitle: lb.subtitle,
+        theme_badge: lb.theme_badge || 'SPECIAL EDITION ANNUAL BUNDLE',
+        price_dollars: Number(lb.price_dollars ?? 24.99),
+        original_price_dollars: Number(lb.original_price_dollars ?? 35),
+        include_1yr_sub: true,
+        bonus_hypes: Number(lb.bonus_hypes ?? 10),
+        card_skin_ids: [lb.card_skin_id, lb.card_skin_2_id].filter(Boolean),
+        card_skin_url: lb.card_skin_url,
+        card_skin_name: lb.card_skin_name,
+        avatar_urls: Array.isArray(lb.avatar_urls) ? lb.avatar_urls.filter(Boolean) : [],
+        autograph_creators: [lb.creator_autograph, lb.creator_autograph_2].filter(Boolean),
+        commission_creators: [lb.creator_autograph, lb.creator_autograph_2].filter(Boolean),
+        commission_bounty_dollars: 5.0
+      }));
+
+    return [...normalizedStore, ...normalizedLegacy];
+  }, [storeBundles, legacyThemedBundles]);
+
+  const isBundleOwnedByUser = useCallback(
+    (bundle: any): boolean => {
+      if (!bundle || !currentUser) return false;
+      if (purchasedProductIds.includes(String(bundle.id))) return true;
+      const skinIds: string[] = Array.isArray(bundle.card_skin_ids)
+        ? bundle.card_skin_ids.filter(Boolean).map(String)
+        : [];
+      if (skinIds.length > 0 && skinIds.every(id => unlockedSkins.includes(id))) {
+        return true;
+      }
+      return false;
+    },
+    [currentUser, purchasedProductIds, unlockedSkins]
+  );
+
+  // Unowned bundles eligible for the Pre-Checkout Upsell Modal
+  const unownedUpsellBundles = useMemo(() => {
+    return unifiedBundles.filter(b => b.include_1yr_sub && !isBundleOwnedByUser(b));
+  }, [unifiedBundles, isBundleOwnedByUser]);
+
+  const activeUpsellBundle = unownedUpsellBundles[0] || null;
+
+  // Execute Basic Monthly ($1.99) or Annual ($20) Stripe Checkout
+  const executeBasicSubscriptionCheckout = async (plan: 'monthly' | 'annual') => {
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
     const activeUserId = currentUser?.id || user?.id;
 
     if (!activeUserId) {
@@ -343,6 +527,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       return;
     }
 
+    setShowBundleUpsellModal(false);
     setIsLoadingCheckout(true);
     try {
       const cleanRef = referralCode.trim().toUpperCase();
@@ -377,9 +562,11 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
   };
 
-  // Start Checkout for a $30-$35 Themed Annual Subscription Bundle
-  const handleBuyThemedBundle = async (bundle: any) => {
-    const { data: { user } } = await supabase.auth.getUser();
+  // Intercept Annual ($20) Click to Show the Simple Collector Subscription Prompt First
+  const handleStartSubscriptionClick = async (plan: 'monthly' | 'annual') => {
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
     const activeUserId = currentUser?.id || user?.id;
 
     if (!activeUserId) {
@@ -387,23 +574,97 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       return;
     }
 
+    if (plan === 'annual' && unownedUpsellBundles.length > 0) {
+      setShowBundleUpsellModal(true);
+      return;
+    }
+
+    await executeBasicSubscriptionCheckout(plan);
+  };
+
+  // Start Checkout for a Collector's Annual Bundle
+  const handleBuyThemedBundle = async (bundle: any) => {
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+    const activeUserId = currentUser?.id || user?.id;
+
+    if (!activeUserId) {
+      if (onLoginClick) onLoginClick();
+      return;
+    }
+
+    setShowBundleUpsellModal(false);
+
+    if (isBundleOwnedByUser(bundle)) {
+      setRedeemSuccess(
+        `"${bundle.title}" is already in your collection! Click "View My Loadout" to equip your Card Skins, Avatars & Autographs.`
+      );
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
     setLoadingBundleId(bundle.id);
     try {
-      const returnWithBundle = `${window.location.origin}/?view=sub&bundle_status=success&bundle_id=${encodeURIComponent(
-        bundle.id
-      )}`;
+      const [{ data: existingLedger }, { data: freshProf }] = await Promise.all([
+        supabase
+          .from('store_payout_ledger')
+          .select('id')
+          .eq('user_id', activeUserId)
+          .eq('product_id', String(bundle.id))
+          .limit(1)
+          .maybeSingle(),
+        supabase.from('profiles').select('unlocked_skins').eq('id', activeUserId).maybeSingle()
+      ]);
+
+      const dbSkins: string[] = Array.isArray(freshProf?.unlocked_skins)
+        ? freshProf.unlocked_skins.map(String)
+        : [];
+      const bSkinIds: string[] = Array.isArray(bundle.card_skin_ids)
+        ? bundle.card_skin_ids.filter(Boolean).map(String)
+        : [];
+      const alreadyHasSkins = bSkinIds.length > 0 && bSkinIds.every(id => dbSkins.includes(id));
+
+      if (existingLedger || alreadyHasSkins) {
+        setPurchasedProductIds(prev => Array.from(new Set([...prev, String(bundle.id)])));
+        setRedeemSuccess(
+          `"${bundle.title}" is already in your collection! Click "View My Loadout" to equip your Card Skins, Avatars & Autographs.`
+        );
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
+      const listedPrice = Number(bundle.price_dollars || 24.99);
+      const returnUrl =
+        bundle.source === 'store_product'
+          ? `${window.location.origin}/?view=shop&store_product_success=${encodeURIComponent(
+              bundle.id
+            )}`
+          : `${window.location.origin}/?view=sub&bundle_status=success&bundle_id=${encodeURIComponent(
+              bundle.id
+            )}`;
+
+      const commCreators: string[] = Array.isArray(bundle.commission_creators)
+        ? bundle.commission_creators.filter(Boolean)
+        : [];
+      const creatorBountyDollars =
+        commCreators.length > 0 ? Number(bundle.commission_bounty_dollars ?? 5.0) : 0;
 
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
         body: {
           type: 'themed_bundle',
+          productType: 'bundle',
           plan: 'annual',
           billingCycle: 'annual',
           bundleId: bundle.id,
           bundleTitle: bundle.title,
-          amountDollars: Number(bundle.price_dollars || 30),
+          amountDollars: listedPrice,
+          amountCents: Math.round(listedPrice * 100),
+          creatorNames: commCreators,
+          creatorBountyDollars,
           userId: activeUserId,
           userEmail: user?.email || currentUser?.email,
-          returnUrl: returnWithBundle
+          returnUrl
         }
       });
 
@@ -416,9 +677,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         throw new Error('No checkout URL returned from Stripe.');
       }
     } catch (err: any) {
-      alert(
-        `Unable to start bundle checkout (${err.message || 'Check Stripe Edge Function'}). Tip: You can also redeem this bundle's Access Code (${bundle.promo_code || 'below'}) in the Redeem box!`
-      );
+      alert('Unable to start bundle checkout: ' + (err.message || 'Please try again.'));
     } finally {
       setLoadingBundleId(null);
     }
@@ -429,7 +688,9 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     const cleanCode = promoCode.trim().toUpperCase();
     if (!cleanCode) return;
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
     const activeUserId = currentUser?.id || user?.id;
 
     if (!activeUserId) {
@@ -474,23 +735,33 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           throw new Error('All available claims for this code have already been redeemed!');
         }
 
-        const rawBundle: BundlePayload =
+        const rawBundle: any =
           typeof promoRow.bundle_config === 'object' && promoRow.bundle_config !== null
             ? promoRow.bundle_config
             : {};
 
-        const hasCustomRewards = Boolean(
-          promoRow.creator_name ||
-            rawBundle.creator_autograph ||
-            rawBundle.card_skin_id ||
-            (rawBundle.avatar_urls && rawBundle.avatar_urls.length > 0) ||
-            Number(rawBundle.bonus_hypes || 0) > 0
+        const isCreatorMonthlyGift = Boolean(
+          rawBundle.is_creator_monthly_gift ||
+            rawBundle.non_stackable ||
+            promoRow.gift_month_key ||
+            cleanCode.startsWith('GIFT-')
         );
 
-        // Protect plain 1-Year codes (with zero custom bundle items) from being accidentally wasted by an existing PLUS member
-        if (alreadyPremium && !hasCustomRewards) {
+        const hasCustomRewards =
+          !isCreatorMonthlyGift &&
+          Boolean(
+            promoRow.creator_name ||
+              rawBundle.creator_autograph ||
+              rawBundle.creator_autograph_2 ||
+              rawBundle.card_skin_id ||
+              rawBundle.card_skin_2_id ||
+              (rawBundle.avatar_urls && rawBundle.avatar_urls.length > 0) ||
+              Number(rawBundle.bonus_hypes || 0) > 0
+          );
+
+        if (alreadyPremium && (isCreatorMonthlyGift || !hasCustomRewards)) {
           throw new Error(
-            'You already have an active Saturday AM+ PLUS membership! Your code was not used so you can save it or gift it to a friend.'
+            'Gift Sub codes cannot be stacked on an active Saturday AM+ PLUS membership! Your code was not used so you can gift it to a friend.'
           );
         }
 
@@ -502,21 +773,33 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
         const unlockedParts = await grantBundleRewardsToUser(
           activeUserId,
-          {
-            include_1yr_sub: rawBundle.include_1yr_sub !== false,
-            card_skin_id: rawBundle.card_skin_id,
-            card_skin_name: rawBundle.card_skin_name,
-            avatar_urls: rawBundle.avatar_urls || [],
-            creator_autograph: rawBundle.creator_autograph || promoRow.creator_name,
-            bonus_hypes: rawBundle.bonus_hypes || 0,
-            bundle_title: rawBundle.bundle_title
-          },
+          isCreatorMonthlyGift
+            ? {
+                include_1yr_sub: true,
+                bundle_title:
+                  rawBundle.bundle_title ||
+                  `${promoRow.creator_name || 'Creator'} 1-Year PLUS Gift Sub`
+              }
+            : {
+                include_1yr_sub: rawBundle.include_1yr_sub !== false,
+                card_skin_id: rawBundle.card_skin_id,
+                card_skin_name: rawBundle.card_skin_name,
+                card_skin_url: rawBundle.card_skin_url,
+                card_skin_2_id: rawBundle.card_skin_2_id,
+                card_skin_2_name: rawBundle.card_skin_2_name,
+                card_skin_2_url: rawBundle.card_skin_2_url,
+                avatar_urls: rawBundle.avatar_urls || [],
+                creator_autograph: rawBundle.creator_autograph || promoRow.creator_name,
+                creator_autograph_2: rawBundle.creator_autograph_2,
+                bonus_hypes: rawBundle.bonus_hypes || 0,
+                bundle_title: rawBundle.bundle_title
+              },
           alreadyPremium
         );
 
         setPromoCode('');
         setRedeemSuccess(
-          `${rawBundle.bundle_title ? `${rawBundle.bundle_title} Unlocked!` : 'Bundle Code Activated!'} You received: ${unlockedParts.join(' + ')}!`
+          `${rawBundle.bundle_title ? `${rawBundle.bundle_title} Unlocked!` : 'Code Activated!'} You received: ${unlockedParts.join(' + ')}!`
         );
         setIsRedeeming(false);
         return;
@@ -537,12 +820,18 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         throw new Error('Invalid or already redeemed access code.');
       }
 
+      const curActive = Math.max(
+        0,
+        Number(currentProf?.hypes_remaining ?? currentProf?.super_hypes_left ?? 1)
+      );
+      const nextActive = Math.min(10, Math.max(3, curActive + 2));
+
       await supabase
         .from('profiles')
         .update({
           is_premium: true,
-          hypes_remaining: 3,
-          super_hypes_left: 3
+          hypes_remaining: nextActive,
+          super_hypes_left: nextActive
         })
         .eq('id', activeUserId);
 
@@ -560,7 +849,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   const perks = [
     'Unlock the Entire Manga Vault (All Chapters & Completed Runs)',
     '12-Hour Early Access to New Weekly Chapter Drops',
-    '3 Weekly Super Hypes to Boost Your Favorite Series & Creators',
+    '3 Weekly Super Hypes (Rollover Cap: 10) to Boost Series & Creators',
     'Exclusive Animated Avatar Border Frames & Hype Card Skins',
     'Custom Text Smart Comments Directly on Manga Pages',
     '100% Ad-Free Reading Experience Across All Devices'
@@ -576,8 +865,71 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     return '';
   };
 
+  const renderStampedCardPreview = (skin: any) => {
+    const stamps: any[] = Array.isArray(skin?.signature_stamps) ? skin.signature_stamps : [];
+    return (
+      <div
+        key={skin.id}
+        className="relative w-full aspect-[1.58] rounded-xl overflow-hidden border-2 border-[#fe9a00]/80 bg-zinc-900 shadow-lg"
+        style={{ containerType: 'inline-size' }}
+      >
+        <img src={skin.image_url} alt={skin.name} className="w-full h-full object-cover" />
+        <div
+          className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay"
+          style={{
+            background:
+              'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.22) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.12) 50%, transparent 55%)'
+          }}
+        />
+        {stamps.map((st: any) => {
+          const bgClass =
+            st.color_mode === 'white'
+              ? 'bg-white'
+              : st.color_mode === 'black'
+              ? 'bg-black'
+              : 'bg-gradient-to-tr from-yellow-300 via-[#fe9a00] to-yellow-500';
+          return (
+            <div
+              key={st.id}
+              style={{
+                left: `${st.x}%`,
+                top: `${st.y}%`,
+                width: `${st.scale}cqi`,
+                aspectRatio: '2.2 / 1',
+                transform: 'translate(-50%, -50%)'
+              }}
+              className="absolute z-20 pointer-events-none"
+            >
+              <div
+                className={`w-full h-full ${bgClass} drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]`}
+                style={{
+                  WebkitMaskImage: `url('${st.signature_url}')`,
+                  WebkitMaskSize: 'contain',
+                  WebkitMaskRepeat: 'no-repeat',
+                  WebkitMaskPosition: 'center',
+                  maskImage: `url('${st.signature_url}')`,
+                  maskSize: 'contain',
+                  maskRepeat: 'no-repeat',
+                  maskPosition: 'center'
+                }}
+              />
+            </div>
+          );
+        })}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2.5 py-1.5 flex items-center justify-between z-30">
+          <span className="text-[9px] font-black italic uppercase tracking-wider text-white truncate">
+            {skin.name}
+          </span>
+          <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-[#fe9a00] text-black shrink-0">
+            Hype Card
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-transparent text-white pb-28 pt-6 px-4 sm:px-6 max-w-4xl mx-auto animate-fade-in">
+    <div className="min-h-screen bg-transparent text-white pb-48 pt-6 px-4 sm:px-6 max-w-4xl mx-auto animate-fade-in">
       <div className="flex items-center justify-between mb-8">
         <button
           type="button"
@@ -611,7 +963,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           <CheckCircle2 className="w-8 h-8 text-emerald-400 shrink-0" />
           <div className="flex-1 text-center sm:text-left">
             <h3 className="text-sm font-black uppercase tracking-widest text-white">
-              Membership & Bundle Rewards Activated!
+              Membership &amp; Bundle Rewards Activated!
             </h3>
             <p className="text-xs text-emerald-200 font-bold mt-0.5">{redeemSuccess}</p>
           </div>
@@ -637,193 +989,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       )}
 
       {/* =====================================================================
-          FAST-TRACK SECTION: THEMED ANNUAL SUBSCRIPTION BUNDLES ($30-$35)
+          1. STANDARD MONTHLY / BASIC ANNUAL SUBSCRIPTION CARD (AT THE TOP)
       ===================================================================== */}
-      {themedBundles.length > 0 && (
-        <div className="mb-12 space-y-5">
-          <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-            <div className="flex items-center gap-2.5">
-              <Gift className="w-5 h-5 text-[#fe9a00]" />
-              <div>
-                <h2 className="text-lg sm:text-xl font-black italic uppercase tracking-wider text-white">
-                  Special Event & Series <span className="text-[#fe9a00]">Annual Bundles</span>
-                </h2>
-                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-                  1-Year Full App Pass + Exclusive Card Skin + 3 Character Avatars + Digital Signature Badge
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6">
-            {themedBundles.map(bundle => {
-              const avatars: string[] = Array.isArray(bundle.avatar_urls)
-                ? bundle.avatar_urls.filter(Boolean)
-                : [];
-              const sigUrl = getSignatureUrlForCreator(bundle.creator_autograph);
-              const price = Number(bundle.price_dollars || 30);
-
-              return (
-                <div
-                  key={bundle.id}
-                  className="bg-gradient-to-br from-zinc-950 via-zinc-900/95 to-black border-2 border-[#fe9a00] rounded-3xl p-6 sm:p-7 shadow-[0_0_45px_rgba(254,154,0,0.22)] relative overflow-hidden"
-                >
-                  <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-6">
-                    {/* Left Column: Bundle Info & Visual Loadout Preview */}
-                    <div className="flex-1 space-y-4">
-                      <div>
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#fe9a00] text-black text-[9px] font-black uppercase tracking-widest mb-2">
-                          <Sparkles className="w-3 h-3 fill-black" />
-                          {bundle.theme_badge || 'SPECIAL EDITION ANNUAL BUNDLE'}
-                        </span>
-                        <h3 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tight text-white">
-                          {bundle.title}
-                        </h3>
-                        {bundle.subtitle && (
-                          <p className="text-xs text-zinc-300 font-bold mt-1 leading-relaxed">
-                            {bundle.subtitle}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* 4 Included Items Pills */}
-                      <div className="flex flex-wrap gap-2">
-                        <span className="px-3 py-1.5 rounded-xl bg-black/80 border border-zinc-800 text-[10px] font-black uppercase tracking-wider text-white flex items-center gap-1.5">
-                          <Crown className="w-3.5 h-3.5 text-[#fe9a00]" /> 1-Year Full App Pass
-                        </span>
-                        {bundle.card_skin_name && (
-                          <span className="px-3 py-1.5 rounded-xl bg-black/80 border border-zinc-800 text-[10px] font-black uppercase tracking-wider text-white flex items-center gap-1.5">
-                            <Layers className="w-3.5 h-3.5 text-[#fe9a00]" /> {bundle.card_skin_name} Card Skin
-                          </span>
-                        )}
-                        {avatars.length > 0 && (
-                          <span className="px-3 py-1.5 rounded-xl bg-black/80 border border-zinc-800 text-[10px] font-black uppercase tracking-wider text-white flex items-center gap-1.5">
-                            <UserCheck className="w-3.5 h-3.5 text-[#fe9a00]" /> {avatars.length} Exclusive Avatars
-                          </span>
-                        )}
-                        {bundle.creator_autograph && (
-                          <span className="px-3 py-1.5 rounded-xl bg-black/80 border border-zinc-800 text-[10px] font-black uppercase tracking-wider text-[#fe9a00] flex items-center gap-1.5">
-                            <PenTool className="w-3.5 h-3.5" /> {bundle.creator_autograph} Signature Badge
-                          </span>
-                        )}
-                        {Number(bundle.bonus_hypes) > 0 && (
-                          <span className="px-3 py-1.5 rounded-xl bg-[#fe9a00]/15 border border-[#fe9a00]/40 text-[10px] font-black uppercase tracking-wider text-[#fe9a00] flex items-center gap-1">
-                            <Flame className="w-3.5 h-3.5" /> +{bundle.bonus_hypes} Bonus Hypes
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Visual Asset Showcase Strip: Card Skin + 3 Avatars + Gold Signature */}
-                      <div className="flex flex-wrap items-center gap-4 pt-2">
-                        {bundle.card_skin_url && (
-                          <div className="flex items-center gap-2.5 bg-black/70 border border-zinc-800 rounded-2xl p-2 pr-3">
-                            <img
-                              src={bundle.card_skin_url}
-                              alt={bundle.card_skin_name || 'Card Skin'}
-                              className="w-11 h-16 object-cover rounded-lg border border-[#fe9a00]"
-                            />
-                            <div>
-                              <span className="text-[8px] font-black uppercase tracking-widest text-[#fe9a00] block">
-                                Card Skin
-                              </span>
-                              <span className="text-[10px] font-black uppercase text-white">
-                                {bundle.card_skin_name || 'Exclusive Skin'}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-
-                        {avatars.length > 0 && (
-                          <div className="flex items-center gap-2.5 bg-black/70 border border-zinc-800 rounded-2xl p-2 pr-3">
-                            <div className="flex -space-x-2">
-                              {avatars.slice(0, 3).map((avUrl, idx) => (
-                                <img
-                                  key={idx}
-                                  src={avUrl}
-                                  alt={`Avatar ${idx + 1}`}
-                                  className="w-11 h-11 rounded-full object-cover border-2 border-[#fe9a00] bg-zinc-900"
-                                />
-                              ))}
-                            </div>
-                            <div>
-                              <span className="text-[8px] font-black uppercase tracking-widest text-[#fe9a00] block">
-                                Profile Avatars
-                              </span>
-                              <span className="text-[10px] font-black uppercase text-white">
-                                {avatars.length} Included
-                              </span>
-                            </div>
-                          </div>
-                        )}
-
-                        {sigUrl && (
-                          <div className="flex items-center gap-2.5 bg-black/70 border border-zinc-800 rounded-2xl p-2 px-3">
-                            <div className="w-20 h-10 flex items-center justify-center">
-                              <div
-                                className="w-full h-full bg-gradient-to-tr from-yellow-300 via-[#fe9a00] to-yellow-600"
-                                style={{
-                                  WebkitMaskImage: `url('${sigUrl}')`,
-                                  WebkitMaskSize: 'contain',
-                                  WebkitMaskRepeat: 'no-repeat',
-                                  WebkitMaskPosition: 'center',
-                                  maskImage: `url('${sigUrl}')`,
-                                  maskSize: 'contain',
-                                  maskRepeat: 'no-repeat',
-                                  maskPosition: 'center'
-                                }}
-                              />
-                            </div>
-                            <div>
-                              <span className="text-[8px] font-black uppercase tracking-widest text-[#fe9a00] block">
-                                Gold Autograph
-                              </span>
-                              <span className="text-[10px] font-black uppercase text-white">
-                                {bundle.creator_autograph}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Right Column: Price & CTA Box */}
-                    <div className="lg:w-64 bg-black/90 border border-zinc-800 rounded-2xl p-5 flex flex-col items-center justify-center text-center shrink-0">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
-                        Themed Annual Pass
-                      </span>
-                      <div className="flex items-baseline gap-1 my-1.5">
-                        <span className="text-4xl font-black italic text-white">${price}</span>
-                        <span className="text-xs font-bold text-zinc-400 uppercase">/ year</span>
-                      </div>
-                      <p className="text-[9px] text-zinc-400 font-bold mb-4 leading-relaxed">
-                        Includes 1-Yr PLUS ($35.99 value) + all themed cosmetics & signature badge permanently unlocked.
-                      </p>
-                      <button
-                        type="button"
-                        disabled={loadingBundleId === bundle.id}
-                        onClick={() => handleBuyThemedBundle(bundle)}
-                        className="w-full py-3.5 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-[11px] rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      >
-                        {loadingBundleId === bundle.id ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" /> Loading...
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="w-4 h-4 fill-black" /> Unlock Bundle (${price})
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Standard Monthly / Annual Toggle */}
       <div className="flex justify-center mb-8">
         <div className="bg-zinc-900 border border-zinc-800 p-1.5 rounded-2xl inline-flex flex-wrap justify-center items-center gap-1">
           <button
@@ -901,13 +1068,33 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               </span>
             </div>
 
-            <p className="text-[10px] text-zinc-400 font-bold mb-5 leading-relaxed">
+            <p className="text-[10px] text-zinc-400 font-bold mb-4 leading-relaxed">
               {billingCycle === 'annual'
                 ? hasReferralCode
                   ? 'Includes 3-Day Free Trial ($0 today), then $20/yr (~$1.67/mo). Cancel anytime.'
                   : 'Special Annual Rate (~$1.67/mo instead of $35.99/yr). Cancel anytime.'
                 : 'Special Monthly Rate ($1.99/mo instead of $2.99/mo). Cancel anytime.'}
             </p>
+
+            {/* Simple Inline Collector Subscription Callout (Scrolls Down to Bundles) */}
+            {billingCycle === 'annual' && unifiedBundles.length > 0 && (
+              <div
+                onClick={scrollToCollectorBundles}
+                className="w-full mb-4 p-3 rounded-xl bg-gradient-to-r from-amber-950/60 via-black to-amber-950/60 border border-[#fe9a00]/60 hover:border-yellow-300 text-left cursor-pointer transition-all group"
+              >
+                <div className="flex items-center justify-between gap-1 text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
+                  <span className="flex items-center gap-1">
+                    <Gift className="w-3 h-3" /> Collector Subscriptions
+                  </span>
+                  <span className="flex items-center gap-0.5 text-yellow-300 group-hover:text-white">
+                    See Below <ArrowDown className="w-3 h-3" />
+                  </span>
+                </div>
+                <p className="text-[10px] text-zinc-200 font-bold mt-1 leading-snug">
+                  Check out our Collector Subscriptions! They&apos;re only <strong className="text-[#fe9a00]">+$4.99</strong> — get the same 1-Yr sub, but with even more cool stuff!
+                </p>
+              </div>
+            )}
 
             {billingCycle === 'annual' && (
               <div className="w-full mb-4 text-left">
@@ -943,7 +1130,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               <button
                 type="button"
                 disabled={isLoadingCheckout}
-                onClick={() => handleStartSubscription(billingCycle)}
+                onClick={() => handleStartSubscriptionClick(billingCycle)}
                 className="w-full py-4 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs rounded-xl transition-all shadow-[0_0_25px_rgba(254,154,0,0.4)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {isLoadingCheckout ? (
@@ -970,18 +1157,20 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         </div>
       </div>
 
-      {/* Redeem Themed Bundle Code / Flash Contest / Store Key Box */}
-      <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 max-w-2xl mx-auto">
+      {/* =====================================================================
+          2. REDEEM CODE BOX (GIFT SUBS, BUNDLE CODES & CREATOR INVITES)
+      ===================================================================== */}
+      <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 max-w-2xl mx-auto mb-12">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-9 h-9 rounded-xl bg-[#fe9a00]/15 border border-[#fe9a00]/40 flex items-center justify-center text-[#fe9a00] shrink-0">
             <Key className="w-4 h-4" />
           </div>
           <div>
             <h3 className="text-sm font-black uppercase italic tracking-wider text-white">
-              Have a Themed Bundle, Flash Contest, or 1-Year Access Code?
+              Have a Creator Gift Sub, Bundle Code, or 1-Year Access Key?
             </h3>
             <p className="text-[10px] text-zinc-400 font-bold">
-              Enter your Themed Bundle code (e.g. MMWOG Diwali or Apple Black Bundle), Flash Contest code, or Creator Invite below to unlock PLUS & rewards immediately.
+              Enter your Creator Monthly Gift Code (e.g. GIFT-...), Bundle Code (e.g. DIWALI-2026), or Creator Invite below to unlock PLUS immediately.
             </p>
           </div>
         </div>
@@ -989,7 +1178,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         <form onSubmit={handleRedeemCode} className="flex flex-col sm:flex-row gap-2.5 mt-4">
           <input
             type="text"
-            placeholder="Enter Code (e.g. DIWALI-MMWOG-2026)"
+            placeholder="Enter Code (e.g. GIFT-... or DIWALI-2026)"
             value={promoCode}
             onChange={e => setPromoCode(e.target.value.toUpperCase())}
             className="flex-1 bg-black border border-zinc-700 rounded-xl px-4 py-3 text-xs font-black uppercase tracking-widest text-[#fe9a00] focus:outline-none focus:border-[#fe9a00]"
@@ -1012,10 +1201,298 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         {!currentUser && (
           <p className="text-[10px] text-zinc-500 font-bold mt-3 flex items-center gap-1.5">
             <Gift className="w-3.5 h-3.5 text-[#fe9a00] shrink-0" />
-            You'll be prompted to sign in or create a free account so we can attach PLUS & your bundle items to your profile.
+            You&apos;ll be prompted to sign in or create a free account so we can attach PLUS &amp; your bundle items to your profile.
           </p>
         )}
       </div>
+
+      {/* =====================================================================
+          3. COLLECTOR SUBSCRIPTIONS / ANNUAL BUNDLES (AT THE BOTTOM)
+      ===================================================================== */}
+      {unifiedBundles.length > 0 && (
+        <div
+          id="collector-bundles-section"
+          ref={collectorBundlesRef}
+          className="pt-4 space-y-5 scroll-mt-8"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <Gift className="w-5 h-5 text-[#fe9a00]" />
+              <div>
+                <h2 className="text-lg sm:text-xl font-black italic uppercase tracking-wider text-white">
+                  Collector <span className="text-[#fe9a00]">Subscriptions</span>
+                </h2>
+                <p className="text-[11px] text-zinc-300 font-bold">
+                  Only +$4.99 more — get the exact same 1-Yr PLUS sub, but with even more cool stuff!
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6">
+            {unifiedBundles.map(bundle => {
+              const bundleSkins = (bundle.card_skin_ids || [])
+                .map((id: any) => (cardSkins || []).find((s: any) => String(s.id) === String(id)))
+                .filter(Boolean);
+              const avatars: string[] = bundle.avatar_urls || [];
+              const autographs: string[] = bundle.autograph_creators || [];
+              const price = Number(bundle.price_dollars || 24.99);
+              const normalPrice = Number(bundle.original_price_dollars || 35);
+              const hasDiscount = normalPrice > price && normalPrice > 0;
+              const discountPct = hasDiscount
+                ? Math.round(((normalPrice - price) / normalPrice) * 100)
+                : 0;
+              const isOwned = isBundleOwnedByUser(bundle);
+
+              return (
+                <div
+                  key={bundle.id}
+                  className="bg-gradient-to-br from-zinc-950 via-zinc-900/95 to-black border-2 border-[#fe9a00] rounded-3xl p-5 sm:p-7 shadow-[0_0_45px_rgba(254,154,0,0.22)] relative overflow-hidden"
+                >
+                  <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-6">
+                    <div className="flex-1 space-y-4">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#fe9a00] text-black text-[9px] font-black uppercase tracking-widest">
+                            <Sparkles className="w-3 h-3 fill-black" />
+                            {bundle.theme_badge}
+                          </span>
+                          {isOwned ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-400 text-black text-[9px] font-black uppercase tracking-widest">
+                              ✓ IN YOUR COLLECTION
+                            </span>
+                          ) : (
+                            discountPct > 0 && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-400 text-black text-[9px] font-black uppercase tracking-widest">
+                                SAVE {discountPct}% OFF
+                              </span>
+                            )
+                          )}
+                        </div>
+                        <h3 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tight text-white">
+                          {bundle.title}
+                        </h3>
+                        {bundle.subtitle && (
+                          <p className="text-xs text-zinc-300 font-bold mt-1 leading-relaxed">
+                            {bundle.subtitle}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Included Perks Pills */}
+                      <div className="flex flex-wrap gap-2">
+                        <span className="px-3 py-1.5 rounded-xl bg-black/80 border border-zinc-800 text-[10px] font-black uppercase tracking-wider text-white flex items-center gap-1.5">
+                          <Crown className="w-3.5 h-3.5 text-[#fe9a00]" /> 1-Year Full App Pass
+                        </span>
+                        {bundleSkins.length > 0 && (
+                          <span className="px-3 py-1.5 rounded-xl bg-black/80 border border-zinc-800 text-[10px] font-black uppercase tracking-wider text-white flex items-center gap-1.5">
+                            <Layers className="w-3.5 h-3.5 text-[#fe9a00]" /> {bundleSkins.length} Stamped Hype Card{bundleSkins.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {avatars.length > 0 && (
+                          <span className="px-3 py-1.5 rounded-xl bg-black/80 border border-zinc-800 text-[10px] font-black uppercase tracking-wider text-white flex items-center gap-1.5">
+                            <UserCheck className="w-3.5 h-3.5 text-[#fe9a00]" /> {avatars.length} Exclusive Avatars
+                          </span>
+                        )}
+                        {autographs.length > 0 && (
+                          <span className="px-3 py-1.5 rounded-xl bg-black/80 border border-zinc-800 text-[10px] font-black uppercase tracking-wider text-[#fe9a00] flex items-center gap-1.5">
+                            <PenTool className="w-3.5 h-3.5" /> {autographs.join(' & ')}
+                          </span>
+                        )}
+                        {Number(bundle.bonus_hypes) > 0 && (
+                          <span className="px-3 py-1.5 rounded-xl bg-amber-950/80 border border-yellow-300 text-[10px] font-black uppercase tracking-wider text-yellow-200 flex items-center gap-1">
+                            <Flame className="w-3.5 h-3.5 text-yellow-300 fill-yellow-300" /> +{bundle.bonus_hypes} Vaulted Gold Hypes
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Stamped Hype Cards Preview */}
+                      {bundleSkins.length > 0 && (
+                        <div
+                          className={`grid gap-3 pt-1 ${
+                            bundleSkins.length === 1 ? 'grid-cols-1 max-w-sm' : 'grid-cols-2'
+                          }`}
+                        >
+                          {bundleSkins.map((sk: any) => renderStampedCardPreview(sk))}
+                        </div>
+                      )}
+
+                      {/* Avatars & Gold Autographs Strip */}
+                      <div className="flex flex-wrap items-center gap-4 pt-1">
+                        {avatars.length > 0 && (
+                          <div className="flex items-center gap-2.5 bg-black/70 border border-zinc-800 rounded-2xl p-2 pr-3">
+                            <div className="flex -space-x-2">
+                              {avatars.slice(0, 5).map((avUrl, idx) => (
+                                <img
+                                  key={idx}
+                                  src={avUrl}
+                                  alt={`Avatar ${idx + 1}`}
+                                  className="w-10 h-10 rounded-full object-cover border-2 border-[#fe9a00] bg-zinc-900"
+                                />
+                              ))}
+                            </div>
+                            <div>
+                              <span className="text-[8px] font-black uppercase tracking-widest text-[#fe9a00] block">
+                                Profile Avatars
+                              </span>
+                              <span className="text-[10px] font-black uppercase text-white">
+                                {avatars.length} Included
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {autographs.map((cName, idx) => {
+                          const sigUrl = getSignatureUrlForCreator(cName);
+                          if (!sigUrl) return null;
+                          return (
+                            <div
+                              key={idx}
+                              className="flex items-center gap-2 bg-black/70 border border-zinc-800 rounded-2xl p-2 px-3"
+                            >
+                              <div className="w-16 h-8 flex items-center justify-center">
+                                <div
+                                  className="w-full h-full bg-gradient-to-tr from-yellow-300 via-[#fe9a00] to-yellow-600"
+                                  style={{
+                                    WebkitMaskImage: `url('${sigUrl}')`,
+                                    WebkitMaskSize: 'contain',
+                                    WebkitMaskRepeat: 'no-repeat',
+                                    WebkitMaskPosition: 'center',
+                                    maskImage: `url('${sigUrl}')`,
+                                    maskSize: 'contain',
+                                    maskRepeat: 'no-repeat',
+                                    maskPosition: 'center'
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <span className="text-[7px] font-black uppercase tracking-widest text-[#fe9a00] block">
+                                  Autograph
+                                </span>
+                                <span className="text-[9px] font-black uppercase text-white">
+                                  {cName}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Right Column: Price & CTA */}
+                    <div className="lg:w-64 bg-black/90 border border-zinc-800 rounded-2xl p-5 flex flex-col items-center justify-center text-center shrink-0">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
+                        Collector Subscription
+                      </span>
+                      <div className="flex items-baseline gap-2 my-1.5">
+                        {hasDiscount && (
+                          <span className="text-lg font-black italic text-zinc-500 line-through">
+                            ${normalPrice}
+                          </span>
+                        )}
+                        <span className="text-4xl font-black italic text-white">${price}</span>
+                      </div>
+                      <p className="text-[9px] text-zinc-400 font-bold mb-4 leading-relaxed">
+                        Includes 1-Yr PLUS ($20 value) + all themed cosmetics, autographs &amp; +10 Gold Hypes permanently unlocked.
+                      </p>
+
+                      {isOwned ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onNavigate
+                              ? onNavigate({ action: 'profile' })
+                              : (window.location.href = '/?view=profile')
+                          }
+                          className="w-full py-3.5 bg-emerald-500 hover:bg-white text-black font-black uppercase tracking-widest text-[10px] rounded-xl transition-all cursor-pointer"
+                        >
+                          ✓ In Collection • View Profile
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={loadingBundleId === bundle.id}
+                          onClick={() => handleBuyThemedBundle(bundle)}
+                          className="w-full py-3.5 bg-gradient-to-r from-[#fe9a00] via-amber-400 to-[#fe9a00] hover:from-white hover:to-white text-black font-black uppercase tracking-widest text-[11px] rounded-xl transition-all shadow-[0_0_20px_rgba(254,154,0,0.4)] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {loadingBundleId === bundle.id ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" /> Loading...
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-4 h-4 fill-black" /> Unlock Bundle (${price})
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          SIMPLE PRE-CHECKOUT COLLECTOR SUBSCRIPTION UPSELL MODAL
+      ===================================================================== */}
+      {showBundleUpsellModal && activeUpsellBundle && (
+        <div
+          className="fixed inset-0 z-[9500] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setShowBundleUpsellModal(false)}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="bg-zinc-950 border-2 border-[#fe9a00] rounded-3xl p-6 sm:p-8 max-w-md w-full flex flex-col items-center text-center shadow-[0_0_50px_rgba(254,154,0,0.3)] relative"
+          >
+            <button
+              type="button"
+              onClick={() => setShowBundleUpsellModal(false)}
+              className="absolute top-4 right-4 p-2 rounded-full bg-black text-zinc-400 hover:text-white border border-zinc-800 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="w-16 h-16 rounded-full bg-[#fe9a00]/15 border border-[#fe9a00]/50 flex items-center justify-center mb-4 shadow-[0_0_25px_rgba(254,154,0,0.3)]">
+              <Gift className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+
+            <span className="px-3 py-0.5 rounded-full bg-[#fe9a00]/20 border border-[#fe9a00]/40 text-[#fe9a00] text-[9px] font-black uppercase tracking-widest mb-2">
+              Wait! Before You Checkout
+            </span>
+
+            <h3 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+              Check Out Our Collector Subscriptions!
+            </h3>
+
+            <p className="text-xs sm:text-sm text-zinc-300 font-bold leading-relaxed mb-6">
+              They&apos;re only <span className="text-[#fe9a00] font-black">+$4.99</span> — you get the <span className="text-white font-black">same 1-Yr sub</span>, but with even more cool stuff (Hype Card Skins, Exclusive Avatars, Creator Autographs &amp; +10 Gold Hypes)!
+            </p>
+
+            <button
+              type="button"
+              onClick={scrollToCollectorBundles}
+              className="w-full px-6 py-4 rounded-xl bg-gradient-to-r from-[#fe9a00] via-amber-400 to-[#fe9a00] hover:from-white hover:to-white text-black font-black uppercase tracking-wider text-[11px] sm:text-xs shadow-[0_0_25px_rgba(254,154,0,0.4)] mb-2.5 flex items-center justify-center gap-2.5 cursor-pointer"
+            >
+              <Gift className="w-4 h-4 shrink-0" />
+              <span>View Collector Subscriptions (+$4.99)</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={isLoadingCheckout}
+              onClick={() => executeBasicSubscriptionCheckout('annual')}
+              className="w-full py-3.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white font-black uppercase tracking-widest text-[11px] transition-colors cursor-pointer"
+            >
+              {hasReferralCode
+                ? 'Continue with Basic 3-Day Free Trial ($20/yr)'
+                : 'Continue with Basic 1-Yr Sub ($20/yr)'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

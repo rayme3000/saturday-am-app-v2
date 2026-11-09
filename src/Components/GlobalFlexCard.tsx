@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { User, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart, Lock, Sparkles, Award } from 'lucide-react';
+import { User, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart, Lock, Award } from 'lucide-react';
 import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
@@ -42,7 +42,7 @@ const hypeCardTutorialSlides = [
   {
     id: 'hypecard-1',
     title: 'Virtual Hype Card',
-    description: 'Not only does your Hype Card cement your status as a Saturday AM superfan, but it also tracks your stats in real time and gives you a discount off in the AM shop. Included with all Pro subscriptions.',
+    description: 'Not only does your Hype Card cement your status as a Saturday AM superfan, but it also tracks your stats in real time and gives you a discount off in the AM shop. Unlocked for all registered account holders!',
     mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Videos/HypeCard.mp4'
   },
   {
@@ -154,7 +154,7 @@ const RenderCardAnimations = ({ anim, color }: { anim: string, color: string }) 
   );
 };
 
-export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
+export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [profileStats, setProfileStats] = useState({
     total_hypes: 0,
@@ -217,14 +217,16 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
       const {
         data: { user }
       } = await supabase.auth.getUser();
+
+      // Visitors (not logged in) cannot access the Hype Card
       if (!user) {
         setIsLoading(false);
+        if (onClose) onClose();
         return;
       }
 
       const cleanEmail = String(user.email || '').trim().toLowerCase();
 
-      // Fetch live ground-truth counts in parallel so the Hype Card is 100% accurate
       const [
         framesRes,
         skinsRes,
@@ -274,7 +276,6 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
       if (data) {
         const myScore = Number(data.fandom_score || 0);
 
-        // Compute Fan-Only Rank matching Leaderboard.tsx
         const allProfiles = allProfilesMetaRes.data || [];
         const myRole = String(data.role || 'reader').trim().toLowerCase();
         const myUname = String(data.username || '').trim().toLowerCase();
@@ -366,7 +367,7 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
       setIsLoading(false);
     };
     fetchStatsAndRank();
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -379,22 +380,12 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
   const defaultSkin = activeSkins.find(s => s.name?.toLowerCase() === 'saturday white') || {
     image_url: `${CLOUDFLARE_BASE_URL}/card-skins/saturday-white.png`,
     show_icon: true,
-    icon_position: 'top-right'
+    icon_position: 'top-right',
+    signature_stamps: []
   };
   const currentSkin = appliedSkin || defaultSkin;
 
   const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score, isSubscriber);
-
-  const handleUpgradeClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onClose();
-    if (onNavigate) {
-      onNavigate({ action: 'sub' });
-    } else {
-      window.history.pushState({ view: 'sub' }, '');
-      window.dispatchEvent(new PopStateEvent('popstate', { state: { view: 'sub' } }));
-    }
-  };
 
   const cardContent = (
     <div className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden" onClick={onClose}>
@@ -408,35 +399,6 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
         forceOpen={forceTutorial}
         onClose={() => setForceTutorial(false)}
       />
-
-      {/* FREE USER PREVIEW BANNER */}
-      {!isSubscriber && !isLoading && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 z-[1000000] w-[94%] max-w-xl bg-zinc-950/95 border border-[#fe9a00] p-3 sm:p-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.9)] flex items-center justify-between gap-3 animate-fade-in backdrop-blur-md"
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-[#fe9a00]/10 border border-[#fe9a00]/30 flex items-center justify-center shrink-0">
-              <Sparkles className="w-5 h-5 text-[#fe9a00]" />
-            </div>
-            <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-white font-black italic uppercase text-xs sm:text-sm tracking-wider">Hype Card Preview</span>
-                <span className="bg-purple-900/40 border border-purple-500 text-purple-400 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded">PRO EXCLUSIVE</span>
-              </div>
-              <p className="text-zinc-400 text-[9px] sm:text-[10px] font-bold truncate mt-0.5">
-                Upgrade to Saturday AM+ for $1.99/mo to equip custom skins, animated frames & get store discounts!
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={handleUpgradeClick}
-            className="bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-[9px] sm:text-[10px] px-4 py-2.5 rounded-xl shrink-0 transition-all shadow-[0_0_15px_rgba(254,154,0,0.4)] cursor-pointer"
-          >
-            Upgrade ($1.99)
-          </button>
-        </div>
-      )}
 
       <div className="absolute top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[999999]">
         <TutorialHelpButton onClick={(e: any) => { e.stopPropagation(); setForceTutorial(true); }} />
@@ -485,8 +447,50 @@ export const GlobalFlexCard = ({ isOpen, onClose, onNavigate }: any) => {
               }}
             >
               <div className="w-full h-full relative" style={{ containerType: 'inline-size' }}>
-                <img src={currentSkin.image_url} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
+                {userProfile.cardSkin ? (
+                  <img src={currentSkin.image_url} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
+                ) : (
+                  <div className="absolute inset-0 bg-zinc-950 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] z-0" />
+                )}
                 <div className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }} />
+
+                {/* STAMPED CREATOR SIGNATURES ON FRONT OF HYPE CARD */}
+                {Array.isArray(currentSkin.signature_stamps) &&
+                  currentSkin.signature_stamps.map((st: any) => {
+                    const bgClass =
+                      st.color_mode === 'white'
+                        ? 'bg-white'
+                        : st.color_mode === 'black'
+                        ? 'bg-black'
+                        : 'bg-gradient-to-tr from-yellow-300 via-[#fe9a00] to-yellow-500';
+                    return (
+                      <div
+                        key={st.id}
+                        style={{
+                          left: `${st.x}%`,
+                          top: `${st.y}%`,
+                          width: `${st.scale}cqi`,
+                          aspectRatio: '2.2 / 1',
+                          transform: 'translate(-50%, -50%)'
+                        }}
+                        className="absolute z-20 pointer-events-none"
+                      >
+                        <div
+                          className={`w-full h-full ${bgClass} drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]`}
+                          style={{
+                            WebkitMaskImage: `url('${st.signature_url}')`,
+                            WebkitMaskSize: 'contain',
+                            WebkitMaskRepeat: 'no-repeat',
+                            WebkitMaskPosition: 'center',
+                            maskImage: `url('${st.signature_url}')`,
+                            maskSize: 'contain',
+                            maskRepeat: 'no-repeat',
+                            maskPosition: 'center'
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
 
                 {currentSkin.show_icon !== false && (
                   <img

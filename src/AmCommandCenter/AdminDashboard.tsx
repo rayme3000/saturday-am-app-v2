@@ -11,6 +11,7 @@ import { CardSkinMaker } from './CardSkinMaker';
 import { FrameMaker } from './FrameMaker';
 import { ModerationDashboard } from './ModerationDashboard';
 import { UserManager } from './UserManager';
+import { StoreManager } from './StoreManager';
 import { CreatorPayoutTracker } from './CreatorPayoutTracker';
 import { resolveCreatorStripeAccountId } from '../MainViews/CreatorsPage';
 import { supabase } from '../supabase';
@@ -1202,16 +1203,15 @@ const HypeManager = ({ setIsDirty }: any) => {
 
     if (forceSyncNow) {
       try {
-        await supabase
-          .from('profiles')
-          .update({ hypes_remaining: settings.free_allowance })
-          .eq('is_premium', false);
-        await supabase
-          .from('profiles')
-          .update({ hypes_remaining: settings.premium_allowance })
-          .eq('is_premium', true);
+        const { error: rpcErr } = await supabase.rpc('refill_weekly_active_hypes', {
+          p_free_allowance: settings.free_allowance,
+          p_premium_allowance: settings.premium_allowance,
+          p_free_saturation_cap: 5,
+          p_premium_saturation_cap: 10
+        });
+        if (rpcErr) throw rpcErr;
         alert(
-          `SUCCESS! Rules saved and all user wallets synced to ${settings.free_allowance} (Free) / ${settings.premium_allowance} (Pro).`
+          `SUCCESS! Weekly rollover refill applied (+${settings.free_allowance} Free up to 5 cap / +${settings.premium_allowance} PLUS up to 10 cap).`
         );
       } catch (err: any) {
         alert('Error syncing user balances: ' + err.message);
@@ -1246,14 +1246,14 @@ const HypeManager = ({ setIsDirty }: any) => {
       } else {
         const { data: user, error: fetchErr } = await supabase
           .from('profiles')
-          .select('id, hypes_remaining')
+          .select('id, hypes_remaining, vaulted_hypes')
           .ilike('username', airdrop.username.trim())
           .maybeSingle();
         if (fetchErr || !user) throw new Error('User not found!');
 
         const { error: updateErr } = await supabase
           .from('profiles')
-          .update({ hypes_remaining: (user.hypes_remaining || 0) + airdrop.amount })
+          .update({ vaulted_hypes: (user.vaulted_hypes || 0) + airdrop.amount })
           .eq('id', user.id);
         if (updateErr) throw updateErr;
       }
@@ -2936,9 +2936,8 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   >('avatars');
   const [usersSubTab, setUsersSubTab] = useState<'users' | 'moderation' | 'accesskeys'>('users');
   const [marketingSubTab, setMarketingSubTab] = useState<
-    'accesskeys' | 'adstudio' | 'hype' | 'notifications'
-  >('accesskeys');
-
+    'store' | 'accesskeys' | 'adstudio' | 'hype' | 'notifications'
+  >('store');
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedWarning(isDirty);
 
@@ -3192,6 +3191,17 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
               <div className="flex flex-wrap items-center gap-2 bg-zinc-900 border border-zinc-800 p-3 rounded-2xl">
                 <button
                   type="button"
+                  onClick={() => setMarketingSubTab('store')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    marketingSubTab === 'store'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> In-App Store Manager
+                </button>
+                <button
+                  type="button"
                   onClick={() => setMarketingSubTab('accesskeys')}
                   className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
                     marketingSubTab === 'accesskeys'
@@ -3236,6 +3246,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
                 </button>
               </div>
 
+              {marketingSubTab === 'store' && <StoreManager setIsDirty={setIsDirty} />}
               {marketingSubTab === 'accesskeys' && <PromoCodeManager />}
               {marketingSubTab === 'adstudio' && (
                 <HouseAdBuilder Dropzone={Dropzone} setIsDirty={setIsDirty} />

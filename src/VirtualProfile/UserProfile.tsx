@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, RefreshCw, Key, Heart } from 'lucide-react';
+import { ArrowLeft, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, RefreshCw, Key, Heart, ShoppingBag } from 'lucide-react';
 import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
 import { GlobalFlexCard } from '../Components/GlobalFlexCard';
+import { isDefaultBuiltInSkin, isFreeStoreSkin } from '../MainViews/InAppStoreSection';
 
 const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
 const iconMaskStyle = {
@@ -149,9 +150,29 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
   const [errorToast, setErrorToast] = useState('');
   const [timeLeft, setTimeLeft] = useState('');
 
-  const [userProfile, setUserProfile] = useState(memUserProfile || { username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] as (string | null)[] });
+  const [userProfile, setUserProfile] = useState(
+    memUserProfile || {
+      username: 'Reader',
+      avatarUrl: '',
+      cardSkin: '',
+      frameId: '',
+      topFive: [null, null, null, null, null] as (string | null)[],
+      unlockedSkins: [] as string[]
+    }
+  );
   const [tempProfile, setTempProfile] = useState({ ...userProfile });
-  const [profileStats, setProfileStats] = useState(memProfileStats || { total_hypes: 0, total_likes: 0, quick_reacts: 0, chapters_read: 0, rank: '---', score: 0, hypes_remaining: 0 });
+  const [profileStats, setProfileStats] = useState(
+    memProfileStats || {
+      total_hypes: 0,
+      total_likes: 0,
+      quick_reacts: 0,
+      chapters_read: 0,
+      rank: '---',
+      score: 0,
+      hypes_remaining: 0,
+      vaulted_hypes: 0
+    }
+  );
 
   const [unlockedHunts, setUnlockedHunts] = useState(0);
   const [totalHunts, setTotalHunts] = useState(11);
@@ -188,8 +209,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
       memProfileStats = null;
       memUserProfile = null;
       setIsLoggedIn(false);
-      setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] });
-      setProfileStats({ total_hypes: 0, total_likes: 0, quick_reacts: 0, chapters_read: 0, rank: '---', score: 0, hypes_remaining: 0 });
+      setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null], unlockedSkins: [] });
+      setProfileStats({ total_hypes: 0, total_likes: 0, quick_reacts: 0, chapters_read: 0, rank: '---', score: 0, hypes_remaining: 0, vaulted_hypes: 0 });
     };
 
     window.addEventListener('instantLogout', handleInstantLogout);
@@ -279,6 +300,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
 
         const isUserPremium = Boolean(data.is_premium);
         const userHypesLeft = data.super_hypes_left ?? data.hypes_remaining ?? (isUserPremium ? 3 : 1);
+        const userVaultedHypes = Number(data.vaulted_hypes || 0);
 
         const verifiedTotalHypes = Math.max(
           Number(data.total_hypes || 0),
@@ -306,7 +328,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
           chapters_read: verifiedChaptersRead,
           rank: String(myRank),
           score: myScore,
-          hypes_remaining: userHypesLeft
+          hypes_remaining: userHypesLeft,
+          vaulted_hypes: userVaultedHypes
         };
         setProfileStats(newStats);
         memProfileStats = newStats;
@@ -319,12 +342,26 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
         }
         rawTopFive = rawTopFive.slice(0, 5);
 
+        const dbUnlockedSkins: string[] = Array.isArray(data.unlocked_skins)
+          ? data.unlocked_skins.map(String)
+          : [];
+        let localUnlockedSkins: string[] = [];
+        try {
+          localUnlockedSkins = JSON.parse(localStorage.getItem('am_unlocked_skins') || '[]').map(String);
+        } catch {
+          // ignore
+        }
+        const mergedUnlockedSkins = Array.from(
+          new Set([...dbUnlockedSkins, ...localUnlockedSkins, data.card_skin || ''].filter(Boolean))
+        );
+
         const loadedProfile = {
           username: data.username || fallbackName,
           topFive: rawTopFive,
           cardSkin: data.card_skin || '',
           avatarUrl: data.avatar_url || '',
-          frameId: data.avatar_frame_id || ''
+          frameId: data.avatar_frame_id || '',
+          unlockedSkins: mergedUnlockedSkins
         };
         setUserProfile(loadedProfile);
         setTempProfile(loadedProfile);
@@ -332,7 +369,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
       }
     } else {
       setIsLoggedIn(false);
-      setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null] });
+      setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null], unlockedSkins: [] });
     }
   }, []);
 
@@ -350,7 +387,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
     };
   }, [fetchUserStats]);
 
-  // Auto-open Customize Loadout modal on specific tab ('card', 'art', or 'frame') when arriving from a notification
   useEffect(() => {
     const requestedTab = sessionStorage.getItem('am_open_loadout_tab');
     if (!requestedTab || !isLoggedIn) return;
@@ -503,13 +539,46 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
         </div>
 
         {isLoggedIn && (
-          <div className="flex flex-row sm:flex-col items-center sm:items-end gap-3 sm:gap-1.5 pt-0 sm:pt-2">
-            <div className="flex items-center gap-2 bg-zinc-950 border border-[#fe9a00]/50 px-3 py-1.5 rounded-full shadow-[0_0_15px_rgba(254,154,0,0.2)] cursor-default">
-              <div className="w-4 h-4 bg-[#fe9a00] animate-pulse drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]" style={iconMaskStyle} />
-              <span className="text-white font-black text-sm leading-none pt-0.5">{profileStats.hypes_remaining}</span>
-              <span className="text-zinc-400 font-bold text-[9px] uppercase tracking-widest leading-none pt-0.5">Left</span>
+          <div className="flex flex-wrap sm:flex-col items-center sm:items-end gap-2 sm:gap-1.5 pt-0 sm:pt-2">
+            <div className="flex items-center gap-2">
+              {/* 1. ACTIVE WEEKLY HYPES (ORANGE - CAPPED AT 5 FREE / 10 PLUS) */}
+              <div
+                className="flex items-center gap-2 bg-zinc-950 border border-[#fe9a00]/50 px-3 py-1.5 rounded-full shadow-[0_0_15px_rgba(254,154,0,0.2)] cursor-default"
+                title={`Active Weekly Hypes (Rollover Cap: ${isSubscriber ? 10 : 5})`}
+              >
+                <div
+                  className="w-4 h-4 bg-[#fe9a00] animate-pulse drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]"
+                  style={iconMaskStyle}
+                />
+                <span className="text-white font-black text-sm leading-none pt-0.5">
+                  {profileStats.hypes_remaining}
+                </span>
+                <span className="text-zinc-400 font-bold text-[9px] uppercase tracking-widest leading-none pt-0.5">
+                  Active
+                </span>
+              </div>
+
+              {/* 2. VAULTED GOLD HYPES (METALLIC GOLD - UNCAPPED & PERMANENT) */}
+              {Number(profileStats.vaulted_hypes || 0) > 0 && (
+                <div
+                  className="flex items-center gap-2 bg-gradient-to-r from-amber-950/90 via-yellow-900/50 to-amber-950/90 border border-yellow-300/80 px-3 py-1.5 rounded-full shadow-[0_0_18px_rgba(253,224,71,0.35)] cursor-default"
+                  title="Vaulted Gold Hypes (Uncapped & Never Expire!)"
+                >
+                  <div
+                    className="w-4 h-4 bg-gradient-to-t from-amber-400 via-yellow-200 to-white drop-shadow-[0_0_6px_rgba(253,224,71,0.9)]"
+                    style={iconMaskStyle}
+                  />
+                  <span className="text-yellow-200 font-black text-sm leading-none pt-0.5">
+                    +{profileStats.vaulted_hypes}
+                  </span>
+                  <span className="text-yellow-300/90 font-black text-[8px] uppercase tracking-widest leading-none pt-0.5">
+                    Vaulted
+                  </span>
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-1.5 text-[9px] font-bold text-zinc-500 uppercase tracking-widest bg-black/40 px-2 py-1 rounded backdrop-blur-sm border border-zinc-800/50">
+
+            <div className="flex items-center gap-1.5 text-[9px] font-bold text-zinc-400 uppercase tracking-widest bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-sm border border-zinc-800">
               <RefreshCw className="w-3 h-3 text-[#fe9a00]" /> Refills in {timeLeft}
             </div>
           </div>
@@ -673,37 +742,36 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
           </div>
         </div>
 
+        {/* Base Hype Card Unlocked for All Registered Users */}
         <div className="flex flex-col items-center justify-center w-full mt-12 mb-8 px-6 gap-4">
-          <div className="relative group w-full sm:w-auto flex justify-center">
+          <div className="relative group w-full sm:w-auto flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
               onClick={() => {
-                setShowFlexCard(true);
-                if (!isSubscriber) {
-                  const cfg = {
-                    title: 'Saturday AM+ Pass',
-                    message: 'Free users can view standard cards. Upgrade to Pro to customize with holographic skins, animated borders, and shareable flex cards!'
-                  };
-                  if (onUpsell) onUpsell(cfg); else setUpsellConfig(cfg);
+                if (!isLoggedIn) {
+                  if (onLoginClick) onLoginClick();
+                  return;
                 }
+                setShowFlexCard(true);
               }}
               className="flex items-center justify-center gap-4 bg-white text-black px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)] w-full sm:w-max cursor-pointer"
             >
               <CreditCard className="w-6 h-6" /> Flex your Hype Card
             </button>
-          </div>
 
-          {!isSubscriber && (
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-center mt-1">
-              Custom skins & holographic frames unlock with <span className="text-[#fe9a00] cursor-pointer hover:underline" onClick={() => onNavigate({ action: 'sub' })}>Saturday AM+</span>
-            </p>
-          )}
+            <button
+              onClick={() => onNavigate({ action: 'shop' })}
+              className="flex items-center justify-center gap-3 bg-zinc-900 border border-[#fe9a00]/60 text-[#fe9a00] px-7 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black transition-all shadow-[0_0_20px_rgba(254,154,0,0.2)] w-full sm:w-max cursor-pointer"
+            >
+              <ShoppingBag className="w-5 h-5" /> Get Card Skins & Bundles
+            </button>
+          </div>
 
           {isSubscriber && (
             <button
               onClick={() => onNavigate({ action: 'sub' })}
-              className="flex items-center gap-4 bg-zinc-900 border border-zinc-700 text-zinc-300 px-8 py-5 rounded-2xl font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-all shadow-[0_0_20px_rgba(0,0,0,0.4)] w-max mx-auto sm:mx-0 cursor-pointer"
+              className="flex items-center gap-4 bg-zinc-900 border border-zinc-700 text-zinc-300 px-8 py-4 rounded-2xl font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-all shadow-[0_0_20px_rgba(0,0,0,0.4)] w-max mx-auto sm:mx-0 cursor-pointer"
             >
-              <Key className="w-6 h-6" /> Redeem Upgrade
+              <Key className="w-5 h-5" /> Redeem Upgrade / Bundle Code
             </button>
           )}
         </div>
@@ -735,19 +803,12 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               <button onClick={() => { setActiveTab('frame'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'frame' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Border Frame</button>
               <button
                 onClick={() => {
-                  if (!isSubscriber) {
-                    setUpsellConfig({
-                      title: 'Hype Card Skins',
-                      message: 'Custom AM Card Skins are exclusively for Saturday AM+ members! Upgrade to customize your digital pass.'
-                    });
-                    return;
-                  }
                   setActiveTab('card');
                   setSelectingSlot(null);
                 }}
                 className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'card' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'} flex items-center justify-center gap-1`}
               >
-                {!isSubscriber && <Lock className="w-3 h-3 text-[#fe9a00]" />} Hype Card
+                Hype Card
               </button>
             </div>
 
@@ -817,31 +878,105 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
 
               {activeTab === 'card' && (
                 <div className="space-y-6">
-                  <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-4">Select an artwork skin for your Hype Card</p>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">
+                      Default Skins (Carbon Black, Saturday White & Saturday Karbon Black) + Your Unlocked Store Skins
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditing(false);
+                        onNavigate({ action: 'shop' });
+                      }}
+                      className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] hover:text-white flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      <ShoppingBag className="w-3 h-3" /> Visit Store for More Skins
+                    </button>
+                  </div>
+
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    <div onClick={() => setTempProfile({ ...tempProfile, cardSkin: '' })} className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${!tempProfile.cardSkin ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-zinc-500'}`}>
+                    <div
+                      onClick={() => setTempProfile({ ...tempProfile, cardSkin: '' })}
+                      className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${
+                        !tempProfile.cardSkin
+                          ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105'
+                          : 'border-zinc-800 hover:border-zinc-500'
+                      }`}
+                    >
                       <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-80 mix-blend-overlay" />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/40"><span className="text-[10px] font-black uppercase tracking-widest text-white drop-shadow-md">Carbon Black</span></div>
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-white drop-shadow-md">
+                          Carbon Black
+                        </span>
+                      </div>
+                      <span className="absolute top-1.5 left-1.5 bg-zinc-800/90 text-zinc-300 text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded">
+                        Default
+                      </span>
                     </div>
 
-                    {cardSkins.map((skin: any) => (
-                      <div
-                        key={skin.id}
-                        onClick={() => {
-                          if (!isSubscriber) {
-                            setUpsellConfig({ title: 'Premium Feature', message: 'Custom AM Card Skins are exclusively for Saturday AM+ members! Upgrade to customize your digital pass.' });
-                            return;
-                          }
-                          setTempProfile({ ...tempProfile, cardSkin: skin.image_url });
-                        }}
-                        className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${tempProfile.cardSkin === skin.image_url ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105' : 'border-zinc-800 hover:border-[#fe9a00]/50'}`}
-                      >
-                        <img src={skin.image_url} loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" alt={skin.name} />
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 hover:opacity-100 transition-opacity"><span className="text-[10px] font-black uppercase tracking-widest text-white text-center px-2">{skin.name}</span></div>
-                        {!isSubscriber && <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-10"><Lock className="w-6 h-6 text-zinc-400" /></div>}
-                        {isNewItem(skin.created_at) && <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
-                      </div>
-                    ))}
+                    {cardSkins.map((skin: any) => {
+                      const isBuiltInDefault = isDefaultBuiltInSkin(skin);
+                      const isFreeStore = isFreeStoreSkin(skin);
+                      const isCurrentlyEquippedByUser =
+                        Boolean(userProfile.cardSkin && userProfile.cardSkin === skin.image_url);
+                      const isUnlockedInVault =
+                        isBuiltInDefault ||
+                        isCurrentlyEquippedByUser ||
+                        (userProfile.unlockedSkins || []).includes(String(skin.id)) ||
+                        (userProfile.unlockedSkins || []).includes(String(skin.image_url));
+
+                      return (
+                        <div
+                          key={skin.id}
+                          onClick={() => {
+                            if (!isUnlockedInVault) {
+                              setIsEditing(false);
+                              onNavigate({ action: 'shop' });
+                              return;
+                            }
+                            setTempProfile({ ...tempProfile, cardSkin: skin.image_url });
+                          }}
+                          className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${
+                            tempProfile.cardSkin === skin.image_url
+                              ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105'
+                              : 'border-zinc-800 hover:border-[#fe9a00]/50'
+                          }`}
+                        >
+                          <img
+                            src={skin.image_url}
+                            loading="lazy"
+                            className="absolute inset-0 w-full h-full object-cover opacity-85"
+                            alt={skin.name}
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 hover:opacity-100 transition-opacity">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-white text-center px-2">
+                              {skin.name}
+                            </span>
+                          </div>
+
+                          {isBuiltInDefault && (
+                            <span className="absolute top-1.5 left-1.5 z-20 bg-zinc-900/90 text-zinc-200 text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded">
+                              Default
+                            </span>
+                          )}
+
+                          {!isUnlockedInVault && (
+                            <div className="absolute inset-0 bg-black/65 backdrop-blur-[1px] flex flex-col items-center justify-center z-10 gap-1 p-2 text-center">
+                              <ShoppingBag className="w-5 h-5 text-[#fe9a00]" />
+                              <span className="text-[8px] font-black uppercase tracking-widest text-black bg-[#fe9a00] px-2 py-0.5 rounded">
+                                {isFreeStore ? 'Claim Free in Store' : 'Unlock in Store ($0.99)'}
+                              </span>
+                            </div>
+                          )}
+
+                          {isNewItem(skin.created_at) && (
+                            <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+                              NEW!
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
