@@ -1,12 +1,30 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, BookOpen, Award, Check, Star, Settings, CreditCard, X, User, Plus, Lock, Trophy, RefreshCw, Key, Heart, ShoppingBag } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  ArrowLeft,
+  BookOpen,
+  Award,
+  Check,
+  Star,
+  Settings,
+  CreditCard,
+  X,
+  User,
+  Plus,
+  Lock,
+  Trophy,
+  RefreshCw,
+  Key,
+  Heart,
+  ShoppingBag
+} from 'lucide-react';
 import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { APP_ICONS } from '../appIcons';
 import { GlobalFlexCard } from '../Components/GlobalFlexCard';
 import { isDefaultBuiltInSkin, isFreeStoreSkin } from '../MainViews/InAppStoreSection';
 
-const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
+const fullIconUrl =
+  'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png';
 const iconMaskStyle = {
   WebkitMaskImage: `url('${fullIconUrl}')`,
   WebkitMaskSize: 'contain',
@@ -63,13 +81,69 @@ const getFandomTier = (
 ): { currentTier: FandomTierInfo; nextTier: FandomTierInfo | null; progressPercent: number } => {
   const score = lifetimeScore || 0;
   const tiers: FandomTierInfo[] = [
-    { name: 'Ember', min: 0, max: 99, color: 'text-rose-900', hex: '#881337', bar: 'bg-rose-900', glow: 'drop-shadow-[0_0_8px_rgba(136,19,55,0.8)]' },
-    { name: 'Glint', min: 100, max: 999, color: 'text-red-700', hex: '#b91c1c', bar: 'bg-red-700', glow: 'drop-shadow-[0_0_8px_rgba(185,28,28,0.8)]' },
-    { name: 'Flare', min: 1000, max: 4999, color: 'text-red-500', hex: '#ef4444', bar: 'bg-red-500', glow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]' },
-    { name: 'Hearth', min: 5000, max: 19999, color: 'text-orange-500', hex: '#f97316', bar: 'bg-orange-500', glow: 'drop-shadow-[0_0_8px_rgba(249,115,22,0.8)]' },
-    { name: 'Lux', min: 20000, max: 49999, color: 'text-amber-400', hex: '#fbbf24', bar: 'bg-amber-400', glow: 'drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]' },
-    { name: 'Fervor', min: 50000, max: 99999, color: 'text-[#fe9a00]', hex: '#fe9a00', bar: 'bg-[#fe9a00]', glow: 'drop-shadow-[0_0_8px_rgba(254,154,0,0.8)]' },
-    { name: 'Vulcan', min: 100000, max: Infinity, color: 'text-yellow-100', hex: '#fef3c7', bar: 'bg-yellow-100', glow: 'drop-shadow-[0_0_12px_rgba(254,243,199,1)]' }
+    {
+      name: 'Ember',
+      min: 0,
+      max: 99,
+      color: 'text-rose-900',
+      hex: '#881337',
+      bar: 'bg-rose-900',
+      glow: 'drop-shadow-[0_0_8px_rgba(136,19,55,0.8)]'
+    },
+    {
+      name: 'Glint',
+      min: 100,
+      max: 999,
+      color: 'text-red-700',
+      hex: '#b91c1c',
+      bar: 'bg-red-700',
+      glow: 'drop-shadow-[0_0_8px_rgba(185,28,28,0.8)]'
+    },
+    {
+      name: 'Flare',
+      min: 1000,
+      max: 4999,
+      color: 'text-red-500',
+      hex: '#ef4444',
+      bar: 'bg-red-500',
+      glow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]'
+    },
+    {
+      name: 'Hearth',
+      min: 5000,
+      max: 19999,
+      color: 'text-orange-500',
+      hex: '#f97316',
+      bar: 'bg-orange-500',
+      glow: 'drop-shadow-[0_0_8px_rgba(249,115,22,0.8)]'
+    },
+    {
+      name: 'Lux',
+      min: 20000,
+      max: 49999,
+      color: 'text-amber-400',
+      hex: '#fbbf24',
+      bar: 'bg-amber-400',
+      glow: 'drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]'
+    },
+    {
+      name: 'Fervor',
+      min: 50000,
+      max: 99999,
+      color: 'text-[#fe9a00]',
+      hex: '#fe9a00',
+      bar: 'bg-[#fe9a00]',
+      glow: 'drop-shadow-[0_0_8px_rgba(254,154,0,0.8)]'
+    },
+    {
+      name: 'Vulcan',
+      min: 100000,
+      max: Infinity,
+      color: 'text-yellow-100',
+      hex: '#fef3c7',
+      bar: 'bg-yellow-100',
+      glow: 'drop-shadow-[0_0_12px_rgba(254,243,199,1)]'
+    }
   ];
 
   if (!isPremium && score >= 1000) {
@@ -85,52 +159,164 @@ const getFandomTier = (
   const nextTier = currentIndex < tiers.length - 1 ? tiers[currentIndex + 1] : null;
 
   let progressPercent = 100;
-  if (nextTier && !nextTier.isLocked && nextTier.min !== undefined && currentTier.min !== undefined) {
-    progressPercent = Math.min(100, Math.max(0, ((score - currentTier.min) / (nextTier.min - currentTier.min)) * 100));
+  if (
+    nextTier &&
+    !nextTier.isLocked &&
+    nextTier.min !== undefined &&
+    currentTier.min !== undefined
+  ) {
+    progressPercent = Math.min(
+      100,
+      Math.max(0, ((score - currentTier.min) / (nextTier.min - currentTier.min)) * 100)
+    );
   }
 
   return { currentTier, nextTier, progressPercent };
 };
 
-const RenderFrameAnimations = ({ anim, color }: { anim: string, color: string }) => {
+const RenderFrameAnimations = ({ anim, color }: { anim: string; color: string }) => {
   if (!anim || anim === 'none') return null;
   return (
     <>
-      {anim === 'orbit' && <div className="absolute rounded-full border-2 border-transparent pointer-events-none animate-[spin_3s_linear_infinite]" style={{ width: '130%', height: '130%', borderTopColor: color, borderRightColor: color }} />}
-      {anim === 'pulse' && <div className="absolute rounded-full pointer-events-none animate-ping opacity-20" style={{ width: '100%', height: '100%', backgroundColor: color }} />}
-      {anim === 'spin' && <div className="absolute rounded-full pointer-events-none animate-[spin_4s_linear_infinite]" style={{ width: '115%', height: '115%', border: `2px dashed ${color}` }} />}
+      {anim === 'orbit' && (
+        <div
+          className="absolute rounded-full border-2 border-transparent pointer-events-none animate-[spin_3s_linear_infinite]"
+          style={{
+            width: '130%',
+            height: '130%',
+            borderTopColor: color,
+            borderRightColor: color
+          }}
+        />
+      )}
+      {anim === 'pulse' && (
+        <div
+          className="absolute rounded-full pointer-events-none animate-ping opacity-20"
+          style={{ width: '100%', height: '100%', backgroundColor: color }}
+        />
+      )}
+      {anim === 'spin' && (
+        <div
+          className="absolute rounded-full pointer-events-none animate-[spin_4s_linear_infinite]"
+          style={{ width: '115%', height: '115%', border: `2px dashed ${color}` }}
+        />
+      )}
       {anim === 'aura-burst' && (
         <>
-          <div className="absolute rounded-full border-[3px] opacity-60 animate-[ping_0.8s_ease-out_infinite]" style={{ width: '120%', height: '120%', borderColor: color }} />
-          <div className="absolute rounded-full border-[6px] blur-[2px] animate-[pulse_1s_ease-in-out_infinite]" style={{ width: '130%', height: '130%', borderColor: color }} />
+          <div
+            className="absolute rounded-full border-[3px] opacity-60 animate-[ping_0.8s_ease-out_infinite]"
+            style={{ width: '120%', height: '120%', borderColor: color }}
+          />
+          <div
+            className="absolute rounded-full border-[6px] blur-[2px] animate-[pulse_1s_ease-in-out_infinite]"
+            style={{ width: '130%', height: '130%', borderColor: color }}
+          />
         </>
       )}
       {anim === 'evil-aura' && (
         <>
-          <div className="absolute rounded-full border-[8px] blur-md animate-[spin_3s_linear_infinite_reverse] opacity-70" style={{ width: '140%', height: '140%', borderColor: color, borderTopColor: 'transparent' }} />
-          <div className="absolute rounded-full border-[4px] blur-sm animate-[pulse_2s_ease-in-out_infinite] opacity-80" style={{ width: '120%', height: '120%', borderColor: '#000000', borderBottomColor: color }} />
+          <div
+            className="absolute rounded-full border-[8px] blur-md animate-[spin_3s_linear_infinite_reverse] opacity-70"
+            style={{
+              width: '140%',
+              height: '140%',
+              borderColor: color,
+              borderTopColor: 'transparent'
+            }}
+          />
+          <div
+            className="absolute rounded-full border-[4px] blur-sm animate-[pulse_2s_ease-in-out_infinite] opacity-80"
+            style={{
+              width: '120%',
+              height: '120%',
+              borderColor: '#000000',
+              borderBottomColor: color
+            }}
+          />
         </>
       )}
       {anim === 'blade-slash' && (
-        <div className="absolute rounded-full border-transparent animate-[spin_0.5s_cubic-bezier(0.1,0.8,0.1,1)_infinite]" style={{ width: '150%', height: '150%', borderTopColor: color, borderRightColor: '#ffffff', borderWidth: '2px 0 0 0' }} />
+        <div
+          className="absolute rounded-full border-transparent animate-[spin_0.5s_cubic-bezier(0.1,0.8,0.1,1)_infinite]"
+          style={{
+            width: '150%',
+            height: '150%',
+            borderTopColor: color,
+            borderRightColor: '#ffffff',
+            borderWidth: '2px 0 0 0'
+          }}
+        />
       )}
       {anim === 'chakra' && (
         <>
-          <div className="absolute rounded-full border-transparent animate-[spin_1.5s_linear_infinite]" style={{ width: '120%', height: '120%', borderTopColor: color, borderBottomColor: color, borderWidth: '4px', filter: 'blur(2px)' }} />
-          <div className="absolute rounded-full border-transparent animate-[spin_1s_linear_infinite_reverse]" style={{ width: '135%', height: '135%', borderLeftColor: color, borderRightColor: color, borderWidth: '2px', borderStyle: 'dashed' }} />
+          <div
+            className="absolute rounded-full border-transparent animate-[spin_1.5s_linear_infinite]"
+            style={{
+              width: '120%',
+              height: '120%',
+              borderTopColor: color,
+              borderBottomColor: color,
+              borderWidth: '4px',
+              filter: 'blur(2px)'
+            }}
+          />
+          <div
+            className="absolute rounded-full border-transparent animate-[spin_1s_linear_infinite_reverse]"
+            style={{
+              width: '135%',
+              height: '135%',
+              borderLeftColor: color,
+              borderRightColor: color,
+              borderWidth: '2px',
+              borderStyle: 'dashed'
+            }}
+          />
         </>
       )}
       {anim === 'spirit-bomb' && (
-        <div className="absolute rounded-full bg-white/20 animate-[pulse_2s_ease-in-out_infinite]" style={{ width: '150%', height: '150%', boxShadow: `0 0 20px 5px ${color}, inset 0 0 15px 5px ${color}`, filter: 'blur(4px)' }} />
+        <div
+          className="absolute rounded-full bg-white/20 animate-[pulse_2s_ease-in-out_infinite]"
+          style={{
+            width: '150%',
+            height: '150%',
+            boxShadow: `0 0 20px 5px ${color}, inset 0 0 15px 5px ${color}`,
+            filter: 'blur(4px)'
+          }}
+        />
       )}
       {anim === 'limit-breaker' && (
         <>
-          <div className="absolute rounded-full border-transparent animate-[spin_0.5s_linear_infinite]" style={{ width: '140%', height: '140%', borderTopColor: color, borderBottomColor: color, borderStyle: 'dashed', borderWidth: '4px', filter: `drop-shadow(0 0 10px ${color})` }} />
-          <div className="absolute rounded-full animate-[ping_1s_ease-out_infinite] opacity-40" style={{ width: '110%', height: '110%', backgroundColor: color }} />
+          <div
+            className="absolute rounded-full border-transparent animate-[spin_0.5s_linear_infinite]"
+            style={{
+              width: '140%',
+              height: '140%',
+              borderTopColor: color,
+              borderBottomColor: color,
+              borderStyle: 'dashed',
+              borderWidth: '4px',
+              filter: `drop-shadow(0 0 10px ${color})`
+            }}
+          />
+          <div
+            className="absolute rounded-full animate-[ping_1s_ease-out_infinite] opacity-40"
+            style={{ width: '110%', height: '110%', backgroundColor: color }}
+          />
         </>
       )}
       {anim === 'hollow' && (
-        <div className="absolute rounded-full border-transparent animate-[spin_2s_linear_infinite_reverse]" style={{ width: '125%', height: '125%', borderTopColor: color, borderBottomColor: '#000000', borderWidth: '6px', borderStyle: 'dotted', filter: `drop-shadow(0 0 5px ${color})` }} />
+        <div
+          className="absolute rounded-full border-transparent animate-[spin_2s_linear_infinite_reverse]"
+          style={{
+            width: '125%',
+            height: '125%',
+            borderTopColor: color,
+            borderBottomColor: '#000000',
+            borderWidth: '6px',
+            borderStyle: 'dotted',
+            filter: `drop-shadow(0 0 5px ${color})`
+          }}
+        />
       )}
     </>
   );
@@ -145,10 +331,20 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
   const [selectingSlot, setSelectingSlot] = useState<number | null>(null);
   const [isSubscriber, setIsSubscriber] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [upsellConfig, setUpsellConfig] = useState<{ title: string, message: string } | null>(null);
+  const [upsellConfig, setUpsellConfig] = useState<{ title: string; message: string } | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [errorToast, setErrorToast] = useState('');
   const [timeLeft, setTimeLeft] = useState('');
+
+  // Resolve the Saturday White default skin URL from cardSkins
+  const saturdayWhiteDefaultUrl = useMemo(() => {
+    const whiteSkin = cardSkins.find(
+      (sk: any) =>
+        isDefaultBuiltInSkin(sk) && String(sk.name || '').toLowerCase().includes('white')
+    );
+    const anyDefault = cardSkins.find((sk: any) => isDefaultBuiltInSkin(sk));
+    return whiteSkin?.image_url || anyDefault?.image_url || '';
+  }, [cardSkins]);
 
   const [userProfile, setUserProfile] = useState(
     memUserProfile || {
@@ -209,13 +405,29 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
       memProfileStats = null;
       memUserProfile = null;
       setIsLoggedIn(false);
-      setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null], unlockedSkins: [] });
-      setProfileStats({ total_hypes: 0, total_likes: 0, quick_reacts: 0, chapters_read: 0, rank: '---', score: 0, hypes_remaining: 0, vaulted_hypes: 0 });
+      setUserProfile({
+        username: 'Reader',
+        avatarUrl: '',
+        cardSkin: saturdayWhiteDefaultUrl,
+        frameId: '',
+        topFive: [null, null, null, null, null],
+        unlockedSkins: []
+      });
+      setProfileStats({
+        total_hypes: 0,
+        total_likes: 0,
+        quick_reacts: 0,
+        chapters_read: 0,
+        rank: '---',
+        score: 0,
+        hypes_remaining: 0,
+        vaulted_hypes: 0
+      });
     };
 
     window.addEventListener('instantLogout', handleInstantLogout);
     return () => window.removeEventListener('instantLogout', handleInstantLogout);
-  }, []);
+  }, [saturdayWhiteDefaultUrl]);
 
   const fetchUserStats = useCallback(async () => {
     const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
@@ -223,7 +435,9 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
     const savedTotal = localStorage.getItem('am_bingo_total');
     if (savedTotal) setTotalHunts(parseInt(savedTotal));
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
 
     if (user) {
       setIsLoggedIn(true);
@@ -244,16 +458,46 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
         creatorLikesCountRes
       ] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-        supabase.from('profiles').select('id, username, role, is_admin, email, linked_creator_name, fandom_score'),
-        supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id).neq('target_type', 'comment'),
-        supabase.from('page_reacts').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('series_comments').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('completed_reads').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('reading_history').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('series_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('chapter_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('character_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('creator_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id)
+        supabase
+          .from('profiles')
+          .select('id, username, role, is_admin, email, linked_creator_name, fandom_score'),
+        supabase
+          .from('hypes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .neq('target_type', 'comment'),
+        supabase
+          .from('page_reacts')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('series_comments')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('completed_reads')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('reading_history')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('series_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('chapter_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('character_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('creator_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
       ]);
 
       const data = profileRes.data;
@@ -268,7 +512,16 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
           EXCLUDED_STAFF_ADMIN_EMAILS.has(cleanEmail) ||
           myUname.includes('test') ||
           cleanEmail.includes('test') ||
-          ['sano2026', 'freemium3000', 'freeaccount3000', 'rayme3000', 'fred@saturday.a', 'fredtest1', 'fred_test_2', 'billsup2000'].includes(myUname) ||
+          [
+            'sano2026',
+            'freemium3000',
+            'freeaccount3000',
+            'rayme3000',
+            'fred@saturday.a',
+            'fredtest1',
+            'fred_test_2',
+            'billsup2000'
+          ].includes(myUname) ||
           Boolean(String(data.linked_creator_name || '').trim());
 
         let myRank: string | number = '---';
@@ -288,7 +541,19 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               uname.includes('test') ||
               em.includes('test') ||
               !uname ||
-              ['saturday fan', 'unnamed reader', 'reader', 'sano2026', 'freemium3000', 'freeaccount3000', 'rayme3000', 'fred@saturday.a', 'fredtest1', 'fred_test_2', 'billsup2000'].includes(uname) ||
+              [
+                'saturday fan',
+                'unnamed reader',
+                'reader',
+                'sano2026',
+                'freemium3000',
+                'freeaccount3000',
+                'rayme3000',
+                'fred@saturday.a',
+                'fredtest1',
+                'fred_test_2',
+                'billsup2000'
+              ].includes(uname) ||
               Boolean(String(p.linked_creator_name || '').trim());
             if (isExcluded) return;
             if (Number(p.fandom_score || 0) > myScore) {
@@ -299,7 +564,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
         }
 
         const isUserPremium = Boolean(data.is_premium);
-        const userHypesLeft = data.super_hypes_left ?? data.hypes_remaining ?? (isUserPremium ? 3 : 1);
+        const userHypesLeft =
+          data.super_hypes_left ?? data.hypes_remaining ?? (isUserPremium ? 3 : 1);
         const userVaultedHypes = Number(data.vaulted_hypes || 0);
 
         const verifiedTotalHypes = Math.max(
@@ -336,29 +602,64 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
 
         setIsSubscriber(isUserPremium);
 
-        let rawTopFive = (data.top_five || []).map((item: any) => (item === 'null' || !item ? null : item));
+        let rawTopFive = (data.top_five || []).map((item: any) =>
+          item === 'null' || !item ? null : item
+        );
         while (rawTopFive.length < 5) {
           rawTopFive.push(null);
         }
         rawTopFive = rawTopFive.slice(0, 5);
 
+        // STRICT PER-USER UNLOCKED SKINS
         const dbUnlockedSkins: string[] = Array.isArray(data.unlocked_skins)
           ? data.unlocked_skins.map(String)
           : [];
-        let localUnlockedSkins: string[] = [];
+        let userScopedLocalSkins: string[] = [];
         try {
-          localUnlockedSkins = JSON.parse(localStorage.getItem('am_unlocked_skins') || '[]').map(String);
+          userScopedLocalSkins = JSON.parse(
+            localStorage.getItem(`am_unlocked_skins_${user.id}`) || '[]'
+          ).map(String);
         } catch {
           // ignore
         }
         const mergedUnlockedSkins = Array.from(
-          new Set([...dbUnlockedSkins, ...localUnlockedSkins, data.card_skin || ''].filter(Boolean))
+          new Set([...dbUnlockedSkins, ...userScopedLocalSkins].filter(Boolean))
         );
+
+        // Default to Saturday White until the user chooses another unlocked card skin
+        let verifiedCardSkin = data.card_skin || saturdayWhiteDefaultUrl;
+        if (verifiedCardSkin && cardSkins.length > 0) {
+          const matchedSkinObj = cardSkins.find((sk: any) => sk.image_url === verifiedCardSkin);
+          const isDefault = matchedSkinObj ? isDefaultBuiltInSkin(matchedSkinObj) : false;
+          const isOwned =
+            isDefault ||
+            mergedUnlockedSkins.includes(String(verifiedCardSkin)) ||
+            (matchedSkinObj && mergedUnlockedSkins.includes(String(matchedSkinObj.id)));
+
+          if (!isOwned) {
+            verifiedCardSkin = saturdayWhiteDefaultUrl;
+            // Sync the fallback default back to the user's profile row so GlobalFlexCard shows Saturday White immediately
+            if (saturdayWhiteDefaultUrl && data.card_skin !== saturdayWhiteDefaultUrl) {
+              supabase
+                .from('profiles')
+                .update({ card_skin: saturdayWhiteDefaultUrl })
+                .eq('id', user.id)
+                .then(() => {});
+            }
+          }
+        } else if (!data.card_skin && saturdayWhiteDefaultUrl) {
+          verifiedCardSkin = saturdayWhiteDefaultUrl;
+          supabase
+            .from('profiles')
+            .update({ card_skin: saturdayWhiteDefaultUrl })
+            .eq('id', user.id)
+            .then(() => {});
+        }
 
         const loadedProfile = {
           username: data.username || fallbackName,
           topFive: rawTopFive,
-          cardSkin: data.card_skin || '',
+          cardSkin: verifiedCardSkin,
           avatarUrl: data.avatar_url || '',
           frameId: data.avatar_frame_id || '',
           unlockedSkins: mergedUnlockedSkins
@@ -369,9 +670,16 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
       }
     } else {
       setIsLoggedIn(false);
-      setUserProfile({ username: 'Reader', avatarUrl: '', cardSkin: '', frameId: '', topFive: [null, null, null, null, null], unlockedSkins: [] });
+      setUserProfile({
+        username: 'Reader',
+        avatarUrl: '',
+        cardSkin: saturdayWhiteDefaultUrl,
+        frameId: '',
+        topFive: [null, null, null, null, null],
+        unlockedSkins: []
+      });
     }
-  }, []);
+  }, [cardSkins, saturdayWhiteDefaultUrl]);
 
   useEffect(() => {
     fetchUserStats();
@@ -400,12 +708,19 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
 
   const openEditor = (targetTab = 'faves', slotIndex: number | null = null) => {
     if (!isLoggedIn) {
-      const config = { title: 'Create a Free Account', message: 'Create a free account to customize your profile loadout, equip your favorite series, and track your stats!' };
+      const config = {
+        title: 'Create a Free Account',
+        message:
+          'Create a free account to customize your profile loadout, equip your favorite series, and track your stats!'
+      };
       if (onUpsell) onUpsell(config);
       else setUpsellConfig(config);
       return;
     }
-    setTempProfile({ ...userProfile });
+    setTempProfile({
+      ...userProfile,
+      cardSkin: userProfile.cardSkin || saturdayWhiteDefaultUrl
+    });
     setActiveTab(targetTab);
     setSelectingSlot(slotIndex);
     setIsEditing(true);
@@ -424,16 +739,22 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
   };
 
   const saveProfile = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const finalSkinToSave = tempProfile.cardSkin || saturdayWhiteDefaultUrl;
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
     if (user) {
       const realName = user.user_metadata?.username || tempProfile.username;
-      const { error } = await supabase.from('profiles').update({
-        username: realName,
-        top_five: tempProfile.topFive,
-        card_skin: tempProfile.cardSkin,
-        avatar_url: tempProfile.avatarUrl,
-        avatar_frame_id: tempProfile.frameId === '' ? null : tempProfile.frameId
-      }).eq('id', user.id);
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          username: realName,
+          top_five: tempProfile.topFive,
+          card_skin: finalSkinToSave,
+          avatar_url: tempProfile.avatarUrl,
+          avatar_frame_id: tempProfile.frameId === '' ? null : tempProfile.frameId
+        })
+        .eq('id', user.id);
       if (error) {
         setErrorToast('Failed to save! Please check your connection.');
         setTimeout(() => setErrorToast(''), 3000);
@@ -444,17 +765,25 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
     trackTelemetry('profile_loadout_saved', {
       has_avatar: Boolean(tempProfile.avatarUrl),
       has_frame: Boolean(tempProfile.frameId),
-      has_skin: Boolean(tempProfile.cardSkin),
+      has_skin: Boolean(finalSkinToSave),
       top_five_count: (tempProfile.topFive || []).filter(Boolean).length
     });
 
-    setUserProfile({ ...tempProfile });
-    memUserProfile = { ...tempProfile };
+    const updatedProf = { ...tempProfile, cardSkin: finalSkinToSave };
+    setUserProfile(updatedProf);
+    memUserProfile = updatedProf;
 
     setIsEditing(false);
     setShowSuccessToast(true);
     setTimeout(() => setShowSuccessToast(false), 3000);
-    window.dispatchEvent(new CustomEvent('profileUpdated', { detail: { avatar_url: tempProfile.avatarUrl, avatar_frame_id: tempProfile.frameId === '' ? null : tempProfile.frameId } }));
+    window.dispatchEvent(
+      new CustomEvent('profileUpdated', {
+        detail: {
+          avatar_url: tempProfile.avatarUrl,
+          avatar_frame_id: tempProfile.frameId === '' ? null : tempProfile.frameId
+        }
+      })
+    );
   };
 
   const handleLogout = async () => {
@@ -463,21 +792,61 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
   };
 
   const fallbackSeriesList = [
-    { slug: 'apple-black', title: 'Apple Black', creator_name: 'Whyt Manga', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/apple-black-cover.jpg' },
-    { slug: 'clock-striker', title: 'Clock Striker', creator_name: 'Frederick Ward', cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/clock-striker-cover.jpg' }
+    {
+      slug: 'apple-black',
+      title: 'Apple Black',
+      creator_name: 'Whyt Manga',
+      cover_url: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/apple-black-cover.jpg'
+    },
+    {
+      slug: 'clock-striker',
+      title: 'Clock Striker',
+      creator_name: 'Frederick Ward',
+      cover_url:
+        'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/clock-striker-cover.jpg'
+    }
   ];
-  const displaySeriesList = seriesList && seriesList.length > 0 ? seriesList : fallbackSeriesList;
+  const displaySeriesList =
+    seriesList && seriesList.length > 0 ? seriesList : fallbackSeriesList;
 
-  const renderAvatarWithFrame = (avatarUrl: string, frameId: string, sizeClass = 'w-32 h-32 sm:w-40 sm:h-40', iconSize = 'w-12 h-12') => {
+  // Match the exact Hype Card grid from live: only show Default Built-In skins, Free Store skins, or skins already unlocked by this user
+  const visibleLoadoutSkins = useMemo(() => {
+    return cardSkins.filter((skin: any) => {
+      const isBuiltInDefault = isDefaultBuiltInSkin(skin);
+      const isFreeStore = isFreeStoreSkin(skin);
+      const isUnlockedByUser =
+        (userProfile.unlockedSkins || []).includes(String(skin.id)) ||
+        (userProfile.unlockedSkins || []).includes(String(skin.image_url));
+      return isBuiltInDefault || isFreeStore || isUnlockedByUser;
+    });
+  }, [cardSkins, userProfile.unlockedSkins]);
+
+  const renderAvatarWithFrame = (
+    avatarUrl: string,
+    frameId: string,
+    sizeClass = 'w-32 h-32 sm:w-40 sm:h-40',
+    iconSize = 'w-12 h-12'
+  ) => {
     const frame = vaultFrames.find((f: any) => f.id === frameId);
     const borderColor = frame ? frame.border_color : 'transparent';
-    const glowColor = frame?.glow_color && frame.glow_color !== 'transparent' ? frame.glow_color : 'transparent';
+    const glowColor =
+      frame?.glow_color && frame.glow_color !== 'transparent' ? frame.glow_color : 'transparent';
     const animStyle = frame ? frame.animation_style : 'none';
 
     return (
       <div className={`relative flex items-center justify-center flex-shrink-0 ${sizeClass}`}>
-        <div className={`rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center z-10 w-full h-full transition-all shadow-xl`} style={{ border: frame ? `2px solid ${borderColor}` : '2px solid transparent', boxShadow: glowColor !== 'transparent' ? `0 0 15px ${glowColor}` : 'none' }}>
-          {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className={`${iconSize} text-zinc-500`} />}
+        <div
+          className={`rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center z-10 w-full h-full transition-all shadow-xl`}
+          style={{
+            border: frame ? `2px solid ${borderColor}` : '2px solid transparent',
+            boxShadow: glowColor !== 'transparent' ? `0 0 15px ${glowColor}` : 'none'
+          }}
+        >
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+          ) : (
+            <User className={`${iconSize} text-zinc-500`} />
+          )}
         </div>
         <RenderFrameAnimations anim={animStyle} color={borderColor} />
       </div>
@@ -488,41 +857,104 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
     const series = displaySeriesList.find((s: any) => s.slug === seriesSlug);
     if (!series) return null;
     return (
-      <div onClick={onClick} className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all duration-300 mb-3 ${isEditingMode ? 'border-[1px] border-[#fe9a00] shadow-[5px_5px_0px_0px_#fe9a00] -translate-y-1 -translate-x-1' : 'border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] hover:shadow-[8px_8px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1'}`}>
+      <div
+        onClick={onClick}
+        className={`w-24 sm:w-28 flex-shrink-0 aspect-[2/3] relative rounded-lg overflow-hidden cursor-pointer group/card transition-all duration-300 mb-3 ${
+          isEditingMode
+            ? 'border-[1px] border-[#fe9a00] shadow-[5px_5px_0px_0px_#fe9a00] -translate-y-1 -translate-x-1'
+            : 'border-[1px] border-white shadow-[5px_5px_0px_0px_#fe9a00] hover:shadow-[8px_8px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1'
+        }`}
+      >
         <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-black z-0" />
-        <img src={series.character_url || series.cover_url} loading="lazy" alt="Character" className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4" />
+        <img
+          src={series.character_url || series.cover_url}
+          loading="lazy"
+          alt="Character"
+          className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[140%] max-w-none h-[120%] object-contain object-bottom transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 translate-y-4"
+        />
         <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-t from-black via-black/90 to-transparent z-20" />
         <div className="absolute bottom-3 left-0 right-0 flex justify-center z-30 px-2 h-8 sm:h-10">
-          {series.logo_url ? <img src={series.logo_url} loading="lazy" alt={series.title} className="w-full max-h-full object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1" /> : <span className="text-[7px] sm:text-[8px] font-black uppercase text-white text-center drop-shadow-md leading-tight line-clamp-2">{series.title}</span>}
+          {series.logo_url ? (
+            <img
+              src={series.logo_url}
+              loading="lazy"
+              alt={series.title}
+              className="w-full max-h-full object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1"
+            />
+          ) : (
+            <span className="text-[7px] sm:text-[8px] font-black uppercase text-white text-center drop-shadow-md leading-tight line-clamp-2">
+              {series.title}
+            </span>
+          )}
         </div>
-        {isEditingMode && <div className="absolute inset-0 bg-black/60 z-40 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity backdrop-blur-[2px]"><span className="text-[#fe9a00] font-black text-[8px] uppercase tracking-widest shadow-xl">Change</span></div>}
-        {isNewItem(series.created_at) && <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
+        {isEditingMode && (
+          <div className="absolute inset-0 bg-black/60 z-40 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity backdrop-blur-[2px]">
+            <span className="text-[#fe9a00] font-black text-[8px] uppercase tracking-widest shadow-xl">
+              Change
+            </span>
+          </div>
+        )}
+        {isNewItem(series.created_at) && (
+          <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+            NEW!
+          </div>
+        )}
       </div>
     );
   };
 
   const renderEmptySlot = (onClick: () => void) => (
-    <div onClick={onClick} className="w-24 sm:w-28 flex-shrink-0 aspect-[2/3] border-[1px] border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-white hover:shadow-[5px_5px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1 bg-black/50 hover:bg-zinc-900/50 transition-all duration-300 group mb-3">
-      <div className="p-3 bg-zinc-900 border-[2px] border-zinc-700 rounded-full group-hover:bg-[#fe9a00] group-hover:border-black transition-colors mb-2"><Plus className="w-5 h-5 text-zinc-500 group-hover:text-black transition-colors" /></div>
-      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600 group-hover:text-white transition-colors">Choose series</span>
+    <div
+      onClick={onClick}
+      className="w-24 sm:w-28 flex-shrink-0 aspect-[2/3] border-[1px] border-dashed border-zinc-700 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-white hover:shadow-[5px_5px_0px_0px_#fe9a00] hover:-translate-y-1 hover:-translate-x-1 bg-black/50 hover:bg-zinc-900/50 transition-all duration-300 group mb-3"
+    >
+      <div className="p-3 bg-zinc-900 border-[2px] border-zinc-700 rounded-full group-hover:bg-[#fe9a00] group-hover:border-black transition-colors mb-2">
+        <Plus className="w-5 h-5 text-zinc-500 group-hover:text-black transition-colors" />
+      </div>
+      <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600 group-hover:text-white transition-colors">
+        Choose series
+      </span>
     </div>
   );
 
-  const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score, isSubscriber);
+  const { currentTier, nextTier, progressPercent } = getFandomTier(
+    profileStats.score,
+    isSubscriber
+  );
 
   return (
     <div className="min-h-screen bg-transparent text-white relative pb-32 sm:pb-40">
-      <GlobalFlexCard isOpen={showFlexCard} onClose={() => setShowFlexCard(false)} onNavigate={onNavigate} />
+      <GlobalFlexCard
+        isOpen={showFlexCard}
+        onClose={() => setShowFlexCard(false)}
+        onNavigate={onNavigate}
+      />
 
       <div className="fixed inset-0 z-[-1] bg-black">
-        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png" alt="Manga Collage" className="w-full h-full object-cover md:hidden" />
-        <img src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png" alt="Manga Collage" className="hidden md:block w-full h-full object-cover" />
+        <img
+          src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20narrow.png"
+          alt="Manga Collage"
+          className="w-full h-full object-cover md:hidden"
+        />
+        <img
+          src="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20Backdrop%20wide.png"
+          alt="Manga Collage"
+          className="hidden md:block w-full h-full object-cover"
+        />
         <div className="absolute inset-x-0 top-0 h-48 sm:h-64 bg-gradient-to-b from-black via-black/50 to-transparent pointer-events-none" />
         <div className="absolute inset-x-0 bottom-0 h-48 sm:h-64 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none" />
       </div>
 
-      {showSuccessToast && <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-[#fe9a00] text-black px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] animate-fade-in"><Check className="w-5 h-5" /> Loadout Saved!</div>}
-      {errorToast && <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-red-600 text-white px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-fade-in"><X className="w-5 h-5" /> {errorToast}</div>}
+      {showSuccessToast && (
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-[#fe9a00] text-black px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.4)] animate-fade-in">
+          <Check className="w-5 h-5" /> Loadout Saved!
+        </div>
+      )}
+      {errorToast && (
+        <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[5000] bg-red-600 text-white px-6 py-3 rounded-full font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.4)] animate-fade-in">
+          <X className="w-5 h-5" /> {errorToast}
+        </div>
+      )}
 
       <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-xl pl-6 pr-20 sm:pr-24 pt-6 pb-4 border-b border-zinc-800 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 sm:gap-0">
         <div>
@@ -541,7 +973,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
         {isLoggedIn && (
           <div className="flex flex-wrap sm:flex-col items-center sm:items-end gap-2 sm:gap-1.5 pt-0 sm:pt-2">
             <div className="flex items-center gap-2">
-              {/* 1. ACTIVE WEEKLY HYPES (ORANGE - CAPPED AT 5 FREE / 10 PLUS) */}
               <div
                 className="flex items-center gap-2 bg-zinc-950 border border-[#fe9a00]/50 px-3 py-1.5 rounded-full shadow-[0_0_15px_rgba(254,154,0,0.2)] cursor-default"
                 title={`Active Weekly Hypes (Rollover Cap: ${isSubscriber ? 10 : 5})`}
@@ -558,7 +989,6 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                 </span>
               </div>
 
-              {/* 2. VAULTED GOLD HYPES (METALLIC GOLD - UNCAPPED & PERMANENT) */}
               {Number(profileStats.vaulted_hypes || 0) > 0 && (
                 <div
                   className="flex items-center gap-2 bg-gradient-to-r from-amber-950/90 via-yellow-900/50 to-amber-950/90 border border-yellow-300/80 px-3 py-1.5 rounded-full shadow-[0_0_18px_rgba(253,224,71,0.35)] cursor-default"
@@ -591,9 +1021,22 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
             {renderAvatarWithFrame(userProfile.avatarUrl, userProfile.frameId)}
           </div>
           <div className="text-center sm:text-left pb-2">
-            <button onClick={() => openEditor('faves')} className="flex items-center gap-2 bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-white hover:scale-105 transition-all mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)] mx-auto sm:mx-0 cursor-pointer"><Settings className="w-3 h-3" /> Edit Profile</button>
-            <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter drop-shadow-lg">{userProfile.username}</h1>
-            <p className={`text-xs font-black uppercase tracking-widest mt-1 italic drop-shadow-md ${isSubscriber ? 'text-purple-400' : 'text-zinc-400'}`}>{isSubscriber ? 'Premium Saturday AM+ Member' : 'Standard Member'}</p>
+            <button
+              onClick={() => openEditor('faves')}
+              className="flex items-center gap-2 bg-[#fe9a00] text-black px-6 py-2 rounded-full font-black uppercase tracking-widest text-[10px] hover:bg-white hover:scale-105 transition-all mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)] mx-auto sm:mx-0 cursor-pointer"
+            >
+              <Settings className="w-3 h-3" /> Edit Profile
+            </button>
+            <h1 className="text-3xl sm:text-4xl font-black italic uppercase tracking-tighter drop-shadow-lg">
+              {userProfile.username}
+            </h1>
+            <p
+              className={`text-xs font-black uppercase tracking-widest mt-1 italic drop-shadow-md ${
+                isSubscriber ? 'text-purple-400' : 'text-zinc-400'
+              }`}
+            >
+              {isSubscriber ? 'Premium Saturday AM+ Member' : 'Standard Member'}
+            </p>
           </div>
 
           <div className="sm:ml-auto flex items-center justify-center gap-3 mt-4 sm:mt-0">
@@ -612,7 +1055,10 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                 Log In
               </button>
             )}
-            <button onClick={() => onNavigate({ action: 'settings' })} className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-700 p-3 rounded-full hover:border-white transition-colors group cursor-pointer">
+            <button
+              onClick={() => onNavigate({ action: 'settings' })}
+              className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-700 p-3 rounded-full hover:border-white transition-colors group cursor-pointer"
+            >
               <Settings className="w-5 h-5 text-zinc-400 group-hover:text-white" />
             </button>
           </div>
@@ -623,13 +1069,22 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
             <div className="absolute top-0 right-0 w-32 h-32 bg-[#fe9a00]/10 rounded-bl-full blur-2xl pointer-events-none" />
 
             <div className="flex items-center gap-4">
-              <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shadow-[0_0_15px_rgba(254,154,0,0.3)]"><Trophy className="w-8 h-8 sm:w-10 sm:h-10 text-[#fe9a00]" /></div>
+              <div className="bg-[#fe9a00]/20 p-4 rounded-full border border-[#fe9a00]/50 shadow-[0_0_15px_rgba(254,154,0,0.3)]">
+                <Trophy className="w-8 h-8 sm:w-10 sm:h-10 text-[#fe9a00]" />
+              </div>
               <div className="flex flex-col text-center sm:text-left">
-                <h3 className="text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1">Monthly Leaderboard Rank</h3>
+                <h3 className="text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1">
+                  Monthly Leaderboard Rank
+                </h3>
                 <div className="text-4xl sm:text-5xl font-black italic uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-[#fe9a00] drop-shadow-md">
                   {profileStats.rank === 'CREW' ? 'CREW' : `#${profileStats.rank}`}
                 </div>
-                <button onClick={() => onNavigate({ action: 'leaderboard' })} className="mt-2 w-max bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(0,0,0,0.3)] mx-auto sm:mx-0 cursor-pointer">View Leaderboard</button>
+                <button
+                  onClick={() => onNavigate({ action: 'leaderboard' })}
+                  className="mt-2 w-max bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all shadow-[0_0_10px_rgba(0,0,0,0.3)] mx-auto sm:mx-0 cursor-pointer"
+                >
+                  View Leaderboard
+                </button>
               </div>
             </div>
 
@@ -658,15 +1113,26 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                     <span
                       className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 cursor-pointer hover:text-white transition-colors"
                       onClick={() => {
-                        const cfg = { title: 'Rank Capped', message: 'Free users are capped at the Glint rank. Subscribe to Saturday AM+ to unlock Flare and beyond!' };
-                        if (onUpsell) onUpsell(cfg); else setUpsellConfig(cfg);
+                        const cfg = {
+                          title: 'Rank Capped',
+                          message:
+                            'Free users are capped at the Glint rank. Subscribe to Saturday AM+ to unlock Flare and beyond!'
+                        };
+                        if (onUpsell) onUpsell(cfg);
+                        else setUpsellConfig(cfg);
                       }}
                     >
-                      <Lock className="w-3 h-3 text-[#fe9a00]" /> Max Free Rank <span className="text-[#fe9a00] border-l border-zinc-700 pl-1.5 ml-0.5">Subscribe to Level Up</span>
+                      <Lock className="w-3 h-3 text-[#fe9a00]" /> Max Free Rank{' '}
+                      <span className="text-[#fe9a00] border-l border-zinc-700 pl-1.5 ml-0.5">
+                        Subscribe to Level Up
+                      </span>
                     </span>
                   ) : (
                     <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
-                      {Math.round(progressPercent)}% to <span className={`${nextTier.color} ${nextTier.glow || ''} font-black`}>{nextTier.name}</span>
+                      {Math.round(progressPercent)}% to{' '}
+                      <span className={`${nextTier.color} ${nextTier.glow || ''} font-black`}>
+                        {nextTier.name}
+                      </span>
                     </span>
                   )}
                 </div>
@@ -685,57 +1151,111 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <div className="w-6 h-6 bg-[#fe9a00] mb-2" style={iconMaskStyle} />
-              <span className="text-3xl font-black">{profileStats.total_hypes.toLocaleString()}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Hypes Given</span>
+              <span className="text-3xl font-black">
+                {profileStats.total_hypes.toLocaleString()}
+              </span>
+              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">
+                Total Hypes Given
+              </span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <Heart className="w-6 h-6 text-[#fe9a00] mb-2" />
-              <span className="text-3xl font-black">{(profileStats.total_likes || 0).toLocaleString()}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Total Likes Given</span>
+              <span className="text-3xl font-black">
+                {(profileStats.total_likes || 0).toLocaleString()}
+              </span>
+              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">
+                Total Likes Given
+              </span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
-              <img src={APP_ICONS.QUICK_REACT} alt="Reacts" className="w-6 h-6 object-contain mb-2 drop-shadow-md" />
-              <span className="text-3xl font-black">{profileStats.quick_reacts.toLocaleString()}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Smart Comments</span>
+              <img
+                src={APP_ICONS.QUICK_REACT}
+                alt="Reacts"
+                className="w-6 h-6 object-contain mb-2 drop-shadow-md"
+              />
+              <span className="text-3xl font-black">
+                {profileStats.quick_reacts.toLocaleString()}
+              </span>
+              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">
+                Smart Comments
+              </span>
             </div>
             <div className="flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border border-zinc-800 shadow-xl">
               <BookOpen className="w-6 h-6 text-[#fe9a00] mb-2" />
-              <span className="text-3xl font-black">{profileStats.chapters_read.toLocaleString()}</span>
-              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">Chapters Read</span>
+              <span className="text-3xl font-black">
+                {profileStats.chapters_read.toLocaleString()}
+              </span>
+              <span className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">
+                Chapters Read
+              </span>
             </div>
-            <div className={`flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border relative overflow-hidden shadow-xl ${isSubscriber ? 'border-[#fe9a00]/30' : 'border-zinc-800 opacity-50'}`}>
-              <div className={`absolute top-0 right-0 w-16 h-16 rounded-bl-full ${isSubscriber ? 'bg-[#fe9a00]/10' : 'bg-zinc-800'}`}></div>
-              <Award className={`w-6 h-6 mb-2 relative z-10 ${isSubscriber ? 'text-[#fe9a00]' : 'text-zinc-500'}`} />
-              <span className="text-2xl font-black mt-1 text-white relative z-10">{isSubscriber ? 'Active' : 'N/A'}</span>
-              <span className="text-[10px] text-zinc-300 uppercase tracking-widest font-bold relative z-10">Premium Status</span>
+            <div
+              className={`flex flex-col gap-1 p-5 bg-zinc-900/80 backdrop-blur-md rounded-xl border relative overflow-hidden shadow-xl ${
+                isSubscriber ? 'border-[#fe9a00]/30' : 'border-zinc-800 opacity-50'
+              }`}
+            >
+              <div
+                className={`absolute top-0 right-0 w-16 h-16 rounded-bl-full ${
+                  isSubscriber ? 'bg-[#fe9a00]/10' : 'bg-zinc-800'
+                }`}
+              />
+              <Award
+                className={`w-6 h-6 mb-2 relative z-10 ${
+                  isSubscriber ? 'text-[#fe9a00]' : 'text-zinc-500'
+                }`}
+              />
+              <span className="text-2xl font-black mt-1 text-white relative z-10">
+                {isSubscriber ? 'Active' : 'N/A'}
+              </span>
+              <span className="text-[10px] text-zinc-300 uppercase tracking-widest font-bold relative z-10">
+                Premium Status
+              </span>
             </div>
           </div>
 
           <div className="bg-zinc-900/80 backdrop-blur-md border border-zinc-800 rounded-xl p-5 md:p-6 mb-2 mt-8 flex flex-col sm:flex-row items-center gap-6 shadow-xl">
             <div className="flex-1 w-full">
               <div className="flex justify-between items-end mb-3">
-                <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Check className="w-4 h-4 text-[#fe9a00]" /> Bingo Book Hunts</h3>
-                <span className="text-[10px] font-bold text-zinc-400 tracking-widest uppercase"><span className="text-[#fe9a00]">{unlockedHunts}</span> / {totalHunts} Completed</span>
+                <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
+                  <Check className="w-4 h-4 text-[#fe9a00]" /> Bingo Book Hunts
+                </h3>
+                <span className="text-[10px] font-bold text-zinc-400 tracking-widest uppercase">
+                  <span className="text-[#fe9a00]">{unlockedHunts}</span> / {totalHunts} Completed
+                </span>
               </div>
               <div className="w-full h-2.5 bg-black border border-zinc-800 rounded-full overflow-hidden shadow-inner">
-                <div className="h-full bg-gradient-to-r from-[#fe9a00] to-yellow-500 rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, (unlockedHunts / Math.max(1, totalHunts)) * 100)}%` }} />
+                <div
+                  className="h-full bg-gradient-to-r from-[#fe9a00] to-yellow-500 rounded-full transition-all duration-1000"
+                  style={{
+                    width: `${Math.min(100, (unlockedHunts / Math.max(1, totalHunts)) * 100)}%`
+                  }}
+                />
               </div>
             </div>
-            <button onClick={() => onNavigate({ action: 'bingobook' })} className="w-full sm:w-auto bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-6 py-3 sm:py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-[0_0_10px_rgba(0,0,0,0.3)] hover:shadow-[0_0_20px_rgba(254,154,0,0.4)] cursor-pointer">Open Bingo Book</button>
+            <button
+              onClick={() => onNavigate({ action: 'bingobook' })}
+              className="w-full sm:w-auto bg-zinc-800 hover:bg-[#fe9a00] hover:text-black text-white border border-zinc-700 hover:border-[#fe9a00] px-6 py-3 sm:py-4 rounded-full text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap shadow-[0_0_10px_rgba(0,0,0,0.3)] hover:shadow-[0_0_20px_rgba(254,154,0,0.4)] cursor-pointer"
+            >
+              Open Bingo Book
+            </button>
           </div>
 
           <div className="flex justify-between items-end mb-4 mt-12">
-            <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 drop-shadow-md"><Star className="w-4 h-4 text-[#fe9a00]" /> Top 5 Fave Series</h3>
+            <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 drop-shadow-md">
+              <Star className="w-4 h-4 text-[#fe9a00]" /> Top 5 Fave Series
+            </h3>
           </div>
 
           <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
-            {[0, 1, 2, 3, 4].map((index) => {
+            {[0, 1, 2, 3, 4].map(index => {
               const slug = userProfile.topFive[index];
               const isValidSeries = slug && displaySeriesList.some((s: any) => s.slug === slug);
 
               return (
                 <React.Fragment key={index}>
-                  {isValidSeries ? renderMiniCard(slug, false, () => openEditor('faves', index)) : renderEmptySlot(() => openEditor('faves', index))}
+                  {isValidSeries
+                    ? renderMiniCard(slug, false, () => openEditor('faves', index))
+                    : renderEmptySlot(() => openEditor('faves', index))}
                 </React.Fragment>
               );
             })}
@@ -762,11 +1282,11 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               onClick={() => onNavigate({ action: 'shop' })}
               className="flex items-center justify-center gap-3 bg-zinc-900 border border-[#fe9a00]/60 text-[#fe9a00] px-7 py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#fe9a00] hover:text-black transition-all shadow-[0_0_20px_rgba(254,154,0,0.2)] w-full sm:w-max cursor-pointer"
             >
-              <ShoppingBag className="w-5 h-5" /> Get Card Skins & Bundles
+              <ShoppingBag className="w-5 h-5" /> Get Card Skins &amp; Bundles
             </button>
           </div>
 
-          {isSubscriber && (
+          {isLoggedIn && (
             <button
               onClick={() => onNavigate({ action: 'sub' })}
               className="flex items-center gap-4 bg-zinc-900 border border-zinc-700 text-zinc-300 px-8 py-4 rounded-2xl font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-all shadow-[0_0_20px_rgba(0,0,0,0.4)] w-max mx-auto sm:mx-0 cursor-pointer"
@@ -778,13 +1298,38 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
       </div>
 
       {upsellConfig && (
-        <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
-          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
-            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
-            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
-            <button onClick={() => { setUpsellConfig(null); onNavigate({ action: 'sub' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3.5 rounded-xl hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer">Upgrade to Pro ($1.99)</button>
+        <div
+          className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in"
+          onClick={() => setUpsellConfig(null)}
+        >
+          <div
+            className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setUpsellConfig(null)}
+              className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
+              <Lock className="w-8 h-8 text-[#fe9a00]" />
+            </div>
+            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
+              {upsellConfig.title}
+            </h2>
+            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">
+              {upsellConfig.message}
+            </p>
+            <button
+              onClick={() => {
+                setUpsellConfig(null);
+                onNavigate({ action: 'sub' });
+              }}
+              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3.5 rounded-xl hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
+            >
+              Upgrade to Pro ($1.99)
+            </button>
           </div>
         </div>
       )}
@@ -793,20 +1338,67 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
         <div className="fixed inset-0 z-[300] bg-black/95 flex flex-col items-center justify-center p-4 sm:p-6 pb-[120px] sm:pb-[140px] backdrop-blur-md">
           <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col max-h-[calc(100dvh-120px)] sm:max-h-[calc(100dvh-140px)] overflow-hidden shadow-2xl">
             <div className="flex justify-between items-center p-6 border-b border-zinc-800 bg-black">
-              <h2 className="text-xl font-black italic uppercase tracking-wider text-[#fe9a00]">Customize Loadout</h2>
-              <button onClick={() => setIsEditing(false)} className="text-zinc-500 hover:text-white cursor-pointer"><X className="w-6 h-6" /></button>
+              <h2 className="text-xl font-black italic uppercase tracking-wider text-[#fe9a00]">
+                Customize Loadout
+              </h2>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="text-zinc-500 hover:text-white cursor-pointer"
+              >
+                <X className="w-6 h-6" />
+              </button>
             </div>
 
             <div className="flex border-b border-zinc-800 overflow-x-auto no-scrollbar flex-shrink-0 bg-black">
-              <button onClick={() => { setActiveTab('faves'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'faves' ? 'bg-zinc-800 text-[#fe9a00]' : 'text-zinc-500 hover:text-white'}`}>Top 5</button>
-              <button onClick={() => { setActiveTab('art'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'art' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Avatar Art</button>
-              <button onClick={() => { setActiveTab('frame'); setSelectingSlot(null); }} className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'frame' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'}`}>Border Frame</button>
+              <button
+                onClick={() => {
+                  setActiveTab('faves');
+                  setSelectingSlot(null);
+                }}
+                className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${
+                  activeTab === 'faves'
+                    ? 'bg-zinc-800 text-[#fe9a00]'
+                    : 'text-zinc-500 hover:text-white'
+                }`}
+              >
+                Top 5
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('art');
+                  setSelectingSlot(null);
+                }}
+                className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${
+                  activeTab === 'art'
+                    ? 'bg-zinc-800 text-white'
+                    : 'text-zinc-500 hover:text-white'
+                }`}
+              >
+                Avatar Art
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('frame');
+                  setSelectingSlot(null);
+                }}
+                className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${
+                  activeTab === 'frame'
+                    ? 'bg-zinc-800 text-white'
+                    : 'text-zinc-500 hover:text-white'
+                }`}
+              >
+                Border Frame
+              </button>
               <button
                 onClick={() => {
                   setActiveTab('card');
                   setSelectingSlot(null);
                 }}
-                className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${activeTab === 'card' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-white'} flex items-center justify-center gap-1`}
+                className={`flex-1 py-4 px-4 text-[10px] font-black uppercase tracking-widest transition-colors whitespace-nowrap cursor-pointer ${
+                  activeTab === 'card'
+                    ? 'bg-zinc-800 text-white'
+                    : 'text-zinc-500 hover:text-white'
+                } flex items-center justify-center gap-1`}
               >
                 Hype Card
               </button>
@@ -815,17 +1407,29 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
             <div className="p-6 overflow-y-auto flex-1 bg-black/40 no-scrollbar">
               {activeTab === 'faves' && (
                 <div className="space-y-6">
-                  <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-2">Equip your favorite series to your profile slots</p>
+                  <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-2">
+                    Equip your favorite series to your profile slots
+                  </p>
                   <div className="flex gap-4 overflow-x-auto pb-4 pt-2 no-scrollbar">
-                    {[0, 1, 2, 3, 4].map((index) => {
+                    {[0, 1, 2, 3, 4].map(index => {
                       const slug = tempProfile.topFive[index];
                       const isSelected = selectingSlot === index;
-                      const isValidSeries = slug && displaySeriesList.some((s: any) => s.slug === slug);
+                      const isValidSeries =
+                        slug && displaySeriesList.some((s: any) => s.slug === slug);
 
                       return (
-                        <div key={index} className={`relative transition-transform flex-shrink-0 ${isSelected ? 'scale-110 z-10' : ''}`}>
-                          {isSelected && <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#fe9a00] animate-bounce shadow-[0_0_10px_#fe9a00]" />}
-                          {isValidSeries ? renderMiniCard(slug, true, () => setSelectingSlot(index)) : renderEmptySlot(() => setSelectingSlot(index))}
+                        <div
+                          key={index}
+                          className={`relative transition-transform flex-shrink-0 ${
+                            isSelected ? 'scale-110 z-10' : ''
+                          }`}
+                        >
+                          {isSelected && (
+                            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#fe9a00] animate-bounce shadow-[0_0_10px_#fe9a00]" />
+                          )}
+                          {isValidSeries
+                            ? renderMiniCard(slug, true, () => setSelectingSlot(index))
+                            : renderEmptySlot(() => setSelectingSlot(index))}
                         </div>
                       );
                     })}
@@ -834,7 +1438,9 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                   {selectingSlot !== null && (
                     <div className="bg-zinc-900 border border-zinc-700 p-4 rounded-xl mt-4 animate-fade-in-up shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
                       <div className="flex justify-between items-center mb-4 border-b border-zinc-800 pb-3">
-                        <h4 className="text-[#fe9a00] text-[10px] font-black uppercase tracking-widest">Select Series for Slot {selectingSlot + 1}</h4>
+                        <h4 className="text-[#fe9a00] text-[10px] font-black uppercase tracking-widest">
+                          Select Series for Slot {selectingSlot + 1}
+                        </h4>
                         <button
                           onClick={() => {
                             const newLoadout = [...tempProfile.topFive];
@@ -862,10 +1468,19 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                                   : 'border-zinc-800 hover:border-[#fe9a00] bg-black hover:bg-zinc-900'
                               }`}
                             >
-                              <img src={s.cover_url} loading="lazy" className="w-8 h-12 object-cover rounded-sm border border-zinc-800" alt="cover" />
-                              <span className="text-[9px] font-bold text-white uppercase leading-tight tracking-wider pr-1">{s.title}</span>
+                              <img
+                                src={s.cover_url}
+                                loading="lazy"
+                                className="w-8 h-12 object-cover rounded-sm border border-zinc-800"
+                                alt="cover"
+                              />
+                              <span className="text-[9px] font-bold text-white uppercase leading-tight tracking-wider pr-1">
+                                {s.title}
+                              </span>
                               {isAlreadyEquipped && !isCurrentlyInThisSlot && (
-                                <span className="absolute top-1 right-1 bg-[#fe9a00] text-black text-[7px] font-black uppercase px-1 rounded">Equipped</span>
+                                <span className="absolute top-1 right-1 bg-[#fe9a00] text-black text-[7px] font-black uppercase px-1 rounded">
+                                  Equipped
+                                </span>
                               )}
                             </div>
                           );
@@ -880,7 +1495,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                 <div className="space-y-6">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold">
-                      Default Skins (Carbon Black, Saturday White & Saturday Karbon Black) + Your Unlocked Store Skins
+                      Default Skins (Saturday White &amp; Saturday Karbon Black) + Your Unlocked Store Skins
                     </p>
                     <button
                       type="button"
@@ -895,35 +1510,17 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    <div
-                      onClick={() => setTempProfile({ ...tempProfile, cardSkin: '' })}
-                      className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${
-                        !tempProfile.cardSkin
-                          ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105'
-                          : 'border-zinc-800 hover:border-zinc-500'
-                      }`}
-                    >
-                      <div className="absolute inset-0 bg-zinc-900 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-80 mix-blend-overlay" />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-white drop-shadow-md">
-                          Carbon Black
-                        </span>
-                      </div>
-                      <span className="absolute top-1.5 left-1.5 bg-zinc-800/90 text-zinc-300 text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded">
-                        Default
-                      </span>
-                    </div>
-
-                    {cardSkins.map((skin: any) => {
+                    {visibleLoadoutSkins.map((skin: any) => {
                       const isBuiltInDefault = isDefaultBuiltInSkin(skin);
                       const isFreeStore = isFreeStoreSkin(skin);
-                      const isCurrentlyEquippedByUser =
-                        Boolean(userProfile.cardSkin && userProfile.cardSkin === skin.image_url);
                       const isUnlockedInVault =
                         isBuiltInDefault ||
-                        isCurrentlyEquippedByUser ||
                         (userProfile.unlockedSkins || []).includes(String(skin.id)) ||
                         (userProfile.unlockedSkins || []).includes(String(skin.image_url));
+
+                      const effectiveSelectedSkin =
+                        tempProfile.cardSkin || saturdayWhiteDefaultUrl;
+                      const isSelected = effectiveSelectedSkin === skin.image_url;
 
                       return (
                         <div
@@ -937,7 +1534,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                             setTempProfile({ ...tempProfile, cardSkin: skin.image_url });
                           }}
                           className={`relative cursor-pointer rounded-xl overflow-hidden aspect-[1.58] border-2 transition-all ${
-                            tempProfile.cardSkin === skin.image_url
+                            isSelected
                               ? 'border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)] scale-105'
                               : 'border-zinc-800 hover:border-[#fe9a00]/50'
                           }`}
@@ -964,7 +1561,7 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                             <div className="absolute inset-0 bg-black/65 backdrop-blur-[1px] flex flex-col items-center justify-center z-10 gap-1 p-2 text-center">
                               <ShoppingBag className="w-5 h-5 text-[#fe9a00]" />
                               <span className="text-[8px] font-black uppercase tracking-widest text-black bg-[#fe9a00] px-2 py-0.5 rounded">
-                                {isFreeStore ? 'Claim Free in Store' : 'Unlock in Store ($0.99)'}
+                                {isFreeStore ? 'Claim Free in Store' : 'Unlock in Store'}
                               </span>
                             </div>
                           )}
@@ -985,17 +1582,53 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                 <>
                   <div className="flex items-center justify-center mb-8">
                     <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-zinc-900 flex items-center justify-center border-transparent shadow-xl">
-                      {tempProfile.avatarUrl ? <img src={tempProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <User className="w-12 h-12 text-zinc-500" />}
+                      {tempProfile.avatarUrl ? (
+                        <img
+                          src={tempProfile.avatarUrl}
+                          alt="Avatar"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="w-12 h-12 text-zinc-500" />
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                    <div onClick={() => setTempProfile({ ...tempProfile, avatarUrl: '' })} className={`relative cursor-pointer rounded-full p-1 transition-all ${!tempProfile.avatarUrl ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
-                      <div className="w-full aspect-square bg-zinc-800 rounded-full border-2 border-black flex items-center justify-center"><User className="w-8 h-8 text-zinc-500" /></div>
+                    <div
+                      onClick={() => setTempProfile({ ...tempProfile, avatarUrl: '' })}
+                      className={`relative cursor-pointer rounded-full p-1 transition-all ${
+                        !tempProfile.avatarUrl
+                          ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]'
+                          : 'hover:bg-zinc-700'
+                      }`}
+                    >
+                      <div className="w-full aspect-square bg-zinc-800 rounded-full border-2 border-black flex items-center justify-center">
+                        <User className="w-8 h-8 text-zinc-500" />
+                      </div>
                     </div>
                     {vaultAvatars.map((avatar: any) => (
-                      <div key={avatar.id} onClick={() => setTempProfile({ ...tempProfile, avatarUrl: avatar.image_url })} className={`relative cursor-pointer rounded-full p-1 transition-all ${tempProfile.avatarUrl === avatar.image_url ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'hover:bg-zinc-700'}`}>
-                        <img src={avatar.image_url} loading="lazy" alt={avatar.name} className="w-full aspect-square object-cover rounded-full border-2 border-black" />
-                        {isNewItem(avatar.created_at) && <div className="absolute top-0 right-0 z-30 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded-full shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
+                      <div
+                        key={avatar.id}
+                        onClick={() =>
+                          setTempProfile({ ...tempProfile, avatarUrl: avatar.image_url })
+                        }
+                        className={`relative cursor-pointer rounded-full p-1 transition-all ${
+                          tempProfile.avatarUrl === avatar.image_url
+                            ? 'bg-[#fe9a00] scale-110 shadow-[0_0_15px_rgba(254,154,0,0.5)]'
+                            : 'hover:bg-zinc-700'
+                        }`}
+                      >
+                        <img
+                          src={avatar.image_url}
+                          loading="lazy"
+                          alt={avatar.name}
+                          className="w-full aspect-square object-cover rounded-full border-2 border-black"
+                        />
+                        {isNewItem(avatar.created_at) && (
+                          <div className="absolute top-0 right-0 z-30 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded-full shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+                            NEW!
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1005,12 +1638,25 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
               {activeTab === 'frame' && (
                 <>
                   <div className="flex items-center justify-center mb-8">
-                    {renderAvatarWithFrame(tempProfile.avatarUrl, tempProfile.frameId, 'w-24 h-24 sm:w-32 sm:h-32')}
+                    {renderAvatarWithFrame(
+                      tempProfile.avatarUrl,
+                      tempProfile.frameId,
+                      'w-24 h-24 sm:w-32 sm:h-32'
+                    )}
                   </div>
 
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                    <div onClick={() => setTempProfile({ ...tempProfile, frameId: '' })} className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${!tempProfile.frameId ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'bg-black border border-zinc-800 hover:border-zinc-500'}`}>
-                      <div className="w-12 h-12 rounded-full border-2 border-zinc-700 mb-2 flex items-center justify-center"><X className="w-6 h-6 text-zinc-500" /></div>
+                    <div
+                      onClick={() => setTempProfile({ ...tempProfile, frameId: '' })}
+                      className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${
+                        !tempProfile.frameId
+                          ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]'
+                          : 'bg-black border border-zinc-800 hover:border-zinc-500'
+                      }`}
+                    >
+                      <div className="w-12 h-12 rounded-full border-2 border-zinc-700 mb-2 flex items-center justify-center">
+                        <X className="w-6 h-6 text-zinc-500" />
+                      </div>
                       <span className="text-[9px] font-black uppercase text-zinc-400">None</span>
                     </div>
                   </div>
@@ -1021,33 +1667,61 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                     </h3>
                   </div>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                    {vaultFrames.filter((f: any) => f.tier === 'Premium').map((f: any) => (
-                      <div
-                        key={f.id}
-                        onClick={() => {
-                          if (!isSubscriber) {
-                            setUpsellConfig({ title: 'Premium Feature', message: 'Premium Avatar Frames are exclusively for Saturday AM+ members! Upgrade to equip this frame.' });
-                            return;
-                          }
-                          setTempProfile({ ...tempProfile, frameId: f.id });
-                        }}
-                        className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${tempProfile.frameId === f.id ? 'bg-zinc-800 border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]' : 'bg-black border border-purple-900/30 hover:border-purple-500'}`}
-                      >
-                        <div className="relative flex items-center justify-center w-12 h-12 mb-2 flex-shrink-0">
-                          <div className="rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 w-full h-full" style={{ border: `2px solid ${f.border_color}`, boxShadow: f.glow_color !== 'transparent' ? `0 0 10px ${f.glow_color}` : 'none' }} />
-                          <RenderFrameAnimations anim={f.animation_style} color={f.border_color} />
-                        </div>
-
-                        <span className="text-[9px] font-black text-white uppercase text-center leading-tight line-clamp-1">{f.name}</span>
-
-                        {!isSubscriber && (
-                          <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center z-20 rounded-xl">
-                            <Lock className="w-5 h-5 text-zinc-400" />
+                    {vaultFrames
+                      .filter((f: any) => f.tier === 'Premium')
+                      .map((f: any) => (
+                        <div
+                          key={f.id}
+                          onClick={() => {
+                            if (!isSubscriber) {
+                              setUpsellConfig({
+                                title: 'Premium Feature',
+                                message:
+                                  'Premium Avatar Frames are exclusively for Saturday AM+ members! Upgrade to equip this frame.'
+                              });
+                              return;
+                            }
+                            setTempProfile({ ...tempProfile, frameId: f.id });
+                          }}
+                          className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${
+                            tempProfile.frameId === f.id
+                              ? 'bg-zinc-800 border-2 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
+                              : 'bg-black border border-purple-900/30 hover:border-purple-500'
+                          }`}
+                        >
+                          <div className="relative flex items-center justify-center w-12 h-12 mb-2 flex-shrink-0">
+                            <div
+                              className="rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 w-full h-full"
+                              style={{
+                                border: `2px solid ${f.border_color}`,
+                                boxShadow:
+                                  f.glow_color !== 'transparent'
+                                    ? `0 0 10px ${f.glow_color}`
+                                    : 'none'
+                              }}
+                            />
+                            <RenderFrameAnimations
+                              anim={f.animation_style}
+                              color={f.border_color}
+                            />
                           </div>
-                        )}
-                        {isNewItem(f.created_at) && <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
-                      </div>
-                    ))}
+
+                          <span className="text-[9px] font-black text-white uppercase text-center leading-tight line-clamp-1">
+                            {f.name}
+                          </span>
+
+                          {!isSubscriber && (
+                            <div className="absolute inset-0 bg-black/60 backdrop-blur-[1px] flex items-center justify-center z-20 rounded-xl">
+                              <Lock className="w-5 h-5 text-zinc-400" />
+                            </div>
+                          )}
+                          {isNewItem(f.created_at) && (
+                            <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+                              NEW!
+                            </div>
+                          )}
+                        </div>
+                      ))}
                   </div>
 
                   <div className="mt-8 mb-4 border-b border-zinc-800 pb-2">
@@ -1056,29 +1730,56 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
                     </h3>
                   </div>
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                    {vaultFrames.filter((f: any) => f.tier !== 'Premium').map((f: any) => (
-                      <div
-                        key={f.id}
-                        onClick={() => setTempProfile({ ...tempProfile, frameId: f.id })}
-                        className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${tempProfile.frameId === f.id ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]' : 'bg-black border border-zinc-800 hover:border-zinc-500'}`}
-                      >
-                        <div className="relative flex items-center justify-center w-12 h-12 mb-2 flex-shrink-0">
-                          <div className="rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 w-full h-full" style={{ border: `2px solid ${f.border_color}`, boxShadow: f.glow_color !== 'transparent' ? `0 0 10px ${f.glow_color}` : 'none' }} />
-                          <RenderFrameAnimations anim={f.animation_style} color={f.border_color} />
-                        </div>
+                    {vaultFrames
+                      .filter((f: any) => f.tier !== 'Premium')
+                      .map((f: any) => (
+                        <div
+                          key={f.id}
+                          onClick={() => setTempProfile({ ...tempProfile, frameId: f.id })}
+                          className={`relative flex flex-col items-center justify-center cursor-pointer rounded-xl p-3 transition-all ${
+                            tempProfile.frameId === f.id
+                              ? 'bg-zinc-800 border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.5)]'
+                              : 'bg-black border border-zinc-800 hover:border-zinc-500'
+                          }`}
+                        >
+                          <div className="relative flex items-center justify-center w-12 h-12 mb-2 flex-shrink-0">
+                            <div
+                              className="rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center z-10 w-full h-full"
+                              style={{
+                                border: `2px solid ${f.border_color}`,
+                                boxShadow:
+                                  f.glow_color !== 'transparent'
+                                    ? `0 0 10px ${f.glow_color}`
+                                    : 'none'
+                              }}
+                            />
+                            <RenderFrameAnimations
+                              anim={f.animation_style}
+                              color={f.border_color}
+                            />
+                          </div>
 
-                        <span className="text-[9px] font-black text-white uppercase text-center leading-tight line-clamp-1">{f.name}</span>
-                        {isNewItem(f.created_at) && <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>}
-                      </div>
-                    ))}
+                          <span className="text-[9px] font-black text-white uppercase text-center leading-tight line-clamp-1">
+                            {f.name}
+                          </span>
+                          {isNewItem(f.created_at) && (
+                            <div className="absolute top-1 right-1 z-30 bg-red-600 text-white text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+                              NEW!
+                            </div>
+                          )}
+                        </div>
+                      ))}
                   </div>
                 </>
               )}
             </div>
 
             <div className="p-6 border-t border-zinc-800 bg-black">
-              <button onClick={saveProfile} className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer">
-                Save & Equip Loadout
+              <button
+                onClick={saveProfile}
+                className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
+              >
+                Save &amp; Equip Loadout
               </button>
             </div>
           </div>

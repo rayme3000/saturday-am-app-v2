@@ -1,12 +1,25 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { User, Star, BookOpen, RotateCcw, X, MessageSquare, Share2, Heart, Lock, Award } from 'lucide-react';
+import {
+  User,
+  Star,
+  BookOpen,
+  RotateCcw,
+  X,
+  MessageSquare,
+  Share2,
+  Heart,
+  Lock,
+  Award
+} from 'lucide-react';
 import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
+import { isDefaultBuiltInSkin } from '../MainViews/InAppStoreSection';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
-const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
+const fullIconUrl =
+  'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png';
 const iconMaskStyle = {
   WebkitMaskImage: `url('${fullIconUrl}')`,
   WebkitMaskSize: 'contain',
@@ -42,14 +55,18 @@ const hypeCardTutorialSlides = [
   {
     id: 'hypecard-1',
     title: 'Virtual Hype Card',
-    description: 'Not only does your Hype Card cement your status as a Saturday AM superfan, but it also tracks your stats in real time and gives you a discount off in the AM shop. Unlocked for all registered account holders!',
-    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Videos/HypeCard.mp4'
+    description:
+      'Not only does your Hype Card cement your status as a Saturday AM superfan, but it also tracks your stats in real time and gives you a discount off in the AM shop. Unlocked for all registered account holders!',
+    mediaUrl:
+      'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Videos/HypeCard.mp4'
   },
   {
     id: 'hypecard-2',
     title: 'Flex Your Fandom',
-    description: 'Share your fandom with the world. Flex your card at live shows and events to get exclusive discounts on physical merch at our booth.',
-    mediaUrl: 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/FlexHypeCard.jpg'
+    description:
+      'Share your fandom with the world. Flex your card at live shows and events to get exclusive discounts on physical merch at our booth.',
+    mediaUrl:
+      'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/Tutorial%20Images/FlexHypeCard.jpg'
   }
 ];
 
@@ -70,13 +87,69 @@ const getFandomTier = (
 ): { currentTier: FandomTierInfo; nextTier: FandomTierInfo | null; progressPercent: number } => {
   const score = lifetimeScore || 0;
   const tiers: FandomTierInfo[] = [
-    { name: 'Ember', min: 0, max: 99, color: 'text-rose-900', hex: '#881337', bar: 'bg-rose-900', glow: 'drop-shadow-[0_0_8px_rgba(136,19,55,0.8)]' },
-    { name: 'Glint', min: 100, max: 999, color: 'text-red-700', hex: '#b91c1c', bar: 'bg-red-700', glow: 'drop-shadow-[0_0_8px_rgba(185,28,28,0.8)]' },
-    { name: 'Flare', min: 1000, max: 4999, color: 'text-red-500', hex: '#ef4444', bar: 'bg-red-500', glow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]' },
-    { name: 'Hearth', min: 5000, max: 19999, color: 'text-orange-500', hex: '#f97316', bar: 'bg-orange-500', glow: 'drop-shadow-[0_0_8px_rgba(249,115,22,0.8)]' },
-    { name: 'Lux', min: 20000, max: 49999, color: 'text-amber-400', hex: '#fbbf24', bar: 'bg-amber-400', glow: 'drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]' },
-    { name: 'Fervor', min: 50000, max: 99999, color: 'text-[#fe9a00]', hex: '#fe9a00', bar: 'bg-[#fe9a00]', glow: 'drop-shadow-[0_0_8px_rgba(254,154,0,0.8)]' },
-    { name: 'Vulcan', min: 100000, max: Infinity, color: 'text-yellow-100', hex: '#fef3c7', bar: 'bg-yellow-100', glow: 'drop-shadow-[0_0_12px_rgba(254,243,199,1)]' }
+    {
+      name: 'Ember',
+      min: 0,
+      max: 99,
+      color: 'text-rose-900',
+      hex: '#881337',
+      bar: 'bg-rose-900',
+      glow: 'drop-shadow-[0_0_8px_rgba(136,19,55,0.8)]'
+    },
+    {
+      name: 'Glint',
+      min: 100,
+      max: 999,
+      color: 'text-red-700',
+      hex: '#b91c1c',
+      bar: 'bg-red-700',
+      glow: 'drop-shadow-[0_0_8px_rgba(185,28,28,0.8)]'
+    },
+    {
+      name: 'Flare',
+      min: 1000,
+      max: 4999,
+      color: 'text-red-500',
+      hex: '#ef4444',
+      bar: 'bg-red-500',
+      glow: 'drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]'
+    },
+    {
+      name: 'Hearth',
+      min: 5000,
+      max: 19999,
+      color: 'text-orange-500',
+      hex: '#f97316',
+      bar: 'bg-orange-500',
+      glow: 'drop-shadow-[0_0_8px_rgba(249,115,22,0.8)]'
+    },
+    {
+      name: 'Lux',
+      min: 20000,
+      max: 49999,
+      color: 'text-amber-400',
+      hex: '#fbbf24',
+      bar: 'bg-amber-400',
+      glow: 'drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]'
+    },
+    {
+      name: 'Fervor',
+      min: 50000,
+      max: 99999,
+      color: 'text-[#fe9a00]',
+      hex: '#fe9a00',
+      bar: 'bg-[#fe9a00]',
+      glow: 'drop-shadow-[0_0_8px_rgba(254,154,0,0.8)]'
+    },
+    {
+      name: 'Vulcan',
+      min: 100000,
+      max: Infinity,
+      color: 'text-yellow-100',
+      hex: '#fef3c7',
+      bar: 'bg-yellow-100',
+      glow: 'drop-shadow-[0_0_12px_rgba(254,243,199,1)]'
+    }
   ];
 
   if (!isPremium && score >= 1000) {
@@ -92,8 +165,16 @@ const getFandomTier = (
   const nextTier = currentIndex < tiers.length - 1 ? tiers[currentIndex + 1] : null;
 
   let progressPercent = 100;
-  if (nextTier && !nextTier.isLocked && nextTier.min !== undefined && currentTier.min !== undefined) {
-    progressPercent = Math.min(100, Math.max(0, ((score - currentTier.min) / (nextTier.min - currentTier.min)) * 100));
+  if (
+    nextTier &&
+    !nextTier.isLocked &&
+    nextTier.min !== undefined &&
+    currentTier.min !== undefined
+  ) {
+    progressPercent = Math.min(
+      100,
+      Math.max(0, ((score - currentTier.min) / (nextTier.min - currentTier.min)) * 100)
+    );
   }
 
   return { currentTier, nextTier, progressPercent };
@@ -107,48 +188,169 @@ const formatStat = (num: number) => {
   return num.toString();
 };
 
-const RenderCardAnimations = ({ anim, color }: { anim: string, color: string }) => {
+const RenderCardAnimations = ({ anim, color }: { anim: string; color: string }) => {
   if (!anim || anim === 'none') return null;
   const sBorder = { borderWidth: '0.4cqi', borderStyle: 'solid' };
   const dBorder = { borderWidth: '0.4cqi', borderStyle: 'dashed' };
 
   return (
     <>
-      {anim === 'orbit' && <div className="absolute rounded-full border-transparent pointer-events-none animate-[spin_3s_linear_infinite]" style={{ width: '130%', height: '130%', borderTopColor: color, borderRightColor: color, ...sBorder }} />}
-      {anim === 'pulse' && <div className="absolute rounded-full pointer-events-none animate-ping opacity-20" style={{ width: '100%', height: '100%', backgroundColor: color }} />}
-      {anim === 'spin' && <div className="absolute rounded-full pointer-events-none animate-[spin_4s_linear_infinite]" style={{ width: '115%', height: '115%', borderColor: color, ...dBorder }} />}
+      {anim === 'orbit' && (
+        <div
+          className="absolute rounded-full border-transparent pointer-events-none animate-[spin_3s_linear_infinite]"
+          style={{
+            width: '130%',
+            height: '130%',
+            borderTopColor: color,
+            borderRightColor: color,
+            ...sBorder
+          }}
+        />
+      )}
+      {anim === 'pulse' && (
+        <div
+          className="absolute rounded-full pointer-events-none animate-ping opacity-20"
+          style={{ width: '100%', height: '100%', backgroundColor: color }}
+        />
+      )}
+      {anim === 'spin' && (
+        <div
+          className="absolute rounded-full pointer-events-none animate-[spin_4s_linear_infinite]"
+          style={{ width: '115%', height: '115%', borderColor: color, ...dBorder }}
+        />
+      )}
       {anim === 'aura-burst' && (
         <>
-          <div className="absolute rounded-full opacity-60 animate-[ping_0.8s_ease-out_infinite]" style={{ width: '120%', height: '120%', borderColor: color, borderWidth: '0.6cqi', borderStyle: 'solid' }} />
-          <div className="absolute rounded-full blur-[2px] animate-[pulse_1s_ease-in-out_infinite]" style={{ width: '130%', height: '130%', borderColor: color, borderWidth: '1cqi', borderStyle: 'solid' }} />
+          <div
+            className="absolute rounded-full opacity-60 animate-[ping_0.8s_ease-out_infinite]"
+            style={{
+              width: '120%',
+              height: '120%',
+              borderColor: color,
+              borderWidth: '0.6cqi',
+              borderStyle: 'solid'
+            }}
+          />
+          <div
+            className="absolute rounded-full blur-[2px] animate-[pulse_1s_ease-in-out_infinite]"
+            style={{
+              width: '130%',
+              height: '130%',
+              borderColor: color,
+              borderWidth: '1cqi',
+              borderStyle: 'solid'
+            }}
+          />
         </>
       )}
       {anim === 'evil-aura' && (
         <>
-          <div className="absolute rounded-full blur-md animate-[spin_3s_linear_infinite_reverse] opacity-70" style={{ width: '140%', height: '140%', borderColor: color, borderTopColor: 'transparent', borderStyle: 'solid', borderWidth: '1.2cqi' }} />
-          <div className="absolute rounded-full blur-sm animate-[pulse_2s_ease-in-out_infinite] opacity-80" style={{ width: '120%', height: '120%', borderColor: '#000000', borderBottomColor: color, borderStyle: 'solid', borderWidth: '0.6cqi' }} />
+          <div
+            className="absolute rounded-full blur-md animate-[spin_3s_linear_infinite_reverse] opacity-70"
+            style={{
+              width: '140%',
+              height: '140%',
+              borderColor: color,
+              borderTopColor: 'transparent',
+              borderStyle: 'solid',
+              borderWidth: '1.2cqi'
+            }}
+          />
+          <div
+            className="absolute rounded-full blur-sm animate-[pulse_2s_ease-in-out_infinite] opacity-80"
+            style={{
+              width: '120%',
+              height: '120%',
+              borderColor: '#000000',
+              borderBottomColor: color,
+              borderStyle: 'solid',
+              borderWidth: '0.6cqi'
+            }}
+          />
         </>
       )}
       {anim === 'blade-slash' && (
-        <div className="absolute rounded-full border-transparent animate-[spin_0.5s_cubic-bezier(0.1,0.8,0.1,1)_infinite]" style={{ width: '150%', height: '150%', borderTopColor: color, borderRightColor: '#ffffff', borderWidth: '0.4cqi 0 0 0', borderStyle: 'solid' }} />
+        <div
+          className="absolute rounded-full border-transparent animate-[spin_0.5s_cubic-bezier(0.1,0.8,0.1,1)_infinite]"
+          style={{
+            width: '150%',
+            height: '150%',
+            borderTopColor: color,
+            borderRightColor: '#ffffff',
+            borderWidth: '0.4cqi 0 0 0',
+            borderStyle: 'solid'
+          }}
+        />
       )}
       {anim === 'chakra' && (
         <>
-          <div className="absolute rounded-full border-transparent animate-[spin_1.5s_linear_infinite]" style={{ width: '120%', height: '120%', borderTopColor: color, borderBottomColor: color, borderWidth: '0.8cqi', borderStyle: 'solid', filter: 'blur(2px)' }} />
-          <div className="absolute rounded-full border-transparent animate-[spin_1s_linear_infinite_reverse]" style={{ width: '135%', height: '135%', borderLeftColor: color, borderRightColor: color, borderWidth: '0.4cqi', borderStyle: 'dashed' }} />
+          <div
+            className="absolute rounded-full border-transparent animate-[spin_1.5s_linear_infinite]"
+            style={{
+              width: '120%',
+              height: '120%',
+              borderTopColor: color,
+              borderBottomColor: color,
+              borderWidth: '0.8cqi',
+              borderStyle: 'solid',
+              filter: 'blur(2px)'
+            }}
+          />
+          <div
+            className="absolute rounded-full border-transparent animate-[spin_1s_linear_infinite_reverse]"
+            style={{
+              width: '135%',
+              height: '135%',
+              borderLeftColor: color,
+              borderRightColor: color,
+              borderWidth: '0.4cqi',
+              borderStyle: 'dashed'
+            }}
+          />
         </>
       )}
       {anim === 'spirit-bomb' && (
-        <div className="absolute rounded-full bg-white/20 animate-[pulse_2s_ease-in-out_infinite]" style={{ width: '150%', height: '150%', boxShadow: `0 0 3cqi 1cqi ${color}, inset 0 0 1.5cqi 0.5cqi ${color}`, filter: 'blur(4px)' }} />
+        <div
+          className="absolute rounded-full bg-white/20 animate-[pulse_2s_ease-in-out_infinite]"
+          style={{
+            width: '150%',
+            height: '150%',
+            boxShadow: `0 0 3cqi 1cqi ${color}, inset 0 0 1.5cqi 0.5cqi ${color}`,
+            filter: 'blur(4px)'
+          }}
+        />
       )}
       {anim === 'limit-breaker' && (
         <>
-          <div className="absolute rounded-full border-transparent animate-[spin_0.5s_linear_infinite]" style={{ width: '140%', height: '140%', borderTopColor: color, borderBottomColor: color, borderStyle: 'dashed', borderWidth: '0.8cqi' }} />
-          <div className="absolute rounded-full animate-[ping_1s_ease-out_infinite] opacity-40" style={{ width: '110%', height: '110%', backgroundColor: color }} />
+          <div
+            className="absolute rounded-full border-transparent animate-[spin_0.5s_linear_infinite]"
+            style={{
+              width: '140%',
+              height: '140%',
+              borderTopColor: color,
+              borderBottomColor: color,
+              borderStyle: 'dashed',
+              borderWidth: '0.8cqi'
+            }}
+          />
+          <div
+            className="absolute rounded-full animate-[ping_1s_ease-out_infinite] opacity-40"
+            style={{ width: '110%', height: '110%', backgroundColor: color }}
+          />
         </>
       )}
       {anim === 'hollow' && (
-        <div className="absolute rounded-full border-transparent animate-[spin_2s_linear_infinite_reverse]" style={{ width: '125%', height: '125%', borderTopColor: color, borderBottomColor: '#000000', borderWidth: '1cqi', borderStyle: 'dotted' }} />
+        <div
+          className="absolute rounded-full border-transparent animate-[spin_2s_linear_infinite_reverse]"
+          style={{
+            width: '125%',
+            height: '125%',
+            borderTopColor: color,
+            borderBottomColor: '#000000',
+            borderWidth: '1cqi',
+            borderStyle: 'dotted'
+          }}
+        />
       )}
     </>
   );
@@ -248,19 +450,56 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
         supabase.from('avatar_frames').select('*').eq('is_active', true),
         supabase.from('card_skins').select('*').eq('is_active', true),
         supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
-        supabase.from('profiles').select('id, username, role, is_admin, email, linked_creator_name, fandom_score'),
-        supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id).neq('target_type', 'comment'),
-        supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('target_type', 'creator'),
-        supabase.from('page_reacts').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('series_comments').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('completed_reads').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('reading_history').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('series_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('chapter_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('character_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-        supabase.from('creator_likes').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase
+          .from('profiles')
+          .select('id, username, role, is_admin, email, linked_creator_name, fandom_score'),
+        supabase
+          .from('hypes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .neq('target_type', 'comment'),
+        supabase
+          .from('hypes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('target_type', 'creator'),
+        supabase
+          .from('page_reacts')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('series_comments')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('completed_reads')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('reading_history')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('series_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('chapter_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('character_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('creator_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
         cleanEmail
-          ? supabase.from('creator_tips').select('*', { count: 'exact', head: true }).ilike('donor_email', cleanEmail)
+          ? supabase
+              .from('creator_tips')
+              .select('*', { count: 'exact', head: true })
+              .ilike('donor_email', cleanEmail)
           : Promise.resolve({ count: 0 }),
         supabase
           .from('telemetry_events')
@@ -270,7 +509,18 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
       ]);
 
       if (framesRes.data) setAvatarFrames(framesRes.data);
-      if (skinsRes.data) setActiveSkins(skinsRes.data);
+      const loadedSkins = skinsRes.data || [];
+      setActiveSkins(loadedSkins);
+
+      const saturdayWhiteSkin =
+        loadedSkins.find(
+          (s: any) =>
+            isDefaultBuiltInSkin(s) && String(s.name || '').toLowerCase().includes('white')
+        ) ||
+        loadedSkins.find((s: any) => isDefaultBuiltInSkin(s)) ||
+        null;
+      const saturdayWhiteUrl =
+        saturdayWhiteSkin?.image_url || `${CLOUDFLARE_BASE_URL}/card-skins/saturday-white.png`;
 
       const data = profileRes.data;
       if (data) {
@@ -285,7 +535,16 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
           EXCLUDED_STAFF_ADMIN_EMAILS.has(cleanEmail) ||
           myUname.includes('test') ||
           cleanEmail.includes('test') ||
-          ['sano2026', 'freemium3000', 'freeaccount3000', 'rayme3000', 'fred@saturday.a', 'fredtest1', 'fred_test_2', 'billsup2000'].includes(myUname) ||
+          [
+            'sano2026',
+            'freemium3000',
+            'freeaccount3000',
+            'rayme3000',
+            'fred@saturday.a',
+            'fredtest1',
+            'fred_test_2',
+            'billsup2000'
+          ].includes(myUname) ||
           Boolean(String(data.linked_creator_name || '').trim());
 
         let myRank: string | number = '---';
@@ -305,7 +564,19 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
               uname.includes('test') ||
               em.includes('test') ||
               !uname ||
-              ['saturday fan', 'unnamed reader', 'reader', 'sano2026', 'freemium3000', 'freeaccount3000', 'rayme3000', 'fred@saturday.a', 'fredtest1', 'fred_test_2', 'billsup2000'].includes(uname) ||
+              [
+                'saturday fan',
+                'unnamed reader',
+                'reader',
+                'sano2026',
+                'freemium3000',
+                'freeaccount3000',
+                'rayme3000',
+                'fred@saturday.a',
+                'fredtest1',
+                'fred_test_2',
+                'billsup2000'
+              ].includes(uname) ||
               Boolean(String(p.linked_creator_name || '').trim());
             if (isExcluded) return;
             if (Number(p.fandom_score || 0) > myScore) {
@@ -356,10 +627,47 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
           score: myScore
         });
 
+        // Verify ownership of the equipped skin; default to Saturday White if none chosen or unowned
+        const dbUnlockedSkins: string[] = Array.isArray(data.unlocked_skins)
+          ? data.unlocked_skins.map(String)
+          : [];
+        let userScopedLocalSkins: string[] = [];
+        try {
+          userScopedLocalSkins = JSON.parse(
+            localStorage.getItem(`am_unlocked_skins_${user.id}`) || '[]'
+          ).map(String);
+        } catch {
+          // ignore
+        }
+        const ownedSkins = Array.from(
+          new Set([...dbUnlockedSkins, ...userScopedLocalSkins].filter(Boolean))
+        );
+
+        let verifiedSkinUrl = data.card_skin || saturdayWhiteUrl;
+        if (verifiedSkinUrl && loadedSkins.length > 0) {
+          const matchedSkin = loadedSkins.find((s: any) => s.image_url === verifiedSkinUrl);
+          const isBuiltIn = matchedSkin ? isDefaultBuiltInSkin(matchedSkin) : false;
+          const isOwned =
+            isBuiltIn ||
+            ownedSkins.includes(String(verifiedSkinUrl)) ||
+            (matchedSkin && ownedSkins.includes(String(matchedSkin.id)));
+
+          if (!isOwned) {
+            verifiedSkinUrl = saturdayWhiteUrl;
+            if (saturdayWhiteUrl && data.card_skin !== saturdayWhiteUrl) {
+              supabase
+                .from('profiles')
+                .update({ card_skin: saturdayWhiteUrl })
+                .eq('id', user.id)
+                .then(() => {});
+            }
+          }
+        }
+
         setUserProfile({
           username: data.username || 'Reader',
           avatarUrl: data.avatar_url || '',
-          cardSkin: data.card_skin || '',
+          cardSkin: verifiedSkinUrl,
           frameId: data.avatar_frame_id || '',
           topFive: data.top_five || [null, null, null, null, null]
         });
@@ -373,22 +681,33 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
 
   const frame = avatarFrames.find((f: any) => f.id === userProfile.frameId);
   const borderColor = frame ? frame.border_color : 'transparent';
-  const glowColor = frame?.glow_color && frame.glow_color !== 'transparent' ? frame.glow_color : 'transparent';
+  const glowColor =
+    frame?.glow_color && frame.glow_color !== 'transparent' ? frame.glow_color : 'transparent';
   const animStyle = frame ? frame.animation_style : 'none';
 
   const appliedSkin = activeSkins.find(s => s.image_url === userProfile.cardSkin);
-  const defaultSkin = activeSkins.find(s => s.name?.toLowerCase() === 'saturday white') || {
-    image_url: `${CLOUDFLARE_BASE_URL}/card-skins/saturday-white.png`,
-    show_icon: true,
-    icon_position: 'top-right',
-    signature_stamps: []
-  };
+  const defaultSkin =
+    activeSkins.find(
+      s => isDefaultBuiltInSkin(s) && String(s.name || '').toLowerCase().includes('white')
+    ) ||
+    activeSkins.find(s => s.name?.toLowerCase() === 'saturday white') || {
+      image_url: `${CLOUDFLARE_BASE_URL}/card-skins/saturday-white.png`,
+      show_icon: true,
+      icon_position: 'top-right',
+      signature_stamps: []
+    };
   const currentSkin = appliedSkin || defaultSkin;
 
-  const { currentTier, nextTier, progressPercent } = getFandomTier(profileStats.score, isSubscriber);
+  const { currentTier, nextTier, progressPercent } = getFandomTier(
+    profileStats.score,
+    isSubscriber
+  );
 
   const cardContent = (
-    <div className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[999999] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center overflow-hidden"
+      onClick={onClose}
+    >
       <style>{`
         button[aria-label="Open Menu"], nav, .nav-pill { display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important; }
       `}</style>
@@ -401,7 +720,12 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
       />
 
       <div className="absolute top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[999999]">
-        <TutorialHelpButton onClick={(e: any) => { e.stopPropagation(); setForceTutorial(true); }} />
+        <TutorialHelpButton
+          onClick={(e: any) => {
+            e.stopPropagation();
+            setForceTutorial(true);
+          }}
+        />
       </div>
 
       <button
@@ -429,14 +753,14 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
               transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
               WebkitTransform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'
             }}
-            onClick={(e) => {
+            onClick={e => {
               e.stopPropagation();
               const nextFlip = !isFlipped;
               setIsFlipped(nextFlip);
               if (nextFlip) trackTelemetry('hype_card_flip');
             }}
           >
-            {/* FRONT OF CARD */}
+            {/* FRONT OF CARD (ALWAYS RENDERS CURRENT SKIN OR SATURDAY WHITE DEFAULT) */}
             <div
               className="absolute inset-0 w-full h-full rounded-2xl bg-white shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-zinc-700 overflow-hidden will-change-transform"
               style={{
@@ -447,12 +771,18 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
               }}
             >
               <div className="w-full h-full relative" style={{ containerType: 'inline-size' }}>
-                {userProfile.cardSkin ? (
-                  <img src={currentSkin.image_url} className="absolute inset-0 w-full h-full object-cover z-0" alt="Card Skin" />
-                ) : (
-                  <div className="absolute inset-0 bg-zinc-950 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] z-0" />
-                )}
-                <div className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)' }} />
+                <img
+                  src={currentSkin.image_url}
+                  className="absolute inset-0 w-full h-full object-cover z-0"
+                  alt="Card Skin"
+                />
+                <div
+                  className="absolute inset-0 pointer-events-none z-10 mix-blend-overlay"
+                  style={{
+                    background:
+                      'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.2) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%)'
+                  }}
+                />
 
                 {/* STAMPED CREATOR SIGNATURES ON FRONT OF HYPE CARD */}
                 {Array.isArray(currentSkin.signature_stamps) &&
@@ -498,11 +828,30 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                     alt="Saturday AM Logo"
                     className="absolute z-20 object-contain drop-shadow-[0_0_10px_rgba(0,0,0,0.8)]"
                     style={{
-                      width: '7cqi', height: '7cqi',
-                      top: currentSkin.icon_position === 'top-left' || currentSkin.icon_position === 'top-right' || !currentSkin.icon_position ? '4cqi' : 'auto',
-                      bottom: currentSkin.icon_position === 'bottom-left' || currentSkin.icon_position === 'bottom-right' ? '4cqi' : 'auto',
-                      left: currentSkin.icon_position === 'top-left' || currentSkin.icon_position === 'bottom-left' ? '4cqi' : 'auto',
-                      right: currentSkin.icon_position === 'top-right' || currentSkin.icon_position === 'bottom-right' || !currentSkin.icon_position ? '4cqi' : 'auto'
+                      width: '7cqi',
+                      height: '7cqi',
+                      top:
+                        currentSkin.icon_position === 'top-left' ||
+                        currentSkin.icon_position === 'top-right' ||
+                        !currentSkin.icon_position
+                          ? '4cqi'
+                          : 'auto',
+                      bottom:
+                        currentSkin.icon_position === 'bottom-left' ||
+                        currentSkin.icon_position === 'bottom-right'
+                          ? '4cqi'
+                          : 'auto',
+                      left:
+                        currentSkin.icon_position === 'top-left' ||
+                        currentSkin.icon_position === 'bottom-left'
+                          ? '4cqi'
+                          : 'auto',
+                      right:
+                        currentSkin.icon_position === 'top-right' ||
+                        currentSkin.icon_position === 'bottom-right' ||
+                        !currentSkin.icon_position
+                          ? '4cqi'
+                          : 'auto'
                     }}
                   />
                 )}
@@ -534,46 +883,117 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                 }}
               />
 
-              <div className="absolute inset-0 pointer-events-none z-0" style={{ background: 'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)' }} />
+              <div
+                className="absolute inset-0 pointer-events-none z-0"
+                style={{
+                  background:
+                    'linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.04) 25%, transparent 30%, transparent 45%, rgba(255,255,255,0.02) 50%, transparent 55%)'
+                }}
+              />
 
-              <div className="w-full h-full relative flex flex-col justify-between z-10" style={{ containerType: 'inline-size', padding: '4cqi 5cqi' }}>
+              <div
+                className="w-full h-full relative flex flex-col justify-between z-10"
+                style={{ containerType: 'inline-size', padding: '4cqi 5cqi' }}
+              >
                 <div className="relative z-10 flex flex-col h-full justify-between">
                   {/* HEADER */}
-                  <div className="flex justify-between items-start border-b border-white/10 w-full min-w-0" style={{ paddingBottom: '2.5cqi', paddingRight: '2cqi' }}>
-                    <div className="flex items-center min-w-0 flex-1" style={{ gap: '3cqi', width: '60%' }}>
-                      <div className="relative flex items-center justify-center flex-shrink-0" style={{ width: '14cqi', height: '14cqi' }}>
-                        <div className="rounded-full overflow-hidden bg-black z-10 flex items-center justify-center transition-all" style={{ width: '12cqi', height: '12cqi', border: frame ? `0.4cqi solid ${borderColor}` : 'none', boxShadow: glowColor !== 'transparent' ? `0 0 2cqi ${glowColor}` : 'none' }}>
-                          {userProfile.avatarUrl ? <img src={userProfile.avatarUrl} className="w-full h-full object-cover" alt="Avatar" /> : <User className="text-zinc-600" style={{ width: '6cqi', height: '6cqi' }} />}
+                  <div
+                    className="flex justify-between items-start border-b border-white/10 w-full min-w-0"
+                    style={{ paddingBottom: '2.5cqi', paddingRight: '2cqi' }}
+                  >
+                    <div
+                      className="flex items-center min-w-0 flex-1"
+                      style={{ gap: '3cqi', width: '60%' }}
+                    >
+                      <div
+                        className="relative flex items-center justify-center flex-shrink-0"
+                        style={{ width: '14cqi', height: '14cqi' }}
+                      >
+                        <div
+                          className="rounded-full overflow-hidden bg-black z-10 flex items-center justify-center transition-all"
+                          style={{
+                            width: '12cqi',
+                            height: '12cqi',
+                            border: frame ? `0.4cqi solid ${borderColor}` : 'none',
+                            boxShadow:
+                              glowColor !== 'transparent' ? `0 0 2cqi ${glowColor}` : 'none'
+                          }}
+                        >
+                          {userProfile.avatarUrl ? (
+                            <img
+                              src={userProfile.avatarUrl}
+                              className="w-full h-full object-cover"
+                              alt="Avatar"
+                            />
+                          ) : (
+                            <User
+                              className="text-zinc-600"
+                              style={{ width: '6cqi', height: '6cqi' }}
+                            />
+                          )}
                         </div>
                         <RenderCardAnimations anim={animStyle} color={borderColor} />
                       </div>
                       <div className="flex flex-col justify-center min-w-0 flex-1">
-                        <p className="font-black italic uppercase tracking-wider text-white drop-shadow-md leading-tight line-clamp-2 break-words" style={{ fontSize: '4.8cqi', marginBottom: '0.5cqi' }}>
+                        <p
+                          className="font-black italic uppercase tracking-wider text-white drop-shadow-md leading-tight line-clamp-2 break-words"
+                          style={{ fontSize: '4.8cqi', marginBottom: '0.5cqi' }}
+                        >
                           {userProfile.username}
                         </p>
-                        <p className="text-[#fe9a00] font-black uppercase tracking-widest truncate leading-tight w-full" style={{ fontSize: '1.4cqi', marginBottom: '1.2cqi' }}>
+                        <p
+                          className="text-[#fe9a00] font-black uppercase tracking-widest truncate leading-tight w-full"
+                          style={{ fontSize: '1.4cqi', marginBottom: '1.2cqi' }}
+                        >
                           AM CLUB | EST. 2023
                         </p>
-                        <h3 className="font-black uppercase tracking-widest italic text-[#fe9a00] drop-shadow-md" style={{ fontSize: '2.5cqi' }}>
-                          AM Super Fan <span className={currentTier.color} style={{ fontSize: '2.5cqi', textShadow: `0 0 2cqi ${currentTier.hex}` }}>| {currentTier.name}</span>
+                        <h3
+                          className="font-black uppercase tracking-widest italic text-[#fe9a00] drop-shadow-md"
+                          style={{ fontSize: '2.5cqi' }}
+                        >
+                          AM Super Fan{' '}
+                          <span
+                            className={currentTier.color}
+                            style={{
+                              fontSize: '2.5cqi',
+                              textShadow: `0 0 2cqi ${currentTier.hex}`
+                            }}
+                          >
+                            | {currentTier.name}
+                          </span>
                         </h3>
                       </div>
                     </div>
 
                     {/* HYPE CARD STATS UI */}
-                    <div className="flex flex-col flex-shrink-0 ml-2" style={{ width: '35cqi', paddingTop: '1cqi' }}>
-                      <div className="flex justify-between items-end" style={{ marginBottom: '1cqi' }}>
+                    <div
+                      className="flex flex-col flex-shrink-0 ml-2"
+                      style={{ width: '35cqi', paddingTop: '1cqi' }}
+                    >
+                      <div
+                        className="flex justify-between items-end"
+                        style={{ marginBottom: '1cqi' }}
+                      >
                         <div className="text-left">
-                          <span className="font-bold text-zinc-400 uppercase tracking-widest block" style={{ fontSize: '1.6cqi', marginBottom: '0.5cqi' }}>
+                          <span
+                            className="font-bold text-zinc-400 uppercase tracking-widest block"
+                            style={{ fontSize: '1.6cqi', marginBottom: '0.5cqi' }}
+                          >
                             Monthly Rank
                           </span>
-                          <span className="font-black italic text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] leading-none block" style={{ fontSize: '4.5cqi' }}>
+                          <span
+                            className="font-black italic text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] leading-none block"
+                            style={{ fontSize: '4.5cqi' }}
+                          >
                             {profileStats.rank === 'STAFF' ? 'CREW' : `#${profileStats.rank}`}
                           </span>
                         </div>
                       </div>
 
-                      <div className="relative w-full bg-zinc-900 rounded-full border border-white/10 overflow-hidden shadow-inner" style={{ height: '2cqi', marginTop: '1.5cqi' }}>
+                      <div
+                        className="relative w-full bg-zinc-900 rounded-full border border-white/10 overflow-hidden shadow-inner"
+                        style={{ height: '2cqi', marginTop: '1.5cqi' }}
+                      >
                         <div
                           className={`absolute top-0 left-0 h-full transition-all duration-1000 ease-out ${currentTier.bar} shadow-[0_0_1cqi_rgba(255,255,255,0.3)]`}
                           style={{ width: `${progressPercent}%` }}
@@ -581,20 +1001,52 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                       </div>
 
                       {nextTier ? (
-                        <div className="flex justify-start items-center" style={{ marginTop: '1cqi' }}>
+                        <div
+                          className="flex justify-start items-center"
+                          style={{ marginTop: '1cqi' }}
+                        >
                           {nextTier.isLocked ? (
-                            <span className="font-bold text-zinc-400 uppercase tracking-widest flex items-center" style={{ fontSize: '1.4cqi', gap: '0.8cqi' }}>
-                              <Lock style={{ width: '1.4cqi', height: '1.4cqi', color: '#fe9a00' }} /> Max Free Rank <span style={{ color: '#fe9a00', borderLeft: '0.15cqi solid rgba(255,255,255,0.2)', paddingLeft: '0.8cqi' }}>Subscribe to Level Up</span>
+                            <span
+                              className="font-bold text-zinc-400 uppercase tracking-widest flex items-center"
+                              style={{ fontSize: '1.4cqi', gap: '0.8cqi' }}
+                            >
+                              <Lock
+                                style={{ width: '1.4cqi', height: '1.4cqi', color: '#fe9a00' }}
+                              />{' '}
+                              Max Free Rank{' '}
+                              <span
+                                style={{
+                                  color: '#fe9a00',
+                                  borderLeft: '0.15cqi solid rgba(255,255,255,0.2)',
+                                  paddingLeft: '0.8cqi'
+                                }}
+                              >
+                                Subscribe to Level Up
+                              </span>
                             </span>
                           ) : (
-                            <span className="font-bold text-zinc-400 uppercase tracking-widest" style={{ fontSize: '1.4cqi' }}>
-                              {Math.round(progressPercent)}% to <span style={{ color: nextTier.hex, textShadow: `0 0 1.5cqi ${nextTier.hex}` }}>{nextTier.name} Rank</span>
+                            <span
+                              className="font-bold text-zinc-400 uppercase tracking-widest"
+                              style={{ fontSize: '1.4cqi' }}
+                            >
+                              {Math.round(progressPercent)}% to{' '}
+                              <span
+                                style={{
+                                  color: nextTier.hex,
+                                  textShadow: `0 0 1.5cqi ${nextTier.hex}`
+                                }}
+                              >
+                                {nextTier.name} Rank
+                              </span>
                             </span>
                           )}
                         </div>
                       ) : (
                         <div className="text-left" style={{ marginTop: '1cqi' }}>
-                          <span className="font-black text-[#fe9a00] uppercase tracking-widest" style={{ fontSize: '1.4cqi' }}>
+                          <span
+                            className="font-black text-[#fe9a00] uppercase tracking-widest"
+                            style={{ fontSize: '1.4cqi' }}
+                          >
                             Max Rank Achieved
                           </span>
                         </div>
@@ -603,64 +1055,159 @@ export const GlobalFlexCard = ({ isOpen, onClose }: any) => {
                   </div>
 
                   {/* STATS (UNIFIED HYPES + LIKES + COMMENTS + READS + SHARES + SUPPORT) */}
-                  <div className="flex justify-between items-center bg-black/40 border border-white/5 shadow-inner" style={{ padding: '2cqi 0', borderRadius: '2cqi', margin: 'auto 0' }}>
+                  <div
+                    className="flex justify-between items-center bg-black/40 border border-white/5 shadow-inner"
+                    style={{ padding: '2cqi 0', borderRadius: '2cqi', margin: 'auto 0' }}
+                  >
                     <div className="text-center flex-1 border-r border-white/5">
-                      <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Hypes</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
-                        <span className="inline-block bg-[#fe9a00]" style={{ width: '2.5cqi', height: '2.5cqi', ...iconMaskStyle }} />
+                      <p
+                        className="text-zinc-500 uppercase tracking-widest"
+                        style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}
+                      >
+                        Hypes
+                      </p>
+                      <p
+                        className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md"
+                        style={{ fontSize: '3cqi', gap: '0.8cqi' }}
+                      >
+                        <span
+                          className="inline-block bg-[#fe9a00]"
+                          style={{ width: '2.5cqi', height: '2.5cqi', ...iconMaskStyle }}
+                        />
                         {formatStat(profileStats.total_hypes)}
                       </p>
                     </div>
                     <div className="text-center flex-1 border-r border-white/5">
-                      <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Likes</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
-                        <Heart style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.total_likes)}
+                      <p
+                        className="text-zinc-500 uppercase tracking-widest"
+                        style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}
+                      >
+                        Likes
+                      </p>
+                      <p
+                        className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md"
+                        style={{ fontSize: '3cqi', gap: '0.8cqi' }}
+                      >
+                        <Heart style={{ width: '2.5cqi', height: '2.5cqi' }} />{' '}
+                        {formatStat(profileStats.total_likes)}
                       </p>
                     </div>
                     <div className="text-center flex-1 border-r border-white/5">
-                      <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Comments</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
-                        <MessageSquare style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.quick_reacts)}
+                      <p
+                        className="text-zinc-500 uppercase tracking-widest"
+                        style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}
+                      >
+                        Comments
+                      </p>
+                      <p
+                        className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md"
+                        style={{ fontSize: '3cqi', gap: '0.8cqi' }}
+                      >
+                        <MessageSquare style={{ width: '2.5cqi', height: '2.5cqi' }} />{' '}
+                        {formatStat(profileStats.quick_reacts)}
                       </p>
                     </div>
                     <div className="text-center flex-1 border-r border-white/5">
-                      <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Reads</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
-                        <BookOpen style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.chapters_read)}
+                      <p
+                        className="text-zinc-500 uppercase tracking-widest"
+                        style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}
+                      >
+                        Reads
+                      </p>
+                      <p
+                        className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md"
+                        style={{ fontSize: '3cqi', gap: '0.8cqi' }}
+                      >
+                        <BookOpen style={{ width: '2.5cqi', height: '2.5cqi' }} />{' '}
+                        {formatStat(profileStats.chapters_read)}
                       </p>
                     </div>
                     <div className="text-center flex-1 border-r border-white/5">
-                      <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Shares</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
-                        <Share2 style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.shares)}
+                      <p
+                        className="text-zinc-500 uppercase tracking-widest"
+                        style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}
+                      >
+                        Shares
+                      </p>
+                      <p
+                        className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md"
+                        style={{ fontSize: '3cqi', gap: '0.8cqi' }}
+                      >
+                        <Share2 style={{ width: '2.5cqi', height: '2.5cqi' }} />{' '}
+                        {formatStat(profileStats.shares)}
                       </p>
                     </div>
                     <div className="text-center flex-1">
-                      <p className="text-zinc-500 uppercase tracking-widest" style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}>Support</p>
-                      <p className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md" style={{ fontSize: '3cqi', gap: '0.8cqi' }}>
-                        <Award style={{ width: '2.5cqi', height: '2.5cqi' }} /> {formatStat(profileStats.creator_supports)}
+                      <p
+                        className="text-zinc-500 uppercase tracking-widest"
+                        style={{ fontSize: '1.1cqi', marginBottom: '0.8cqi' }}
+                      >
+                        Support
+                      </p>
+                      <p
+                        className="font-black text-[#fe9a00] flex items-center justify-center drop-shadow-md"
+                        style={{ fontSize: '3cqi', gap: '0.8cqi' }}
+                      >
+                        <Award style={{ width: '2.5cqi', height: '2.5cqi' }} />{' '}
+                        {formatStat(profileStats.creator_supports)}
                       </p>
                     </div>
                   </div>
 
                   {/* TOP 5 */}
                   <div className="flex flex-col justify-center w-full">
-                    <p className="text-zinc-400 uppercase tracking-widest font-bold flex items-center" style={{ fontSize: '1.4cqi', gap: '1cqi', marginBottom: '1.5cqi' }}><Star className="text-[#fe9a00]" style={{ width: '2cqi', height: '2cqi' }} /> Top 5 Stickers</p>
-                    <div className="flex w-full justify-between items-start" style={{ padding: '0 3cqi' }}>
-                      {[0, 1, 2, 3, 4].map((i) => {
+                    <p
+                      className="text-zinc-400 uppercase tracking-widest font-bold flex items-center"
+                      style={{ fontSize: '1.4cqi', gap: '1cqi', marginBottom: '1.5cqi' }}
+                    >
+                      <Star className="text-[#fe9a00]" style={{ width: '2cqi', height: '2cqi' }} />{' '}
+                      Top 5 Stickers
+                    </p>
+                    <div
+                      className="flex w-full justify-between items-start"
+                      style={{ padding: '0 3cqi' }}
+                    >
+                      {[0, 1, 2, 3, 4].map(i => {
                         const slug = userProfile.topFive[i];
                         const series = seriesList.find((s: any) => s.slug === slug);
                         if (!series) {
-                          return (<div key={i} className="flex flex-col items-center" style={{ width: '16%' }}><div className="rounded-full border border-dashed border-zinc-700/50 bg-black/20 transition-all duration-300" style={{ width: '100%', aspectRatio: '1/1' }} /></div>);
+                          return (
+                            <div key={i} className="flex flex-col items-center" style={{ width: '16%' }}>
+                              <div
+                                className="rounded-full border border-dashed border-zinc-700/50 bg-black/20 transition-all duration-300"
+                                style={{ width: '100%', aspectRatio: '1/1' }}
+                              />
+                            </div>
+                          );
                         }
-                        const stickerImage = series.sticker_url || series.character_url || series.cover_url;
+                        const stickerImage =
+                          series.sticker_url || series.character_url || series.cover_url;
                         return (
                           <div key={i} className="flex flex-col items-center" style={{ width: '16%' }}>
-                            <div className={`relative rounded-full overflow-hidden bg-[#f4f4f5] border-[#f4f4f5] shadow-[2px_4px_8px_rgba(0,0,0,0.7)] transform hover:scale-110 hover:rotate-6 transition-all duration-300 cursor-pointer flex-shrink-0 ${i % 2 === 0 ? '-rotate-3' : 'rotate-2'}`} style={{ width: '100%', aspectRatio: '1/1', borderWidth: '0.6cqi', marginTop: i === 2 ? '-1cqi' : '0' }}>
-                              <img src={stickerImage} className="w-full h-full object-cover object-top" alt={`${series.title} sticker`} />
+                            <div
+                              className={`relative rounded-full overflow-hidden bg-[#f4f4f5] border-[#f4f4f5] shadow-[2px_4px_8px_rgba(0,0,0,0.7)] transform hover:scale-110 hover:rotate-6 transition-all duration-300 cursor-pointer flex-shrink-0 ${
+                                i % 2 === 0 ? '-rotate-3' : 'rotate-2'
+                              }`}
+                              style={{
+                                width: '100%',
+                                aspectRatio: '1/1',
+                                borderWidth: '0.6cqi',
+                                marginTop: i === 2 ? '-1cqi' : '0'
+                              }}
+                            >
+                              <img
+                                src={stickerImage}
+                                className="w-full h-full object-cover object-top"
+                                alt={`${series.title} sticker`}
+                              />
                               <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/40 pointer-events-none mix-blend-overlay" />
                             </div>
-                            <span className="font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all drop-shadow-md" style={{ fontSize: '1.3cqi', marginTop: '1cqi' }}>{series.title}</span>
+                            <span
+                              className="font-black uppercase tracking-widest text-zinc-400 text-center w-full truncate leading-tight transition-all drop-shadow-md"
+                              style={{ fontSize: '1.3cqi', marginTop: '1cqi' }}
+                            >
+                              {series.title}
+                            </span>
                           </div>
                         );
                       })}

@@ -325,18 +325,27 @@ export const FloatingPillNav = memo(
               </span>
             </button>
 
+            {/* HYPE CARD: UNLOCKED FOR ALL FREE & PLUS ACCOUNT HOLDERS */}
             <button
               onClick={() => {
                 setIsExpanded(false);
-                if (userTier !== 'premium') {
-                  if (onUpsell)
+                const isVisitor = !currentUser || userTier === 'visitor';
+                if (isVisitor) {
+                  if (onUpsell) {
                     onUpsell({
-                      title: 'Premium Feature',
+                      title: 'Create Free Account',
                       message:
-                        'The Virtual Hype Card is exclusively for PLUS members! Upgrade to customize your skin and flex your stats at live events.'
+                        'Create a free Saturday AM account to unlock your Virtual Hype Card, customize your card skin, and flex your stats!',
+                      target: 'signup',
+                      buttonText: 'Create Free Account'
                     });
+                  } else {
+                    onNavigate({ action: 'signup' });
+                  }
                 } else if (onOpenFlexCard) {
                   onOpenFlexCard();
+                } else {
+                  onNavigate({ action: 'profile' });
                 }
               }}
               className="flex flex-col items-center gap-2 group cursor-pointer"
