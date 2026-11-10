@@ -172,6 +172,26 @@ export const FloatingPillNav = memo(
     const [isExpanded, setIsExpanded] = useState(false);
     const [activeStoreIds, setActiveStoreIds] = useState<string[]>([]);
     const [unseenShopCount, setUnseenShopCount] = useState<number>(0);
+    const [isReaderOpen, setIsReaderOpen] = useState(false);
+    const [overlayCount, setOverlayCount] = useState(0);
+
+    useEffect(() => {
+      const handleReaderToggle = (e: any) => {
+        setIsReaderOpen(Boolean(e.detail?.isOpen));
+        if (e.detail?.isOpen) setIsExpanded(false);
+      };
+      const handleOverlayToggle = (e: any) => {
+        setOverlayCount(prev => Math.max(0, prev + (e.detail ? 1 : -1)));
+        if (e.detail) setIsExpanded(false);
+      };
+
+      window.addEventListener('readerToggled', handleReaderToggle);
+      window.addEventListener('appOverlayActive', handleOverlayToggle);
+      return () => {
+        window.removeEventListener('readerToggled', handleReaderToggle);
+        window.removeEventListener('appOverlayActive', handleOverlayToggle);
+      };
+    }, []);
 
     const navAvatar = currentUser?.avatar_url || '';
     const navFrame = currentUser?.avatar_frame_id || currentUser?.frame_id || '';
@@ -253,6 +273,8 @@ export const FloatingPillNav = memo(
       onNavigate({ action });
       setIsExpanded(false);
     };
+
+    if (isReaderOpen || overlayCount > 0) return null;
 
     return (
       <div className="fixed bottom-4 sm:bottom-8 left-0 w-full z-[150] pb-[max(0.75rem,env(safe-area-inset-bottom))] flex flex-col items-center pointer-events-none">
