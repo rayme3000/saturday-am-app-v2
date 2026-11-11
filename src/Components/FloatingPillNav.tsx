@@ -9,7 +9,6 @@ import {
   Trophy,
   Users,
   Newspaper,
-  CreditCard,
   Target,
   PenTool,
   Settings
@@ -18,6 +17,40 @@ import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 
 const SEEN_STORE_PRODUCTS_KEY = 'am_seen_store_product_ids_v1';
+
+// Custom Trading Card with Center Flame Icon for Hype Card
+const HypeCardIcon = ({ className = 'w-5 h-5 sm:w-6 sm:h-6' }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+  >
+    {/* Horizontal (Landscape) Collector Card Frame */}
+    <rect
+      x="2"
+      y="4.5"
+      width="20"
+      height="15"
+      rx="2.5"
+      stroke="currentColor"
+      strokeWidth="2"
+    />
+    {/* Top Left Card Accent Line */}
+    <path
+      d="M5.5 8H9"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      opacity="0.7"
+    />
+    {/* Center Flame Emblem */}
+    <path
+      d="M12 7.5C12 7.5 9 10.3 9 13C9 14.7 10.34 16.1 12 16.1C13.66 16.1 15 14.7 15 13C15 11.85 14.3 10.8 13.7 10.15C13.5 11.1 12.9 11.55 12.5 11.55C12.05 11.55 11.8 10.95 12.15 9.6C12.3 9.1 12 7.5 12 7.5Z"
+      fill="currentColor"
+    />
+  </svg>
+);
 
 const isStoreItemLiveNow = (item: any): boolean => {
   if (!item || !item.is_active) return false;
@@ -274,6 +307,28 @@ export const FloatingPillNav = memo(
       setIsExpanded(false);
     };
 
+    const handleOpenHypeCard = () => {
+      setIsExpanded(false);
+      const isVisitor = !currentUser || userTier === 'visitor';
+      if (isVisitor) {
+        if (onUpsell) {
+          onUpsell({
+            title: 'Create Free Account',
+            message:
+              'Create a free Saturday AM account to unlock your Virtual Hype Card, customize your card skin, and flex your stats!',
+            target: 'signup',
+            buttonText: 'Create Free Account'
+          });
+        } else {
+          onNavigate({ action: 'signup' });
+        }
+      } else if (onOpenFlexCard) {
+        onOpenFlexCard();
+      } else {
+        onNavigate({ action: 'profile' });
+      }
+    };
+
     if (isReaderOpen || overlayCount > 0) return null;
 
     return (
@@ -288,14 +343,38 @@ export const FloatingPillNav = memo(
         >
           <div className="grid grid-cols-4 sm:grid-cols-7 gap-4 sm:gap-6 justify-center">
             <button
-              onClick={() => handleNav('leaderboard')}
+              onClick={() => handleNav('faves')}
               className="flex flex-col items-center gap-2 group cursor-pointer"
             >
-              <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors">
-                <Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" />
+              <div
+                className={`p-3 sm:p-4 rounded-2xl transition-colors ${
+                  currentView === 'faves'
+                    ? 'bg-[#fe9a00] text-black'
+                    : 'bg-zinc-800 text-white group-hover:bg-[#fe9a00] group-hover:text-black'
+                }`}
+              >
+                <Library className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white">
-                Rankings
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white whitespace-nowrap">
+                Bookshelf
+              </span>
+            </button>
+
+            <button
+              onClick={() => handleNav('browse')}
+              className="flex flex-col items-center gap-2 group cursor-pointer"
+            >
+              <div
+                className={`p-3 sm:p-4 rounded-2xl transition-colors ${
+                  currentView === 'browse'
+                    ? 'bg-[#fe9a00] text-black'
+                    : 'bg-zinc-800 text-white group-hover:bg-[#fe9a00] group-hover:text-black'
+                }`}
+              >
+                <Search className="w-5 h-5 sm:w-6 sm:h-6" />
+              </div>
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white whitespace-nowrap">
+                Browse
               </span>
             </button>
 
@@ -347,39 +426,6 @@ export const FloatingPillNav = memo(
               </span>
             </button>
 
-            {/* HYPE CARD: UNLOCKED FOR ALL FREE & PLUS ACCOUNT HOLDERS */}
-            <button
-              onClick={() => {
-                setIsExpanded(false);
-                const isVisitor = !currentUser || userTier === 'visitor';
-                if (isVisitor) {
-                  if (onUpsell) {
-                    onUpsell({
-                      title: 'Create Free Account',
-                      message:
-                        'Create a free Saturday AM account to unlock your Virtual Hype Card, customize your card skin, and flex your stats!',
-                      target: 'signup',
-                      buttonText: 'Create Free Account'
-                    });
-                  } else {
-                    onNavigate({ action: 'signup' });
-                  }
-                } else if (onOpenFlexCard) {
-                  onOpenFlexCard();
-                } else {
-                  onNavigate({ action: 'profile' });
-                }
-              }}
-              className="flex flex-col items-center gap-2 group cursor-pointer"
-            >
-              <div className="p-3 sm:p-4 bg-zinc-800 rounded-2xl group-hover:bg-[#fe9a00] transition-colors">
-                <CreditCard className="w-5 h-5 sm:w-6 sm:h-6 text-white group-hover:text-black" />
-              </div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white whitespace-nowrap">
-                Hype Card
-              </span>
-            </button>
-
             <button
               onClick={() => handleNav('settings')}
               className="flex flex-col items-center gap-2 group cursor-pointer"
@@ -419,13 +465,13 @@ export const FloatingPillNav = memo(
               </button>
 
               <button
-                onClick={() => handleNav('faves')}
+                onClick={() => handleNav('leaderboard')}
                 className="p-2 transition-transform hover:scale-110 cursor-pointer"
-                title="My Bookshelf"
+                title="Rankings"
               >
-                <Library
+                <Trophy
                   className={`w-5 h-5 sm:w-6 sm:h-6 ${
-                    currentView === 'faves'
+                    currentView === 'leaderboard'
                       ? 'text-[#fe9a00]'
                       : 'text-zinc-500 hover:text-zinc-300'
                   }`}
@@ -466,17 +512,11 @@ export const FloatingPillNav = memo(
             {/* RIGHT ICONS */}
             <div className="flex-1 flex justify-evenly items-center h-full pl-8 sm:pl-10">
               <button
-                onClick={() => handleNav('browse')}
-                className="p-2 transition-transform hover:scale-110 cursor-pointer"
-                title="Browse"
+                onClick={handleOpenHypeCard}
+                className="p-2 transition-transform hover:scale-110 cursor-pointer text-zinc-500 hover:text-[#fe9a00]"
+                title="Hype Card"
               >
-                <Search
-                  className={`w-5 h-5 sm:w-6 sm:h-6 ${
-                    currentView === 'browse'
-                      ? 'text-[#fe9a00]'
-                      : 'text-zinc-500 hover:text-zinc-300'
-                  }`}
-                />
+                <HypeCardIcon className="w-5 h-5 sm:w-6 sm:h-6" />
               </button>
 
               {/* SHOPPING CART ICON WITH NEW STORE DROP NOTIFICATION BUG */}
