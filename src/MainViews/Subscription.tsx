@@ -773,27 +773,24 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
         const unlockedParts = await grantBundleRewardsToUser(
           activeUserId,
-          isCreatorMonthlyGift
-            ? {
-                include_1yr_sub: true,
-                bundle_title:
-                  rawBundle.bundle_title ||
-                  `${promoRow.creator_name || 'Creator'} 1-Year PLUS Gift Sub`
-              }
-            : {
-                include_1yr_sub: rawBundle.include_1yr_sub !== false,
-                card_skin_id: rawBundle.card_skin_id,
-                card_skin_name: rawBundle.card_skin_name,
-                card_skin_url: rawBundle.card_skin_url,
-                card_skin_2_id: rawBundle.card_skin_2_id,
-                card_skin_2_name: rawBundle.card_skin_2_name,
-                card_skin_2_url: rawBundle.card_skin_2_url,
-                avatar_urls: rawBundle.avatar_urls || [],
-                creator_autograph: rawBundle.creator_autograph || promoRow.creator_name,
-                creator_autograph_2: rawBundle.creator_autograph_2,
-                bonus_hypes: rawBundle.bonus_hypes || 0,
-                bundle_title: rawBundle.bundle_title
-              },
+          {
+            include_1yr_sub: isCreatorMonthlyGift ? true : rawBundle.include_1yr_sub !== false,
+            card_skin_id: rawBundle.card_skin_id,
+            card_skin_name: rawBundle.card_skin_name,
+            card_skin_url: rawBundle.card_skin_url,
+            card_skin_2_id: rawBundle.card_skin_2_id,
+            card_skin_2_name: rawBundle.card_skin_2_name,
+            card_skin_2_url: rawBundle.card_skin_2_url,
+            avatar_urls: rawBundle.avatar_urls || [],
+            creator_autograph: rawBundle.creator_autograph || promoRow.creator_name,
+            creator_autograph_2: rawBundle.creator_autograph_2,
+            bonus_hypes: rawBundle.bonus_hypes || 0,
+            bundle_title:
+              rawBundle.bundle_title ||
+              (isCreatorMonthlyGift
+                ? `${promoRow.creator_name || 'Creator'} 1-Year PLUS Gift Sub`
+                : undefined)
+          },
           alreadyPremium
         );
 

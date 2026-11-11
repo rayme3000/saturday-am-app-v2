@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2, Clock } from 'lucide-react';
 import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+import { doCreatorNamesMatch } from '../VirtualProfile/BingoBook';
 import {
   isCompletedRunSeries,
   isActiveOneShotWednesday,
@@ -256,25 +257,74 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }
   }, [targetSeriesSlug, trackEvent]);
 
+  // Unified Signature Sync: Reads from bingo_signatures_log, profiles.unlocked_autographs, and localStorage
   useEffect(() => {
-    if (userTier === 'premium') {
-      const syncSignatures = async () => {
-        const localSigs = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
-        const hunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
-        const creatorsToFetch = hunts.length > 0 ? hunts : Object.keys(localSigs);
-        if (creatorsToFetch.length > 0) {
-          const { data } = await supabase.from('creator_signatures').select('creator_name, signature_url').in('creator_name', creatorsToFetch);
-          if (data && data.length > 0) {
-            const freshSigs: Record<string, string> = {};
-            data.forEach((row: any) => { freshSigs[row.creator_name] = row.signature_url; });
-            setCollectedSignatures(freshSigs);
-            localStorage.setItem('am_bingo_sigs', JSON.stringify(freshSigs));
-          } else setCollectedSignatures(localSigs);
-        } else setCollectedSignatures({});
-      };
-      syncSignatures();
-    } else setCollectedSignatures({});
-  }, [userTier]);
+    const syncSignatures = async () => {
+      if (!isPlusActive && !currentUserId) {
+        setCollectedSignatures({});
+        return;
+      }
+
+      const localSigs: Record<string, string> = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
+      const localHunts: string[] = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
+      const unlockedNames = new Set<string>([
+        ...Object.keys(localSigs),
+        ...(Array.isArray(localHunts) ? localHunts : [])
+      ]);
+
+      if (currentUserId) {
+        const [{ data: logRows }, { data: profRow }] = await Promise.all([
+          supabase.from('bingo_signatures_log').select('creator_name').eq('user_id', currentUserId),
+          supabase.from('profiles').select('unlocked_autographs').eq('id', currentUserId).maybeSingle()
+        ]);
+
+        (logRows || []).forEach((r: any) => {
+          if (r.creator_name) unlockedNames.add(String(r.creator_name).trim());
+        });
+
+        if (Array.isArray(profRow?.unlocked_autographs)) {
+          profRow.unlocked_autographs.forEach((cName: any) => {
+            if (cName) unlockedNames.add(String(cName).trim());
+          });
+        }
+      }
+
+      const unlockedArray = Array.from(unlockedNames).filter(Boolean);
+      if (unlockedArray.length === 0) {
+        setCollectedSignatures({});
+        return;
+      }
+
+      const { data: allSigs } = await supabase
+        .from('creator_signatures')
+        .select('creator_name, signature_url');
+
+      if (allSigs && allSigs.length > 0) {
+        const freshSigs: Record<string, string> = {};
+        allSigs.forEach((row: any) => {
+          if (
+            row.creator_name &&
+            row.signature_url &&
+            unlockedArray.some(uName => doCreatorNamesMatch(uName, row.creator_name))
+          ) {
+            freshSigs[row.creator_name] = row.signature_url;
+          }
+        });
+        setCollectedSignatures(freshSigs);
+        localStorage.setItem('am_bingo_sigs', JSON.stringify(freshSigs));
+      } else {
+        setCollectedSignatures(localSigs);
+      }
+    };
+
+    syncSignatures();
+    window.addEventListener('bingoUpdated', syncSignatures);
+    window.addEventListener('profileUpdated', syncSignatures);
+    return () => {
+      window.removeEventListener('bingoUpdated', syncSignatures);
+      window.removeEventListener('profileUpdated', syncSignatures);
+    };
+  }, [isPlusActive, currentUserId]);
 
   useEffect(() => {
     const checkFavoriteAndLikeStatus = async () => {
@@ -337,7 +387,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   useEffect(() => { syncTemporaryUnlocks(); }, [syncTemporaryUnlocks, nowTick]);
 
-  // Fixed dependency array (removed `localSeries` state dependency so `setLocalSeries` never triggers a re-fetch loop on MacBook M1!)
   const fetchDetails = useCallback(async () => {
     try {
       if (!targetSeriesSlug) return;
@@ -643,7 +692,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const logoScale = Math.min(180, Math.max(50, Number(localSeries.logo_scale ?? 100)));
   const logoOffset = Math.max(16, Number(localSeries.logo_offset ?? 16));
 
-  // Compute real layout width instead of CSS transform:scale() so scaled logos NEVER overlap the Creator name below on MacBook M1!
   const baseLogoMaxWidth = isMobile ? 260 : 340;
   const computedLogoWidthPx = Math.round((baseLogoMaxWidth * logoScale) / 100);
 
@@ -810,10 +858,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         </button>
       </div>
 
-      {/* Removed GPU-heavy full-page [mask-image] that caused severe scroll lag on MacBook M1 Retina displays */}
       <div className="relative z-10 bg-black min-h-screen w-full overflow-x-hidden -mt-10 pt-6">
         <div className="px-6 pt-2 flex flex-col items-center w-full max-w-4xl mx-auto">
-          {/* True Layout-Sized Logo Container so scaled logos NEVER overlap Creator Name below */}
           <div
             className="flex items-center justify-center gap-4 w-full relative z-10"
             style={{ marginBottom: `${logoOffset}px` }}
@@ -850,10 +896,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             ))}
           </div>
 
-          {userTier === 'premium' && Object.keys(collectedSignatures).length > 0 && (
+          {isPlusActive && Object.keys(collectedSignatures).length > 0 && (
             <div className="flex flex-wrap justify-center gap-6 mt-8 w-full max-w-2xl">
               {Object.entries(collectedSignatures)
-                .filter(([sigName]) => creators.some((c: any) => (c.name || '').toLowerCase().includes(sigName.toLowerCase()) || sigName.toLowerCase().includes((c.name || '').toLowerCase())))
+                .filter(([sigName]) =>
+                  creators.some((c: any) => doCreatorNamesMatch(c.name || '', sigName))
+                )
                 .map(([sigName, sigUrl], i) => (
                   <div key={`sig-${i}`} className="flex flex-col items-center w-full max-w-[260px] sm:max-w-[340px] animate-fade-in-up">
                     <div className="w-full aspect-[2/1] flex items-center justify-center p-2 relative group cursor-pointer">
