@@ -22,7 +22,8 @@ import {
   Save,
   Code2,
   ShoppingBag,
-  ShieldCheck
+  ShieldCheck,
+  Zap
 } from 'lucide-react';
 import { buildCreatorReferralCode, getCreatorReferralCodeVariants } from '../MainViews/CreatorStudio';
 
@@ -49,6 +50,11 @@ export const CreatorPayoutTracker = () => {
   const [activeProCount, setActiveProCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // Live Stripe Dev Split Audit & Catch-Up Transfer State
+  const [stripeAuditData, setStripeAuditData] = useState<any | null>(null);
+  const [isAuditingStripe, setIsAuditingStripe] = useState(false);
+  const [isExecutingCatchup, setIsExecutingCatchup] = useState(false);
+
   const [pricingMode, setPricingMode] = useState<'promo' | 'normal'>('promo');
   const activeMonthlyPrice = pricingMode === 'promo' ? 1.99 : 2.99;
   const activeAnnualPrice = pricingMode === 'promo' ? 20.00 : 35.00;
@@ -73,6 +79,62 @@ export const CreatorPayoutTracker = () => {
   const [showEmailDirectory, setShowEmailDirectory] = useState(false);
   const [creatorEmails, setCreatorEmails] = useState<Record<string, string>>({});
   const [savingCreatorEmail, setSavingCreatorEmail] = useState<string | null>(null);
+
+  const handleRunStripeDevAudit = async () => {
+    setIsAuditingStripe(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: { type: 'audit_dev_splits' }
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setStripeAuditData(data);
+    } catch (err: any) {
+      alert('Failed to audit Stripe dev splits: ' + (err.message || 'Make sure create-checkout-session is deployed.'));
+    } finally {
+      setIsAuditingStripe(false);
+    }
+  };
+
+  const handleExecuteStripeCatchup = async () => {
+    if (!stripeAuditData) return;
+    const owedStr = stripeAuditData.owedCatchupDollars || '0.00';
+    const unpatched = Number(stripeAuditData.unpatchedSubsCount || 0);
+
+    if (
+      !window.confirm(
+        `Execute Stripe Catch-Up Transfer ($${owedStr} to acct_1US3pv2d62PnIfST) and patch ${unpatched} active subscription(s) to auto-split 7.5% on future renewals?`
+      )
+    ) {
+      return;
+    }
+
+    setIsExecutingCatchup(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
+        body: { type: 'execute_dev_catchup' }
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setStripeAuditData(data);
+
+      if (data?.transferErrorMsg) {
+        alert(
+          `Patched ${data.patchedSubsCount || 0} subscription(s). Transfer note: ${data.transferErrorMsg}`
+        );
+      } else {
+        alert(
+          `SUCCESS! Transferred $${
+            data?.executedTransfer ? (data.executedTransfer.amount / 100).toFixed(2) : '0.00'
+          } to your Stripe Connect account and patched ${data?.patchedSubsCount || 0} active subscription(s)!`
+        );
+      }
+    } catch (err: any) {
+      alert('Error executing catch-up: ' + err.message);
+    } finally {
+      setIsExecutingCatchup(false);
+    }
+  };
 
   const fetchPayoutData = useCallback(async () => {
     setLoading(true);
@@ -158,7 +220,6 @@ export const CreatorPayoutTracker = () => {
     fetchPayoutData();
   }, [fetchPayoutData]);
 
-  // Calculate Store & Bundle Economics Totals from store_payout_ledger
   const storeEconomicsSummary = useMemo(() => {
     let grossTotal = 0;
     let stripeFeesTotal = 0;
@@ -212,7 +273,6 @@ export const CreatorPayoutTracker = () => {
     };
   }, [storeLedger]);
 
-  // Calculate Referral Bounties ($5 Creator/Staff, $2 Influencer)
   const referralCommissionSummary = useMemo(() => {
     const partnerByCode = new Map<string, { partnerName: string; role: string; canonicalCode: string }>();
 
@@ -625,6 +685,20 @@ export const CreatorPayoutTracker = () => {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={handleRunStripeDevAudit}
+            disabled={isAuditingStripe}
+            className="px-3 py-2 rounded-lg bg-[#fe9a00] hover:bg-white text-black text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            {isAuditingStripe ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Zap className="w-3.5 h-3.5 fill-black" />
+            )}
+            {isAuditingStripe ? 'Auditing Stripe...' : 'Audit Stripe Dev Splits'}
+          </button>
+
+          <button
+            type="button"
             onClick={() => setShowEmailDirectory((prev) => !prev)}
             className={`px-3 py-2 rounded-lg border text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer ${
               showEmailDirectory
@@ -662,6 +736,83 @@ export const CreatorPayoutTracker = () => {
           </button>
         </div>
       </div>
+
+      {/* =====================================================================
+          STRIPE LIVE DEV SPLIT AUDIT & 1-CLICK CATCH-UP TRANSFER PANEL
+      ===================================================================== */}
+      {stripeAuditData && (
+        <div className="bg-gradient-to-r from-zinc-950 via-black to-zinc-950 border-2 border-[#fe9a00] rounded-2xl p-5 space-y-4 animate-fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
+            <div>
+              <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] block">
+                Live Stripe Connect Audit ({stripeAuditData.devAccountId})
+              </span>
+              <h3 className="text-sm font-black uppercase italic text-white">
+                Developer Allocation Reconciliation &amp; Catch-Up Transfer
+              </h3>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleExecuteStripeCatchup}
+              disabled={
+                isExecutingCatchup ||
+                (Number(stripeAuditData.owedCatchupCents || 0) <= 0 &&
+                  Number(stripeAuditData.unpatchedSubsCount || 0) <= 0)
+              }
+              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-white text-black font-black uppercase tracking-widest text-[10px] flex items-center gap-2 transition-all cursor-pointer disabled:opacity-40"
+            >
+              {isExecutingCatchup ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Transferring &amp; Syncing...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Sync Subs ({stripeAuditData.unpatchedSubsCount}) &amp; Transfer Owed Cut (${stripeAuditData.owedCatchupDollars})
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block">
+                Total Expected Dev Cut
+              </span>
+              <span className="text-lg font-black text-white mt-1 block">
+                ${stripeAuditData.expectedDevDollars}
+              </span>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 block">
+                Already Transferred
+              </span>
+              <span className="text-lg font-black text-emerald-400 mt-1 block">
+                ${stripeAuditData.alreadyTransferredDollars}
+              </span>
+            </div>
+
+            <div className="bg-zinc-900 border border-[#fe9a00]/50 rounded-xl p-3">
+              <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] block">
+                Missed / Owed Catch-Up
+              </span>
+              <span className="text-lg font-black text-[#fe9a00] mt-1 block">
+                ${stripeAuditData.owedCatchupDollars}
+              </span>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block">
+                Platform Stripe Balance
+              </span>
+              <span className="text-sm font-black text-white mt-1 block">
+                Avail: ${stripeAuditData.availablePlatformBalanceDollars} • Pend: ${stripeAuditData.pendingPlatformBalanceDollars}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* =====================================================================
           IN-APP STORE & BUNDLE ECONOMICS SUMMARY (SECTION 5 & 6 RULES)
