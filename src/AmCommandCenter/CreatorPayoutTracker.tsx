@@ -83,14 +83,20 @@ export const CreatorPayoutTracker = () => {
   const handleRunStripeDevAudit = async () => {
     setIsAuditingStripe(true);
     try {
+      const { data: authData } = await supabase.auth.getUser();
+      const fallbackUserId = authData?.user?.id || 'admin_audit';
+
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
-        body: { type: 'audit_dev_splits' }
+        body: { type: 'audit_dev_splits', userId: fallbackUserId }
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       setStripeAuditData(data);
     } catch (err: any) {
-      alert('Failed to audit Stripe dev splits: ' + (err.message || 'Make sure create-checkout-session is deployed.'));
+      alert(
+        'Failed to audit Stripe dev splits: ' +
+          (err.message || 'Make sure create-checkout-session is deployed.')
+      );
     } finally {
       setIsAuditingStripe(false);
     }
@@ -111,8 +117,11 @@ export const CreatorPayoutTracker = () => {
 
     setIsExecutingCatchup(true);
     try {
+      const { data: authData } = await supabase.auth.getUser();
+      const fallbackUserId = authData?.user?.id || 'admin_audit';
+
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
-        body: { type: 'execute_dev_catchup' }
+        body: { type: 'execute_dev_catchup', userId: fallbackUserId }
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
