@@ -8,25 +8,52 @@ console.log("🔑 Key Check:", supabaseKey ? "Key is loaded!" : "KEY IS UNDEFINE
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
+export const getOrCreatePersistentVisitorId = (): string => {
+  try {
+    let vid = localStorage.getItem('am_visitor_id');
+    if (!vid) {
+      vid =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? `vis_${crypto.randomUUID()}`
+          : `vis_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      localStorage.setItem('am_visitor_id', vid);
+    }
+    return vid;
+  } catch {
+    return `vis_anon_${Date.now()}`;
+  }
+};
+
 // --- GLOBAL TELEMETRY TRACKER ---
 export const trackTelemetry = async (eventType: string, metadata: any = {}) => {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const userId = sessionData?.session?.user?.id || null;
-    
-    // Create a temporary session ID so anonymous users are still counted uniquely per visit
+    const visitorId = getOrCreatePersistentVisitorId();
+
+    // Keep per-tab session ID for session-level tracking, and always include persistent visitor_id
     let sessionId = sessionStorage.getItem('am_session_id');
     if (!sessionId) {
-      sessionId = crypto.randomUUID();
+      sessionId =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `sess_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
       sessionStorage.setItem('am_session_id', sessionId);
     }
 
-    await supabase.from('telemetry_events').insert([{
-      event_type: eventType,
-      user_id: userId,
-      session_id: sessionId,
-      metadata: metadata
-    }]);
+    const enrichedMetadata = {
+      ...(metadata && typeof metadata === 'object' ? metadata : {}),
+      visitor_id: metadata?.visitor_id || visitorId
+    };
+
+    await supabase.from('telemetry_events').insert([
+      {
+        event_type: eventType,
+        user_id: userId,
+        session_id: sessionId,
+        metadata: enrichedMetadata
+      }
+    ]);
   } catch (err) {
     console.error("Telemetry failed silently:", err);
   }

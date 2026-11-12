@@ -680,7 +680,7 @@ export default function App() {
     }
   }, [currentView, selectedSeries]);
 
-  // --- AUTOMATIC PAGE VISIT UPSELL TRACKER ---
+  // --- AUTOMATIC PAGE VISIT UPSELL TRACKER (EVERY 3 VISITS FOR VISITORS, EVERY 7 FOR FREE USERS) ---
   useEffect(() => {
     if (!authResolved) return;
 
@@ -689,7 +689,13 @@ export default function App() {
       return;
     }
 
-    if (['sub', 'admin', 'settings', 'legal', 'creator-studio'].includes(currentView) || showLogin || Boolean(pendingCreatorInvite)) return;
+    if (
+      ['sub', 'admin', 'settings', 'legal', 'creator-studio'].includes(currentView) ||
+      showLogin ||
+      Boolean(pendingCreatorInvite)
+    ) {
+      return;
+    }
 
     const rawVisits = sessionStorage.getItem('am_nav_counter') || '0';
     const nextVisits = parseInt(rawVisits, 10) + 1;
@@ -704,24 +710,15 @@ export default function App() {
       return;
     }
 
-    if (userTier === 'free' && nextVisits % 5 === 0) {
+    if (userTier === 'free' && nextVisits % 7 === 0) {
       setUpsellConfig({
         title: '',
         message: '',
         target: 'sub'
       });
     }
-
-    if (userTier === 'free' && nextVisits % 5 === 0) {
-      setUpsellConfig({
-        title: 'Enjoying Saturday AM?',
-        message: 'Upgrade to Saturday AM+ for $1.99/mo to get 3 weekly Super Hypes, custom card skins, animated frames, and unlimited reading!',
-        target: 'sub',
-        buttonText: 'Upgrade to PLUS'
-      });
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, authResolved]);
+  }, [currentView, selectedSeries?.slug, authResolved]);
 
   const handleIntroComplete = () => {
     localStorage.setItem('am_has_seen_intro', 'true');

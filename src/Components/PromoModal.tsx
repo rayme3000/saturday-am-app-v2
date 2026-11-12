@@ -1,11 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Zap, UserPlus, Sparkles, Crown, Layers, PenTool, Flame } from 'lucide-react';
-import { supabase } from '../supabase';
+import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 
 // Fallback Rotating Copy Pool (Used ONLY if 0 cards exist in `upsell_popups`)
 export const DEFAULT_PLUS_UPSELL_MESSAGES = [
   {
+    id: 'default_plus_vault',
     badge: 'UNLOCK THE FULL VAULT',
     title: "DON'T STOP AT THE CLIFFHANGER!",
     message:
@@ -13,6 +14,7 @@ export const DEFAULT_PLUS_UPSELL_MESSAGES = [
     cta: 'Unlock Every Chapter ($1.99)'
   },
   {
+    id: 'default_plus_early_access',
     badge: '12-HOUR VIP EARLY ACCESS',
     title: 'READ NEW DROPS FIRST!',
     message:
@@ -20,6 +22,7 @@ export const DEFAULT_PLUS_UPSELL_MESSAGES = [
     cta: 'Get VIP Early Access ($1.99)'
   },
   {
+    id: 'default_plus_loadout',
     badge: 'ULTIMATE FAN LOADOUT',
     title: 'SUPERCHARGE YOUR PROFILE!',
     message:
@@ -27,6 +30,7 @@ export const DEFAULT_PLUS_UPSELL_MESSAGES = [
     cta: 'Upgrade My Loadout ($1.99)'
   },
   {
+    id: 'default_plus_creators',
     badge: 'BACK DIVERSE CREATORS',
     title: 'FUEL THE MANGA REVOLUTION!',
     message:
@@ -34,6 +38,7 @@ export const DEFAULT_PLUS_UPSELL_MESSAGES = [
     cta: 'Join Saturday AM+ ($1.99)'
   },
   {
+    id: 'default_plus_ad_free',
     badge: '100% AD-FREE BINGING',
     title: 'ZERO ADS. ZERO LIMITS.',
     message:
@@ -44,6 +49,7 @@ export const DEFAULT_PLUS_UPSELL_MESSAGES = [
 
 export const DEFAULT_VISITOR_UPSELL_MESSAGES = [
   {
+    id: 'default_visitor_pass',
     badge: 'FREE READER PASS',
     title: 'UNLOCK FREE CHAPTERS NOW!',
     message:
@@ -51,6 +57,7 @@ export const DEFAULT_VISITOR_UPSELL_MESSAGES = [
     cta: 'Create Free Account'
   },
   {
+    id: 'default_visitor_hype_card',
     badge: 'JOIN THE SQUAD',
     title: 'CLAIM YOUR HYPE CARD!',
     message:
@@ -58,6 +65,52 @@ export const DEFAULT_VISITOR_UPSELL_MESSAGES = [
     cta: 'Sign Up Free'
   }
 ];
+
+export const UPSELL_ATTRIBUTION_STORAGE_KEY = 'am_active_upsell_popup_attribution';
+
+export interface UpsellPopupAttribution {
+  popup_id: string;
+  popup_title: string;
+  popup_badge: string;
+  popup_cta: string;
+  popup_type: 'command_center_card' | 'event_bundle_popup' | 'default_fallback';
+  audience_mode: 'visitor' | 'plus';
+  clicked_at: string;
+}
+
+export const saveUpsellPopupAttribution = (attr: UpsellPopupAttribution) => {
+  try {
+    localStorage.setItem(UPSELL_ATTRIBUTION_STORAGE_KEY, JSON.stringify(attr));
+  } catch {
+    // ignore storage errors
+  }
+};
+
+export const getPendingUpsellPopupAttribution = (): UpsellPopupAttribution | null => {
+  try {
+    const raw = localStorage.getItem(UPSELL_ATTRIBUTION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.popup_id) return null;
+    // Attribution window: 48 hours from click
+    const clickedMs = new Date(parsed.clicked_at || 0).getTime();
+    if (!isNaN(clickedMs) && Date.now() - clickedMs > 48 * 60 * 60 * 1000) {
+      localStorage.removeItem(UPSELL_ATTRIBUTION_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+export const clearUpsellPopupAttribution = () => {
+  try {
+    localStorage.removeItem(UPSELL_ATTRIBUTION_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+};
 
 // Detects generic hardcoded App.tsx strings so they NEVER override your Command Center cards
 function isGenericDefaultUpsellText(text?: string): boolean {
@@ -122,6 +175,8 @@ export const PromoModal = ({
   const [alreadyOwnsBundle, setAlreadyOwnsBundle] = useState(false);
   const [customCampaigns, setCustomCampaigns] = useState<any[]>(cachedUpsellPopups || []);
   const [isLoaded, setIsLoaded] = useState<boolean>(Boolean(cachedUpsellPopups));
+
+  const loggedImpressionRef = useRef<string | null>(null);
 
   const isVisitor = forceMode ? forceMode === 'visitor' : userTier === 'visitor';
 
@@ -221,6 +276,8 @@ export const PromoModal = ({
       const card = activePool[pickedIdx];
 
       return {
+        id: String(card.id || `cc_${pickedIdx}`),
+        popupType: 'command_center_card' as const,
         badge: card.badge_text || (isVisitor ? 'FREE READER PASS' : 'SATURDAY AM+ PLUS'),
         title: hasSpecificContextualTitle ? customTitle : card.title,
         message: hasSpecificContextualMessage ? customMessage : card.message,
@@ -240,6 +297,8 @@ export const PromoModal = ({
     const artIdx = pickNextFromDeck(seriesArtUrls.length, 'am_fallback_art_deck');
 
     return {
+      id: baseCopy.id,
+      popupType: 'default_fallback' as const,
       badge: baseCopy.badge,
       title: hasSpecificContextualTitle ? customTitle : baseCopy.title,
       message: hasSpecificContextualMessage ? customMessage : baseCopy.message,
@@ -254,6 +313,46 @@ export const PromoModal = ({
     customTitle,
     hasSpecificContextualMessage,
     hasSpecificContextualTitle
+  ]);
+
+  const isBundleActiveModal = Boolean(
+    featuredBundle && !alreadyOwnsBundle && !hasSpecificContextualMessage
+  );
+
+  // Track Upsell Popup Impression once when the modal renders
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (!featuredBundle && userTier === 'premium' && !forceMode) return;
+    if (featuredBundle && alreadyOwnsBundle && !hasSpecificContextualMessage) return;
+
+    const activePopupId = isBundleActiveModal
+      ? `bundle_popup_${featuredBundle.id || featuredBundle.title}`
+      : selectedVariant.id;
+    const activePopupTitle = isBundleActiveModal ? featuredBundle.title : selectedVariant.title;
+    const activePopupBadge = isBundleActiveModal
+      ? featuredBundle.theme_badge || 'LIMITED EDITION DROP'
+      : selectedVariant.badge;
+
+    if (loggedImpressionRef.current === activePopupId) return;
+    loggedImpressionRef.current = activePopupId;
+
+    trackTelemetry('upsell_popup_impression', {
+      popup_id: activePopupId,
+      popup_title: activePopupTitle,
+      popup_badge: activePopupBadge,
+      popup_type: isBundleActiveModal ? 'event_bundle_popup' : selectedVariant.popupType,
+      audience_mode: isVisitor ? 'visitor' : 'plus'
+    });
+  }, [
+    isLoaded,
+    isBundleActiveModal,
+    featuredBundle,
+    alreadyOwnsBundle,
+    hasSpecificContextualMessage,
+    selectedVariant,
+    userTier,
+    forceMode,
+    isVisitor
   ]);
 
   if (!featuredBundle && userTier === 'premium' && !forceMode) return null;
@@ -288,6 +387,19 @@ export const PromoModal = ({
     const bonusHypes = Number(featuredBundle.bonus_hypes || 0);
 
     const handleGoToBundleInStore = () => {
+      const popupId = `bundle_popup_${featuredBundle.id || featuredBundle.title}`;
+      const attribution: UpsellPopupAttribution = {
+        popup_id: popupId,
+        popup_title: featuredBundle.title || 'Special Bundle Popup',
+        popup_badge: featuredBundle.theme_badge || 'LIMITED EDITION DROP',
+        popup_cta: `Get Bundle ($${price})`,
+        popup_type: 'event_bundle_popup',
+        audience_mode: isVisitor ? 'visitor' : 'plus',
+        clicked_at: new Date().toISOString()
+      };
+      saveUpsellPopupAttribution(attribution);
+      trackTelemetry('upsell_popup_cta_click', attribution);
+
       if (onClose) onClose();
       window.history.pushState({ view: 'shop' }, '', '/?view=shop');
       window.dispatchEvent(new PopStateEvent('popstate', { state: { view: 'shop' } }));
@@ -426,6 +538,24 @@ export const PromoModal = ({
   // ============================================================================
   // 2. VISUAL ARTWORK + MATCHED COMMAND CENTER COPY UPSELL MODAL
   // ============================================================================
+  const handlePrimaryUpsellClick = () => {
+    const attribution: UpsellPopupAttribution = {
+      popup_id: selectedVariant.id,
+      popup_title: selectedVariant.title,
+      popup_badge: selectedVariant.badge,
+      popup_cta: selectedVariant.cta,
+      popup_type: selectedVariant.popupType,
+      audience_mode: isVisitor ? 'visitor' : 'plus',
+      clicked_at: new Date().toISOString()
+    };
+    saveUpsellPopupAttribution(attribution);
+    trackTelemetry('upsell_popup_cta_click', {
+      ...attribution,
+      entered_promo_code: betaCode || null
+    });
+    onAction(betaCode);
+  };
+
   return (
     <div
       className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in"
@@ -510,7 +640,7 @@ export const PromoModal = ({
 
           <button
             type="button"
-            onClick={() => onAction(betaCode)}
+            onClick={handlePrimaryUpsellClick}
             className="w-full font-black uppercase tracking-widest text-xs sm:text-sm py-4 rounded-xl transition-all shadow-[0_0_25px_rgba(254,154,0,0.4)] bg-gradient-to-r from-[#fe9a00] via-amber-400 to-[#fe9a00] hover:from-white hover:to-white text-black cursor-pointer flex items-center justify-center gap-2"
           >
             <Zap className="w-4 h-4 fill-black" />

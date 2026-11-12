@@ -7,7 +7,6 @@ import {
   RefreshCw,
   TrendingUp,
   Calendar,
-  Clock,
   UserCheck,
   UserPlus,
   ArrowUp,
@@ -38,7 +37,8 @@ import {
   Percent,
   PlayCircle,
   Target,
-  Package
+  Package,
+  ShoppingBag
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
@@ -62,7 +62,7 @@ export const EXCLUDED_TEST_STAFF_IDS = new Set([
   'c1bc4936-b192-45bb-a5c7-57900d24a030', // AMAPPTEST3
   '35c470b1-df48-4aa1-bd1c-68a0eb26ee92', // AMAPPTEST5
   '203b25d6-7c80-4161-9a13-debd7299982c', // AMAPPTEST6
-  '79cf838d-a214-4d87-a036-b62328547840', // AMTEST5
+  '79cf838d-a214-4d87-a016-b62328547840', // AMTEST5
   '829bc0be-6b8e-42cf-ab61-54624c785c69', // Freeaccount3000
   '6aa6e204-59eb-4444-8fc5-f95d628c16ab'  // rayme3000
 ]);
@@ -604,6 +604,22 @@ interface DailyChartBucket {
   engagements: number;
 }
 
+export interface UpsellPopupFunnelRow {
+  id: string;
+  title: string;
+  badge: string;
+  targetAudience: string;
+  popupType: string;
+  impressions: number;
+  clicks: number;
+  checkoutsStarted: number;
+  paidConversions: number;
+  revenueDollars: number;
+  ctrPct: number;
+  conversionRatePct: number;
+  clickToPaidPct: number;
+}
+
 type AudienceFilterMode = 'fans_only' | 'staff_creators_only' | 'all_combined';
 
 export const AnalyticsDashboard = () => {
@@ -656,6 +672,9 @@ export const AnalyticsDashboard = () => {
         adminDirRes,
         promoCodesRes,
         storeProductsRes,
+        storeLedgerRes,
+        upsellPopupsRes,
+        themedBundlesRes,
         seriesTableRes,
         chaptersTableRes,
         charactersTableRes,
@@ -681,6 +700,18 @@ export const AnalyticsDashboard = () => {
           .select('*')
           .order('created_at', { ascending: false }),
         supabase.from('in_app_store_products').select('*'),
+        supabase
+          .from('store_payout_ledger')
+          .select('*')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('upsell_popups')
+          .select('*')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('themed_annual_bundles')
+          .select('*')
+          .order('created_at', { ascending: false }),
         supabase.from('series').select('*'),
         supabase.from('chapters').select('id, series_slug, chapter_number, title'),
         supabase.from('series_characters').select('id, name, series_slug'),
@@ -722,22 +753,25 @@ export const AnalyticsDashboard = () => {
           ? promoDateByEmail.get(cleanEm.toLowerCase()) || null
           : null;
 
+        // Strict signup date: never fall back to updated_at so activity doesn't count as a new signup!
+        const trueSignupAt =
+          authUser.created_at || p.created_at || p.tos_accepted_at || null;
+
+        // Strict PLUS upgrade date: only use actual subscription/promo/signup timestamps, never generic updated_at!
+        const truePlusAt = Boolean(p.is_premium)
+          ? p.subscribed_at || promoPurchaseAt || trueSignupAt || null
+          : null;
+
         return {
           ...authUser,
           ...p,
           id: String(p.id),
           email: cleanEm,
-          created_at: p.created_at || authUser.created_at || p.tos_accepted_at || null,
-          plus_activated_at: Boolean(p.is_premium)
-            ? p.subscribed_at ||
-              promoPurchaseAt ||
-              p.updated_at ||
-              p.created_at ||
-              authUser.created_at ||
-              null
-            : null,
+          created_at: trueSignupAt,
+          plus_activated_at: truePlusAt,
           plus_plan_type: Boolean(p.is_premium)
             ? p.subscription_plan ||
+              p.subscription_tier ||
               p.referred_plan ||
               (promoPurchaseAt ? 'yearly' : 'monthly')
             : null
@@ -748,6 +782,9 @@ export const AnalyticsDashboard = () => {
         profiles: rawProfiles,
         promoCodes: promoCodesRes.data || [],
         storeProducts: storeProductsRes.data || [],
+        storeLedger: storeLedgerRes.data || [],
+        upsellPopups: upsellPopupsRes.data || [],
+        themedBundles: themedBundlesRes.data || [],
         series: seriesTableRes.data || [],
         chapters: chaptersTableRes.data || [],
         characters: charactersTableRes.data || [],
@@ -780,7 +817,7 @@ export const AnalyticsDashboard = () => {
     fetchAnalytics();
 
     const subscription = supabase
-      .channel('realtime_analytics_v5')
+      .channel('realtime_analytics_v6')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reading_history' }, () => {
         fetchAnalytics();
       })
@@ -797,6 +834,13 @@ export const AnalyticsDashboard = () => {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'telemetry_events' },
+        () => {
+          fetchAnalytics();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'store_payout_ledger' },
         () => {
           fetchAnalytics();
         }
@@ -832,7 +876,9 @@ export const AnalyticsDashboard = () => {
     const matchesAudience = (row: any): boolean => {
       if (audienceMode === 'all_combined') return true;
       const uid = row?.user_id || row?.id;
-      const email = String(row?.donor_email || row?.email || '').trim().toLowerCase();
+      const email = String(row?.donor_email || row?.user_email || row?.email || '')
+        .trim()
+        .toLowerCase();
       const isElevated =
         (uid && staffCreatorIds.has(String(uid))) ||
         (email && staffCreatorEmails.has(email));
@@ -847,6 +893,8 @@ export const AnalyticsDashboard = () => {
         : audienceMode === 'staff_creators_only'
         ? staffCreatorProfiles
         : allProfiles;
+
+    const activeProfileIdsSet = new Set<string>(activeProfiles.map(p => String(p.id)));
 
     const totalUsers = activeProfiles.length;
     const premiumProfilesList = activeProfiles.filter(p => Boolean(p.is_premium));
@@ -878,15 +926,13 @@ export const AnalyticsDashboard = () => {
     const startOfLastYear = new Date(startOfYear);
     startOfLastYear.setDate(startOfYear.getDate() - 365);
 
+    // STRICT SIGNUP DATES: Only use true created_at (never updated_at!)
     const profileDates = activeProfiles
-      .map(p => {
-        const raw = p.created_at || p.updated_at;
-        return raw ? new Date(raw) : null;
-      })
+      .map(p => (p.created_at ? new Date(p.created_at) : null))
       .filter((d): d is Date => Boolean(d && !isNaN(d.getTime())));
 
     const getPlusDate = (p: any): Date | null => {
-      const raw = p.plus_activated_at || p.subscribed_at || p.updated_at || p.created_at;
+      const raw = p.plus_activated_at || p.subscribed_at || p.created_at;
       const d = raw ? new Date(raw) : null;
       return d && !isNaN(d.getTime()) ? d : null;
     };
@@ -896,10 +942,10 @@ export const AnalyticsDashboard = () => {
       .filter((d): d is Date => Boolean(d));
 
     const monthlyPlanProfiles = premiumProfilesList.filter(
-      p => String(p.plus_plan_type || 'monthly').toLowerCase() !== 'yearly'
+      p => !['yearly', 'annual'].includes(String(p.plus_plan_type || 'monthly').toLowerCase())
     );
     const annualPlanProfiles = premiumProfilesList.filter(
-      p => String(p.plus_plan_type || '').toLowerCase() === 'yearly'
+      p => ['yearly', 'annual'].includes(String(p.plus_plan_type || '').toLowerCase())
     );
 
     const monthlyPlusDates = monthlyPlanProfiles
@@ -940,8 +986,8 @@ export const AnalyticsDashboard = () => {
 
     const recentUsers = [...activeProfiles]
       .sort((a, b) => {
-        const da = new Date(a.created_at || a.updated_at || 0).getTime();
-        const db = new Date(b.created_at || b.updated_at || 0).getTime();
+        const da = new Date(a.created_at || 0).getTime();
+        const db = new Date(b.created_at || 0).getTime();
         return db - da;
       })
       .slice(0, 8);
@@ -957,6 +1003,7 @@ export const AnalyticsDashboard = () => {
     const characterLikesData = (rawTables.characterLikes || []).filter(matchesAudience);
     const creatorLikesData = (rawTables.creatorLikes || []).filter(matchesAudience);
     const tipsData = (rawTables.creatorTips || []).filter(matchesAudience);
+    const storeLedgerData = (rawTables.storeLedger || []).filter(matchesAudience);
     const telemetryRows = (rawTables.telemetryEvents || []).filter(matchesAudience);
 
     // --- UNIFIED DE-DUPLICATED HYPES ---
@@ -986,7 +1033,18 @@ export const AnalyticsDashboard = () => {
       }
     });
 
-    // --- UNIQUE VISITORS (TODAY, YESTERDAY, 7D, PRIOR 7D, 30D, PRIOR 30D, LIFETIME) & SIGNUP CONVERSION ---
+    // --- DE-DUPLICATED UNIQUE VISITORS (PREFERS USER_ID OR PERSISTENT VIS_ID OVER RANDOM TAB SESSION_ID) ---
+    // Map any visitor_id / session_id associated with a known user_id back to that user_id so 1 user on 5 tabs = 1 visitor
+    const sessionOrVisToUserMap = new Map<string, string>();
+    telemetryRows.forEach((t: any) => {
+      if (t.user_id) {
+        const uid = String(t.user_id).trim();
+        const meta = t.metadata || t.event_data || {};
+        if (meta?.visitor_id) sessionOrVisToUserMap.set(String(meta.visitor_id).trim(), uid);
+        if (t.session_id) sessionOrVisToUserMap.set(String(t.session_id).trim(), uid);
+      }
+    });
+
     const visitorsTodaySet = new Set<string>();
     const visitorsYesterdaySet = new Set<string>();
     const visitorsWeekSet = new Set<string>();
@@ -995,37 +1053,49 @@ export const AnalyticsDashboard = () => {
     const visitorsLastMonthSet = new Set<string>();
     const visitorsLifetimeSet = new Set<string>();
 
-    const registerVisitorImpression = (actorKey?: string, rawDt?: string) => {
-      if (!actorKey || !rawDt) return;
+    const registerVisitorImpression = (rawActorKey?: string, rawDt?: string) => {
+      if (!rawActorKey || !rawDt) return;
       const dt = new Date(rawDt);
       if (isNaN(dt.getTime())) return;
-      const cleanKey = String(actorKey).trim();
-      if (!cleanKey) return;
+      const trimmed = String(rawActorKey).trim();
+      if (!trimmed) return;
 
-      visitorsLifetimeSet.add(cleanKey);
-      if (dt >= startOfToday) visitorsTodaySet.add(cleanKey);
-      else if (dt >= startOfYesterday && dt < startOfToday) visitorsYesterdaySet.add(cleanKey);
+      const canonicalVisitorKey = sessionOrVisToUserMap.get(trimmed) || trimmed;
 
-      if (dt >= startOfWeek) visitorsWeekSet.add(cleanKey);
-      else if (dt >= startOfLastWeek && dt < startOfWeek) visitorsLastWeekSet.add(cleanKey);
+      visitorsLifetimeSet.add(canonicalVisitorKey);
+      if (dt >= startOfToday) visitorsTodaySet.add(canonicalVisitorKey);
+      else if (dt >= startOfYesterday && dt < startOfToday) {
+        visitorsYesterdaySet.add(canonicalVisitorKey);
+      }
 
-      if (dt >= startOfMonth) visitorsMonthSet.add(cleanKey);
-      else if (dt >= startOfLastMonth && dt < startOfMonth) visitorsLastMonthSet.add(cleanKey);
+      if (dt >= startOfWeek) visitorsWeekSet.add(canonicalVisitorKey);
+      else if (dt >= startOfLastWeek && dt < startOfWeek) {
+        visitorsLastWeekSet.add(canonicalVisitorKey);
+      }
+
+      if (dt >= startOfMonth) visitorsMonthSet.add(canonicalVisitorKey);
+      else if (dt >= startOfLastMonth && dt < startOfMonth) {
+        visitorsLastMonthSet.add(canonicalVisitorKey);
+      }
     };
 
+    // Only count persistent visitor pings (`user_id` or `vis_...` visitor_id), not random per-tab UUIDs for every button click
     telemetryRows.forEach((t: any) => {
       const meta = t.metadata || t.event_data || {};
-      const actor = meta?.visitor_id || t.session_id || t.user_id;
-      registerVisitorImpression(actor, t.created_at);
+      const persistentActor =
+        t.user_id ||
+        meta?.visitor_id ||
+        (String(t.session_id || '').startsWith('vis_') ? t.session_id : null);
+      if (persistentActor) {
+        registerVisitorImpression(persistentActor, t.created_at);
+      }
     });
     historyRows.forEach((r: any) =>
       registerVisitorImpression(r.user_id, r.updated_at || r.created_at)
     );
     completedRows.forEach((r: any) => registerVisitorImpression(r.user_id, r.created_at));
     allUnifiedHypes.forEach((r: any) => registerVisitorImpression(r.user_id, r.created_at));
-    activeProfiles.forEach((p: any) =>
-      registerVisitorImpression(p.id, p.created_at || p.updated_at)
-    );
+    activeProfiles.forEach((p: any) => registerVisitorImpression(p.id, p.created_at));
 
     const vToday = Math.max(visitorsTodaySet.size, growthStats.newUsersToday);
     const vYesterday = Math.max(visitorsYesterdaySet.size, growthStats.newUsersYesterday);
@@ -1057,7 +1127,7 @@ export const AnalyticsDashboard = () => {
       convLifetimePct: calcConvPct(totalUsers, vLifetime)
     };
 
-    // --- ACTIVE USERS & PEAK ACTIVE USERS (DAY, WEEK, MONTH) ---
+    // --- STRICT REGISTERED ACTIVE USERS & PEAK ACTIVE USERS (NEVER COUNTS RANDOM TAB SESSION_IDS) ---
     const activeTodaySet = new Set<string>();
     const active7dSet = new Set<string>();
     const active30dSet = new Set<string>();
@@ -1074,27 +1144,30 @@ export const AnalyticsDashboard = () => {
       return copy.toISOString().split('T')[0];
     };
 
-    const registerActiveEvent = (actorId?: string, rawDt?: string) => {
-      if (!actorId || !rawDt) return;
+    const registerActiveEvent = (userId?: string, rawDt?: string) => {
+      if (!userId || !rawDt) return;
+      const cleanUid = String(userId).trim();
+      // Strictly require a valid registered account in the selected audience (Pure Fans / Creators / All)
+      if (!activeProfileIdsSet.has(cleanUid)) return;
+
       const dt = new Date(rawDt);
       if (isNaN(dt.getTime())) return;
 
-      const cleanActor = String(actorId);
-      if (dt >= startOfToday) activeTodaySet.add(cleanActor);
-      if (dt >= startOfWeek) active7dSet.add(cleanActor);
-      if (dt >= startOfMonth) active30dSet.add(cleanActor);
+      if (dt >= startOfToday) activeTodaySet.add(cleanUid);
+      if (dt >= startOfWeek) active7dSet.add(cleanUid);
+      if (dt >= startOfMonth) active30dSet.add(cleanUid);
 
       const dayKey = dt.toISOString().split('T')[0];
       if (!dauMap.has(dayKey)) dauMap.set(dayKey, new Set());
-      dauMap.get(dayKey)!.add(cleanActor);
+      dauMap.get(dayKey)!.add(cleanUid);
 
       const weekKey = getMondayKey(dt);
       if (!wauMap.has(weekKey)) wauMap.set(weekKey, new Set());
-      wauMap.get(weekKey)!.add(cleanActor);
+      wauMap.get(weekKey)!.add(cleanUid);
 
       const monthKey = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
       if (!mauMap.has(monthKey)) mauMap.set(monthKey, new Set());
-      mauMap.get(monthKey)!.add(cleanActor);
+      mauMap.get(monthKey)!.add(cleanUid);
     };
 
     historyRows.forEach((r: any) => registerActiveEvent(r.user_id, r.updated_at || r.created_at));
@@ -1106,9 +1179,12 @@ export const AnalyticsDashboard = () => {
     chapterLikesData.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
     characterLikesData.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
     creatorLikesData.forEach((r: any) => registerActiveEvent(r.user_id, r.created_at));
-    telemetryRows.forEach((t: any) =>
-      registerActiveEvent(t.user_id || t.session_id, t.created_at)
-    );
+    telemetryRows.forEach((t: any) => {
+      if (t.user_id) registerActiveEvent(t.user_id, t.created_at);
+    });
+    activeProfiles.forEach((p: any) => {
+      registerActiveEvent(p.id, p.last_sign_in_at || p.updated_at || p.created_at);
+    });
 
     let peakDayCount = 0;
     let peakDayKey = '';
@@ -1179,8 +1255,19 @@ export const AnalyticsDashboard = () => {
       0
     );
 
-    const chaptersOpenedLifetime = Math.max(historyRows.length, completedRows.length);
+    // Count chapters that were opened in reading_history but not yet in completed_reads
+    const completedPairsSet = new Set<string>(
+      completedRows.map((r: any) => `${r.user_id}_${r.chapter_id}`)
+    );
+    const inProgressOnlyCount = historyRows.filter(
+      (r: any) => !completedPairsSet.has(`${r.user_id}_${r.chapter_id}`)
+    ).length;
+
     const chaptersCompletedLifetime = Math.max(completedRows.length, sumProfileCompletedReads);
+    const chaptersOpenedLifetime = Math.max(
+      historyRows.length + completedRows.length,
+      chaptersCompletedLifetime + inProgressOnlyCount
+    );
 
     const globalStats = {
       total_users: totalUsers,
@@ -1275,7 +1362,6 @@ export const AnalyticsDashboard = () => {
     });
 
     const uniqueSessions = new Set<string>();
-    const uniqueVisitorIds = new Set<string>();
     let storeClicks = 0;
     let bannerClicks = 0;
     let hypeCardTelemetryOpens = 0;
@@ -1289,18 +1375,123 @@ export const AnalyticsDashboard = () => {
     let rewardedAdUnlockClaimed = 0;
     let rewardedAdClicks = 0;
 
+    // --- UPSELL POPUP TELEMETRY AGGREGATION (DEDUPLICATED BY NORMALIZED TITLE) ---
+    const normalizePopupKey = (title?: string, fallbackId?: string): string => {
+      const cleanTitle = String(title || '').trim().toLowerCase();
+      if (cleanTitle) return `title_${cleanTitle}`;
+      return String(fallbackId || 'default_upsell').trim().toLowerCase();
+    };
+
+    const popupIdToCanonicalKey = new Map<string, string>();
+    const upsellStatsByPopupId = new Map<
+      string,
+      {
+        id: string;
+        title: string;
+        badge: string;
+        targetAudience: string;
+        popupType: string;
+        impressions: number;
+        clicks: number;
+        checkoutsStarted: number;
+        paidConversions: number;
+        revenueDollars: number;
+      }
+    >();
+
+    (rawTables.upsellPopups || []).forEach((up: any) => {
+      if (up.is_active === false) return;
+      const rawId = String(up.id);
+      const canonKey = normalizePopupKey(up.title, rawId);
+      popupIdToCanonicalKey.set(rawId, canonKey);
+      if (!upsellStatsByPopupId.has(canonKey)) {
+        upsellStatsByPopupId.set(canonKey, {
+          id: canonKey,
+          title: up.title || 'Upsell Popup Card',
+          badge: up.badge_text || 'SATURDAY AM+ PLUS',
+          targetAudience: up.target_audience || 'plus_upsell',
+          popupType: 'Command Center Card',
+          impressions: 0,
+          clicks: 0,
+          checkoutsStarted: 0,
+          paidConversions: 0,
+          revenueDollars: 0
+        });
+      }
+    });
+
+    (rawTables.themedBundles || []).forEach((tb: any) => {
+      if (tb.is_active === false) return;
+      const rawId = `bundle_popup_${tb.id || tb.title}`;
+      const canonKey = normalizePopupKey(tb.title, rawId);
+      popupIdToCanonicalKey.set(rawId, canonKey);
+      if (!upsellStatsByPopupId.has(canonKey)) {
+        upsellStatsByPopupId.set(canonKey, {
+          id: canonKey,
+          title: tb.title || 'Event Bundle Popup',
+          badge: tb.theme_badge || 'LIMITED EDITION DROP',
+          targetAudience: 'both',
+          popupType: 'Event Bundle Popup',
+          impressions: 0,
+          clicks: 0,
+          checkoutsStarted: 0,
+          paidConversions: 0,
+          revenueDollars: 0
+        });
+      }
+    });
+
+    const ensureUpsellBucket = (meta: any) => {
+      const rawId = String(meta?.popup_id || '');
+      const canonKey =
+        popupIdToCanonicalKey.get(rawId) ||
+        normalizePopupKey(meta?.popup_title, rawId || 'default_upsell');
+
+      if (!upsellStatsByPopupId.has(canonKey)) {
+        upsellStatsByPopupId.set(canonKey, {
+          id: canonKey,
+          title: meta?.popup_title || 'Upsell Popup',
+          badge: meta?.popup_badge || 'SATURDAY AM+ PLUS',
+          targetAudience: meta?.audience_mode === 'visitor' ? 'visitor_signup' : 'plus_upsell',
+          popupType:
+            meta?.popup_type === 'event_bundle_popup'
+              ? 'Event Bundle Popup'
+              : meta?.popup_type === 'command_center_card'
+              ? 'Command Center Card'
+              : 'Default Fallback Card',
+          impressions: 0,
+          clicks: 0,
+          checkoutsStarted: 0,
+          paidConversions: 0,
+          revenueDollars: 0
+        });
+      }
+      return upsellStatsByPopupId.get(canonKey)!;
+    };
+
     const seriesVisitsPerSlug: Record<string, number> = {};
 
     telemetryRows.forEach((t: any) => {
       if (t.session_id) uniqueSessions.add(String(t.session_id));
-      if (t.user_id) uniqueVisitorIds.add(String(t.user_id));
-      else if (t.session_id) uniqueVisitorIds.add(String(t.session_id));
 
       const evType = String(t.event_type || t.event_name || '').toLowerCase();
       const meta = t.metadata || t.event_data || {};
       const slug = meta?.series_slug || meta?.slug;
 
-      if (evType === 'rewarded_ad_started') {
+      if (evType === 'upsell_popup_impression') {
+        const b = ensureUpsellBucket(meta);
+        b.impressions += 1;
+      } else if (evType === 'upsell_popup_cta_click') {
+        const b = ensureUpsellBucket(meta);
+        b.clicks += 1;
+      } else if (evType === 'upsell_popup_checkout_started') {
+        const b = ensureUpsellBucket(meta);
+        b.checkoutsStarted += 1;
+      } else if (evType === 'upsell_popup_converted_paid') {
+        const b = ensureUpsellBucket(meta);
+        b.paidConversions += 1;
+        b.revenueDollars += Number(meta?.revenue_dollars || 0);
+      } else if (evType === 'rewarded_ad_started') {
         rewardedAdStarted += 1;
       } else if (evType === 'rewarded_ad_completed') {
         rewardedAdCompleted += 1;
@@ -1331,6 +1522,43 @@ export const AnalyticsDashboard = () => {
       }
     });
 
+    const upsellPopupFunnelRows: UpsellPopupFunnelRow[] = Array.from(
+      upsellStatsByPopupId.values()
+    )
+      .map(item => {
+        const effImpressions = Math.max(item.impressions, item.clicks);
+        const ctrPct = effImpressions > 0 ? (item.clicks / effImpressions) * 100 : 0;
+        const conversionRatePct =
+          effImpressions > 0 ? (item.paidConversions / effImpressions) * 100 : 0;
+        const clickToPaidPct =
+          item.clicks > 0 ? (item.paidConversions / item.clicks) * 100 : 0;
+        return {
+          ...item,
+          impressions: effImpressions,
+          ctrPct,
+          conversionRatePct,
+          clickToPaidPct
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.paidConversions - a.paidConversions ||
+          b.clicks - a.clicks ||
+          b.impressions - a.impressions
+      );
+
+    const upsellTotals = upsellPopupFunnelRows.reduce(
+      (acc, r) => {
+        acc.impressions += r.impressions;
+        acc.clicks += r.clicks;
+        acc.checkoutsStarted += r.checkoutsStarted;
+        acc.paidConversions += r.paidConversions;
+        acc.revenueDollars += r.revenueDollars;
+        return acc;
+      },
+      { impressions: 0, clicks: 0, checkoutsStarted: 0, paidConversions: 0, revenueDollars: 0 }
+    );
+
     const totalRewardedAdWatches = Math.max(
       rewardedAdStarted,
       rewardedAdCompleted,
@@ -1340,7 +1568,7 @@ export const AnalyticsDashboard = () => {
 
     const telemetryStats = {
       total_sessions: Math.max(uniqueSessions.size, vLifetime),
-      unique_visitors: Math.max(uniqueVisitorIds.size, vLifetime),
+      unique_visitors: vLifetime,
       store_visits: storeClicks,
       banner_clicks: bannerClicks,
       rewarded_ad_watches: totalRewardedAdWatches,
@@ -1448,21 +1676,19 @@ export const AnalyticsDashboard = () => {
     };
 
     // =========================================================================
-    // REAL-TIME SALES GOALS & UNIT ECONOMICS ENGINE (PER PLAN DOC)
+    // REAL-TIME SALES GOALS & IN-APP STORE ECONOMICS ENGINE
     // =========================================================================
     const promoCodesRows: any[] = rawTables.promoCodes || [];
     const storeProductsRows: any[] = rawTables.storeProducts || [];
 
-    // Count organic vs creator-referred annual subs
     const creatorReferredAnnualCount = annualPlanProfiles.filter((p: any) =>
-      Boolean(p.referred_by || p.referral_code || p.creator_referral)
+      Boolean(p.referred_by || p.referred_by_code || p.referral_code || p.creator_referral)
     ).length;
     const organicAnnualCount = Math.max(
       0,
       annualPlanProfiles.length - creatorReferredAnnualCount
     );
 
-    // Count bundle purchases / redemptions from promo_codes + unlocked paid bundle skins
     const paidBundleSkinIds = new Set<string>();
     storeProductsRows.forEach((prod: any) => {
       if (Number(prod.listed_price_dollars || 0) >= 15 || prod.product_type === 'bundle') {
@@ -1498,18 +1724,49 @@ export const AnalyticsDashboard = () => {
       })
       .reduce((sum: number, r: any) => sum + Number(r.times_used || 0), 0);
 
-    const actualBundlesSoldCount = Math.max(profilesWithPaidBundle, redeemedBundlePromoCount);
+    let ledgerGrossDollars = 0;
+    let ledgerNetSatAmDollars = 0;
+    let ledgerCreatorBountiesDollars = 0;
+    let ledgerDevAllocDollars = 0;
+    let ledgerBundlesCount = 0;
+    let ledgerSkinsAndPacksCount = 0;
+    let ledgerSalesLast30dDollars = 0;
+    let ledgerSalesPrior30dDollars = 0;
+
+    storeLedgerData.forEach((row: any) => {
+      const g = Number(row.gross_amount_dollars || 0);
+      const net = Number(row.net_saturday_am_dollars || 0);
+      const bounty = Number(row.creator_bounty_dollars || 0);
+      const dev = Number(row.dev_allocation_dollars || 0);
+      const pType = String(row.product_type || 'bundle').toLowerCase();
+
+      ledgerGrossDollars += g;
+      ledgerNetSatAmDollars += net;
+      ledgerCreatorBountiesDollars += bounty;
+      ledgerDevAllocDollars += dev;
+
+      if (pType === 'bundle') ledgerBundlesCount += 1;
+      else ledgerSkinsAndPacksCount += 1;
+
+      if (row.created_at) {
+        const dt = new Date(row.created_at);
+        if (!isNaN(dt.getTime())) {
+          if (dt >= startOfMonth) ledgerSalesLast30dDollars += g;
+          else if (dt >= startOfLastMonth && dt < startOfMonth) ledgerSalesPrior30dDollars += g;
+        }
+      }
+    });
+
+    const actualBundlesSoldCount = Math.max(
+      ledgerBundlesCount,
+      profilesWithPaidBundle,
+      redeemedBundlePromoCount
+    );
     const aLaCarteSkinsSoldCount = Math.max(
-      0,
+      ledgerSkinsAndPacksCount,
       totalUnlockedPaidSkinsCount - actualBundlesSoldCount * 2
     );
 
-    // Net Retained Cash calculations per Plan Doc:
-    // - Monthly Sub ($1.99/mo): $17.75 net annual run-rate ($1.48/mo net after Stripe + $0.15/mo Dev)
-    // - Organic $20 Annual Sub: $17.62 net retained ($1.50/yr Dev, $0.88 Stripe)
-    // - Creator-Referred $20 Annual Sub: $12.62 net retained ($5.00 Creator Bounty, $1.50/yr Dev, $0.88 Stripe)
-    // - Promo $25 Series Bundle: $17.47 net retained ($5.00 Creator Bounty, $1.50/yr Dev, $1.03 Stripe)
-    // - GAM / Rewarded Video Ads ($3.50 blended eCPM, 85% retained by Saturday AM = $2.975 net per 1,000 views)
     const monthlySubsCount = monthlyPlanProfiles.length;
     const annualSubsCount = annualPlanProfiles.length;
 
@@ -1519,10 +1776,9 @@ export const AnalyticsDashboard = () => {
     const netTotalSubCashYr =
       netMonthlySubsAnnualRunRate + netOrganicAnnualCash + netReferredAnnualCash;
 
-    const netBundleCashYr = actualBundlesSoldCount * 17.47;
-    const netALaCarteCashYr = aLaCarteSkinsSoldCount * 0.99;
+    const netBundleCashYr = Math.max(ledgerNetSatAmDollars, actualBundlesSoldCount * 17.47);
+    const netALaCarteCashYr = aLaCarteSkinsSoldCount * 5.0;
 
-    // Monthly ad impressions = 30d chapter reads + rewarded video ad watches + banner impressions
     const monthlyAdImpressions =
       globalStats.reads_month + totalRewardedAdWatches * 2 + bannerClicks;
     const annualizedAdImpressions = monthlyAdImpressions * 12;
@@ -1530,19 +1786,31 @@ export const AnalyticsDashboard = () => {
     const netAdCashYr = grossAdCashYr * 0.85;
     const adInfraAllocationYr = grossAdCashYr * 0.15;
 
-    // Developer Infrastructure Allocation ($0.15/mo on monthly + $1.50/yr on annual & bundles)
     const devMonthlyAllocationYr = monthlySubsCount * 0.15 * 12;
-    const devAnnualAllocationYr = (annualSubsCount + actualBundlesSoldCount) * 1.5;
+    const devAnnualAllocationYr = Math.max(
+      ledgerDevAllocDollars,
+      (annualSubsCount + actualBundlesSoldCount) * 1.5
+    );
     const totalDevAllocationYr =
       devMonthlyAllocationYr + devAnnualAllocationYr + adInfraAllocationYr;
 
-    // Creator Bounties ($5.00 per referred annual sub or series bundle)
     const totalCreatorBountiesYr =
-      (creatorReferredAnnualCount + actualBundlesSoldCount) * 5.0 + totalTipDollars;
+      Math.max(
+        ledgerCreatorBountiesDollars,
+        (creatorReferredAnnualCount + actualBundlesSoldCount) * 5.0
+      ) + totalTipDollars;
 
     const combinedCompanyNetCashYr =
       netTotalSubCashYr + netBundleCashYr + netALaCarteCashYr + netAdCashYr;
     const estMonthlyNetCashFlow = combinedCompanyNetCashYr / 12;
+
+    const grossSubsCashYr = monthlySubsCount * 1.99 * 12 + annualSubsCount * 20.0;
+    const grossStoreAndBundlesDollars = Math.max(
+      ledgerGrossDollars,
+      actualBundlesSoldCount * 24.99 + aLaCarteSkinsSoldCount * 5.0
+    );
+    const totalGrossInAppVolume =
+      grossSubsCashYr + grossStoreAndBundlesDollars + totalTipDollars;
 
     const currentConversionPct =
       totalUsers > 0 ? Number(((premiumUsers / totalUsers) * 100).toFixed(2)) : 0;
@@ -1569,7 +1837,13 @@ export const AnalyticsDashboard = () => {
       totalDevAllocationYr,
       totalCreatorBountiesYr,
       combinedCompanyNetCashYr,
-      estMonthlyNetCashFlow
+      estMonthlyNetCashFlow,
+      grossSubsCashYr,
+      grossStoreAndBundlesDollars,
+      totalGrossInAppVolume,
+      storeLedgerCount: storeLedgerData.length,
+      ledgerSalesLast30dDollars,
+      ledgerSalesPrior30dDollars
     };
 
     const rawSeriesSource =
@@ -1669,14 +1943,19 @@ export const AnalyticsDashboard = () => {
           et.includes('loadout') ||
           et.includes('bingo') ||
           et.includes('leaderboard') ||
-          et.includes('rewarded_ad')
+          et.includes('rewarded_ad') ||
+          et.includes('upsell_popup_converted_paid')
         );
       })
       .slice(-10)
       .forEach((t: any) => {
         const et = String(t.event_type || t.event_name || '').toLowerCase();
         const meta = t.metadata || t.event_data || {};
-        const label = et.includes('rewarded_ad_completed') || et.includes('rewarded_ad_unlock')
+        const label = et.includes('upsell_popup_converted_paid')
+          ? `Upsell Popup "${meta?.popup_title || 'PLUS Offer'}" converted to Paid Sub ($${
+              meta?.revenue_dollars || 20
+            })`
+          : et.includes('rewarded_ad_completed') || et.includes('rewarded_ad_unlock')
           ? `Fan watched Rewarded Video Ad to unlock ${meta?.series_title || 'a chapter'}${
               meta?.chapter_number ? ` Ch. ${meta.chapter_number}` : ''
             }`
@@ -1836,6 +2115,8 @@ export const AnalyticsDashboard = () => {
       telemetryStats,
       engagementBreakdown,
       salesPlanProgress,
+      upsellPopupFunnelRows,
+      upsellTotals,
       recentActivityFeed: feedItems.slice(0, 12),
       seriesStats
     };
@@ -1926,6 +2207,8 @@ export const AnalyticsDashboard = () => {
     telemetryStats,
     engagementBreakdown,
     salesPlanProgress,
+    upsellPopupFunnelRows,
+    upsellTotals,
     recentActivityFeed
   } = computed;
 
@@ -3010,7 +3293,7 @@ export const AnalyticsDashboard = () => {
                 </h3>
               </div>
               <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-                Unique Active Users Across Reads, Hypes, Likes, Reacts & Sessions
+                Verified Registered Active Accounts (Excludes Anonymous Tab Sessions)
               </span>
             </div>
 
@@ -3233,134 +3516,271 @@ export const AnalyticsDashboard = () => {
             </div>
           </div>
 
-          {/* CHAPTER READS ACROSS TIMEFRAMES */}
-          <div>
-            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-3 flex items-center gap-2">
-              <BookOpen className="w-3.5 h-3.5 text-[#fe9a00]" /> Chapter Reading Velocity (vs
-              Previous Period)
-            </h3>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-              <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl relative">
+          {/* =================================================================== */}
+          {/* IN-APP SALES & MONETIZATION PERFORMANCE                             */}
+          {/* =================================================================== */}
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h3 className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4 text-[#fe9a00]" /> In-App Sales, Subscriptions &
+                Store Monetization Performance
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveTab('sales_goals')}
+                className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] hover:text-white transition-colors cursor-pointer self-start sm:self-auto"
+              >
+                Open Full Sales Goals Roadmap →
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* 1. Total Gross In-App Sales Volume */}
+              <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <Clock className="w-3.5 h-3.5 text-[#fe9a00]" />
-                    <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest">
-                      Today
+                    <DollarSign className="w-4 h-4 text-[#fe9a00]" />
+                    <span className="text-[10px] text-zinc-300 font-black uppercase tracking-widest">
+                      Gross In-App Volume (Yr)
                     </span>
                   </div>
                   <TrendBadge
-                    current={globalStats.reads_today || 0}
-                    past={globalStats.reads_yesterday || 0}
+                    current={salesPlanProgress.ledgerSalesLast30dDollars}
+                    past={salesPlanProgress.ledgerSalesPrior30dDollars}
+                    label="30d"
                   />
                 </div>
                 <span className="text-2xl font-black text-white">
-                  {(globalStats.reads_today || 0).toLocaleString()}
+                  ${Math.round(salesPlanProgress.totalGrossInAppVolume).toLocaleString()}
                 </span>
-                <span className="text-[10px] text-zinc-500 font-bold block mt-1">
-                  Yesterday: {(globalStats.reads_yesterday || 0).toLocaleString()}
+                <span className="text-[10px] text-zinc-400 font-bold block mt-1">
+                  Subs: ${Math.round(salesPlanProgress.grossSubsCashYr).toLocaleString()} • Store/Bundles: $
+                  {Math.round(salesPlanProgress.grossStoreAndBundlesDollars).toLocaleString()} • Tips: $
+                  {Math.round(engagementBreakdown.creatorTipsDollars).toLocaleString()}
                 </span>
               </div>
 
-              <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
+              {/* 2. Saturday AM Net Retained Cash */}
+              <div className="bg-gradient-to-br from-emerald-950/35 via-zinc-950 to-black border border-emerald-500/40 p-4 rounded-xl flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                    <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest">
-                      This Week (7d)
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span className="text-[10px] text-emerald-300 font-black uppercase tracking-widest">
+                      Sat AM Net Retained (Yr)
                     </span>
                   </div>
-                  <TrendBadge
-                    current={globalStats.reads_week || 0}
-                    past={globalStats.reads_last_week || 0}
-                  />
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-black uppercase">
+                    ~${Math.round(salesPlanProgress.estMonthlyNetCashFlow).toLocaleString()}/mo
+                  </span>
                 </div>
-                <span className="text-2xl font-black text-white">
-                  {(globalStats.reads_week || 0).toLocaleString()}
+                <span className="text-2xl font-black text-emerald-400">
+                  ${Math.round(salesPlanProgress.combinedCompanyNetCashYr).toLocaleString()}
                 </span>
-                <span className="text-[10px] text-zinc-500 font-bold block mt-1">
-                  Prior 7d: {(globalStats.reads_last_week || 0).toLocaleString()}
+                <span className="text-[10px] text-zinc-400 font-bold block mt-1">
+                  Net cash retained after Stripe fees, Creator Bounties & Dev Allocations
                 </span>
               </div>
 
-              <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
+              {/* 3. Collector Subscriptions & Bundles Sold */}
+              <div className="bg-zinc-950 border border-[#fe9a00]/40 p-4 rounded-xl flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                    <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest">
-                      This Month (30d)
+                    <Package className="w-4 h-4 text-[#fe9a00]" />
+                    <span className="text-[10px] text-[#fe9a00] font-black uppercase tracking-widest">
+                      Collector Bundles Sold
                     </span>
                   </div>
-                  <TrendBadge
-                    current={globalStats.reads_month || 0}
-                    past={globalStats.reads_last_month || 0}
-                  />
+                  <span className="px-2 py-0.5 rounded-full bg-[#fe9a00]/20 text-[#fe9a00] text-[9px] font-black uppercase">
+                    $24.99–$35.00
+                  </span>
                 </div>
                 <span className="text-2xl font-black text-white">
-                  {(globalStats.reads_month || 0).toLocaleString()}
+                  {salesPlanProgress.actualBundlesSoldCount.toLocaleString()}{' '}
+                  <span className="text-xs font-bold text-zinc-400">bundles</span>
                 </span>
-                <span className="text-[10px] text-zinc-500 font-bold block mt-1">
-                  Prior 30d: {(globalStats.reads_last_month || 0).toLocaleString()}
+                <span className="text-[10px] text-zinc-400 font-bold block mt-1">
+                  Net Bundle Cash: ${Math.round(salesPlanProgress.netBundleCashYr).toLocaleString()}{' '}
+                  ($5.00 Creator Bounty included)
                 </span>
               </div>
 
-              <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
+              {/* 4. Individual Card Skins ($10+) & Avatar Packs ($5+) */}
+              <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <Activity className="w-3.5 h-3.5 text-zinc-500" />
-                    <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest">
-                      This Quarter (90d)
+                    <CreditCard className="w-4 h-4 text-purple-400" />
+                    <span className="text-[10px] text-zinc-300 font-black uppercase tracking-widest">
+                      Skins & Avatar Packs
                     </span>
                   </div>
-                  <TrendBadge
-                    current={globalStats.reads_quarter || 0}
-                    past={globalStats.reads_last_quarter || 0}
-                  />
+                  <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[9px] font-black uppercase">
+                    100% Platform
+                  </span>
                 </div>
                 <span className="text-2xl font-black text-white">
-                  {(globalStats.reads_quarter || 0).toLocaleString()}
+                  {salesPlanProgress.aLaCarteSkinsSoldCount.toLocaleString()}{' '}
+                  <span className="text-xs font-bold text-zinc-400">unlocked</span>
                 </span>
-                <span className="text-[10px] text-zinc-500 font-bold block mt-1">
-                  Prior 90d: {(globalStats.reads_last_quarter || 0).toLocaleString()}
+                <span className="text-[10px] text-zinc-400 font-bold block mt-1">
+                  {telemetryStats.store_visits.toLocaleString()} Store Visits • 100% Platform Revenue
                 </span>
               </div>
 
-              <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl">
+              {/* 5. Direct Creator Tips & Fan Mail */}
+              <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-xl flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="w-3.5 h-3.5 text-zinc-500" />
-                    <span className="text-[10px] text-zinc-400 font-black uppercase tracking-widest">
-                      This Year (365d)
+                    <Heart className="w-4 h-4 text-red-400" />
+                    <span className="text-[10px] text-zinc-300 font-black uppercase tracking-widest">
+                      Direct Creator Tips
                     </span>
                   </div>
-                  <TrendBadge
-                    current={globalStats.reads_year || 0}
-                    past={globalStats.reads_last_year || 0}
-                  />
+                  <span className="px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 text-[9px] font-black uppercase">
+                    100% Pass-Through
+                  </span>
                 </div>
-                <span className="text-2xl font-black text-white">
-                  {(globalStats.reads_year || 0).toLocaleString()}
+                <span className="text-2xl font-black text-[#fe9a00]">
+                  ${engagementBreakdown.creatorTipsDollars.toLocaleString()}
                 </span>
-                <span className="text-[10px] text-zinc-500 font-bold block mt-1">
-                  Prior Year: {(globalStats.reads_last_year || 0).toLocaleString()}
+                <span className="text-[10px] text-zinc-400 font-bold block mt-1">
+                  Across {engagementBreakdown.creatorTipsCount.toLocaleString()} Fan Tip Transactions
                 </span>
               </div>
 
-              <div className="bg-gradient-to-br from-black via-zinc-950 to-amber-950/30 border border-[#fe9a00]/40 p-4 rounded-xl">
+              {/* 6. 100% Completed Chapters & Reader Completion Ratio */}
+              <div className="bg-gradient-to-br from-black via-zinc-950 to-amber-950/30 border border-[#fe9a00]/40 p-4 rounded-xl flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span className="text-[10px] text-[#fe9a00] font-black uppercase tracking-widest">
                       100% Completed Chapters
                     </span>
                   </div>
+                  <span className="px-2 py-0.5 rounded-full bg-[#fe9a00]/20 text-[#fe9a00] text-[9px] font-black uppercase">
+                    {completionRatio}% Rate
+                  </span>
                 </div>
                 <span className="text-2xl font-black text-[#fe9a00]">
                   {globalStats.completed_lifetime.toLocaleString()}
                 </span>
                 <span className="text-[10px] text-zinc-400 font-bold block mt-1">
-                  Out of {globalStats.reads_lifetime.toLocaleString()} Opened ({completionRatio}%)
+                  Out of {globalStats.reads_lifetime.toLocaleString()} Chapters Opened
                 </span>
               </div>
+            </div>
+          </div>
+
+          {/* =================================================================== */}
+          {/* UPSELL POP-UP CONVERSION PERFORMANCE TABLE                          */}
+          {/* =================================================================== */}
+          <div className="bg-black/90 border border-[#fe9a00]/40 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-5 border-b border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-950">
+              <div>
+                <div className="flex items-center gap-2 text-[#fe9a00] text-[10px] font-black uppercase tracking-widest mb-0.5">
+                  <Sparkles className="w-3.5 h-3.5" /> Live Upsell Attribution Funnel
+                </div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-white">
+                  Upsell Pop-Up Conversion Performance (Impressions → CTA Clicks → Paid Subscriptions)
+                </h3>
+                <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                  Tracks every Command Center Upsell Card, Event Bundle Popup, and Fallback Card from impression to completed paid subscription
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest shrink-0">
+                <span className="bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg text-zinc-300">
+                  Shown: <strong className="text-white">{upsellTotals.impressions.toLocaleString()}</strong>
+                </span>
+                <span className="bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg text-[#fe9a00]">
+                  Clicks: <strong className="text-white">{upsellTotals.clicks.toLocaleString()}</strong>
+                </span>
+                <span className="bg-emerald-950/60 border border-emerald-500/40 px-3 py-1.5 rounded-lg text-emerald-300">
+                  Paid Subs: <strong className="text-white">{upsellTotals.paidConversions.toLocaleString()}</strong> ($
+                  {upsellTotals.revenueDollars.toFixed(2)})
+                </span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[880px]">
+                <thead>
+                  <tr className="bg-zinc-900/90 border-b border-zinc-800 text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                    <th className="p-4">Upsell Pop-Up Title & Badge</th>
+                    <th className="p-4">Type / Target</th>
+                    <th className="p-4 text-right">Impressions</th>
+                    <th className="p-4 text-right text-[#fe9a00]">CTA Clicks</th>
+                    <th className="p-4 text-right">Click CTR %</th>
+                    <th className="p-4 text-right text-purple-300">Checkouts Started</th>
+                    <th className="p-4 text-right text-emerald-400">Paid Conversions</th>
+                    <th className="p-4 text-right">Click → Paid %</th>
+                    <th className="p-4 text-right text-[#fe9a00]">Attributed Rev</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/70 text-xs font-bold">
+                  {upsellPopupFunnelRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={9}
+                        className="p-8 text-center text-zinc-500 font-bold uppercase tracking-widest text-xs"
+                      >
+                        No upsell pop-ups configured yet. Add upsell cards in the Command Center or trigger a popup in-app to begin tracking conversions.
+                      </td>
+                    </tr>
+                  ) : (
+                    upsellPopupFunnelRows.map((row: UpsellPopupFunnelRow) => (
+                      <tr key={row.id} className="hover:bg-zinc-900/60 transition-colors">
+                        <td className="p-4">
+                          <div className="flex flex-col">
+                            <span className="font-black text-white uppercase italic tracking-wide">
+                              {row.title}
+                            </span>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] mt-0.5">
+                              {row.badge}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-[9px] font-black uppercase tracking-wider text-zinc-300 block w-max">
+                            {row.popupType}
+                          </span>
+                          <span className="text-[9px] text-zinc-500 font-bold uppercase mt-0.5 block">
+                            Target: {row.targetAudience.replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td className="p-4 text-right font-black text-zinc-200">
+                          {row.impressions.toLocaleString()}
+                        </td>
+                        <td className="p-4 text-right font-black text-[#fe9a00]">
+                          {row.clicks.toLocaleString()}
+                        </td>
+                        <td className="p-4 text-right font-bold text-zinc-300">
+                          {row.ctrPct.toFixed(1)}%
+                        </td>
+                        <td className="p-4 text-right font-bold text-purple-300">
+                          {row.checkoutsStarted.toLocaleString()}
+                        </td>
+                        <td className="p-4 text-right">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                              row.paidConversions > 0
+                                ? 'bg-emerald-500 text-black'
+                                : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
+                            }`}
+                          >
+                            {row.paidConversions.toLocaleString()} Paid
+                          </span>
+                        </td>
+                        <td className="p-4 text-right font-black text-emerald-400">
+                          {row.clickToPaidPct.toFixed(1)}%
+                        </td>
+                        <td className="p-4 text-right font-black text-[#fe9a00]">
+                          ${row.revenueDollars.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
 

@@ -18,10 +18,14 @@ import {
   X,
   ArrowDown
 } from 'lucide-react';
-import { supabase } from '../supabase';
+import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { doCreatorNamesMatch } from '../VirtualProfile/BingoBook';
 import { isItemWithinSchedule } from './InAppStoreSection';
+import {
+  getPendingUpsellPopupAttribution,
+  clearUpsellPopupAttribution
+} from '../Components/PromoModal';
 
 export interface BundlePayload {
   include_1yr_sub?: boolean;
@@ -66,6 +70,29 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   const [redeemError, setRedeemError] = useState<string | null>(null);
 
   const [referralCode, setReferralCode] = useState('');
+
+  // Record Upsell Popup -> Paid Subscription conversion if the user arrived via an Upsell Popup
+  const logUpsellConversionIfPresent = useCallback(
+    async (
+      conversionSource: 'stripe_subscription' | 'stripe_bundle' | 'promo_code',
+      planType: 'monthly' | 'annual' | 'bundle',
+      revenueDollars: number
+    ) => {
+      const pendingAttr = getPendingUpsellPopupAttribution();
+      if (!pendingAttr) return;
+
+      await trackTelemetry('upsell_popup_converted_paid', {
+        ...pendingAttr,
+        conversion_source: conversionSource,
+        plan_type: planType,
+        revenue_dollars: revenueDollars,
+        converted_at: new Date().toISOString()
+      });
+
+      clearUpsellPopupAttribution();
+    },
+    []
+  );
 
   // Hide floating Hype pill when the Upsell Modal is open
   useEffect(() => {
@@ -413,6 +440,11 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               },
               Boolean(profile?.is_premium)
             );
+            await logUpsellConversionIfPresent(
+              'stripe_bundle',
+              'bundle',
+              Number(purchasedBundle.price_dollars || 24.99)
+            );
             setRedeemSuccess(
               `${purchasedBundle.title} Activated! Unlocked: ${parts.join(' • ')}!`
             );
@@ -437,6 +469,14 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             })
             .eq('id', user.id);
 
+          const savedPlan =
+            (sessionStorage.getItem('am_last_checkout_plan') as 'monthly' | 'annual') || 'annual';
+          await logUpsellConversionIfPresent(
+            'stripe_subscription',
+            savedPlan,
+            savedPlan === 'annual' ? 20.0 : 1.99
+          );
+
           setIsPremium(true);
           setRedeemSuccess(
             'Welcome to Saturday AM+ PLUS! Your membership and 3 Weekly Super Hypes are now active.'
@@ -446,7 +486,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         }
       }
     });
-  }, [userTier, grantBundleRewardsToUser]);
+  }, [userTier, grantBundleRewardsToUser, logUpsellConversionIfPresent]);
 
   // Unified list of available Collector's Bundles
   const unifiedBundles = useMemo(() => {
@@ -541,6 +581,17 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       const cleanRef = referralCode.trim().toUpperCase();
       if (cleanRef) {
         localStorage.setItem('am_referral_code', cleanRef);
+      }
+
+      sessionStorage.setItem('am_last_checkout_plan', plan);
+
+      const pendingAttr = getPendingUpsellPopupAttribution();
+      if (pendingAttr) {
+        trackTelemetry('upsell_popup_checkout_started', {
+          ...pendingAttr,
+          plan_type: plan,
+          price_dollars: plan === 'annual' ? 20.0 : 1.99
+        });
       }
 
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
@@ -643,6 +694,16 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       }
 
       const listedPrice = Number(bundle.price_dollars || 24.99);
+      const pendingAttr = getPendingUpsellPopupAttribution();
+      if (pendingAttr) {
+        trackTelemetry('upsell_popup_checkout_started', {
+          ...pendingAttr,
+          plan_type: 'bundle',
+          bundle_title: bundle.title,
+          price_dollars: listedPrice
+        });
+      }
+
       const returnUrl =
         bundle.source === 'store_product'
           ? `${window.location.origin}/?view=shop&store_product_success=${encodeURIComponent(
@@ -871,6 +932,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           alreadyPremium
         );
 
+        await logUpsellConversionIfPresent('promo_code', 'annual', 20.0);
+
         setPromoCode('');
         setRedeemSuccess(
           `${rawBundle.bundle_title ? `${rawBundle.bundle_title} Unlocked!` : 'Code Activated!'} You received: ${unlockedParts.join(' + ')}!`
@@ -909,6 +972,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           super_hypes_left: nextActive
         })
         .eq('id', activeUserId);
+
+      await logUpsellConversionIfPresent('promo_code', 'annual', 20.0);
 
       setIsPremium(true);
       setPromoCode('');
