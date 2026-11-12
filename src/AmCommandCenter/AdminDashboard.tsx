@@ -1764,9 +1764,6 @@ const PromoCodeManager = () => {
         </div>
       </div>
 
-      {/* =====================================================================
-          CUSTOM BUNDLE & ACCESS CODE BUILDER FORM
-      ===================================================================== */}
       <form
         onSubmit={handleCreateCustomAnnual}
         className="bg-black border-2 border-[#fe9a00]/60 p-6 rounded-2xl space-y-6 shadow-[0_0_30px_rgba(254,154,0,0.1)]"
@@ -1787,7 +1784,6 @@ const PromoCodeManager = () => {
           </label>
         </div>
 
-        {/* Optional Storefront Title / Badge / $30-$35 Price Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1.5">
@@ -1836,7 +1832,6 @@ const PromoCodeManager = () => {
           )}
         </div>
 
-        {/* Access Code, Max Uses, Duration & 1-Yr Sub Toggle */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="md:col-span-2">
             <label className="block text-zinc-400 font-bold uppercase tracking-widest text-[10px] mb-1.5">
@@ -1928,14 +1923,12 @@ const PromoCodeManager = () => {
           </label>
         </div>
 
-        {/* STEP 2: DATABASE REWARD DROPDOWNS (CARD SKIN, 3 AVATARS, SIGNATURE, HYPES) */}
         <div className="pt-4 border-t border-zinc-800 space-y-4">
           <h3 className="text-sm font-black text-[#fe9a00] uppercase tracking-widest flex items-center gap-2">
             <Gift className="w-4 h-4" /> Step 2: Select Optional Database Items to Bundle
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* 1. Hype Card Skin Dropdown */}
             <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 space-y-2">
               <label className="block text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
                 1. Themed Hype Card Skin
@@ -1966,7 +1959,6 @@ const PromoCodeManager = () => {
               )}
             </div>
 
-            {/* 2. Creator / Event Signature Dropdown */}
             <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 space-y-2">
               <label className="block text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
                 2. Creator / Event Gold Signature
@@ -1988,7 +1980,6 @@ const PromoCodeManager = () => {
               </p>
             </div>
 
-            {/* 3. Bonus Hypes Selector */}
             <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 space-y-2">
               <label className="block text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
                 3. Extra Bonus Hypes
@@ -2011,7 +2002,6 @@ const PromoCodeManager = () => {
             </div>
           </div>
 
-          {/* 4. Up to 3 Character Profile Avatars */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-3">
             <label className="block text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
               4. Up to 3 Themed Character Profile Avatars (Avatar #1 Auto-Equips on Profile)
@@ -2065,7 +2055,6 @@ const PromoCodeManager = () => {
         </button>
       </form>
 
-      {/* ACTIVE STOREFRONT THEMED ANNUAL BUNDLES ($30-$35) */}
       {themedBundles.length > 0 && (
         <div className="bg-black border border-[#fe9a00]/40 p-6 rounded-xl space-y-3">
           <h3 className="text-xs font-black uppercase tracking-widest text-[#fe9a00]">
@@ -2132,7 +2121,6 @@ const PromoCodeManager = () => {
         </div>
       )}
 
-      {/* BATCH CSV GENERATOR */}
       <div className="bg-black border border-zinc-800 p-6 rounded-xl flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div className="flex-1">
           <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2 mb-2">
@@ -2159,7 +2147,6 @@ const PromoCodeManager = () => {
         </button>
       </div>
 
-      {/* ACTIVE CODES LEDGER */}
       <div className="bg-black p-6 rounded-xl border border-zinc-800">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-zinc-800">
           <div className="relative flex-1">
@@ -2925,6 +2912,521 @@ const NotificationCenter = () => {
   );
 };
 
+// --- ROTATING VISUAL UPSELL POPUP MANAGER ---
+const UPSELL_COPY_PRESETS = [
+  {
+    label: '#1 Cliffhanger / Vault',
+    audience: 'plus_upsell' as const,
+    badge: 'UNLOCK THE FULL VAULT',
+    title: "DON'T STOP AT THE CLIFFHANGER!",
+    message:
+      'Unlock every single chapter, Completed Run, and exclusive One-Shot in the Saturday AM Vault for less than a soda — just $1.99/mo!',
+    cta: 'Unlock Every Chapter ($1.99)'
+  },
+  {
+    label: '#2 12h Early Access',
+    audience: 'plus_upsell' as const,
+    badge: '12-HOUR VIP EARLY ACCESS',
+    title: 'READ NEW DROPS FIRST!',
+    message:
+      'Why wait? PLUS members unlock weekly chapter drops 12 hours before everyone else — with 100% ad-free reading across all your devices.',
+    cta: 'Get VIP Early Access ($1.99)'
+  },
+  {
+    label: '#3 Loadout & Hype Card',
+    audience: 'plus_upsell' as const,
+    badge: 'ULTIMATE FAN LOADOUT',
+    title: 'SUPERCHARGE YOUR PROFILE!',
+    message:
+      'Stand out in the comments and leaderboards with animated border frames, exclusive Hype Card skins, and 3x Weekly Super Hypes!',
+    cta: 'Upgrade My Loadout ($1.99)'
+  },
+  {
+    label: '#4 Support Creators',
+    audience: 'plus_upsell' as const,
+    badge: 'BACK DIVERSE CREATORS',
+    title: 'FUEL THE MANGA REVOLUTION!',
+    message:
+      'Your $1.99/mo membership directly supports independent global manga creators while unlocking unlimited, ad-free binging across the entire app.',
+    cta: 'Join Saturday AM+ ($1.99)'
+  },
+  {
+    label: '#5 Zero Ads / Speed',
+    audience: 'plus_upsell' as const,
+    badge: '100% AD-FREE BINGING',
+    title: 'ZERO ADS. ZERO LIMITS.',
+    message:
+      'Skip the daily unlock timers forever! Binge Apple Black, Clock Striker, Bully Eater, and 30+ hit series back-to-back without interruptions.',
+    cta: 'Go Ad-Free for $1.99/mo'
+  },
+  {
+    label: '#6 Visitor Free Chapters',
+    audience: 'visitor_signup' as const,
+    badge: 'FREE READER PASS',
+    title: 'UNLOCK FREE CHAPTERS NOW!',
+    message:
+      'Create your free Saturday AM account in 10 seconds to unlock Chapters 1–3, save series to your bookshelf, and claim your Virtual Hype Card!',
+    cta: 'Create Free Account'
+  },
+  {
+    label: '#7 Visitor Hype Card',
+    audience: 'visitor_signup' as const,
+    badge: 'JOIN THE SQUAD',
+    title: 'CLAIM YOUR HYPE CARD!',
+    message:
+      'Sign up free to equip character avatars, drop weekly Hypes on your favorite series, and join the community discussion!',
+    cta: 'Sign Up Free'
+  }
+];
+
+const UpsellPopupManager = ({ Dropzone, setIsDirty }: any) => {
+  const [popups, setPopups] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [badgeText, setBadgeText] = useState('UNLOCK THE FULL VAULT');
+  const [title, setTitle] = useState("DON'T STOP AT THE CLIFFHANGER!");
+  const [message, setMessage] = useState(
+    'Unlock every single chapter, Completed Run, and exclusive One-Shot in the Saturday AM Vault for less than a soda — just $1.99/mo!'
+  );
+  const [ctaText, setCtaText] = useState('Unlock Every Chapter ($1.99)');
+  const [imageUrl, setImageUrl] = useState('');
+  const [targetAudience, setTargetAudience] = useState<'plus_upsell' | 'visitor_signup' | 'both'>('plus_upsell');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [showFullModalPreview, setShowFullModalPreview] = useState(false);
+
+  const fetchPopups = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('upsell_popups')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (data) setPopups(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchPopups();
+  }, [fetchPopups]);
+
+  const applyPreset = (preset: (typeof UPSELL_COPY_PRESETS)[number]) => {
+    setTargetAudience(preset.audience);
+    setBadgeText(preset.badge);
+    setTitle(preset.title);
+    setMessage(preset.message);
+    setCtaText(preset.cta);
+  };
+
+  const handleEditPopup = (item: any) => {
+    setEditingId(item.id);
+    setTargetAudience(item.target_audience || 'plus_upsell');
+    setBadgeText(item.badge_text || 'SATURDAY AM+ PLUS');
+    setTitle(item.title || '');
+    setMessage(item.message || '');
+    setCtaText(item.cta_text || 'Upgrade to PLUS ($1.99/mo)');
+    setImageUrl(item.image_url || '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setImageUrl('');
+  };
+
+  const handleSavePopup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!imageUrl) return alert('Please upload a 16:9 banner image (1200x675 recommended)!');
+    if (!title.trim() || !message.trim()) return alert('Please enter a Headline and Message!');
+
+    setIsSaving(true);
+    setSaveSuccessMsg(null);
+
+    const payload = {
+      badge_text: badgeText.trim() || 'SATURDAY AM+ PLUS',
+      title: title.trim(),
+      message: message.trim(),
+      cta_text: ctaText.trim() || 'Upgrade to PLUS ($1.99/mo)',
+      image_url: imageUrl,
+      target_audience: targetAudience,
+      is_active: true
+    };
+
+    const { error } = editingId
+      ? await supabase.from('upsell_popups').update(payload).eq('id', editingId)
+      : await supabase.from('upsell_popups').insert([payload]);
+
+    setIsSaving(false);
+
+    if (error) {
+      alert('Error saving upsell popup: ' + error.message);
+    } else {
+      if (setIsDirty) setIsDirty(false);
+      setSaveSuccessMsg(
+        editingId
+          ? `Saved changes to "${title}"!`
+          : `Saved "${title}" & added to live popup rotation!`
+      );
+      setTimeout(() => setSaveSuccessMsg(null), 5000);
+      setEditingId(null);
+      setImageUrl('');
+      fetchPopups();
+    }
+  };
+
+  const handleToggleActive = async (item: any) => {
+    await supabase
+      .from('upsell_popups')
+      .update({ is_active: !item.is_active })
+      .eq('id', item.id);
+    if (setIsDirty) setIsDirty(false);
+    fetchPopups();
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Delete this upsell popup card from rotation?')) return;
+    await supabase.from('upsell_popups').delete().eq('id', id);
+    if (setIsDirty) setIsDirty(false);
+    fetchPopups();
+  };
+
+  const renderExactUserPopupPreview = (isModalOverlay = false) => (
+    <div
+      className="bg-zinc-950 border-2 border-[#fe9a00]/80 rounded-3xl w-full max-w-md mx-auto flex flex-col items-center text-center shadow-[0_0_50px_rgba(254,154,0,0.25)] relative overflow-hidden"
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="relative w-full aspect-[16/9] bg-zinc-900 overflow-hidden">
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={title || 'Popup Preview'}
+            className="w-full h-full object-cover object-top scale-105 transition-transform duration-700"
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-[#fe9a00]/25 via-zinc-900 to-black flex flex-col items-center justify-center p-4">
+            <Sparkles className="w-10 h-10 text-[#fe9a00] mb-2 animate-pulse" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+              Upload 1200x675 Art on Left to Preview
+            </span>
+          </div>
+        )}
+
+        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/35 to-black/20 pointer-events-none" />
+
+        <div className="absolute top-3.5 left-4 z-10">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/80 backdrop-blur-md border border-[#fe9a00]/60 text-[#fe9a00] text-[9px] font-black uppercase tracking-widest shadow-lg">
+            <Sparkles className="w-3 h-3 fill-[#fe9a00]" />
+            {badgeText || 'SATURDAY AM+ PLUS'}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (isModalOverlay) setShowFullModalPreview(false);
+          }}
+          className="absolute top-3.5 right-3.5 z-20 p-2 rounded-full bg-black/75 hover:bg-[#fe9a00] text-zinc-300 hover:text-black border border-zinc-700 transition-colors cursor-pointer"
+          title="Close button preview"
+        >
+          <XCircle className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="px-6 sm:px-8 pb-7 pt-2 w-full flex flex-col items-center -mt-4 relative z-10">
+        <h2 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tighter text-white leading-none mb-3 drop-shadow-md">
+          {title || 'YOUR HEADLINE HERE'}
+        </h2>
+
+        <p className="text-zinc-300 text-xs sm:text-sm font-bold leading-relaxed mb-5 max-w-sm">
+          {message || 'Your upsell message will appear right here in real time as you type.'}
+        </p>
+
+        <div className="w-full mb-4 flex flex-col items-center justify-center">
+          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+            + Have a Promo or Gift Code?
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (isModalOverlay) setShowFullModalPreview(false);
+          }}
+          className="w-full font-black uppercase tracking-widest text-xs sm:text-sm py-4 rounded-xl transition-all shadow-[0_0_25px_rgba(254,154,0,0.4)] bg-gradient-to-r from-[#fe9a00] via-amber-400 to-[#fe9a00] hover:from-white hover:to-white text-black cursor-pointer flex items-center justify-center gap-2"
+        >
+          <Flame className="w-4 h-4 fill-black" />
+          <span>{ctaText || 'Upgrade to PLUS ($1.99/mo)'}</span>
+        </button>
+
+        <span className="mt-3.5 text-[10px] text-zinc-500 font-bold uppercase tracking-widest">
+          Maybe Later
+        </span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg max-w-5xl animate-fade-in space-y-8">
+      {showFullModalPreview && (
+        <div
+          className="fixed inset-0 z-[9500] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+          onClick={() => setShowFullModalPreview(false)}
+        >
+          {renderExactUserPopupPreview(true)}
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+        <div className="flex items-center gap-3">
+          <Sparkles className="w-6 h-6 text-[#fe9a00]" />
+          <div>
+            <h2 className="text-xl font-black uppercase italic tracking-widest text-[#fe9a00]">
+              Rotating Visual Upsell Popups
+            </h2>
+            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+              Upload 1200x675 (16:9) Artwork &amp; Custom PLUS Upsell Messages — Randomized Automatically for Visitors &amp; Free Readers
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowFullModalPreview(true)}
+          className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-colors cursor-pointer shrink-0"
+        >
+          <Eye className="w-3.5 h-3.5" /> Pop Out Full-Screen Test
+        </button>
+      </div>
+
+      {saveSuccessMsg && (
+        <div className="bg-emerald-950/90 border-2 border-emerald-500 rounded-2xl p-4 flex items-center justify-between gap-3 text-emerald-200 text-xs font-black uppercase tracking-wider animate-fade-in">
+          <div className="flex items-center gap-2.5">
+            <Check className="w-5 h-5 text-emerald-400 shrink-0" />
+            <span>{saveSuccessMsg}</span>
+          </div>
+        </div>
+      )}
+
+      {/* 1-CLICK HIGH-CONVERTING COPY PRESET BAR */}
+      <div className="bg-black border border-zinc-800 rounded-2xl p-4 space-y-2.5">
+        <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] block">
+          ⚡ 1-Click High-Converting Copy Presets (Click any of the 7 to Auto-Fill):
+        </span>
+        <div className="flex flex-wrap gap-2">
+          {UPSELL_COPY_PRESETS.map((preset, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => applyPreset(preset)}
+              className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-[#fe9a00] text-zinc-200 hover:text-black border border-zinc-700 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <form onSubmit={handleSavePopup} className="bg-black border border-zinc-800 rounded-2xl p-6 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* LEFT COLUMN: FORM INPUTS */}
+          <div className="lg:col-span-6 space-y-4">
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">
+                Target Audience
+              </label>
+              <select
+                value={targetAudience}
+                onChange={e => setTargetAudience(e.target.value as any)}
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-xs font-bold text-white cursor-pointer focus:outline-none focus:border-[#fe9a00]"
+              >
+                <option value="plus_upsell">Free Accounts -&gt; Upgrade to PLUS ($1.99)</option>
+                <option value="visitor_signup">Visitors -&gt; Create Free Account</option>
+                <option value="both">Both Visitors &amp; Free Accounts</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">
+                Top Pill Badge
+              </label>
+              <input
+                type="text"
+                value={badgeText}
+                onChange={e => setBadgeText(e.target.value.toUpperCase())}
+                placeholder="e.g. UNLOCK THE FULL VAULT"
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs font-black text-[#fe9a00] focus:outline-none focus:border-[#fe9a00]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">
+                Popup Headline *
+              </label>
+              <input
+                type="text"
+                required
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="e.g. DON'T STOP AT THE CLIFFHANGER!"
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-[#fe9a00]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">
+                Upsell Body Copy *
+              </label>
+              <textarea
+                rows={3}
+                required
+                value={message}
+                onChange={e => setMessage(e.target.value)}
+                placeholder="e.g. Unlock every chapter in the vault, read new drops 12 hours early, and claim 3 weekly Super Hypes!"
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs font-bold text-white resize-none focus:outline-none focus:border-[#fe9a00]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">
+                Button Text
+              </label>
+              <input
+                type="text"
+                value={ctaText}
+                onChange={e => setCtaText(e.target.value)}
+                placeholder="e.g. Unlock Every Chapter ($1.99)"
+                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-[#fe9a00]"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-[#fe9a00] mb-1.5">
+                Upload 16:9 Popup Artwork (Recommended: 1200 x 675 px) *
+              </label>
+              <Dropzone
+                label={imageUrl ? '✓ Art Uploaded (Click to Replace)' : '+ Upload 1200x675 Popup Art'}
+                height="p-5"
+                folderPath="upsell-popups"
+                onUploadComplete={(url: string) => setImageUrl(url)}
+              />
+            </div>
+          </div>
+
+          {/* RIGHT COLUMN: REALTIME 1:1 USER MODAL PREVIEW */}
+          <div className="lg:col-span-6 flex flex-col items-center">
+            <div className="w-full flex items-center justify-between mb-2 px-1">
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
+                <Eye className="w-3.5 h-3.5" /> Real-Time 1:1 User Popup Preview
+              </span>
+              <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+                Exact Live Render
+              </span>
+            </div>
+
+            {renderExactUserPopupPreview(false)}
+          </div>
+        </div>
+
+        {/* PROMINENT SAVE BUTTON ROW */}
+        <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
+          {editingId && (
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              className="w-full sm:w-auto px-6 py-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-black uppercase tracking-widest text-xs cursor-pointer"
+            >
+              Cancel Edit
+            </button>
+          )}
+
+          <button
+            type="submit"
+            disabled={isSaving || !imageUrl || !title.trim()}
+            className="flex-1 w-full py-4 bg-gradient-to-r from-[#fe9a00] via-amber-400 to-[#fe9a00] hover:from-white hover:to-white text-black font-black uppercase tracking-widest text-xs sm:text-sm rounded-xl transition-all cursor-pointer shadow-[0_0_25px_rgba(254,154,0,0.4)] disabled:opacity-40 flex items-center justify-center gap-2"
+          >
+            <Check className="w-4 h-4 stroke-[3]" />
+            <span>
+              {isSaving
+                ? 'Saving Popup...'
+                : editingId
+                ? `Save Changes to "${title}"`
+                : 'Save & Add Popup to Live Rotation'}
+            </span>
+          </button>
+        </div>
+      </form>
+
+      <div className="space-y-3">
+        <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400">
+          Saved Popups in Active Rotation Pool ({popups.length} Custom Cards + Built-In Copy Pool)
+        </h3>
+
+        {loading ? (
+          <p className="text-xs text-zinc-500 font-bold py-6 text-center">Loading popups...</p>
+        ) : popups.length === 0 ? (
+          <p className="text-xs text-zinc-500 font-bold py-8 text-center bg-black rounded-xl border border-zinc-800">
+            No custom popup art saved yet — upload a 1200x675 image above and click &ldquo;Save &amp; Add Popup to Live Rotation&rdquo;!
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {popups.map(p => (
+              <div
+                key={p.id}
+                className={`bg-black border rounded-2xl overflow-hidden flex flex-col justify-between ${
+                  p.is_active ? 'border-zinc-800' : 'border-zinc-900 opacity-50'
+                }`}
+              >
+                <div>
+                  <div className="aspect-[16/9] w-full bg-zinc-900 relative">
+                    <img src={p.image_url} alt={p.title} className="w-full h-full object-cover object-top" />
+                    <span className="absolute top-2 left-2 px-2.5 py-0.5 rounded-full bg-black/80 border border-[#fe9a00]/50 text-[#fe9a00] text-[8px] font-black uppercase tracking-widest">
+                      {p.badge_text}
+                    </span>
+                  </div>
+                  <div className="p-4 space-y-1">
+                    <h4 className="text-sm font-black italic uppercase text-white">{p.title}</h4>
+                    <p className="text-xs text-zinc-400 font-bold line-clamp-2">{p.message}</p>
+                    <p className="text-[10px] text-[#fe9a00] font-black uppercase pt-1">
+                      CTA: {p.cta_text}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="px-4 py-3 border-t border-zinc-900 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleActive(p)}
+                      className={`px-3 py-1 rounded text-[9px] font-black uppercase cursor-pointer ${
+                        p.is_active ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-zinc-400'
+                      }`}
+                    >
+                      {p.is_active ? 'Active in Rotation' : 'Paused'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleEditPopup(p)}
+                      className="px-3 py-1 rounded bg-zinc-800 hover:bg-[#fe9a00] text-zinc-300 hover:text-black text-[9px] font-black uppercase cursor-pointer transition-colors"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(p.id)}
+                    className="text-zinc-500 hover:text-red-500 p-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ============================================================================
 // MAIN ADMIN DASHBOARD SHELL (8 CONSOLIDATED HUBS)
 // ============================================================================
@@ -2936,7 +3438,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   >('avatars');
   const [usersSubTab, setUsersSubTab] = useState<'users' | 'moderation' | 'accesskeys'>('users');
   const [marketingSubTab, setMarketingSubTab] = useState<
-    'store' | 'accesskeys' | 'adstudio' | 'hype' | 'notifications'
+    'store' | 'accesskeys' | 'adstudio' | 'upsells' | 'hype' | 'notifications'
   >('store');
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedWarning(isDirty);
@@ -3224,6 +3726,17 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
                 </button>
                 <button
                   type="button"
+                  onClick={() => setMarketingSubTab('upsells')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    marketingSubTab === 'upsells'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-zinc-400 hover:text-white border border-zinc-800'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Upsell Popups
+                </button>
+                <button
+                  type="button"
                   onClick={() => setMarketingSubTab('hype')}
                   className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
                     marketingSubTab === 'hype'
@@ -3251,6 +3764,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
               {marketingSubTab === 'adstudio' && (
                 <HouseAdBuilder Dropzone={Dropzone} setIsDirty={setIsDirty} />
               )}
+              {marketingSubTab === 'upsells' && <UpsellPopupManager Dropzone={Dropzone} />}
               {marketingSubTab === 'hype' && <HypeManager setIsDirty={setIsDirty} />}
               {marketingSubTab === 'notifications' && <NotificationCenter />}
             </div>

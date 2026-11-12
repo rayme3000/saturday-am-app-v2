@@ -1,25 +1,162 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Zap, UserPlus, Sparkles, Crown, Layers, PenTool, Flame } from 'lucide-react';
 import { supabase } from '../supabase';
+import { useSeriesData } from '../userSeriesData';
 
-export const PromoModal = ({ userTier, onClose, onAction }: any) => {
+// Fallback Rotating Copy Pool (Used ONLY if 0 cards exist in `upsell_popups`)
+export const DEFAULT_PLUS_UPSELL_MESSAGES = [
+  {
+    badge: 'UNLOCK THE FULL VAULT',
+    title: "DON'T STOP AT THE CLIFFHANGER!",
+    message:
+      'Unlock every single chapter, Completed Run, and exclusive One-Shot in the Saturday AM Vault for less than a soda — just $1.99/mo!',
+    cta: 'Unlock Every Chapter ($1.99)'
+  },
+  {
+    badge: '12-HOUR VIP EARLY ACCESS',
+    title: 'READ NEW DROPS FIRST!',
+    message:
+      'Why wait? PLUS members unlock weekly chapter drops 12 hours before everyone else — with 100% ad-free reading across all your devices.',
+    cta: 'Get VIP Early Access ($1.99)'
+  },
+  {
+    badge: 'ULTIMATE FAN LOADOUT',
+    title: 'SUPERCHARGE YOUR PROFILE!',
+    message:
+      'Stand out in the comments and leaderboards with animated border frames, exclusive Hype Card skins, and 3x Weekly Super Hypes!',
+    cta: 'Upgrade My Loadout ($1.99)'
+  },
+  {
+    badge: 'BACK DIVERSE CREATORS',
+    title: 'FUEL THE MANGA REVOLUTION!',
+    message:
+      'Your $1.99/mo membership directly supports independent global manga creators while unlocking unlimited, ad-free binging across the entire app.',
+    cta: 'Join Saturday AM+ ($1.99)'
+  },
+  {
+    badge: '100% AD-FREE BINGING',
+    title: 'ZERO ADS. ZERO LIMITS.',
+    message:
+      'Skip the daily unlock timers forever! Binge Apple Black, Clock Striker, Bully Eater, and 30+ hit series back-to-back without interruptions.',
+    cta: 'Go Ad-Free for $1.99/mo'
+  }
+];
+
+export const DEFAULT_VISITOR_UPSELL_MESSAGES = [
+  {
+    badge: 'FREE READER PASS',
+    title: 'UNLOCK FREE CHAPTERS NOW!',
+    message:
+      'Create your free Saturday AM account in 10 seconds to unlock Chapters 1–3, save series to your bookshelf, and claim your Virtual Hype Card!',
+    cta: 'Create Free Account'
+  },
+  {
+    badge: 'JOIN THE SQUAD',
+    title: 'CLAIM YOUR HYPE CARD!',
+    message:
+      'Sign up free to equip character avatars, drop weekly Hypes on your favorite series, and join the community discussion!',
+    cta: 'Sign Up Free'
+  }
+];
+
+// Detects generic hardcoded App.tsx strings so they NEVER override your Command Center cards
+function isGenericDefaultUpsellText(text?: string): boolean {
+  if (!text) return true;
+  const lower = text.trim().toLowerCase();
+  return (
+    lower === 'enjoying saturday am?' ||
+    lower === 'start reading free' ||
+    lower.includes('upgrade to saturday am+ for $1.99/mo to get 3 weekly super hypes') ||
+    lower.includes('create a free saturday am account to read standard chapters') ||
+    lower.includes('upgrade to saturday am+ plus ($1.99/mo) to unlock the entire chapter vault')
+  );
+}
+
+// Cycles through every card in a shuffled deck before repeating any card
+function pickNextFromDeck(length: number, deckKey: string): number {
+  if (length <= 1) return 0;
+  try {
+    const raw = sessionStorage.getItem(deckKey);
+    let queue: number[] = raw ? JSON.parse(raw) : [];
+    queue = queue.filter(i => typeof i === 'number' && i >= 0 && i < length);
+
+    if (queue.length === 0) {
+      const indices = Array.from({ length }, (_, i) => i);
+      // Fisher-Yates shuffle
+      for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      const lastShown = parseInt(sessionStorage.getItem(`${deckKey}_last`) || '-1', 10);
+      if (indices.length > 1 && indices[0] === lastShown) {
+        const swap = indices[0];
+        indices[0] = indices[indices.length - 1];
+        indices[indices.length - 1] = swap;
+      }
+      queue = indices;
+    }
+
+    const nextIdx = queue.shift()!;
+    sessionStorage.setItem(deckKey, JSON.stringify(queue));
+    sessionStorage.setItem(`${deckKey}_last`, String(nextIdx));
+    return nextIdx;
+  } catch {
+    return Math.floor(Math.random() * length);
+  }
+}
+
+let cachedUpsellPopups: any[] | null = null;
+
+export const PromoModal = ({
+  userTier,
+  onClose,
+  onAction,
+  customMessage,
+  customTitle,
+  forceMode
+}: any) => {
+  const { seriesList = [] } = useSeriesData();
   const [showBetaInput, setShowBetaInput] = useState(false);
   const [betaCode, setBetaCode] = useState('');
   const [featuredBundle, setFeaturedBundle] = useState<any | null>(null);
   const [alreadyOwnsBundle, setAlreadyOwnsBundle] = useState(false);
+  const [customCampaigns, setCustomCampaigns] = useState<any[]>(cachedUpsellPopups || []);
+  const [isLoaded, setIsLoaded] = useState<boolean>(Boolean(cachedUpsellPopups));
 
-  const isVisitor = userTier === 'visitor';
+  const isVisitor = forceMode ? forceMode === 'visitor' : userTier === 'visitor';
+
+  // Ignore generic App.tsx strings so Command Center cards always take priority
+  const hasSpecificContextualMessage =
+    Boolean(customMessage) && !isGenericDefaultUpsellText(customMessage);
+  const hasSpecificContextualTitle =
+    Boolean(customTitle) && !isGenericDefaultUpsellText(customTitle);
 
   useEffect(() => {
     let isMounted = true;
-    const loadActiveBundle = async () => {
-      const { data: bundles } = await supabase
-        .from('themed_annual_bundles')
-        .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
 
-      if (!isMounted || !bundles || bundles.length === 0) return;
+    const loadPopupData = async () => {
+      const [{ data: bundles }, { data: popups }] = await Promise.all([
+        supabase
+          .from('themed_annual_bundles')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('upsell_popups')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+      ]);
+
+      if (!isMounted) return;
+
+      if (Array.isArray(popups)) {
+        cachedUpsellPopups = popups;
+        setCustomCampaigns(popups);
+      }
+      setIsLoaded(true);
+
+      if (!bundles || bundles.length === 0 || hasSpecificContextualMessage) return;
 
       const now = Date.now();
       const validBundle = bundles.find((b: any) => {
@@ -29,10 +166,17 @@ export const PromoModal = ({ userTier, onClose, onAction }: any) => {
       });
 
       if (!validBundle) return;
+
+      // If you have custom upsell popups in Command Center, only show the Event Bundle 20% of the time
+      if (Array.isArray(popups) && popups.length > 0 && Math.random() > 0.2) {
+        return;
+      }
+
       setFeaturedBundle(validBundle);
 
-      // Check if logged-in user already unlocked this bundle's skin
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
       if (user && validBundle.card_skin_url) {
         const { data: prof } = await supabase
           .from('profiles')
@@ -54,20 +198,72 @@ export const PromoModal = ({ userTier, onClose, onAction }: any) => {
       }
     };
 
-    loadActiveBundle();
+    loadPopupData();
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [hasSpecificContextualMessage]);
 
-  // If no featured bundle is live, hide for premium users as before
-  if (!featuredBundle && userTier === 'premium') return null;
-  if (featuredBundle && alreadyOwnsBundle) return null;
+  // Select a Command Center card (keeping its exact Art + Badge + Headline + Copy + CTA paired together!)
+  const selectedVariant = useMemo(() => {
+    const audienceFiltered = customCampaigns.filter(c =>
+      isVisitor
+        ? c.target_audience === 'visitor_signup' || c.target_audience === 'both'
+        : c.target_audience === 'plus_upsell' || c.target_audience === 'both'
+    );
+
+    // If audience-specific pool is empty, use all active Command Center cards
+    const activePool = audienceFiltered.length > 0 ? audienceFiltered : customCampaigns;
+
+    if (activePool.length > 0) {
+      const deckKey = isVisitor ? 'am_upsell_deck_visitor' : 'am_upsell_deck_plus';
+      const pickedIdx = pickNextFromDeck(activePool.length, deckKey);
+      const card = activePool[pickedIdx];
+
+      return {
+        badge: card.badge_text || (isVisitor ? 'FREE READER PASS' : 'SATURDAY AM+ PLUS'),
+        title: hasSpecificContextualTitle ? customTitle : card.title,
+        message: hasSpecificContextualMessage ? customMessage : card.message,
+        cta: card.cta_text || (isVisitor ? 'Create Free Account' : 'Upgrade to PLUS ($1.99)'),
+        imageUrl: card.image_url || ''
+      };
+    }
+
+    // Fallback ONLY if 0 cards exist in `upsell_popups`
+    const copyPool = isVisitor ? DEFAULT_VISITOR_UPSELL_MESSAGES : DEFAULT_PLUS_UPSELL_MESSAGES;
+    const copyIdx = pickNextFromDeck(copyPool.length, 'am_fallback_copy_deck');
+    const baseCopy = copyPool[copyIdx];
+
+    const seriesArtUrls = (seriesList || [])
+      .map((s: any) => s.cover_url || s.banner_url)
+      .filter(Boolean);
+    const artIdx = pickNextFromDeck(seriesArtUrls.length, 'am_fallback_art_deck');
+
+    return {
+      badge: baseCopy.badge,
+      title: hasSpecificContextualTitle ? customTitle : baseCopy.title,
+      message: hasSpecificContextualMessage ? customMessage : baseCopy.message,
+      cta: baseCopy.cta,
+      imageUrl: seriesArtUrls[artIdx] || ''
+    };
+  }, [
+    customCampaigns,
+    isVisitor,
+    seriesList,
+    customMessage,
+    customTitle,
+    hasSpecificContextualMessage,
+    hasSpecificContextualTitle
+  ]);
+
+  if (!featuredBundle && userTier === 'premium' && !forceMode) return null;
+  if (featuredBundle && alreadyOwnsBundle && !hasSpecificContextualMessage) return null;
+  if (!isLoaded) return null;
 
   // ============================================================================
-  // VISUAL-FIRST DIWALI / SPECIAL EVENT BUNDLE POP-UP AD
+  // 1. SPECIAL EVENT BUNDLE POP-UP AD (WHEN SELECTED)
   // ============================================================================
-  if (featuredBundle) {
+  if (featuredBundle && !hasSpecificContextualMessage) {
     const price = Number(featuredBundle.price_dollars || 24.99);
     const normalPrice = Number(featuredBundle.original_price_dollars || 35);
     const hasDiscount = normalPrice > price && normalPrice > 0;
@@ -106,7 +302,6 @@ export const PromoModal = ({ userTier, onClose, onAction }: any) => {
           className="bg-gradient-to-b from-zinc-950 via-zinc-900 to-black border-2 border-[#fe9a00] p-6 sm:p-7 rounded-3xl w-full max-w-md flex flex-col items-center text-center shadow-[0_0_50px_rgba(254,154,0,0.3)] relative overflow-hidden"
           onClick={e => e.stopPropagation()}
         >
-          {/* Ambient Top Glow */}
           <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-72 h-40 bg-[#fe9a00]/25 rounded-full blur-3xl pointer-events-none" />
 
           <button
@@ -116,7 +311,6 @@ export const PromoModal = ({ userTier, onClose, onAction }: any) => {
             <X className="w-5 h-5" />
           </button>
 
-          {/* Badges Row */}
           <div className="flex flex-wrap items-center justify-center gap-2 mb-3 relative z-10">
             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#fe9a00] text-black text-[9px] font-black uppercase tracking-widest shadow-md">
               <Sparkles className="w-3 h-3 fill-black" />
@@ -133,7 +327,6 @@ export const PromoModal = ({ userTier, onClose, onAction }: any) => {
             {featuredBundle.title}
           </h2>
 
-          {/* VISUAL SHOWCASE: 2 HYPE CARDS */}
           {cards.length > 0 && (
             <div className="grid grid-cols-2 gap-3 w-full my-3 relative z-10">
               {cards.map((c, idx) => (
@@ -154,7 +347,6 @@ export const PromoModal = ({ userTier, onClose, onAction }: any) => {
             </div>
           )}
 
-          {/* VISUAL SHOWCASE: 5 AVATAR FACES */}
           {avatars.length > 0 && (
             <div className="flex flex-col items-center my-2 relative z-10">
               <div className="flex items-center justify-center -space-x-2.5 mb-1">
@@ -173,7 +365,6 @@ export const PromoModal = ({ userTier, onClose, onAction }: any) => {
             </div>
           )}
 
-          {/* VISUAL LOOT PILLS */}
           <div className="flex flex-wrap items-center justify-center gap-1.5 my-3 relative z-10">
             <span className="px-2.5 py-1 rounded-lg bg-black/80 border border-zinc-800 text-[9px] font-black uppercase tracking-wider text-white flex items-center gap-1">
               <Crown className="w-3 h-3 text-[#fe9a00]" /> 1-Yr Pass
@@ -195,7 +386,6 @@ export const PromoModal = ({ userTier, onClose, onAction }: any) => {
             )}
           </div>
 
-          {/* PRICE + 1-CLICK CTA */}
           <div className="w-full bg-black/80 border border-zinc-800 rounded-2xl p-3.5 mt-1 mb-3 flex items-center justify-between gap-3">
             <div className="text-left">
               <span className="block text-[8px] font-black uppercase tracking-widest text-zinc-400">
@@ -234,64 +424,107 @@ export const PromoModal = ({ userTier, onClose, onAction }: any) => {
   }
 
   // ============================================================================
-  // FALLBACK STANDARD PROMO MODAL WHEN NO EVENT BUNDLE IS LIVE
+  // 2. VISUAL ARTWORK + MATCHED COMMAND CENTER COPY UPSELL MODAL
   // ============================================================================
   return (
-    <div className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={onClose}>
-      <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-3xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className={`absolute top-0 inset-x-0 h-1 ${isVisitor ? 'bg-gradient-to-r from-blue-500 to-cyan-400' : 'bg-gradient-to-r from-[#fe9a00] to-yellow-500'}`} />
-
-        <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
-          <X className="w-5 h-5" />
-        </button>
-
-        <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-6 shadow-lg ${isVisitor ? 'bg-blue-500/20 shadow-[0_0_20px_rgba(59,130,246,0.3)]' : 'bg-[#fe9a00]/20 shadow-[0_0_20px_rgba(254,154,0,0.3)]'}`}>
-          {isVisitor ? <UserPlus className="w-8 h-8 text-blue-400" /> : <Zap className="w-8 h-8 text-[#fe9a00]" />}
-        </div>
-
-        <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-3">
-          {isVisitor ? 'Join the Squad' : 'Level Up'}
-        </h2>
-
-        <p className="text-zinc-400 text-sm font-bold leading-relaxed mb-6">
-          {isVisitor
-            ? "What are you waiting for? Create a FREE account to unlock more!"
-            : "Upgrade your access and permanently skip the ads."}
-        </p>
-
-        <div className="w-full mb-6 flex flex-col items-center min-h-[48px] justify-center">
-          {!showBetaInput ? (
-            <button onClick={() => setShowBetaInput(true)} className="text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors">
-              + Have a Promo or Beta Code?
-            </button>
+    <div
+      className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="bg-zinc-950 border-2 border-[#fe9a00]/80 rounded-3xl w-full max-w-md flex flex-col items-center text-center shadow-[0_0_50px_rgba(254,154,0,0.25)] relative overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* TOP VISUAL ARTWORK BANNER (16:9 / 1200x675) */}
+        <div className="relative w-full aspect-[16/9] bg-zinc-900 overflow-hidden">
+          {selectedVariant.imageUrl ? (
+            <img
+              src={selectedVariant.imageUrl}
+              alt={selectedVariant.title}
+              className="w-full h-full object-cover object-top scale-105 transition-transform duration-700"
+            />
           ) : (
-            <div className="w-full animate-fade-in relative">
-              <input
-                type="text"
-                placeholder="ENTER CODE"
-                value={betaCode}
-                onChange={(e) => setBetaCode(e.target.value.toUpperCase())}
-                maxLength={18}
-                className={`w-full bg-black border border-zinc-800 text-white text-center font-black uppercase tracking-widest text-sm py-3 px-4 rounded-xl focus:outline-none transition-colors ${isVisitor ? 'focus:border-blue-500' : 'focus:border-[#fe9a00]'}`}
-              />
+            <div className="w-full h-full bg-gradient-to-br from-[#fe9a00]/30 via-zinc-900 to-black flex items-center justify-center">
+              {isVisitor ? (
+                <UserPlus className="w-12 h-12 text-[#fe9a00]" />
+              ) : (
+                <Zap className="w-12 h-12 text-[#fe9a00]" />
+              )}
             </div>
           )}
+
+          {/* Smooth Gradient Blend into Card Body */}
+          <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/35 to-black/20 pointer-events-none" />
+
+          {/* Floating Top-Left Pill Badge */}
+          <div className="absolute top-3.5 left-4 z-10">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/80 backdrop-blur-md border border-[#fe9a00]/60 text-[#fe9a00] text-[9px] font-black uppercase tracking-widest shadow-lg">
+              <Sparkles className="w-3 h-3 fill-[#fe9a00]" />
+              {selectedVariant.badge}
+            </span>
+          </div>
+
+          {/* Close Button */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-3.5 right-3.5 z-20 p-2 rounded-full bg-black/75 hover:bg-[#fe9a00] text-zinc-300 hover:text-black border border-zinc-700 transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
-        <button
-          onClick={() => onAction(betaCode)}
-          className={`w-full font-black uppercase tracking-widest py-4 rounded-xl transition-all shadow-lg hover:scale-105 ${
-            isVisitor
-              ? 'bg-blue-500 text-white hover:bg-white hover:text-black shadow-[0_0_20px_rgba(59,130,246,0.4)]'
-              : 'bg-gradient-to-r from-[#fe9a00] to-yellow-500 text-black hover:from-white hover:to-white shadow-[0_0_20px_rgba(254,154,0,0.4)]'
-          }`}
-        >
-          {isVisitor ? 'Create Free Account' : 'Upgrade to Pro'}
-        </button>
+        {/* MODAL TEXT & CTA BODY */}
+        <div className="px-6 sm:px-8 pb-7 pt-2 w-full flex flex-col items-center -mt-4 relative z-10">
+          <h2 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tighter text-white leading-none mb-3 drop-shadow-md">
+            {selectedVariant.title}
+          </h2>
 
-        <button onClick={onClose} className="mt-4 text-[10px] text-zinc-500 font-bold uppercase tracking-widest hover:text-white transition-colors">
-          Continue Reading
-        </button>
+          <p className="text-zinc-300 text-xs sm:text-sm font-bold leading-relaxed mb-5 max-w-sm">
+            {selectedVariant.message}
+          </p>
+
+          {/* Optional Promo / Gift Code Input */}
+          <div className="w-full mb-4 flex flex-col items-center justify-center">
+            {!showBetaInput ? (
+              <button
+                type="button"
+                onClick={() => setShowBetaInput(true)}
+                className="text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-[#fe9a00] transition-colors cursor-pointer"
+              >
+                + Have a Promo or Gift Code?
+              </button>
+            ) : (
+              <div className="w-full animate-fade-in relative">
+                <input
+                  type="text"
+                  placeholder="ENTER CODE"
+                  value={betaCode}
+                  onChange={e => setBetaCode(e.target.value.toUpperCase())}
+                  maxLength={24}
+                  className="w-full bg-black border border-zinc-700 focus:border-[#fe9a00] text-[#fe9a00] text-center font-black uppercase tracking-widest text-xs py-2.5 px-4 rounded-xl focus:outline-none transition-colors"
+                />
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onAction(betaCode)}
+            className="w-full font-black uppercase tracking-widest text-xs sm:text-sm py-4 rounded-xl transition-all shadow-[0_0_25px_rgba(254,154,0,0.4)] bg-gradient-to-r from-[#fe9a00] via-amber-400 to-[#fe9a00] hover:from-white hover:to-white text-black cursor-pointer flex items-center justify-center gap-2"
+          >
+            <Zap className="w-4 h-4 fill-black" />
+            <span>{selectedVariant.cta}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-3.5 text-[10px] text-zinc-500 font-bold uppercase tracking-widest hover:text-white transition-colors cursor-pointer"
+          >
+            Maybe Later
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -67,6 +67,27 @@ export const isInOneShotDebutWindow = (series: any, seriesList?: any[]): boolean
   return getOneShotDebutStartMs(series, seriesList) !== null;
 };
 
+// Returns live remaining milliseconds for an active OSW unlock (0 when expired)
+export const getOneShotRemainingMs = (series?: any, seriesList?: any[]): number => {
+  const debutStartMs = series ? getOneShotDebutStartMs(series, seriesList) : null;
+  if (debutStartMs !== null) {
+    const debutEndMs = debutStartMs + ONESHOT_DEBUT_WINDOW_MS;
+    return Math.max(0, debutEndMs - Date.now());
+  }
+
+  if (!isCurrentlyWednesdayEST()) return 0;
+
+  try {
+    const estString = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const estNow = new Date(estString);
+    const endOfWednesday = new Date(estNow);
+    endOfWednesday.setHours(23, 59, 59, 999);
+    return Math.max(0, endOfWednesday.getTime() - estNow.getTime());
+  } catch {
+    return 0;
+  }
+};
+
 // Returns live countdown string ("47h 12m 05s") for either an active 48h Debut Window OR Wednesday 11:59:59 PM EST
 export const getOneShotFreeCountdown = (series?: any, seriesList?: any[]): string => {
   const debutStartMs = series ? getOneShotDebutStartMs(series, seriesList) : null;
@@ -158,6 +179,29 @@ export const isActiveOneShotWednesday = (series: any, seriesList: any[]): boolea
   if (!isCurrentlyWednesdayEST()) return false;
   const spotlight = getOneShotWednesdaySeries(seriesList);
   return Boolean(spotlight && spotlight.slug === series.slug);
+};
+
+// Returns ONLY currently unlocked One-Shot Wednesday stories (automatically empty once the timer expires!)
+export const getActiveOneShotWednesdayUnlockedStories = (seriesList: any[]): any[] => {
+  if (!Array.isArray(seriesList) || seriesList.length === 0) return [];
+
+  return seriesList
+    .filter(
+      (s: any) =>
+        !s.is_hidden &&
+        isActiveOneShotWednesday(s, seriesList) &&
+        getOneShotRemainingMs(s, seriesList) > 0
+    )
+    .map((s: any) => {
+      const countdown = getOneShotFreeCountdown(s, seriesList);
+      const isDebut = isInOneShotDebutWindow(s, seriesList);
+      return {
+        ...s,
+        isOswSpotlightCard: true,
+        oswTimerText: countdown,
+        oswBadgeLabel: isDebut ? `⚡ 48H FREE • ${countdown}` : `⚡ FREE OSW • ${countdown}`
+      };
+    });
 };
 
 // Returns true if the chapter is released for the current user tier (PLUS gets chapters 12 hours early!)

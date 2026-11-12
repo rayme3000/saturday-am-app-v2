@@ -738,19 +738,21 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       )}
 
       {upsellConfig && userTier !== 'premium' && !isPremiumUser && (
-        <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={(e) => e.stopPropagation()}>
-          <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative">
-            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
-            <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.type === 'visitor' ? 'Account Required' : 'PLUS Vault Exclusive'}</h2>
-            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
-            {upsellConfig.type === 'visitor' ? (
-              <button onClick={() => { setUpsellConfig(null); if (onLoginClick) onLoginClick(); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors cursor-pointer shadow-[0_0_20px_rgba(254,154,0,0.3)]">Create Free Account</button>
-            ) : (
-              <button onClick={() => { setUpsellConfig(null); if (onNavigate) onNavigate({ action: 'sub' }); }} className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors cursor-pointer shadow-[0_0_20px_rgba(254,154,0,0.3)]">Upgrade to PLUS ($1.99)</button>
-            )}
-          </div>
-        </div>
+        <PromoModal
+          userTier={userTier}
+          forceMode={upsellConfig.type}
+          customMessage={upsellConfig.message}
+          onClose={() => setUpsellConfig(null)}
+          onAction={(code?: string) => {
+            if (code) localStorage.setItem('auto_fill_premium_code', code);
+            setUpsellConfig(null);
+            if (upsellConfig.type === 'visitor') {
+              if (onLoginClick) onLoginClick();
+            } else {
+              if (onNavigate) onNavigate({ action: 'sub' });
+            }
+          }}
+        />
       )}
 
       {donationCreator && (

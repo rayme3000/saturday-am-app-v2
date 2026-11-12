@@ -1404,13 +1404,13 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
 
             {activeTab === 'fans' && (
               <div className="animate-fade-in max-w-2xl mx-auto">
-                {/* Monthly Top 5 Supporters Prize Box + Live Reset Countdown Timer */}
+                {/* Monthly Top 5 Supporters Prize Box + Fixed-Width Live Reset Countdown Timer */}
                 <div className="bg-gradient-to-r from-amber-950/60 via-zinc-900 to-black border-2 border-[#fe9a00] rounded-2xl p-4 sm:p-5 mb-6 shadow-[0_0_30px_rgba(254,154,0,0.18)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-start sm:items-center gap-3.5">
+                  <div className="flex items-start sm:items-center gap-3.5 flex-1 min-w-0">
                     <div className="w-11 h-11 rounded-xl bg-[#fe9a00] text-black flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(254,154,0,0.6)]">
                       <Flame className="w-6 h-6 fill-black" />
                     </div>
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] block">
                         {currentMonthLabel || 'Monthly'} Leaderboard • Top 5 Monthly Prize Race
                       </span>
@@ -1418,33 +1418,40 @@ export default function Leaderboard({ onBack, currentUser, onNavigate }: any) {
                         Top 5 Supporters Win Monthly Prizes!
                       </h3>
                       <p className="text-[10px] text-zinc-300 font-bold mt-1 leading-relaxed">
-                        Increase your Fandom Score by supporting creators, completing chapters, dropping Hypes, logging in daily, commenting on series, leaving Smart Comments, and liking content! Your all-time Fandom Score stays permanently on your Profile & Hype Card.
+                        Increase your Fandom Score by supporting creators, completing chapters, dropping Hypes, logging in daily, commenting on series, leaving Smart Comments, and liking content! Your all-time Fandom Score stays permanently on your Profile &amp; Hype Card.
                       </p>
                     </div>
                   </div>
 
-                  {/* Live Monthly Reset Countdown Box */}
-                  <div className="bg-black/90 border border-[#fe9a00]/60 rounded-xl px-3.5 py-2.5 flex flex-col items-center justify-center shrink-0 shadow-inner">
+                  {/* Fixed-Width Live Monthly Reset Countdown Box (Zero Jitter) */}
+                  <div className="w-full sm:w-[232px] bg-black/90 border border-[#fe9a00]/60 rounded-xl px-3 py-2.5 flex flex-col items-center justify-center shrink-0 shadow-inner">
                     <span className="text-[8px] font-black uppercase tracking-widest text-zinc-400 flex items-center gap-1 mb-1">
                       <Clock className="w-3 h-3 text-[#fe9a00] animate-pulse" /> Resets In
                     </span>
-                    <div className="flex items-center gap-1 font-mono text-xs sm:text-sm font-black text-[#fe9a00]">
-                      <div className="bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded text-center">
+                    <div
+                      className="flex items-center justify-center gap-1 text-xs sm:text-sm font-extrabold text-[#fe9a00] tabular-nums"
+                      style={{
+                        fontFamily:
+                          'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                        fontVariantNumeric: 'tabular-nums'
+                      }}
+                    >
+                      <div className="w-[42px] bg-zinc-900 border border-zinc-800 py-0.5 rounded flex items-baseline justify-center">
                         <span>{countdown.days}</span>
                         <span className="text-[8px] text-zinc-500 ml-0.5">d</span>
                       </div>
-                      <span>:</span>
-                      <div className="bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded text-center">
+                      <span className="text-zinc-600">:</span>
+                      <div className="w-[42px] bg-zinc-900 border border-zinc-800 py-0.5 rounded flex items-baseline justify-center">
                         <span>{countdown.hours}</span>
                         <span className="text-[8px] text-zinc-500 ml-0.5">h</span>
                       </div>
-                      <span>:</span>
-                      <div className="bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded text-center">
+                      <span className="text-zinc-600">:</span>
+                      <div className="w-[42px] bg-zinc-900 border border-zinc-800 py-0.5 rounded flex items-baseline justify-center">
                         <span>{countdown.mins}</span>
                         <span className="text-[8px] text-zinc-500 ml-0.5">m</span>
                       </div>
-                      <span>:</span>
-                      <div className="bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded text-center">
+                      <span className="text-zinc-600">:</span>
+                      <div className="w-[42px] bg-zinc-900 border border-zinc-800 py-0.5 rounded flex items-baseline justify-center">
                         <span className="text-white">{countdown.secs}</span>
                         <span className="text-[8px] text-zinc-500 ml-0.5">s</span>
                       </div>

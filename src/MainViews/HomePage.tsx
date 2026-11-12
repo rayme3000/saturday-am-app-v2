@@ -26,7 +26,8 @@ import {
   isChapterReleasedForUser,
   isActiveOneShotWednesday,
   isInOneShotDebutWindow,
-  getOneShotFreeCountdown
+  getOneShotFreeCountdown,
+  getOneShotRemainingMs
 } from '../oneshotWednesday';
 import { doCreatorNamesMatch } from '../VirtualProfile/BingoBook';
 
@@ -131,7 +132,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [forceTutorial, setForceTutorial] = useState(false);
   const [isRefreshingApp, setIsRefreshingApp] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [, setSecondTick] = useState<number>(0);
+  const [secondTick, setSecondTick] = useState<number>(0);
 
   // --- QUICK-REDEEM MODAL STATE ---
   const [showQuickRedeemModal, setShowQuickRedeemModal] = useState(false);
@@ -483,13 +484,15 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     return () => clearInterval(interval);
   }, []);
 
+  // Tick every second for ALL users whenever any One-Shot Wednesday story is unlocked so the timer badge counts down live and removes the story the instant the window ends
   useEffect(() => {
-    if (isPlusSubscriber) return;
     const hasActiveFreeOneshot = seriesList.some((s: any) => isActiveOneShotWednesday(s, seriesList));
     if (!hasActiveFreeOneshot) return;
-    const secTimer = setInterval(() => setSecondTick(prev => (prev + 1) % 60), 1000);
+    const secTimer = setInterval(() => {
+      setSecondTick(prev => (prev + 1) % 60);
+    }, 1000);
     return () => clearInterval(secTimer);
-  }, [isPlusSubscriber, seriesList]);
+  }, [seriesList, nowTick]);
 
   const handleHardRefresh = async () => {
     if (isRefreshingApp) return;
@@ -529,7 +532,9 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug);
       if (!seriesData || seriesData.is_hidden) return false;
 
-      const isFreeOswOrDebut = isActiveOneShotWednesday(seriesData, seriesList);
+      const isFreeOswOrDebut =
+        isActiveOneShotWednesday(seriesData, seriesList) &&
+        getOneShotRemainingMs(seriesData, seriesList) > 0;
       if (isFreeOswOrDebut) return true;
 
       if (!isReleasedYet(seriesData.publish_at)) return false;
@@ -537,35 +542,87 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       return true;
     });
 
-    const highestChapterBySeries = new Map<string, { chapter: any; latestSeriesActivityMs: number }>();
+    const highestChapterBySeries = new Map<
+      string,
+      { chapter: any; latestSeriesActivityMs: number; isActiveOsw: boolean }
+    >();
 
     releasedPool.forEach(ch => {
       const slug = String(ch.series_slug || '');
       if (!slug) return;
+      const seriesData = seriesList.find((s: any) => s.slug === slug);
+      const isActiveOsw = Boolean(
+        seriesData &&
+          isActiveOneShotWednesday(seriesData, seriesList) &&
+          getOneShotRemainingMs(seriesData, seriesList) > 0
+      );
+
       const chTime = new Date(ch.publish_at || ch.created_at || 0).getTime();
       const validTime = isNaN(chTime) ? 0 : chTime;
       const existing = highestChapterBySeries.get(slug);
 
       if (!existing) {
-        highestChapterBySeries.set(slug, { chapter: ch, latestSeriesActivityMs: validTime });
+        highestChapterBySeries.set(slug, {
+          chapter: ch,
+          latestSeriesActivityMs: validTime,
+          isActiveOsw
+        });
       } else {
         const bestActivityMs = Math.max(existing.latestSeriesActivityMs, validTime);
-        const isHigherChapNum = Number(ch.chapter_number) > Number(existing.chapter.chapter_number);
+        // For an unlocked One-Shot Wednesday story, feature Chapter 1 (or the lowest chapter) so new readers jump right into the start of the story!
+        const shouldReplaceChapter = isActiveOsw
+          ? Number(ch.chapter_number) < Number(existing.chapter.chapter_number)
+          : Number(ch.chapter_number) > Number(existing.chapter.chapter_number);
+
         highestChapterBySeries.set(slug, {
-          chapter: isHigherChapNum ? ch : existing.chapter,
-          latestSeriesActivityMs: bestActivityMs
+          chapter: shouldReplaceChapter ? ch : existing.chapter,
+          latestSeriesActivityMs: bestActivityMs,
+          isActiveOsw: existing.isActiveOsw || isActiveOsw
+        });
+      }
+    });
+
+    // If an active One-Shot Wednesday series has no chapter row loaded in `latestChapters` yet, synthesize a direct card so it still appears in Latest Chapters while unlocked
+    seriesList.forEach((s: any) => {
+      if (!s?.slug || s.is_hidden) return;
+      const slug = String(s.slug);
+      if (highestChapterBySeries.has(slug)) return;
+      const isActiveOsw =
+        isActiveOneShotWednesday(s, seriesList) &&
+        getOneShotRemainingMs(s, seriesList) > 0;
+      if (isActiveOsw) {
+        const sTime = new Date(s.publish_at || s.created_at || 0).getTime();
+        highestChapterBySeries.set(slug, {
+          chapter: {
+            id: `osw_${slug}`,
+            series_slug: slug,
+            chapter_number: 1,
+            title: s.title || 'One-Shot Wednesday',
+            thumbnail_url: s.cover_url || s.character_url || '',
+            is_published: true,
+            publish_at: s.publish_at || s.created_at
+          },
+          latestSeriesActivityMs: isNaN(sTime) ? 0 : sTime,
+          isActiveOsw: true
         });
       }
     });
 
     const allSeriesEntries = Array.from(highestChapterBySeries.values());
+
+    // Keep active One-Shot Wednesday unlocked stories in `freshEntries` ONLY while their unlock timer is > 0.
+    // Once the unlock window ends, `entry.isActiveOsw` becomes false and older Completed Runs automatically leave Latest Chapters!
     const freshEntries = allSeriesEntries.filter(
-      entry => now - entry.latestSeriesActivityMs <= maxLatestAgeMs
+      entry => entry.isActiveOsw || now - entry.latestSeriesActivityMs <= maxLatestAgeMs
     );
     const candidatePool = freshEntries.length >= 6 ? freshEntries : allSeriesEntries;
 
     return candidatePool
       .sort((a, b) => {
+        // 1. Always spotlight active One-Shot Wednesday unlocked stories at the front of Latest Chapters while unlocked
+        if (a.isActiveOsw && !b.isActiveOsw) return -1;
+        if (!a.isActiveOsw && b.isActiveOsw) return 1;
+
         const aRead = readChapterIdSet.has(String(a.chapter.id));
         const bRead = readChapterIdSet.has(String(b.chapter.id));
 
@@ -582,6 +639,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       })
       .map(entry => ({
         ...entry.chapter,
+        isActiveOsw: entry.isActiveOsw,
         isAlreadyRead: readChapterIdSet.has(String(entry.chapter.id)),
         publish_at:
           entry.latestSeriesActivityMs > 0
@@ -590,7 +648,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       }))
       .slice(0, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestChapters, seriesList, nowTick, isPlusSubscriber, readChapterIdSet]);
+  }, [latestChapters, seriesList, nowTick, secondTick, isPlusSubscriber, readChapterIdSet]);
 
   const visibleNotifications = useMemo(() => {
     const chaptersById = new Map<string, any>();
@@ -1303,31 +1361,54 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             <div ref={latestChaptersScrollRef} className="flex overflow-x-auto gap-4 pb-4 scroll-smooth snap-x no-scrollbar items-start">
               {visibleLatestChapters.map(chapter => {
                 const seriesData = seriesList.find((s: any) => s.slug === chapter.series_slug) || {};
-                const isFreeOneshotActive = !isPlusSubscriber && isActiveOneShotWednesday(seriesData, seriesList);
-                const freeOneshotCountdown = isFreeOneshotActive ? getOneShotFreeCountdown(seriesData, seriesList) : null;
+                const isOswUnlockedNow =
+                  Boolean(chapter.isActiveOsw) ||
+                  (isActiveOneShotWednesday(seriesData, seriesList) &&
+                    getOneShotRemainingMs(seriesData, seriesList) > 0);
+                const freeOneshotCountdown = isOswUnlockedNow
+                  ? getOneShotFreeCountdown(seriesData, seriesList)
+                  : null;
+                const isDebutOneshot = isOswUnlockedNow && isInOneShotDebutWindow(seriesData, seriesList);
                 const showNewBadge = isNewRelease(chapter.publish_at, chapter.created_at);
 
                 return (
                   <div
                     key={chapter.id}
-                    onClick={() => onNavigate({ ...seriesData, autoOpenChapterId: chapter.id })}
+                    onClick={() =>
+                      onNavigate(
+                        String(chapter.id).startsWith('osw_')
+                          ? seriesData
+                          : { ...seriesData, autoOpenChapterId: chapter.id }
+                      )
+                    }
                     className={`w-[45%] sm:w-[35%] md:w-[25%] flex-shrink-0 cursor-pointer group/card snap-start flex flex-col transition-opacity ${
-                      chapter.isAlreadyRead ? 'opacity-75 hover:opacity-100' : ''
+                      chapter.isAlreadyRead && !isOswUnlockedNow ? 'opacity-75 hover:opacity-100' : ''
                     }`}
                   >
-                    <div className="relative overflow-hidden rounded-lg aspect-square border-[1px] border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.4)] group-hover/card:-translate-y-1 group-hover/card:border-[#fe9a00] group-hover/card:shadow-[0_0_30px_rgba(254,154,0,0.8)] transition-all duration-300">
+                    <div
+                      className={`relative overflow-hidden rounded-lg aspect-square border-[1px] ${
+                        isOswUnlockedNow
+                          ? 'border-[#fe9a00] shadow-[0_0_25px_rgba(254,154,0,0.65)]'
+                          : 'border-[#fe9a00]/50 shadow-[0_0_20px_rgba(254,154,0,0.4)]'
+                      } group-hover/card:-translate-y-1 group-hover/card:border-[#fe9a00] group-hover/card:shadow-[0_0_30px_rgba(254,154,0,0.8)] transition-all duration-300`}
+                    >
                       <img src={chapter.thumbnail_url || seriesData.cover_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} className="w-full h-full object-cover" style={{ objectPosition: chapter.thumbnail_position || '50% 50%', transform: `scale(${(chapter.thumbnail_scale || 100) / 100})` }} alt="Chapter Thumbnail" />
                       <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent p-3 pt-12 flex items-center justify-between">
-                        <p className="text-[#fe9a00] font-black text-[10px] uppercase tracking-widest drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]">CH. {chapter.chapter_number}</p>
-                        {chapter.isAlreadyRead && (
+                        <p className="text-[#fe9a00] font-black text-[10px] uppercase tracking-widest drop-shadow-[0_0_5px_rgba(254,154,0,0.8)]">
+                          {isOswUnlockedNow ? 'ONE-SHOT WED' : `CH. ${chapter.chapter_number}`}
+                        </p>
+                        {chapter.isAlreadyRead && !isOswUnlockedNow && (
                           <span className="text-[8px] font-black uppercase tracking-widest bg-zinc-900/90 text-zinc-400 border border-zinc-700 px-1.5 py-0.5 rounded">
                             Read
                           </span>
                         )}
                       </div>
                       {freeOneshotCountdown ? (
-                        <div className="absolute top-1.5 right-1.5 z-30 bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-tight px-2 py-0.5 rounded shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-1 pointer-events-none">
-                          <Clock className="w-2.5 h-2.5 shrink-0" /><span>FREE: {freeOneshotCountdown}</span>
+                        <div className="absolute top-1.5 right-1.5 z-30 bg-[#fe9a00] text-black text-[8px] font-black uppercase tracking-tight px-2 py-0.5 rounded shadow-[0_0_12px_rgba(254,154,0,0.95)] flex items-center gap-1 pointer-events-none animate-pulse">
+                          <Clock className="w-2.5 h-2.5 shrink-0" />
+                          <span>
+                            {isDebutOneshot ? `48H FREE: ${freeOneshotCountdown}` : `FREE OSW: ${freeOneshotCountdown}`}
+                          </span>
                         </div>
                       ) : showNewBadge && !chapter.isAlreadyRead && (
                         <div className="absolute top-1.5 right-1.5 z-30 bg-red-600 text-white text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>
@@ -1335,7 +1416,11 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                     </div>
                     <div className="mt-3 px-1 flex flex-col flex-1">
                       <h3 className="text-white font-bold text-xs truncate group-hover/card:text-[#fe9a00] transition-colors">{seriesData.title}</h3>
-                      <p className="text-zinc-400 text-[10px] font-bold truncate mt-0.5">{chapter.title || `Chapter ${chapter.chapter_number}`}</p>
+                      <p className="text-zinc-400 text-[10px] font-bold truncate mt-0.5">
+                        {isOswUnlockedNow
+                          ? `⚡ Unlocked Today • Ch. ${chapter.chapter_number}`
+                          : chapter.title || `Chapter ${chapter.chapter_number}`}
+                      </p>
                     </div>
                   </div>
                 );

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, Suspense, lazy, useRef } from 'react';
-import { ArrowUp, X, Lock, Share, Menu, Download, Info, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react'; 
+import { ArrowUp, X, Share, Menu, Download, Info, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 
@@ -7,6 +7,7 @@ import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
 import { FloatingPillNav } from './Components/FloatingPillNav';
 import { HamburgerMenu } from './Components/HamburgerMenu';
 import { ShareModal } from './Components/ShareModal';
+import { PromoModal } from './Components/PromoModal';
 import { SplashIntro } from './Components/SplashIntro'; 
 import { GlobalHypeTracker } from './Components/GlobalHypeTracker';
 import { HypeEconomyProvider } from './HypeEconomyContext';
@@ -696,12 +697,19 @@ export default function App() {
 
     if (userTier === 'visitor' && nextVisits % 3 === 0) {
       setUpsellConfig({
-        title: 'Start Reading Free',
-        message: 'Create a free Saturday AM account to read standard chapters, save your reading history, drop reactions, and earn fandom points!',
-        target: 'signup',
-        buttonText: 'Create Free Account'
+        title: '',
+        message: '',
+        target: 'signup'
       });
       return;
+    }
+
+    if (userTier === 'free' && nextVisits % 5 === 0) {
+      setUpsellConfig({
+        title: '',
+        message: '',
+        target: 'sub'
+      });
     }
 
     if (userTier === 'free' && nextVisits % 5 === 0) {
@@ -1196,28 +1204,23 @@ export default function App() {
       )}
 
       {upsellConfig && !showLogin && userTier !== 'premium' && !currentUser?.is_premium && (
-        <div className="fixed inset-0 z-[5000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={() => setUpsellConfig(null)}>
-          <div className="bg-zinc-950 border border-zinc-800 p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setUpsellConfig(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
-            <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(254,154,0,0.2)]"><Lock className="w-8 h-8 text-[#fe9a00]" /></div>
-            <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">{upsellConfig.title}</h2>
-            <p className="text-zinc-400 text-xs font-bold leading-relaxed mb-8">{upsellConfig.message}</p>
-            <button 
-              onClick={() => { 
-                const isSignup = upsellConfig.target === 'signup' || userTier === 'visitor';
-                setUpsellConfig(null); 
-                if (isSignup) {
-                  setShowLogin(true);
-                } else {
-                  handleNavigate({ action: 'sub' }); 
-                }
-              }} 
-              className="w-full bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded hover:bg-white transition-colors shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
-            >
-              {upsellConfig.buttonText || (userTier === 'visitor' ? 'Create Free Account' : 'Upgrade to PLUS')}
-            </button>
-          </div>
-        </div>
+        <PromoModal
+          userTier={userTier}
+          forceMode={upsellConfig.target === 'signup' || userTier === 'visitor' ? 'visitor' : 'premium'}
+          customTitle={upsellConfig.title || undefined}
+          customMessage={upsellConfig.message || undefined}
+          onClose={() => setUpsellConfig(null)}
+          onAction={(code?: string) => {
+            if (code) localStorage.setItem('auto_fill_premium_code', code);
+            const isSignup = upsellConfig.target === 'signup' || userTier === 'visitor';
+            setUpsellConfig(null);
+            if (isSignup) {
+              setShowLogin(true);
+            } else {
+              handleNavigate({ action: 'sub' });
+            }
+          }}
+        />
       )}
 
       <HamburgerMenu

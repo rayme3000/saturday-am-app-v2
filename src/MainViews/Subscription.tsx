@@ -58,6 +58,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   // Pre-Checkout Upsell Modal State
   const [showBundleUpsellModal, setShowBundleUpsellModal] = useState(false);
   const collectorBundlesRef = useRef<HTMLDivElement | null>(null);
+  const mainPricingCardRef = useRef<HTMLDivElement | null>(null);
 
   const [promoCode, setPromoCode] = useState('');
   const [isRedeeming, setIsRedeeming] = useState(false);
@@ -135,7 +136,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       }
 
       window.dispatchEvent(new Event('bingoUpdated'));
-      return targetCreator;
+      return matchedSig?.creator_name || targetCreator;
     } catch (err) {
       console.error('Error unlocking bundle autograph:', err);
       return targetCreator;
@@ -304,13 +305,20 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   useEffect(() => {
     const savedPromo = localStorage.getItem('auto_fill_premium_code');
     if (savedPromo) {
-      setPromoCode(savedPromo);
+      const cleanSaved = savedPromo.trim().toUpperCase();
       localStorage.removeItem('auto_fill_premium_code');
+      if (cleanSaved.startsWith('VIP-')) {
+        setReferralCode(cleanSaved);
+        localStorage.setItem('am_referral_code', cleanSaved);
+        setBillingCycle('annual');
+      } else {
+        setPromoCode(cleanSaved);
+      }
     }
 
     const savedRef = localStorage.getItem('am_referral_code');
     if (savedRef) {
-      setReferralCode(savedRef);
+      setReferralCode(savedRef.trim().toUpperCase());
     }
 
     Promise.all([
@@ -683,10 +691,36 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
   };
 
+  // ============================================================================
+  // UNIFIED "REDEEM A CODE" HANDLER (ACCEPTS EVERY CODE TYPE IN ONE BOX)
+  // ============================================================================
   const handleRedeemCode = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanCode = promoCode.trim().toUpperCase();
     if (!cleanCode) return;
+
+    setRedeemError(null);
+    setRedeemSuccess(null);
+
+    // 1. Creator Onboarding Invite Code (SAM-CR-...)
+    if (cleanCode.startsWith('SAM-CR-')) {
+      localStorage.setItem('am_pending_creator_invite', cleanCode);
+      window.location.href = `/?creator_invite=${encodeURIComponent(cleanCode)}`;
+      return;
+    }
+
+    // 2. Creator / Partner Referral Code (VIP-...) -> Unlocks 3-Day Free Trial on Annual Plan
+    if (cleanCode.startsWith('VIP-')) {
+      setReferralCode(cleanCode);
+      localStorage.setItem('am_referral_code', cleanCode);
+      setBillingCycle('annual');
+      setPromoCode('');
+      setRedeemSuccess(
+        `Partner Referral Code "${cleanCode}" applied! Your 3-Day Free Trial on the $20/yr Annual Pass is now unlocked above.`
+      );
+      mainPricingCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
 
     const {
       data: { user }
@@ -699,15 +733,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       return;
     }
 
-    if (cleanCode.startsWith('SAM-CR-')) {
-      localStorage.setItem('am_pending_creator_invite', cleanCode);
-      window.location.href = `/?creator_invite=${encodeURIComponent(cleanCode)}`;
-      return;
-    }
-
     setIsRedeeming(true);
-    setRedeemError(null);
-    setRedeemSuccess(null);
 
     try {
       const { data: currentProf } = await supabase
@@ -718,6 +744,57 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
       const alreadyPremium = Boolean(isPremium || currentProf?.is_premium);
 
+      // 3. 5-Digit Creator Autograph PIN (e.g. 12345)
+      if (/^\d{5}$/.test(cleanCode)) {
+        const { data: pinData } = await supabase
+          .from('bingo_codes')
+          .select('*')
+          .eq('code', cleanCode)
+          .maybeSingle();
+
+        if (!pinData) {
+          throw new Error('Invalid 5-digit Autograph PIN. Please check the number and try again.');
+        }
+        if (pinData.expires_at && new Date() > new Date(pinData.expires_at)) {
+          throw new Error('This 5-digit Autograph PIN has expired.');
+        }
+        const pinUsed = Number(pinData.times_used || 0);
+        const pinMax = Number(pinData.max_uses || 999999);
+        if (pinMax > 0 && pinUsed >= pinMax) {
+          throw new Error(
+            pinMax === 1
+              ? 'This 1-Time Fan Gift PIN has already been redeemed!'
+              : 'This PIN has reached its maximum redemptions.'
+          );
+        }
+
+        await supabase
+          .from('bingo_codes')
+          .update({ times_used: pinUsed + 1 })
+          .eq('id', pinData.id);
+
+        const unlockedCreator = await unlockFlashContestAutograph(
+          activeUserId,
+          pinData.creator_name
+        );
+
+        await supabase
+          .from('profiles')
+          .update({ fandom_score: (Number(currentProf?.fandom_score) || 0) + 25 })
+          .eq('id', activeUserId);
+
+        window.dispatchEvent(new Event('profileUpdated'));
+        setPromoCode('');
+        setRedeemSuccess(
+          `Autograph Unlocked! You received ${
+            unlockedCreator || pinData.creator_name
+          }'s Gold Autograph (+25 Fandom Pts)!`
+        );
+        setIsRedeeming(false);
+        return;
+      }
+
+      // 4. Custom Promo / Bundle / Gift Sub Code from `promo_codes`
       const { data: promoRow } = await supabase
         .from('promo_codes')
         .select('*')
@@ -802,6 +879,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         return;
       }
 
+      // 5. Standard 1-Year Store Batch Access Key (`redeem_premium_code` RPC)
       if (alreadyPremium) {
         throw new Error(
           'You already have an active Saturday AM+ PLUS membership! Your store code was not used so you can save it or gift it to a friend.'
@@ -814,7 +892,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       });
 
       if (rpcErr || !rpcSuccess) {
-        throw new Error('Invalid or already redeemed access code.');
+        throw new Error('Invalid or already redeemed code.');
       }
 
       const curActive = Math.max(
@@ -960,7 +1038,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           <CheckCircle2 className="w-8 h-8 text-emerald-400 shrink-0" />
           <div className="flex-1 text-center sm:text-left">
             <h3 className="text-sm font-black uppercase tracking-widest text-white">
-              Membership &amp; Bundle Rewards Activated!
+              Code Applied!
             </h3>
             <p className="text-xs text-emerald-200 font-bold mt-0.5">{redeemSuccess}</p>
           </div>
@@ -1022,7 +1100,10 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         </div>
       </div>
 
-      <div className="bg-zinc-950/90 backdrop-blur-xl border-2 border-[#fe9a00] rounded-3xl p-6 sm:p-8 shadow-[0_0_40px_rgba(254,154,0,0.18)] mb-10">
+      <div
+        ref={mainPricingCardRef}
+        className="bg-zinc-950/90 backdrop-blur-xl border-2 border-[#fe9a00] rounded-3xl p-6 sm:p-8 shadow-[0_0_40px_rgba(254,154,0,0.18)] mb-10"
+      >
         <div className="grid grid-cols-1 md:grid-cols-5 gap-8 items-center">
           <div className="md:col-span-3 space-y-4">
             <h2 className="text-xl sm:text-2xl font-black italic uppercase tracking-tight text-white">
@@ -1073,6 +1154,27 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                 : 'Special Monthly Rate ($1.99/mo instead of $2.99/mo). Cancel anytime.'}
             </p>
 
+            {/* Active Partner Referral Badge (When a VIP-... code has been redeemed below) */}
+            {billingCycle === 'annual' && hasReferralCode && (
+              <div className="w-full mb-4 px-3 py-2 rounded-xl bg-emerald-950/70 border border-emerald-500/60 flex items-center justify-between gap-2 text-[10px] font-black uppercase tracking-wider text-emerald-300">
+                <span className="flex items-center gap-1.5 truncate">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  3-Day Trial Active ({referralCode})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReferralCode('');
+                    localStorage.removeItem('am_referral_code');
+                  }}
+                  className="text-zinc-400 hover:text-white cursor-pointer shrink-0"
+                  title="Remove referral code"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* Simple Inline Collector Subscription Callout (Scrolls Down to Bundles) */}
             {billingCycle === 'annual' && unifiedBundles.length > 0 && (
               <div
@@ -1090,21 +1192,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                 <p className="text-[10px] text-zinc-200 font-bold mt-1 leading-snug">
                   Check out our Collector Subscriptions! They&apos;re only <strong className="text-[#fe9a00]">+$4.99</strong> — get the same 1-Yr sub, but with even more cool stuff!
                 </p>
-              </div>
-            )}
-
-            {billingCycle === 'annual' && (
-              <div className="w-full mb-4 text-left">
-                <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                  Creator / Partner Code (Unlocks 3-Day Free Trial)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. VIP-WHYT"
-                  value={referralCode}
-                  onChange={e => setReferralCode(e.target.value.toUpperCase())}
-                  className="w-full bg-black border border-zinc-700 rounded-xl px-3 py-2 text-xs font-black uppercase tracking-widest text-[#fe9a00] focus:outline-none focus:border-[#fe9a00]"
-                />
               </div>
             )}
 
@@ -1155,7 +1242,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       </div>
 
       {/* =====================================================================
-          2. REDEEM CODE BOX (GIFT SUBS, BUNDLE CODES & CREATOR INVITES)
+          2. SINGLE UNIFIED "REDEEM A CODE" BOX (HANDLES ALL PROMO & VIP CODES)
       ===================================================================== */}
       <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 max-w-2xl mx-auto mb-12">
         <div className="flex items-center gap-3 mb-3">
@@ -1164,10 +1251,10 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           </div>
           <div>
             <h3 className="text-sm font-black uppercase italic tracking-wider text-white">
-              Have a Creator Gift Sub, Bundle Code, or 1-Year Access Key?
+              Redeem a Code
             </h3>
             <p className="text-[10px] text-zinc-400 font-bold">
-              Enter your Creator Monthly Gift Code (e.g. GIFT-...), Bundle Code (e.g. DIWALI-2026), or Creator Invite below to unlock PLUS immediately.
+              Enter any valid Promo Code, Gift Sub, Bundle Code, Creator Referral (VIP-...), or Autograph PIN below.
             </p>
           </div>
         </div>
@@ -1175,7 +1262,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         <form onSubmit={handleRedeemCode} className="flex flex-col sm:flex-row gap-2.5 mt-4">
           <input
             type="text"
-            placeholder="Enter Code (e.g. GIFT-... or DIWALI-2026)"
+            placeholder="Enter Code"
             value={promoCode}
             onChange={e => setPromoCode(e.target.value.toUpperCase())}
             className="flex-1 bg-black border border-zinc-700 rounded-xl px-4 py-3 text-xs font-black uppercase tracking-widest text-[#fe9a00] focus:outline-none focus:border-[#fe9a00]"
@@ -1183,7 +1270,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           <button
             type="submit"
             disabled={isRedeeming || !promoCode.trim()}
-            className="px-6 py-3 bg-zinc-800 hover:bg-[#fe9a00] text-white hover:text-black font-black uppercase tracking-widest text-xs rounded-xl transition-colors cursor-pointer disabled:opacity-40 shrink-0"
+            className="px-6 py-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs rounded-xl transition-colors cursor-pointer disabled:opacity-40 shrink-0"
           >
             {isRedeeming ? 'Redeeming...' : 'Redeem Code'}
           </button>
@@ -1198,7 +1285,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         {!currentUser && (
           <p className="text-[10px] text-zinc-500 font-bold mt-3 flex items-center gap-1.5">
             <Gift className="w-3.5 h-3.5 text-[#fe9a00] shrink-0" />
-            You&apos;ll be prompted to sign in or create a free account so we can attach PLUS &amp; your bundle items to your profile.
+            You&apos;ll be prompted to sign in or create a free account so we can attach your unlocked rewards to your profile.
           </p>
         )}
       </div>
