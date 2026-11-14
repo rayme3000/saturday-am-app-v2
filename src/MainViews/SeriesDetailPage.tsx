@@ -257,7 +257,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }
   }, [targetSeriesSlug, trackEvent]);
 
-  // Unified Signature Sync: Reads from bingo_signatures_log, profiles.unlocked_autographs, and localStorage
+  // Unified Signature Sync: Reads from bingo_signatures_log, profiles.unlocked_autographs, and auto-heals GUNBONE-YAPPER winner
   useEffect(() => {
     const syncSignatures = async () => {
       if (!isPlusActive && !currentUserId) {
@@ -273,9 +273,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       ]);
 
       if (currentUserId) {
-        const [{ data: logRows }, { data: profRow }] = await Promise.all([
+        const [{ data: authData }, { data: logRows }, { data: profRow }] = await Promise.all([
+          supabase.auth.getUser(),
           supabase.from('bingo_signatures_log').select('creator_name').eq('user_id', currentUserId),
-          supabase.from('profiles').select('unlocked_autographs').eq('id', currentUserId).maybeSingle()
+          supabase.from('profiles').select('email, unlocked_autographs').eq('id', currentUserId).maybeSingle()
         ]);
 
         (logRows || []).forEach((r: any) => {
@@ -286,6 +287,33 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           profRow.unlocked_autographs.forEach((cName: any) => {
             if (cName) unlockedNames.add(String(cName).trim());
           });
+        }
+
+        // Auto-heal GUNBONE-YAPPER winner (viniciussilvaazevedos@gmail.com) so Erick Pedrucci's signature is permanently unlocked
+        const activeEmail = String(
+          authData?.user?.email || profRow?.email || ''
+        )
+          .trim()
+          .toLowerCase();
+
+        if (activeEmail === 'viniciussilvaazevedos@gmail.com') {
+          const alreadyLoggedErick = Array.from(unlockedNames).some(n =>
+            n.toLowerCase().includes('erick')
+          );
+          unlockedNames.add('Erick Pedrucci');
+          if (!alreadyLoggedErick) {
+            supabase
+              .from('bingo_signatures_log')
+              .insert([
+                {
+                  user_id: currentUserId,
+                  creator_name: 'Erick Pedrucci',
+                  event_name: 'GUNBONE-YAPPER Flash Bundle',
+                  signature_type: 'Standard'
+                }
+              ])
+              .then(() => {});
+          }
         }
       }
 
@@ -305,7 +333,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           if (
             row.creator_name &&
             row.signature_url &&
-            unlockedArray.some(uName => doCreatorNamesMatch(uName, row.creator_name))
+            unlockedArray.some(
+              uName =>
+                doCreatorNamesMatch(uName, row.creator_name) ||
+                (uName.toLowerCase().includes('erick') &&
+                  String(row.creator_name).toLowerCase().includes('erick'))
+            )
           ) {
             freshSigs[row.creator_name] = row.signature_url;
           }
@@ -901,9 +934,22 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           {isPlusActive && Object.keys(collectedSignatures).length > 0 && (
             <div className="flex flex-wrap justify-center gap-6 mt-8 w-full max-w-2xl">
               {Object.entries(collectedSignatures)
-                .filter(([sigName]) =>
-                  creators.some((c: any) => doCreatorNamesMatch(c.name || '', sigName))
-                )
+                .filter(([sigName]) => {
+                  const slugLower = String(localSeries?.slug || targetSeriesSlug || '').toLowerCase();
+                  const sigNorm = String(sigName || '').trim().toLowerCase();
+                  // Direct match against loaded creators or series.creator_name
+                  if (creators.some((c: any) => doCreatorNamesMatch(c.name || '', sigName))) {
+                    return true;
+                  }
+                  if (localSeries?.creator_name && doCreatorNamesMatch(localSeries.creator_name, sigName)) {
+                    return true;
+                  }
+                  // Fallback map check (e.g. Erick Pedrucci -> gun-bone, hammer-annual-one-shot)
+                  if (sigNorm.includes('erick') && (slugLower.includes('gun-bone') || slugLower.includes('hammer'))) {
+                    return true;
+                  }
+                  return false;
+                })
                 .map(([sigName, sigUrl], i) => (
                   <div key={`sig-${i}`} className="flex flex-col items-center w-full max-w-[260px] sm:max-w-[340px] animate-fade-in-up">
                     <div className="w-full aspect-[2/1] flex items-center justify-center p-2 relative group cursor-pointer">

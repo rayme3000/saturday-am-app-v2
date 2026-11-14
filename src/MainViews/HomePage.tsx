@@ -29,7 +29,7 @@ import {
   getOneShotFreeCountdown,
   getOneShotRemainingMs
 } from '../oneshotWednesday';
-import { doCreatorNamesMatch } from '../VirtualProfile/BingoBook';
+import { redeemUniversalCode } from './Subscription';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -194,65 +194,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   }, [currentUser?.id, nowTick]);
 
   // --- UNIFIED CODE & PIN REDEEMER ---
-  const unlockCreatorAutographHelper = async (userId: string, creatorNameRaw?: string, eventLabel = 'Home Quick Redeem') => {
-    const targetCreator = String(creatorNameRaw || '').trim();
-    if (!targetCreator) return null;
-
-    try {
-      const { data: existingLogs } = await supabase
-        .from('bingo_signatures_log')
-        .select('creator_name')
-        .eq('user_id', userId);
-
-      const alreadyHas = (existingLogs || []).some((row: any) =>
-        doCreatorNamesMatch(row.creator_name, targetCreator)
-      );
-
-      if (!alreadyHas) {
-        await supabase.from('bingo_signatures_log').insert([
-          {
-            user_id: userId,
-            creator_name: targetCreator,
-            event_name: eventLabel,
-            signature_type: 'Standard'
-          }
-        ]);
-      }
-
-      const { data: allSigs } = await supabase
-        .from('creator_signatures')
-        .select('creator_name, signature_url');
-
-      const matchedSig = (allSigs || []).find((r: any) =>
-        doCreatorNamesMatch(r.creator_name, targetCreator)
-      );
-
-      const localHunts: string[] = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
-      if (!localHunts.some(h => doCreatorNamesMatch(h, targetCreator))) {
-        localHunts.push(targetCreator);
-      }
-      if (matchedSig?.creator_name && !localHunts.includes(matchedSig.creator_name)) {
-        localHunts.push(matchedSig.creator_name);
-      }
-      localStorage.setItem('am_bingo_hunts', JSON.stringify(localHunts));
-
-      if (matchedSig?.signature_url) {
-        const localSigs: Record<string, string> = JSON.parse(
-          localStorage.getItem('am_bingo_sigs') || '{}'
-        );
-        localSigs[targetCreator] = matchedSig.signature_url;
-        localSigs[matchedSig.creator_name] = matchedSig.signature_url;
-        localStorage.setItem('am_bingo_sigs', JSON.stringify(localSigs));
-      }
-
-      window.dispatchEvent(new Event('bingoUpdated'));
-      return matchedSig?.creator_name || targetCreator;
-    } catch (err) {
-      console.error('Error unlocking autograph from Home:', err);
-      return targetCreator;
-    }
-  };
-
   const handleUniversalCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanCode = quickCodeInput.trim().toUpperCase();
@@ -274,7 +215,9 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       return;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
     const activeUserId = currentUser?.id || user?.id;
 
     if (!activeUserId) {
@@ -287,176 +230,26 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     setIsRedeemingQuickCode(true);
 
     try {
-      const { data: currentProf } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', activeUserId)
-        .maybeSingle();
+      const result = await redeemUniversalCode(cleanCode, activeUserId, isPlusSubscriber);
 
-      const alreadyPremium = Boolean(isPlusSubscriber || currentProf?.is_premium);
-
-      if (/^\d{5}$/.test(cleanCode)) {
-        const { data: pinData } = await supabase
-          .from('bingo_codes')
-          .select('*')
-          .eq('code', cleanCode)
-          .maybeSingle();
-
-        if (!pinData) {
-          throw new Error('Invalid 5-digit Autograph PIN. Please check the number and try again.');
-        }
-        if (pinData.expires_at && new Date() > new Date(pinData.expires_at)) {
-          throw new Error('This 5-digit Autograph PIN has expired.');
-        }
-        const pinUsed = Number(pinData.times_used || 0);
-        const pinMax = Number(pinData.max_uses || 999999);
-        if (pinMax > 0 && pinUsed >= pinMax) {
-          throw new Error(
-            pinMax === 1
-              ? 'This 1-Time Fan Gift PIN has already been claimed!'
-              : 'This PIN has reached its maximum redemptions.'
-          );
-        }
-
-        await supabase
-          .from('bingo_codes')
-          .update({ times_used: pinUsed + 1 })
-          .eq('id', pinData.id);
-
-        const unlockedCreator = await unlockCreatorAutographHelper(
-          activeUserId,
-          pinData.creator_name,
-          'Home Quick PIN Unlock'
-        );
-
-        await supabase
-          .from('profiles')
-          .update({ fandom_score: (Number(currentProf?.fandom_score) || 0) + 25 })
-          .eq('id', activeUserId);
-
-        window.dispatchEvent(new Event('profileUpdated'));
-        setQuickCodeInput('');
-        setQuickRedeemFeedback({
-          type: 'success',
-          title: 'Autograph Unlocked!',
-          message: `You unlocked ${unlockedCreator || pinData.creator_name}'s Gold Autograph (+25 Fandom Pts)! It is now displayed in your Bingo Book and on their Series pages.`,
-          unlockedCreator: unlockedCreator || pinData.creator_name
-        });
-        setIsRedeemingQuickCode(false);
+      if (result.status === 'creator_invite') {
+        window.location.href = `/?creator_invite=${encodeURIComponent(result.code)}`;
         return;
       }
 
-      const { data: promoRow } = await supabase
-        .from('promo_codes')
-        .select('*')
-        .ilike('code', cleanCode)
-        .maybeSingle();
-
-      if (promoRow) {
-        const now = new Date();
-        if (promoRow.expires_at && new Date(promoRow.expires_at) < now) {
-          throw new Error('This flash contest or access code has expired.');
-        }
-        const timesUsed = Number(promoRow.times_used || 0);
-        const maxUses = Number(promoRow.max_uses || 1);
-        if (timesUsed >= maxUses) {
-          throw new Error('All available claims for this code have already been redeemed!');
-        }
-
-        if (alreadyPremium && !promoRow.creator_name) {
-          throw new Error(
-            'You already have an active Saturday AM+ PLUS membership! Your code was not used so you can save it or gift it to a friend.'
-          );
-        }
-
-        const { error: updatePromoErr } = await supabase
-          .from('promo_codes')
-          .update({ times_used: timesUsed + 1 })
-          .eq('id', promoRow.id);
-        if (updatePromoErr) throw updatePromoErr;
-
-        const baseDate =
-          currentProf?.premium_until && new Date(currentProf.premium_until) > now
-            ? new Date(currentProf.premium_until)
-            : now;
-        const nextYearDate = new Date(baseDate.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
-
-        const currentHypes = Number(currentProf?.hypes_remaining ?? currentProf?.super_hypes_left ?? 3);
-        const newHypeBalance = alreadyPremium ? currentHypes + 3 : Math.max(3, currentHypes);
-        const bonusFandomPts = promoRow.creator_name ? (alreadyPremium ? 50 : 25) : 15;
-
-        const profilePatch: Record<string, any> = {
-          is_premium: true,
-          hypes_remaining: newHypeBalance,
-          super_hypes_left: newHypeBalance,
-          fandom_score: (Number(currentProf?.fandom_score) || 0) + bonusFandomPts,
-          premium_until: nextYearDate
-        };
-
-        let { error: profErr } = await supabase
-          .from('profiles')
-          .update(profilePatch)
-          .eq('id', activeUserId);
-
-        if (profErr && String(profErr.message || '').includes('premium_until')) {
-          delete profilePatch.premium_until;
-          const retry = await supabase.from('profiles').update(profilePatch).eq('id', activeUserId);
-          profErr = retry.error;
-        }
-        if (profErr) throw profErr;
-
-        const unlockedCreator = await unlockCreatorAutographHelper(
-          activeUserId,
-          promoRow.creator_name,
-          'Flash Contest Bundle'
-        );
-
-        window.dispatchEvent(new Event('profileUpdated'));
+      if (result.status === 'referral_code') {
         setQuickCodeInput('');
-        setQuickRedeemFeedback({
-          type: 'success',
-          title: unlockedCreator ? 'Flash Bundle Unlocked!' : '1-Year PLUS Activated!',
-          message: unlockedCreator
-            ? alreadyPremium
-              ? `VIP PLUS WINNER BONUS! Unlocked ${unlockedCreator}'s Gold Autograph, extended your PLUS by +1 Year, and stacked +3 Bonus Super Hypes & +50 Fandom Pts!`
-              : `1-Year Saturday AM+ PLUS + ${unlockedCreator}'s Gold Autograph (+25 Fandom Pts) are now active!`
-            : 'Success! Your 1-Year Saturday AM+ PLUS Access Key has been activated!',
-          unlockedCreator: unlockedCreator || undefined
-        });
-        setIsRedeemingQuickCode(false);
+        setShowQuickRedeemModal(false);
+        onNavigate({ action: 'sub' });
         return;
       }
 
-      if (alreadyPremium) {
-        throw new Error(
-          'You already have an active Saturday AM+ PLUS membership! Your store code was not used so you can save it or gift it to a friend.'
-        );
-      }
-
-      const { data: rpcSuccess, error: rpcErr } = await supabase.rpc('redeem_premium_code', {
-        input_code: cleanCode,
-        user_uuid: activeUserId
-      });
-
-      if (rpcErr || !rpcSuccess) {
-        throw new Error('Invalid or already redeemed code or PIN.');
-      }
-
-      await supabase
-        .from('profiles')
-        .update({
-          is_premium: true,
-          hypes_remaining: 3,
-          super_hypes_left: 3
-        })
-        .eq('id', activeUserId);
-
-      window.dispatchEvent(new Event('profileUpdated'));
       setQuickCodeInput('');
       setQuickRedeemFeedback({
         type: 'success',
-        title: 'PLUS Membership Activated!',
-        message: 'Success! Your Saturday AM+ PLUS membership is now active!'
+        title: result.title,
+        message: result.message,
+        unlockedCreator: result.unlockedCreator
       });
     } catch (err: any) {
       setQuickRedeemFeedback({
@@ -569,7 +362,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         });
       } else {
         const bestActivityMs = Math.max(existing.latestSeriesActivityMs, validTime);
-        // For an unlocked One-Shot Wednesday story, feature Chapter 1 (or the lowest chapter) so new readers jump right into the start of the story!
         const shouldReplaceChapter = isActiveOsw
           ? Number(ch.chapter_number) < Number(existing.chapter.chapter_number)
           : Number(ch.chapter_number) > Number(existing.chapter.chapter_number);
@@ -582,7 +374,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       }
     });
 
-    // If an active One-Shot Wednesday series has no chapter row loaded in `latestChapters` yet, synthesize a direct card so it still appears in Latest Chapters while unlocked
     seriesList.forEach((s: any) => {
       if (!s?.slug || s.is_hidden) return;
       const slug = String(s.slug);
@@ -610,8 +401,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
     const allSeriesEntries = Array.from(highestChapterBySeries.values());
 
-    // Keep active One-Shot Wednesday unlocked stories in `freshEntries` ONLY while their unlock timer is > 0.
-    // Once the unlock window ends, `entry.isActiveOsw` becomes false and older Completed Runs automatically leave Latest Chapters!
     const freshEntries = allSeriesEntries.filter(
       entry => entry.isActiveOsw || now - entry.latestSeriesActivityMs <= maxLatestAgeMs
     );
@@ -619,7 +408,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
 
     return candidatePool
       .sort((a, b) => {
-        // 1. Always spotlight active One-Shot Wednesday unlocked stories at the front of Latest Chapters while unlocked
         if (a.isActiveOsw && !b.isActiveOsw) return -1;
         if (!a.isActiveOsw && b.isActiveOsw) return 1;
 
@@ -924,13 +712,13 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   };
 
   useEffect(() => {
-    const fetchRecentReads = async () => {
+    const fetchRecentReads = async (forceRefresh = false) => {
       if (isLoading || !currentUser) {
         setRecentReads([]);
         setCompletedChapterIds(new Set());
         return;
       }
-      if (memRecentReads && memCompletedChapterIds) {
+      if (!forceRefresh && memRecentReads && memCompletedChapterIds) {
         setRecentReads(memRecentReads);
         setCompletedChapterIds(memCompletedChapterIds);
         return;
@@ -942,7 +730,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             .select('*')
             .eq('user_id', currentUser.id)
             .order('updated_at', { ascending: false })
-            .limit(15),
+            .limit(25),
           supabase
             .from('completed_reads')
             .select('chapter_id')
@@ -956,33 +744,69 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         setCompletedChapterIds(compSet);
         memCompletedChapterIds = compSet;
 
-        if (!history || history.length === 0) return;
+        if (!history || history.length === 0) {
+          setRecentReads([]);
+          memRecentReads = [];
+          return;
+        }
         const allIds = history.map((h: any) => h.chapter_id);
         let chapters: any[] = [];
         if (allIds.length > 0) {
           const { data: chapterData } = await supabase.from('chapters').select('*').in('id', allIds);
           if (chapterData) chapters = chapterData;
         }
-        const combined = history.map((h: any) => {
-          const chap = chapters.find((c: any) => String(c.id) === String(h.chapter_id));
-          if (chap && chap.is_published) {
-            const series = seriesList.find((s: any) => s.slug === chap.series_slug);
-            if (!series || series.is_hidden) return null;
-            const isFreeOswOrDebut = isActiveOneShotWednesday(series, seriesList);
-            if (!isFreeOswOrDebut && !isChapterReleasedForUser(chap.publish_at, isPlusSubscriber)) return null;
-            return {
-              ...h, type: 'series', target: { ...series, action: 'series' },
-              title: series.title, subtitle: `Chapter ${chap.chapter_number}`,
-              image: chap.thumbnail_url || series.cover_url
-            };
-          }
-          return null;
-        }).filter(Boolean);
+        const combined = history
+          .map((h: any) => {
+            const chapIdStr = String(h.chapter_id);
+            // 1. Exclude chapters recorded in `completed_reads`
+            if (compSet.has(chapIdStr)) return null;
+
+            const chap = chapters.find((c: any) => String(c.id) === chapIdStr);
+            if (chap && chap.is_published) {
+              // 2. Also exclude if the user's saved page_index is already at the final page of the chapter
+              const totalPages = Number(chap.page_count || 0);
+              if (totalPages > 1 && Number(h.page_index || 0) >= totalPages - 1) {
+                return null;
+              }
+
+              const series = seriesList.find((s: any) => s.slug === chap.series_slug);
+              if (!series || series.is_hidden) return null;
+              const isFreeOswOrDebut = isActiveOneShotWednesday(series, seriesList);
+              if (!isFreeOswOrDebut && !isChapterReleasedForUser(chap.publish_at, isPlusSubscriber)) return null;
+              return {
+                ...h,
+                type: 'series',
+                target: { ...series, action: 'series' },
+                title: series.title,
+                subtitle: `Chapter ${chap.chapter_number}`,
+                image: chap.thumbnail_url || series.cover_url
+              };
+            }
+            return null;
+          })
+          .filter(Boolean);
+
         setRecentReads(combined);
         memRecentReads = combined;
-      } catch (err: any) { console.error('Critical Error fetching recent reads:', err); }
+      } catch (err: any) {
+        console.error('Critical Error fetching recent reads:', err);
+      }
     };
+
     fetchRecentReads();
+
+    const handleProgressOrProfileRefresh = () => {
+      memRecentReads = null;
+      memCompletedChapterIds = null;
+      fetchRecentReads(true);
+    };
+
+    window.addEventListener('progressUpdated', handleProgressOrProfileRefresh);
+    window.addEventListener('profileUpdated', handleProgressOrProfileRefresh);
+    return () => {
+      window.removeEventListener('progressUpdated', handleProgressOrProfileRefresh);
+      window.removeEventListener('profileUpdated', handleProgressOrProfileRefresh);
+    };
   }, [seriesList, isLoading, currentUser, isPlusSubscriber]);
 
   useEffect(() => {

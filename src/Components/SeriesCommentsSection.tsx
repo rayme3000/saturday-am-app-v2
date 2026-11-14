@@ -44,6 +44,7 @@ interface CommentRow {
   author_is_plus?: boolean;
   author_role?: string;
   author_linked_creator?: string | null;
+  source_table?: 'comments' | 'series_comments';
 }
 
 interface SeriesCommentsSectionProps {
@@ -59,6 +60,45 @@ const REPORT_REASONS = [
   'Unmarked Major Spoiler',
   'Spam or Self-Promotion'
 ];
+
+const resolveDisplayUsername = (
+  profile?: any,
+  savedUserName?: string,
+  fallbackUserId?: string
+): string => {
+  const isGeneric = (val?: string | null) => {
+    const clean = String(val || '').trim().toLowerCase();
+    return (
+      !clean ||
+      clean === 'reader' ||
+      clean === 'user' ||
+      clean === 'anonymous' ||
+      clean === 'manga fan'
+    );
+  };
+
+  if (profile?.linked_creator_name && !isGeneric(profile.linked_creator_name)) {
+    return String(profile.linked_creator_name).trim();
+  }
+  if (profile?.username && !isGeneric(profile.username)) {
+    return String(profile.username).trim();
+  }
+  const fullName = `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim();
+  if (fullName && !isGeneric(fullName)) {
+    return fullName;
+  }
+  if (savedUserName && !isGeneric(savedUserName)) {
+    return String(savedUserName).trim();
+  }
+  if (profile?.email && String(profile.email).includes('@')) {
+    return String(profile.email).split('@')[0];
+  }
+  const shortId = String(fallbackUserId || profile?.id || '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 5)
+    .toUpperCase();
+  return shortId ? `Reader_${shortId}` : 'Manga Fan';
+};
 
 const SafeguardedCommentInput: React.FC<{
   placeholder?: string;
@@ -124,7 +164,6 @@ const SafeguardedCommentInput: React.FC<{
           : 'bg-zinc-950/90 border-zinc-800'
       }`}
     >
-      {/* 1. PRE-POSTING COMMUNITY GUIDELINE BANNER */}
       {showGuidelineBanner && (
         <div className="flex items-start justify-between gap-3 bg-[#fe9a00]/10 border border-[#fe9a00]/30 rounded-xl px-3.5 py-2.5">
           <div className="flex items-center gap-2.5 text-left">
@@ -186,7 +225,6 @@ const SafeguardedCommentInput: React.FC<{
             </span>
           </div>
 
-          {/* 2. REAL-TIME INLINE SAFEGUARD HIGHLIGHTER & FRICTION ALERT */}
           {analysis.matches.length > 0 && (
             <div
               className={`rounded-xl p-3.5 border transition-all animate-fade-in space-y-2 ${
@@ -290,7 +328,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
 
-  // Modal State for Creator / Staff "Type BLOCK to Confirm"
   const [blockModalTarget, setBlockModalTarget] = useState<CommentRow | null>(null);
   const [blockConfirmInput, setBlockConfirmInput] = useState('');
   const [isExecutingBlock, setIsExecutingBlock] = useState(false);
@@ -327,7 +364,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
     };
   }, [currentUser?.id]);
 
-  // Hide bottom nav pill when Block Confirmation modal is open
   useEffect(() => {
     if (!blockModalTarget) return;
     window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
@@ -358,11 +394,12 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
     setTimeout(() => setToastMessage(null), 5000);
   };
 
+  // UNIFIED FETCH: Loads from BOTH `comments` (new table) AND `series_comments` (historical table) so zero comments are ever lost!
   const fetchComments = useCallback(async () => {
     if (!seriesSlug) return;
     setLoading(true);
     try {
-      let query = supabase
+      let newTableQuery = supabase
         .from('comments')
         .select('*')
         .eq('series_slug', seriesSlug)
@@ -370,22 +407,106 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
         .limit(200);
 
       if (chapterId) {
-        query = query.eq('chapter_id', chapterId);
+        newTableQuery = newTableQuery.eq('chapter_id', chapterId);
       }
 
-      const { data: rawComments, error } = await query;
-      if (error) throw error;
+      const legacyTableQuery = !chapterId
+        ? supabase
+            .from('series_comments')
+            .select('*')
+            .eq('series_slug', seriesSlug)
+            .order('created_at', { ascending: false })
+            .limit(200)
+        : Promise.resolve({ data: [], error: null });
 
-      const visibleRows = (rawComments || []).filter((c: any) => {
+      const [newTableRes, legacyTableRes] = await Promise.all([
+        newTableQuery,
+        legacyTableQuery
+      ]);
+
+      const rawNewRows = Array.isArray(newTableRes.data) ? newTableRes.data : [];
+      const rawLegacyRows = Array.isArray(legacyTableRes.data) ? legacyTableRes.data : [];
+
+      // Normalize legacy `series_comments` rows into `CommentRow` shape
+      const normalizedLegacyRows = rawLegacyRows
+        .filter((lc: any) => {
+          if (!lc || !lc.id) return false;
+          // Show unflagged comments OR comments authored by the current user
+          if (lc.is_flagged === true) {
+            return Boolean(effectiveUserId && String(lc.user_id) === String(effectiveUserId));
+          }
+          return true;
+        })
+        .map((lc: any) => ({
+          id: String(lc.id),
+          user_id: lc.user_id,
+          series_slug: lc.series_slug,
+          chapter_id: null,
+          parent_id: lc.parent_id ? String(lc.parent_id) : null,
+          content: String(lc.text || lc.content || ''),
+          status: 'approved' as const,
+          flagged_reasons: [],
+          likes_count: Number(lc.likes_count || 0),
+          creator_liked_by: lc.creator_liked_by || null,
+          creator_liked_avatar: lc.creator_liked_avatar || null,
+          created_at: lc.created_at || new Date().toISOString(),
+          saved_user_name: lc.user_name || '',
+          saved_avatar_url: lc.avatar_url || '',
+          source_table: 'series_comments' as const
+        }));
+
+      const normalizedNewRows = rawNewRows.map((nc: any) => ({
+        ...nc,
+        id: String(nc.id),
+        parent_id: nc.parent_id ? String(nc.parent_id) : null,
+        content: String(nc.content || nc.text || ''),
+        source_table: 'comments' as const
+      }));
+
+      // Deduplicate in case a comment exists in both tables
+      const seenSignatures = new Set<string>();
+      const combinedRaw: any[] = [];
+
+      [...normalizedNewRows, ...normalizedLegacyRows].forEach(row => {
+        const dedupeKey = `${row.user_id}_${String(row.content).trim().slice(0, 60)}`;
+        if (row.source_table === 'series_comments' && seenSignatures.has(dedupeKey)) {
+          return;
+        }
+        seenSignatures.add(dedupeKey);
+        combinedRaw.push(row);
+      });
+
+      const visibleRows = combinedRaw.filter((c: any) => {
         if (locallyReportedIds.includes(String(c.id))) return false;
         if (c.status === 'rejected') return false;
         if (c.status === 'pending_review') {
           return Boolean(effectiveUserId && String(c.user_id) === String(effectiveUserId));
         }
-        return c.status === 'approved';
+        return true;
       });
 
-      const userIds = Array.from(new Set(visibleRows.map((c: any) => c.user_id).filter(Boolean)));
+      // Also pull legacy comment hype counts from `hypes` table for `series_comments` rows
+      const legacyIds = visibleRows
+        .filter(r => r.source_table === 'series_comments')
+        .map(r => String(r.id));
+
+      const legacyHypeCountMap: Record<string, number> = {};
+      if (legacyIds.length > 0) {
+        const { data: hypesData } = await supabase
+          .from('hypes')
+          .select('target_id')
+          .eq('target_type', 'comment')
+          .in('target_id', legacyIds);
+
+        (hypesData || []).forEach((h: any) => {
+          const tid = String(h.target_id);
+          legacyHypeCountMap[tid] = (legacyHypeCountMap[tid] || 0) + 1;
+        });
+      }
+
+      const userIds = Array.from(
+        new Set(visibleRows.map((c: any) => c.user_id).filter(Boolean))
+      );
       if (effectiveUserId && !userIds.includes(effectiveUserId)) {
         userIds.push(effectiveUserId);
       }
@@ -395,7 +516,9 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
       if (userIds.length > 0) {
         const { data: profs } = await supabase
           .from('profiles')
-          .select('id, username, avatar_url, is_premium, role, linked_creator_name, is_muted, muted_until')
+          .select(
+            'id, username, first_name, last_name, email, avatar_url, is_premium, role, linked_creator_name, is_muted, muted_until'
+          )
           .in('id', userIds);
 
         (profs || []).forEach((p: any) => {
@@ -408,23 +531,35 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
       } else if (effectiveUserId) {
         const { data: myProf } = await supabase
           .from('profiles')
-          .select('id, username, avatar_url, is_premium, role, linked_creator_name, is_muted, muted_until')
+          .select(
+            'id, username, first_name, last_name, email, avatar_url, is_premium, role, linked_creator_name, is_muted, muted_until'
+          )
           .eq('id', effectiveUserId)
           .maybeSingle();
         if (myProf) setUserProfile(myProf);
       }
 
-      const enriched: CommentRow[] = visibleRows.map((c: any) => {
-        const p = profileMap.get(String(c.user_id));
-        return {
-          ...c,
-          author_username: p?.linked_creator_name || p?.username || 'Manga Fan',
-          author_avatar: p?.avatar_url || '',
-          author_is_plus: Boolean(p?.is_premium),
-          author_role: p?.role || 'reader',
-          author_linked_creator: p?.linked_creator_name || null
-        };
-      });
+      const enriched: CommentRow[] = visibleRows
+        .map((c: any) => {
+          const p = profileMap.get(String(c.user_id));
+          const fallbackLikes =
+            c.source_table === 'series_comments'
+              ? Math.max(Number(c.likes_count || 0), legacyHypeCountMap[String(c.id)] || 0)
+              : Number(c.likes_count || 0);
+
+          return {
+            ...c,
+            likes_count: fallbackLikes,
+            author_username: resolveDisplayUsername(p, c.saved_user_name, c.user_id),
+            author_avatar: p?.avatar_url || c.saved_avatar_url || '',
+            author_is_plus: Boolean(p?.is_premium),
+            author_role: p?.role || 'reader',
+            author_linked_creator: p?.linked_creator_name || null
+          };
+        })
+        .sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
 
       setComments(enriched);
     } catch (err) {
@@ -454,6 +589,8 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
         ? 'pending_review'
         : 'approved';
 
+    const resolvedAuthorName = resolveDisplayUsername(userProfile, undefined, effectiveUserId);
+
     const tempId = `temp-${Date.now()}`;
     const optimisticComment: CommentRow = {
       id: tempId,
@@ -466,12 +603,12 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
       flagged_reasons: analysis.flaggedReasons,
       likes_count: 0,
       created_at: new Date().toISOString(),
-      author_username:
-        userProfile?.linked_creator_name || userProfile?.username || 'You',
+      author_username: resolvedAuthorName,
       author_avatar: userProfile?.avatar_url || '',
       author_is_plus: Boolean(userProfile?.is_premium || currentUser?.tier === 'premium'),
       author_role: userProfile?.role || 'reader',
-      author_linked_creator: userProfile?.linked_creator_name || null
+      author_linked_creator: userProfile?.linked_creator_name || null,
+      source_table: 'comments'
     };
 
     setComments(prev => [optimisticComment, ...prev]);
@@ -499,25 +636,77 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
       return;
     }
 
+    // Also mirror to `series_comments` so Leaderboard monthly comment points (+3 pts) count it automatically!
+    if (!chapterId && initialStatus === 'approved') {
+      supabase
+        .from('series_comments')
+        .insert([
+          {
+            series_slug: seriesSlug,
+            user_id: effectiveUserId,
+            user_name: resolvedAuthorName,
+            avatar_url: userProfile?.avatar_url || '',
+            text: content,
+            parent_id: null,
+            is_flagged: false
+          }
+        ])
+        .then(() => {});
+    }
+
+    // Increment Fandom Score (+3)
+    supabase
+      .from('profiles')
+      .select('fandom_score, quick_reacts')
+      .eq('id', effectiveUserId)
+      .maybeSingle()
+      .then(({ data: profData }) => {
+        if (profData) {
+          supabase
+            .from('profiles')
+            .update({
+              fandom_score: (Number(profData.fandom_score) || 0) + 3,
+              quick_reacts: (Number(profData.quick_reacts) || 0) + 1
+            })
+            .eq('id', effectiveUserId)
+            .then(() => window.dispatchEvent(new Event('profileUpdated')));
+        }
+      });
+
     if (inserted) {
       setComments(prev =>
-        prev.map(c => (c.id === tempId ? { ...optimisticComment, ...inserted } : c))
+        prev.map(c =>
+          c.id === tempId
+            ? { ...optimisticComment, ...inserted, id: String(inserted.id) }
+            : c
+        )
       );
     }
   };
 
-  const handleDeleteComment = async (commentId: string) => {
+  const handleDeleteComment = async (comment: CommentRow) => {
     if (!window.confirm('Delete this comment?')) return;
     const prev = comments;
-    setComments(curr => curr.filter(c => c.id !== commentId && c.parent_id !== commentId));
-    const { error } = await supabase.from('comments').delete().eq('id', commentId);
-    if (error) {
-      setComments(prev);
-      alert('Failed to delete comment: ' + error.message);
+    setComments(curr => curr.filter(c => c.id !== comment.id && c.parent_id !== comment.id));
+
+    if (comment.source_table === 'series_comments') {
+      const { error } = await supabase
+        .from('series_comments')
+        .delete()
+        .eq('id', comment.id);
+      if (error) {
+        setComments(prev);
+        alert('Failed to delete comment: ' + error.message);
+      }
+    } else {
+      const { error } = await supabase.from('comments').delete().eq('id', comment.id);
+      if (error) {
+        setComments(prev);
+        alert('Failed to delete comment: ' + error.message);
+      }
     }
   };
 
-  // Execute Creator & Staff Block + Delete after typing BLOCK in the modal
   const executeConfirmedBlockAndDelete = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!blockModalTarget) return;
@@ -525,7 +714,9 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
 
     const comment = blockModalTarget;
     if (effectiveUserId && String(comment.user_id) === String(effectiveUserId)) {
-      alert('Safety check: You cannot block your own Creator/Staff account! Use the Trash icon to delete your own test comment, or test the Block button on a reader comment.');
+      alert(
+        'Safety check: You cannot block your own Creator/Staff account! Use the Trash icon to delete your own test comment.'
+      );
       setBlockModalTarget(null);
       setBlockConfirmInput('');
       return;
@@ -543,11 +734,11 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
     );
 
     try {
-      const { error } = await supabase.rpc('staff_creator_block_and_delete_comment', {
-        p_comment_id: comment.id
-      });
-
-      if (error) {
+      if (comment.source_table === 'series_comments') {
+        await supabase
+          .from('series_comments')
+          .update({ is_flagged: true })
+          .eq('id', comment.id);
         await supabase
           .from('profiles')
           .update({
@@ -555,20 +746,34 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
             muted_until: new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000).toISOString()
           })
           .eq('id', comment.user_id);
+      } else {
+        const { error } = await supabase.rpc('staff_creator_block_and_delete_comment', {
+          p_comment_id: comment.id
+        });
 
-        await supabase
-          .from('comments')
-          .update({
-            status: 'rejected',
-            flagged_reasons: [...(comment.flagged_reasons || []), 'BLOCKED BY CREATOR/STAFF']
-          })
-          .eq('id', comment.id);
+        if (error) {
+          await supabase
+            .from('profiles')
+            .update({
+              is_muted: true,
+              muted_until: new Date(Date.now() + 3650 * 24 * 60 * 60 * 1000).toISOString()
+            })
+            .eq('id', comment.user_id);
+
+          await supabase
+            .from('comments')
+            .update({
+              status: 'rejected',
+              flagged_reasons: [...(comment.flagged_reasons || []), 'BLOCKED BY CREATOR/STAFF']
+            })
+            .eq('id', comment.id);
+        }
       }
 
       setBlockModalTarget(null);
       setBlockConfirmInput('');
       showToast(
-        `@${comment.author_username}'s comment was deleted and their account is now restricted from commenting app-wide until reviewed by moderation.`
+        `@${comment.author_username}'s comment was removed and their account is now restricted from commenting app-wide until reviewed by moderation.`
       );
     } catch (err: any) {
       setComments(prev);
@@ -593,10 +798,16 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
     setComments(prev => prev.filter(c => c.id !== comment.id && c.parent_id !== comment.id));
 
     try {
-      await supabase.rpc('report_community_comment', {
-        p_comment_id: comment.id,
-        p_reason: reason
-      });
+      if (comment.source_table === 'series_comments') {
+        await supabase
+          .from('comment_reports')
+          .insert([{ comment_id: comment.id, reported_by: effectiveUserId }]);
+      } else {
+        await supabase.rpc('report_community_comment', {
+          p_comment_id: comment.id,
+          p_reason: reason
+        });
+      }
     } catch (err) {
       console.warn('Report note:', err);
     }
@@ -643,6 +854,30 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
           : c
       )
     );
+
+    if (comment.source_table === 'series_comments') {
+      if (delta > 0) {
+        await supabase
+          .from('hypes')
+          .insert([
+            {
+              target_type: 'comment',
+              target_id: String(comment.id),
+              user_id: effectiveUserId
+            }
+          ]);
+      } else {
+        await supabase
+          .from('hypes')
+          .delete()
+          .match({
+            target_type: 'comment',
+            target_id: String(comment.id),
+            user_id: effectiveUserId
+          });
+      }
+      return;
+    }
 
     const { error } = await supabase.rpc('toggle_comment_like', {
       p_comment_id: comment.id,
@@ -703,7 +938,7 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
 
     return (
       <div
-        key={item.id}
+        key={`${item.source_table || 'c'}-${item.id}`}
         className={`relative transition-all ${
           isReply
             ? authorIsCreatorOrStaff
@@ -748,7 +983,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
                   {item.author_username}
                 </span>
 
-                {/* DISTINCT CREATOR / STAFF FLAIR BADGE */}
                 {authorIsCreatorOrStaff && (
                   <span className="px-2.5 py-0.5 rounded-full bg-gradient-to-r from-yellow-300 via-[#fe9a00] to-amber-500 text-black text-[8px] font-black uppercase tracking-widest flex items-center gap-1 shadow-[0_0_12px_rgba(254,154,0,0.45)]">
                     {authorIsCreator ? (
@@ -775,7 +1009,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
             </div>
           </div>
 
-          {/* RIGHT ACTION ICONS: REPORT (READERS), BLOCK USER (CREATOR/STAFF ONLY), DELETE (OWN/STAFF) */}
           <div className="flex items-center gap-1.5 shrink-0">
             {!isOwn && (
               <button
@@ -790,7 +1023,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
               </button>
             )}
 
-            {/* CREATOR & STAFF ONLY: BLOCK USER BUTTON */}
             {isCurrentUserCreatorOrStaff && (
               <button
                 type="button"
@@ -809,7 +1041,7 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
             {(isOwn || isCurrentUserCreatorOrStaff) && (
               <button
                 type="button"
-                onClick={() => handleDeleteComment(item.id)}
+                onClick={() => handleDeleteComment(item)}
                 className="text-zinc-500 hover:text-red-400 p-1.5 rounded-lg hover:bg-zinc-900 transition-colors cursor-pointer"
                 title="Delete comment"
               >
@@ -819,7 +1051,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
           </div>
         </div>
 
-        {/* Inline Report Reason Picker */}
         {reportingCommentId === item.id && (
           <div className="mt-3 p-3 rounded-xl bg-black border border-amber-500/50 space-y-2 animate-fade-in text-left">
             <div className="flex items-center justify-between">
@@ -857,7 +1088,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
           {item.content}
         </p>
 
-        {/* Actions Bar + Creator Liked / Creator Replied Badges */}
         <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-2">
           <div className="flex items-center gap-4">
             <button
@@ -889,7 +1119,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
             )}
           </div>
 
-          {/* CREATOR LIKED & CREATOR REPLIED VISUAL FLAIR PILLS */}
           <div className="flex items-center gap-2 flex-wrap">
             {item.creator_liked_by && (
               <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-[#fe9a00]/20 via-amber-500/15 to-[#fe9a00]/20 border border-[#fe9a00]/60 shadow-[0_0_12px_rgba(254,154,0,0.25)]">
@@ -919,7 +1148,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
           </div>
         </div>
 
-        {/* Inline Reply Box */}
         {!isReply && replyingToId === item.id && (
           <div className="mt-4">
             <SafeguardedCommentInput
@@ -938,7 +1166,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
           </div>
         )}
 
-        {/* Nested Replies (Max 2 Levels) */}
         {replies.length > 0 && (
           <div className="space-y-2 mt-2">
             {replies.map(r => renderCommentCard(r, true))}
@@ -950,7 +1177,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
 
   return (
     <section className="w-full max-w-3xl mx-auto px-4 sm:px-6 pb-28 space-y-6">
-      {/* CREATOR / STAFF "TYPE BLOCK TO CONFIRM" MODAL */}
       {blockModalTarget && (
         <div
           className="fixed inset-0 z-[9500] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
@@ -988,7 +1214,9 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
                 Block @{blockModalTarget.author_username}?
               </h3>
               <p className="text-xs sm:text-sm text-zinc-300 font-bold leading-relaxed">
-                Blocking this user will delete their comment and restrict <span className="text-red-400 font-black">all of their comments app-wide</span> until reviewed by moderation. Are you sure?
+                Blocking this user will delete their comment and restrict{' '}
+                <span className="text-red-400 font-black">all of their comments app-wide</span>{' '}
+                until reviewed by moderation. Are you sure?
               </p>
             </div>
 
@@ -1061,7 +1289,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
         </div>
       )}
 
-      {/* Top-Level Safeguarded Input */}
       <SafeguardedCommentInput
         isVisitor={isVisitor}
         isMuted={isMuted}
@@ -1070,7 +1297,6 @@ export const SeriesCommentsSection: React.FC<SeriesCommentsSectionProps> = ({
         onSubmit={(content, analysis) => handleCreateComment(content, analysis, null)}
       />
 
-      {/* Comment Thread List */}
       {loading ? (
         <div className="py-12 text-center text-xs font-black uppercase tracking-widest text-zinc-500">
           Loading community comments...

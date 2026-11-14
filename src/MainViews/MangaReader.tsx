@@ -737,6 +737,9 @@ export const MangaReader = ({
     const activeUserId = userId || currentUser?.id;
     if (!activeUserId && !isAuthLoaded) return;
 
+    setIsLoadingProgress(true);
+    setCurrentPage(0);
+    currentPageRef.current = 0;
     setShowEndPrompt(false);
     qr.setIsReactInputOpen(false);
     setIsUIVisible(true);
@@ -745,12 +748,14 @@ export const MangaReader = ({
       if (initialPage > 0) {
         const safePage = Math.min(initialPage, Math.max(0, pages.length - 1));
         setCurrentPage(safePage);
+        currentPageRef.current = safePage;
         setIsLoadingProgress(false);
         return;
       }
 
       if (!activeUserId) {
         setCurrentPage(0);
+        currentPageRef.current = 0;
         setIsLoadingProgress(false);
         return;
       }
@@ -763,13 +768,20 @@ export const MangaReader = ({
           .eq('chapter_id', chapterId)
           .maybeSingle();
         if (data && typeof data.page_index === 'number') {
-          const safePage = Math.min(data.page_index, Math.max(0, pages.length - 1));
+          // If the user previously finished this chapter (on the last page), start fresh at Page 0 when they re-read or advance into it
+          const isAtVeryEnd = pages.length > 1 && data.page_index >= pages.length - 1;
+          const safePage = isAtVeryEnd
+            ? 0
+            : Math.min(data.page_index, Math.max(0, pages.length - 1));
           setCurrentPage(safePage);
+          currentPageRef.current = safePage;
         } else {
           setCurrentPage(0);
+          currentPageRef.current = 0;
         }
       } catch {
         setCurrentPage(0);
+        currentPageRef.current = 0;
       } finally {
         setIsLoadingProgress(false);
       }
@@ -1565,11 +1577,16 @@ export const MangaReader = ({
           style={{ width: '100vw', height: '100dvh', maxWidth: '100vw', maxHeight: '100dvh' }}
         >
           <Virtuoso
+            key={`virtuoso-${chapterId}`}
             style={{ height: '100%', width: '100%' }}
             data={pages}
             initialTopMostItemIndex={currentPage}
             increaseViewportBy={{ top: 600, bottom: 900 }}
-            rangeChanged={range => setCurrentPage(Math.max(0, range.startIndex))}
+            rangeChanged={range => {
+              if (!isLoadingProgress) {
+                setCurrentPage(Math.max(0, range.startIndex));
+              }
+            }}
             itemContent={virtuosoItemContent}
             components={{
               Footer: virtuosoFooter

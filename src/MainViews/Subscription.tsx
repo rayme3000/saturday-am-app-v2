@@ -44,6 +44,511 @@ export interface BundlePayload {
   price_dollars?: number;
 }
 
+export interface UniversalRedeemResult {
+  status: 'success' | 'creator_invite' | 'referral_code';
+  code: string;
+  title: string;
+  message: string;
+  unlockedCreator?: string;
+  unlockedParts?: string[];
+  activatedPlus?: boolean;
+}
+
+// SHARED MASTER HELPER: Unlocks a creator's Bingo Book autograph across DB + Profile + LocalStorage
+export const unlockCreatorAutographMaster = async (
+  userId: string,
+  creatorNameRaw?: string,
+  eventLabel = 'Themed Annual Bundle'
+): Promise<string | null> => {
+  const targetCreator = String(creatorNameRaw || '').trim();
+  if (!targetCreator) return null;
+
+  try {
+    const { data: existingLogs } = await supabase
+      .from('bingo_signatures_log')
+      .select('creator_name')
+      .eq('user_id', userId);
+
+    const alreadyHas = (existingLogs || []).some((row: any) =>
+      doCreatorNamesMatch(row.creator_name, targetCreator)
+    );
+
+    if (!alreadyHas) {
+      await supabase.from('bingo_signatures_log').insert([
+        {
+          user_id: userId,
+          creator_name: targetCreator,
+          event_name: eventLabel,
+          signature_type: 'Standard'
+        }
+      ]);
+    }
+
+    const { data: allSigs } = await supabase
+      .from('creator_signatures')
+      .select('creator_name, signature_url');
+
+    const matchedSig = (allSigs || []).find((r: any) =>
+      doCreatorNamesMatch(r.creator_name, targetCreator)
+    );
+
+    const canonicalName = matchedSig?.creator_name || targetCreator;
+
+    const localHunts: string[] = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
+    if (!localHunts.some(h => doCreatorNamesMatch(h, targetCreator))) {
+      localHunts.push(targetCreator);
+    }
+    if (canonicalName && !localHunts.includes(canonicalName)) {
+      localHunts.push(canonicalName);
+    }
+    localStorage.setItem('am_bingo_hunts', JSON.stringify(localHunts));
+
+    if (matchedSig?.signature_url) {
+      const localSigs: Record<string, string> = JSON.parse(
+        localStorage.getItem('am_bingo_sigs') || '{}'
+      );
+      localSigs[targetCreator] = matchedSig.signature_url;
+      localSigs[canonicalName] = matchedSig.signature_url;
+      localStorage.setItem('am_bingo_sigs', JSON.stringify(localSigs));
+    }
+
+    window.dispatchEvent(new Event('bingoUpdated'));
+    return canonicalName;
+  } catch (err) {
+    console.error('Error unlocking autograph:', err);
+    return targetCreator;
+  }
+};
+
+// SHARED MASTER HELPER: Grants 1-Yr PLUS, Card Skins, Avatars, Autographs & Bonus Hypes
+export const grantMasterBundleRewardsToUser = async (
+  userId: string,
+  bundle: BundlePayload,
+  alreadyPremium: boolean,
+  eventLabel = 'Themed Annual Bundle'
+): Promise<{ unlockedParts: string[]; unlockedCreators: string[]; activatedPlus: boolean }> => {
+  const { data: currentProf } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const now = new Date();
+  const includeSub = bundle.include_1yr_sub !== false;
+  const baseDate =
+    currentProf?.premium_until && new Date(currentProf.premium_until) > now
+      ? new Date(currentProf.premium_until)
+      : now;
+  const nextYearDate = new Date(baseDate.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
+
+  const currentActiveHypes = Math.max(
+    0,
+    Number(currentProf?.hypes_remaining ?? currentProf?.super_hypes_left ?? 1)
+  );
+  const nextActiveHypes = includeSub
+    ? Math.min(10, Math.max(3, alreadyPremium ? currentActiveHypes + 3 : currentActiveHypes + 2))
+    : currentActiveHypes;
+
+  const currentVaultedHypes = Math.max(0, Number(currentProf?.vaulted_hypes || 0));
+  const extraVaultedHypes = Math.max(0, Number(bundle.bonus_hypes || 0));
+  const nextVaultedHypes = currentVaultedHypes + extraVaultedHypes;
+
+  const unlockedParts: string[] = [];
+  const unlockedCreators: string[] = [];
+  let bonusFandomPts = includeSub ? (alreadyPremium ? 30 : 15) : 0;
+
+  const profilePatch: Record<string, any> = {
+    hypes_remaining: nextActiveHypes,
+    super_hypes_left: nextActiveHypes,
+    vaulted_hypes: nextVaultedHypes
+  };
+
+  if (includeSub) {
+    profilePatch.is_premium = true;
+    profilePatch.premium_until = nextYearDate;
+    unlockedParts.push(alreadyPremium ? '+1 Year PLUS Extended' : '1-Year PLUS Pass');
+  }
+
+  if (extraVaultedHypes > 0) {
+    unlockedParts.push(`+${extraVaultedHypes} Vaulted Gold Hypes`);
+  }
+
+  // If card_skin_id was saved on the promo code without card_skin_url, look up the image_url from card_skins
+  let resolvedSkin1Url = bundle.card_skin_url || '';
+  let resolvedSkin1Name = bundle.card_skin_name || '';
+  if (bundle.card_skin_id && !resolvedSkin1Url) {
+    const { data: skinRow } = await supabase
+      .from('card_skins')
+      .select('name, image_url')
+      .eq('id', bundle.card_skin_id)
+      .maybeSingle();
+    if (skinRow) {
+      resolvedSkin1Url = skinRow.image_url || '';
+      resolvedSkin1Name = resolvedSkin1Name || skinRow.name || '';
+    }
+  }
+
+  const skinItemsToUnlock = [
+    bundle.card_skin_id ? String(bundle.card_skin_id) : '',
+    resolvedSkin1Url ? String(resolvedSkin1Url) : '',
+    bundle.card_skin_2_id ? String(bundle.card_skin_2_id) : '',
+    bundle.card_skin_2_url ? String(bundle.card_skin_2_url) : ''
+  ].filter(Boolean);
+
+  if (skinItemsToUnlock.length > 0) {
+    const existingSkins: string[] = Array.isArray(currentProf?.unlocked_skins)
+      ? currentProf.unlocked_skins.map(String)
+      : [];
+    const mergedSkins = Array.from(new Set([...existingSkins, ...skinItemsToUnlock]));
+    profilePatch.unlocked_skins = mergedSkins;
+
+    if (resolvedSkin1Url) {
+      profilePatch.card_skin = resolvedSkin1Url;
+    }
+    if (bundle.card_skin_id) {
+      profilePatch.card_skin_id = bundle.card_skin_id;
+    }
+
+    try {
+      const localSkins: string[] = JSON.parse(localStorage.getItem('am_unlocked_skins') || '[]');
+      localStorage.setItem(
+        'am_unlocked_skins',
+        JSON.stringify(Array.from(new Set([...localSkins, ...skinItemsToUnlock])))
+      );
+    } catch {
+      // ignore
+    }
+
+    const skinNames = [resolvedSkin1Name, bundle.card_skin_2_name].filter(Boolean);
+    unlockedParts.push(
+      skinNames.length > 0 ? `${skinNames.join(' & ')} Card Skin(s)` : 'Exclusive Hype Card Skin(s)'
+    );
+    bonusFandomPts += 15;
+  }
+
+  const validAvatars = (bundle.avatar_urls || []).filter(Boolean);
+  if (validAvatars.length > 0) {
+    const existingAvatars: string[] = Array.isArray(currentProf?.unlocked_avatars)
+      ? currentProf.unlocked_avatars
+      : [];
+    const mergedAvatars = Array.from(new Set([...existingAvatars, ...validAvatars]));
+    profilePatch.unlocked_avatars = mergedAvatars;
+    profilePatch.avatar_url = validAvatars[0];
+
+    try {
+      const localAvs: string[] = JSON.parse(localStorage.getItem('am_unlocked_avatars') || '[]');
+      const mergedLocal = Array.from(new Set([...localAvs, ...validAvatars]));
+      localStorage.setItem('am_unlocked_avatars', JSON.stringify(mergedLocal));
+    } catch {
+      // ignore
+    }
+    unlockedParts.push(
+      `${validAvatars.length} Character Avatar${validAvatars.length === 1 ? '' : 's'}`
+    );
+    bonusFandomPts += validAvatars.length * 10;
+  }
+
+  const creatorsToUnlock = Array.from(
+    new Set([bundle.creator_autograph, bundle.creator_autograph_2].filter(Boolean) as string[])
+  );
+  if (creatorsToUnlock.length > 0) {
+    const existingAutographs: string[] = Array.isArray(currentProf?.unlocked_autographs)
+      ? currentProf.unlocked_autographs.map(String)
+      : [];
+
+    const newlyResolvedCreators: string[] = [];
+    for (const cName of creatorsToUnlock) {
+      const unlockedCreator = await unlockCreatorAutographMaster(userId, cName, eventLabel);
+      if (unlockedCreator) {
+        newlyResolvedCreators.push(unlockedCreator);
+        unlockedCreators.push(unlockedCreator);
+        unlockedParts.push(`${unlockedCreator} Gold Autograph`);
+        bonusFandomPts += 25;
+      }
+    }
+
+    profilePatch.unlocked_autographs = Array.from(
+      new Set([...existingAutographs, ...creatorsToUnlock, ...newlyResolvedCreators])
+    );
+  }
+
+  profilePatch.fandom_score = (Number(currentProf?.fandom_score) || 0) + bonusFandomPts;
+
+  const { error: profErr } = await supabase
+    .from('profiles')
+    .update(profilePatch)
+    .eq('id', userId);
+
+  if (profErr) {
+    const fallbackPatch: Record<string, any> = {
+      is_premium: includeSub ? true : Boolean(currentProf?.is_premium),
+      hypes_remaining: nextActiveHypes,
+      super_hypes_left: nextActiveHypes,
+      vaulted_hypes: nextVaultedHypes,
+      fandom_score: profilePatch.fandom_score
+    };
+    if (profilePatch.avatar_url) fallbackPatch.avatar_url = profilePatch.avatar_url;
+    if (profilePatch.card_skin) fallbackPatch.card_skin = profilePatch.card_skin;
+    await supabase.from('profiles').update(fallbackPatch).eq('id', userId);
+  }
+
+  window.dispatchEvent(new Event('profileUpdated'));
+  window.dispatchEvent(new Event('bingoUpdated'));
+  return { unlockedParts, unlockedCreators, activatedPlus: includeSub };
+};
+
+// SHARED MASTER CODE REDEEMER: Used by both HomePage Quick-Redeem AND Subscription Page
+export const redeemUniversalCode = async (
+  rawCodeInput: string,
+  activeUserId: string,
+  isAlreadyPremiumHint = false
+): Promise<UniversalRedeemResult> => {
+  const cleanCode = String(rawCodeInput || '').trim().toUpperCase();
+  if (!cleanCode) {
+    throw new Error('Please enter a valid code or PIN.');
+  }
+
+  // 1. Creator Onboarding Invite Code (SAM-CR-...)
+  if (cleanCode.startsWith('SAM-CR-')) {
+    localStorage.setItem('am_pending_creator_invite', cleanCode);
+    return {
+      status: 'creator_invite',
+      code: cleanCode,
+      title: 'Creator Invite Detected',
+      message: 'Redirecting to Creator Onboarding...'
+    };
+  }
+
+  // 2. Partner / Creator Referral Code (VIP-...)
+  if (cleanCode.startsWith('VIP-')) {
+    localStorage.setItem('am_referral_code', cleanCode);
+    return {
+      status: 'referral_code',
+      code: cleanCode,
+      title: '3-Day Free Trial Unlocked!',
+      message: `Partner Referral Code "${cleanCode}" applied! Your 3-Day Free Trial on the $20/yr Annual Pass is now unlocked.`
+    };
+  }
+
+  const { data: currentProf } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', activeUserId)
+    .maybeSingle();
+
+  const alreadyPremium = Boolean(isAlreadyPremiumHint || currentProf?.is_premium);
+
+  // 3. 5-Digit Creator Autograph PIN (e.g. 12345)
+  if (/^\d{5}$/.test(cleanCode)) {
+    const { data: pinData } = await supabase
+      .from('bingo_codes')
+      .select('*')
+      .eq('code', cleanCode)
+      .maybeSingle();
+
+    if (!pinData) {
+      throw new Error('Invalid 5-digit Autograph PIN. Please check the number and try again.');
+    }
+    if (pinData.expires_at && new Date() > new Date(pinData.expires_at)) {
+      throw new Error('This 5-digit Autograph PIN has expired.');
+    }
+    const pinUsed = Number(pinData.times_used || 0);
+    const pinMax = Number(pinData.max_uses || 999999);
+    if (pinMax > 0 && pinUsed >= pinMax) {
+      throw new Error(
+        pinMax === 1
+          ? 'This 1-Time Fan Gift PIN has already been claimed!'
+          : 'This PIN has reached its maximum redemptions.'
+      );
+    }
+
+    await supabase
+      .from('bingo_codes')
+      .update({ times_used: pinUsed + 1 })
+      .eq('id', pinData.id);
+
+    const unlockedCreator = await unlockCreatorAutographMaster(
+      activeUserId,
+      pinData.creator_name,
+      pinData.event_name || 'Live Event PIN Unlock'
+    );
+
+    const existingAutographs: string[] = Array.isArray(currentProf?.unlocked_autographs)
+      ? currentProf.unlocked_autographs.map(String)
+      : [];
+    const nextAutographs = Array.from(
+      new Set([...existingAutographs, pinData.creator_name, unlockedCreator].filter(Boolean))
+    );
+
+    const pinPatch: Record<string, any> = {
+      fandom_score: (Number(currentProf?.fandom_score) || 0) + 25,
+      unlocked_autographs: nextAutographs
+    };
+
+    const { error: pinProfErr } = await supabase
+      .from('profiles')
+      .update(pinPatch)
+      .eq('id', activeUserId);
+
+    if (pinProfErr) {
+      await supabase
+        .from('profiles')
+        .update({ fandom_score: (Number(currentProf?.fandom_score) || 0) + 25 })
+        .eq('id', activeUserId);
+    }
+
+    window.dispatchEvent(new Event('profileUpdated'));
+    window.dispatchEvent(new Event('bingoUpdated'));
+
+    return {
+      status: 'success',
+      code: cleanCode,
+      title: 'Autograph Unlocked!',
+      message: `You unlocked ${
+        unlockedCreator || pinData.creator_name
+      }'s Gold Autograph (+25 Fandom Pts)! It is now displayed in your Bingo Book and on their Series pages.`,
+      unlockedCreator: unlockedCreator || pinData.creator_name
+    };
+  }
+
+  // 4. Custom Promo / Flash Bundle / Gift Sub Code from `promo_codes`
+  const { data: promoRow } = await supabase
+    .from('promo_codes')
+    .select('*')
+    .ilike('code', cleanCode)
+    .maybeSingle();
+
+  if (promoRow) {
+    const now = new Date();
+    if (promoRow.expires_at && new Date(promoRow.expires_at) < now) {
+      throw new Error('This bundle or access code has expired.');
+    }
+    const timesUsed = Number(promoRow.times_used || 0);
+    const maxUses = Number(promoRow.max_uses || 1);
+    if (timesUsed >= maxUses) {
+      throw new Error('All available claims for this code have already been redeemed!');
+    }
+
+    const rawBundle: any =
+      typeof promoRow.bundle_config === 'object' && promoRow.bundle_config !== null
+        ? promoRow.bundle_config
+        : {};
+
+    const isCreatorMonthlyGift = Boolean(
+      rawBundle.is_creator_monthly_gift ||
+        rawBundle.non_stackable ||
+        promoRow.gift_month_key ||
+        cleanCode.startsWith('GIFT-')
+    );
+
+    const hasCustomRewards =
+      !isCreatorMonthlyGift &&
+      Boolean(
+        promoRow.creator_name ||
+          rawBundle.creator_autograph ||
+          rawBundle.creator_autograph_2 ||
+          rawBundle.card_skin_id ||
+          rawBundle.card_skin_url ||
+          rawBundle.card_skin_2_id ||
+          rawBundle.card_skin_2_url ||
+          (rawBundle.avatar_urls && rawBundle.avatar_urls.length > 0) ||
+          Number(rawBundle.bonus_hypes || 0) > 0
+      );
+
+    if (alreadyPremium && (isCreatorMonthlyGift || !hasCustomRewards)) {
+      throw new Error(
+        'You already have an active Saturday AM+ PLUS membership! Your code was not used so you can save it or gift it to a friend.'
+      );
+    }
+
+    const { error: updatePromoErr } = await supabase
+      .from('promo_codes')
+      .update({ times_used: timesUsed + 1 })
+      .eq('id', promoRow.id);
+    if (updatePromoErr) throw updatePromoErr;
+
+    const { unlockedParts, unlockedCreators, activatedPlus } =
+      await grantMasterBundleRewardsToUser(
+        activeUserId,
+        {
+          include_1yr_sub: isCreatorMonthlyGift ? true : rawBundle.include_1yr_sub !== false,
+          card_skin_id: rawBundle.card_skin_id,
+          card_skin_name: rawBundle.card_skin_name,
+          card_skin_url: rawBundle.card_skin_url,
+          card_skin_2_id: rawBundle.card_skin_2_id,
+          card_skin_2_name: rawBundle.card_skin_2_name,
+          card_skin_2_url: rawBundle.card_skin_2_url,
+          avatar_urls: rawBundle.avatar_urls || [],
+          creator_autograph: rawBundle.creator_autograph || promoRow.creator_name,
+          creator_autograph_2: rawBundle.creator_autograph_2,
+          bonus_hypes: rawBundle.bonus_hypes || 0,
+          bundle_title:
+            rawBundle.bundle_title ||
+            (isCreatorMonthlyGift
+              ? `${promoRow.creator_name || 'Creator'} 1-Year PLUS Gift Sub`
+              : undefined)
+        },
+        alreadyPremium,
+        rawBundle.bundle_title || `Code: ${cleanCode}`
+      );
+
+    return {
+      status: 'success',
+      code: cleanCode,
+      title: rawBundle.bundle_title
+        ? `${rawBundle.bundle_title} Unlocked!`
+        : unlockedCreators[0]
+        ? 'Flash Bundle Unlocked!'
+        : '1-Year PLUS Activated!',
+      message: `Success! You unlocked: ${unlockedParts.join(' • ')}!`,
+      unlockedCreator: unlockedCreators[0],
+      unlockedParts,
+      activatedPlus
+    };
+  }
+
+  // 5. Standard 1-Year Store Batch Access Key (`redeem_premium_code` RPC)
+  if (alreadyPremium) {
+    throw new Error(
+      'You already have an active Saturday AM+ PLUS membership! Your store code was not used so you can save it or gift it to a friend.'
+    );
+  }
+
+  const { data: rpcSuccess, error: rpcErr } = await supabase.rpc('redeem_premium_code', {
+    input_code: cleanCode,
+    user_uuid: activeUserId
+  });
+
+  if (rpcErr || !rpcSuccess) {
+    throw new Error('Invalid or already redeemed code or PIN.');
+  }
+
+  const curActive = Math.max(
+    0,
+    Number(currentProf?.hypes_remaining ?? currentProf?.super_hypes_left ?? 1)
+  );
+  const nextActive = Math.min(10, Math.max(3, curActive + 2));
+
+  await supabase
+    .from('profiles')
+    .update({
+      is_premium: true,
+      hypes_remaining: nextActive,
+      super_hypes_left: nextActive
+    })
+    .eq('id', activeUserId);
+
+  window.dispatchEvent(new Event('profileUpdated'));
+
+  return {
+    status: 'success',
+    code: cleanCode,
+    title: 'PLUS Membership Activated!',
+    message: 'Success! Your 1-Year Saturday AM+ PLUS membership is now active!',
+    activatedPlus: true
+  };
+};
+
 export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any) => {
   const { cardSkins = [] } = useSeriesData();
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual');
