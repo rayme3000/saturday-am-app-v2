@@ -755,36 +755,47 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           const { data: chapterData } = await supabase.from('chapters').select('*').in('id', allIds);
           if (chapterData) chapters = chapterData;
         }
-        const combined = history
-          .map((h: any) => {
-            const chapIdStr = String(h.chapter_id);
-            // 1. Exclude chapters recorded in `completed_reads`
-            if (compSet.has(chapIdStr)) return null;
 
-            const chap = chapters.find((c: any) => String(c.id) === chapIdStr);
-            if (chap && chap.is_published) {
-              // 2. Also exclude if the user's saved page_index is already at the final page of the chapter
-              const totalPages = Number(chap.page_count || 0);
-              if (totalPages > 1 && Number(h.page_index || 0) >= totalPages - 1) {
-                return null;
-              }
+        // Since `history` is ordered by `updated_at DESC`, the first entry we see for each `series_slug`
+        // is the latest chapter and page the user was reading in that series.
+        const seenSeriesSlugs = new Set<string>();
+        const combined: any[] = [];
 
-              const series = seriesList.find((s: any) => s.slug === chap.series_slug);
-              if (!series || series.is_hidden) return null;
-              const isFreeOswOrDebut = isActiveOneShotWednesday(series, seriesList);
-              if (!isFreeOswOrDebut && !isChapterReleasedForUser(chap.publish_at, isPlusSubscriber)) return null;
-              return {
-                ...h,
-                type: 'series',
-                target: { ...series, action: 'series' },
-                title: series.title,
-                subtitle: `Chapter ${chap.chapter_number}`,
-                image: chap.thumbnail_url || series.cover_url
-              };
-            }
-            return null;
-          })
-          .filter(Boolean);
+        for (const h of history) {
+          const chapIdStr = String(h.chapter_id);
+          const chap = chapters.find((c: any) => String(c.id) === chapIdStr);
+          if (!chap || !chap.is_published) continue;
+
+          const slug = String(chap.series_slug || '').trim().toLowerCase();
+          if (!slug || seenSeriesSlugs.has(slug)) continue;
+
+          const series = seriesList.find((s: any) => String(s.slug || '').toLowerCase() === slug);
+          if (!series || series.is_hidden) continue;
+
+          const isFreeOswOrDebut = isActiveOneShotWednesday(series, seriesList);
+          if (!isFreeOswOrDebut && !isChapterReleasedForUser(chap.publish_at, isPlusSubscriber)) {
+            continue;
+          }
+
+          // Mark this series as seen so older chapters of the same series never repeat in Jump Back In
+          seenSeriesSlugs.add(slug);
+
+          // If the user's most recent chapter in this series was completed, hide the series from Jump Back In
+          if (compSet.has(chapIdStr)) continue;
+          const totalPages = Number(chap.page_count || 0);
+          if (totalPages > 1 && Number(h.page_index || 0) >= totalPages - 1) {
+            continue;
+          }
+
+          combined.push({
+            ...h,
+            type: 'series',
+            target: { ...series, action: 'series' },
+            title: series.title,
+            subtitle: `Chapter ${chap.chapter_number}`,
+            image: chap.thumbnail_url || series.cover_url
+          });
+        }
 
         setRecentReads(combined);
         memRecentReads = combined;

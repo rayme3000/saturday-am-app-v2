@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2, Clock } from 'lucide-react';
 import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
-import { doCreatorNamesMatch } from '../VirtualProfile/BingoBook';
 import {
   isCompletedRunSeries,
   isActiveOneShotWednesday,
@@ -99,6 +98,34 @@ const ContentRatingBadge = ({ rating }: { rating: string }) => {
       <span className="text-[9px] font-black text-zinc-300 uppercase tracking-widest">{current.desc}</span>
     </div>
   );
+};
+
+// Strict whole-word creator matcher so "Frederick" NEVER falsely matches "Erick"
+const isStrictWholeWordCreatorMatch = (nameA: string, nameB: string): boolean => {
+  const cleanWords = (val: string) =>
+    String(val || '')
+      .toLowerCase()
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(w => w.length > 1);
+
+  const aWords = cleanWords(nameA);
+  const bWords = cleanWords(nameB);
+  if (aWords.length === 0 || bWords.length === 0) return false;
+
+  // Hard guard against "frederick" matching "erick"
+  if (
+    (aWords.includes('frederick') && !bWords.includes('frederick')) ||
+    (bWords.includes('frederick') && !aWords.includes('frederick'))
+  ) {
+    return false;
+  }
+
+  const shorter = aWords.length <= bWords.length ? aWords : bWords;
+  const longerSet = new Set(aWords.length <= bWords.length ? bWords : aWords);
+  return shorter.every(w => longerSet.has(w));
 };
 
 export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLoginClick, onNavigate }: any) => {
@@ -257,7 +284,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }
   }, [targetSeriesSlug, trackEvent]);
 
-  // Unified Signature Sync: Reads from bingo_signatures_log, profiles.unlocked_autographs, and auto-heals GUNBONE-YAPPER winner
+  // Unified Signature Sync: Strictly matches whole creator names (so "Frederick" never matches "Erick")
   useEffect(() => {
     const syncSignatures = async () => {
       if (!isPlusActive && !currentUserId) {
@@ -265,12 +292,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         return;
       }
 
-      const localSigs: Record<string, string> = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
       const localHunts: string[] = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
-      const unlockedNames = new Set<string>([
-        ...Object.keys(localSigs),
-        ...(Array.isArray(localHunts) ? localHunts : [])
-      ]);
+      const unlockedNames = new Set<string>(
+        (Array.isArray(localHunts) ? localHunts : []).map(s => String(s || '').trim()).filter(Boolean)
+      );
 
       if (currentUserId) {
         const [{ data: authData }, { data: logRows }, { data: profRow }] = await Promise.all([
@@ -289,32 +314,16 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           });
         }
 
-        // Auto-heal GUNBONE-YAPPER winner (viniciussilvaazevedos@gmail.com) so Erick Pedrucci's signature is permanently unlocked
-        const activeEmail = String(
-          authData?.user?.email || profRow?.email || ''
-        )
+        const activeEmail = String(authData?.user?.email || profRow?.email || '')
           .trim()
           .toLowerCase();
 
         if (activeEmail === 'viniciussilvaazevedos@gmail.com') {
-          const alreadyLoggedErick = Array.from(unlockedNames).some(n =>
-            n.toLowerCase().includes('erick')
-          );
           unlockedNames.add('Erick Pedrucci');
-          if (!alreadyLoggedErick) {
-            supabase
-              .from('bingo_signatures_log')
-              .insert([
-                {
-                  user_id: currentUserId,
-                  creator_name: 'Erick Pedrucci',
-                  event_name: 'GUNBONE-YAPPER Flash Bundle',
-                  signature_type: 'Standard'
-                }
-              ])
-              .then(() => {});
-          }
         }
+      } else {
+        const localSigs: Record<string, string> = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
+        Object.keys(localSigs).forEach(k => unlockedNames.add(k));
       }
 
       const unlockedArray = Array.from(unlockedNames).filter(Boolean);
@@ -333,20 +342,13 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           if (
             row.creator_name &&
             row.signature_url &&
-            unlockedArray.some(
-              uName =>
-                doCreatorNamesMatch(uName, row.creator_name) ||
-                (uName.toLowerCase().includes('erick') &&
-                  String(row.creator_name).toLowerCase().includes('erick'))
-            )
+            unlockedArray.some(uName => isStrictWholeWordCreatorMatch(uName, row.creator_name))
           ) {
             freshSigs[row.creator_name] = row.signature_url;
           }
         });
         setCollectedSignatures(freshSigs);
         localStorage.setItem('am_bingo_sigs', JSON.stringify(freshSigs));
-      } else {
-        setCollectedSignatures(localSigs);
       }
     };
 
@@ -922,7 +924,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           </div>
 
           <div className="flex flex-col items-center gap-1.5 mt-2 relative z-20">
-            {creators.map((c: any, i) => (
+            {creators.filter((c: any) => c.is_visible !== false).map((c: any, i) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="text-zinc-500 text-[9px] uppercase tracking-widest font-black">{c.role || 'Creator'}:</span>
                 <p className="text-[#fe9a00] font-bold text-sm">{c.name || 'Unknown'}</p>
@@ -935,20 +937,28 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             <div className="flex flex-wrap justify-center gap-6 mt-8 w-full max-w-2xl">
               {Object.entries(collectedSignatures)
                 .filter(([sigName]) => {
-                  const slugLower = String(localSeries?.slug || targetSeriesSlug || '').toLowerCase();
-                  const sigNorm = String(sigName || '').trim().toLowerCase();
-                  // Direct match against loaded creators or series.creator_name
-                  if (creators.some((c: any) => doCreatorNamesMatch(c.name || '', sigName))) {
-                    return true;
+                  const slugLower = String(localSeries?.slug || targetSeriesSlug || '')
+                    .trim()
+                    .toLowerCase();
+                  const sigWords = String(sigName || '')
+                    .toLowerCase()
+                    .replace(/\([^)]*\)/g, ' ')
+                    .replace(/[^a-z0-9]+/g, ' ')
+                    .trim()
+                    .split(/\s+/)
+                    .filter(w => w.length > 1);
+
+                  if (sigWords.length === 0) return false;
+
+                  // Hard guardrail: on gun-bone, ONLY Erick Pedrucci's signature is allowed
+                  if (slugLower === 'gun-bone') {
+                    return sigWords.includes('erick') && !sigWords.includes('frederick');
                   }
-                  if (localSeries?.creator_name && doCreatorNamesMatch(localSeries.creator_name, sigName)) {
-                    return true;
-                  }
-                  // Fallback map check (e.g. Erick Pedrucci -> gun-bone, hammer-annual-one-shot)
-                  if (sigNorm.includes('erick') && (slugLower.includes('gun-bone') || slugLower.includes('hammer'))) {
-                    return true;
-                  }
-                  return false;
+
+                  const visibleCreators = creators.filter((c: any) => c.is_visible !== false);
+                  return visibleCreators.some((c: any) =>
+                    isStrictWholeWordCreatorMatch(c.name || '', sigName)
+                  );
                 })
                 .map(([sigName, sigUrl], i) => (
                   <div key={`sig-${i}`} className="flex flex-col items-center w-full max-w-[260px] sm:max-w-[340px] animate-fade-in-up">
@@ -1202,7 +1212,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
         <div ref={creatorRef} className="pb-24 px-6 w-full max-w-3xl mx-auto scroll-mt-24">
           <div className="border-t border-zinc-800 pt-12 flex flex-col items-center gap-16">
-            {creators.map((c: any, index) => {
+            {creators.filter((c: any) => c.is_visible !== false).map((c: any, index) => {
               const safeName = c.name || 'Creator';
               const creatorId = c.id || c.name;
               return (
