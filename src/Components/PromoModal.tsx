@@ -112,7 +112,7 @@ export const clearUpsellPopupAttribution = () => {
   }
 };
 
-// Detects generic hardcoded App.tsx strings so they NEVER override your Command Center cards
+// Detects generic hardcoded App.tsx / SeriesDetailPage.tsx strings so they NEVER override your Command Center card copy
 function isGenericDefaultUpsellText(text?: string): boolean {
   if (!text) return true;
   const lower = text.trim().toLowerCase();
@@ -121,40 +121,49 @@ function isGenericDefaultUpsellText(text?: string): boolean {
     lower === 'start reading free' ||
     lower.includes('upgrade to saturday am+ for $1.99/mo to get 3 weekly super hypes') ||
     lower.includes('create a free saturday am account to read standard chapters') ||
-    lower.includes('upgrade to saturday am+ plus ($1.99/mo) to unlock the entire chapter vault')
+    lower.includes('upgrade to saturday am+ plus ($1.99/mo) to unlock the entire chapter vault') ||
+    lower.includes('hypes are a plus feature! upgrade to support creators') ||
+    lower.includes('create a free account to unlock chapters 1-3')
   );
 }
 
-// Cycles through every card in a shuffled deck before repeating any card
-function pickNextFromDeck(length: number, deckKey: string): number {
-  if (length <= 1) return 0;
+// Persists a shuffled deck of card IDs in localStorage so all 5 PLUS cards cycle completely before any card repeats
+function pickNextCardFromPersistentDeck(cards: any[], deckStorageKey: string): any {
+  if (!cards || cards.length === 0) return null;
+  if (cards.length === 1) return cards[0];
+
+  const validIds = cards.map((c, idx) => String(c.id || `card_${idx}`));
+
   try {
-    const raw = sessionStorage.getItem(deckKey);
-    let queue: number[] = raw ? JSON.parse(raw) : [];
-    queue = queue.filter(i => typeof i === 'number' && i >= 0 && i < length);
+    const rawQueue = localStorage.getItem(deckStorageKey);
+    let queue: string[] = rawQueue ? JSON.parse(rawQueue) : [];
+    // Keep only IDs that still exist in the active pool
+    queue = queue.filter(id => validIds.includes(id));
 
     if (queue.length === 0) {
-      const indices = Array.from({ length }, (_, i) => i);
-      // Fisher-Yates shuffle
-      for (let i = indices.length - 1; i > 0; i--) {
+      const shuffled = [...validIds];
+      for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [indices[i], indices[j]] = [indices[j], indices[i]];
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
-      const lastShown = parseInt(sessionStorage.getItem(`${deckKey}_last`) || '-1', 10);
-      if (indices.length > 1 && indices[0] === lastShown) {
-        const swap = indices[0];
-        indices[0] = indices[indices.length - 1];
-        indices[indices.length - 1] = swap;
+      const lastShownId = localStorage.getItem(`${deckStorageKey}_last`) || '';
+      if (shuffled.length > 1 && shuffled[0] === lastShownId) {
+        const swap = shuffled[0];
+        shuffled[0] = shuffled[shuffled.length - 1];
+        shuffled[shuffled.length - 1] = swap;
       }
-      queue = indices;
+      queue = shuffled;
     }
 
-    const nextIdx = queue.shift()!;
-    sessionStorage.setItem(deckKey, JSON.stringify(queue));
-    sessionStorage.setItem(`${deckKey}_last`, String(nextIdx));
-    return nextIdx;
+    const nextId = queue.shift()!;
+    localStorage.setItem(deckStorageKey, JSON.stringify(queue));
+    localStorage.setItem(`${deckStorageKey}_last`, nextId);
+
+    return (
+      cards.find((c, idx) => String(c.id || `card_${idx}`) === nextId) || cards[0]
+    );
   } catch {
-    return Math.floor(Math.random() * length);
+    return cards[Math.floor(Math.random() * cards.length)];
   }
 }
 
@@ -177,10 +186,22 @@ export const PromoModal = ({
   const [isLoaded, setIsLoaded] = useState<boolean>(Boolean(cachedUpsellPopups));
 
   const loggedImpressionRef = useRef<string | null>(null);
+  const lockedVariantRef = useRef<{
+    audienceKey: string;
+    variant: {
+      id: string;
+      popupType: 'command_center_card' | 'default_fallback';
+      badge: string;
+      title: string;
+      message: string;
+      cta: string;
+      imageUrl: string;
+    };
+  } | null>(null);
 
   const isVisitor = forceMode ? forceMode === 'visitor' : userTier === 'visitor';
 
-  // Ignore generic App.tsx strings so Command Center cards always take priority
+  // Ignore generic hardcoded strings so your Command Center cards (#2-#6) always show their own headline & copy
   const hasSpecificContextualMessage =
     Boolean(customMessage) && !isGenericDefaultUpsellText(customMessage);
   const hasSpecificContextualTitle =
@@ -222,8 +243,8 @@ export const PromoModal = ({
 
       if (!validBundle) return;
 
-      // If you have custom upsell popups in Command Center, only show the Event Bundle 20% of the time
-      if (Array.isArray(popups) && popups.length > 0 && Math.random() > 0.2) {
+      // Only show the Event Bundle 15% of the time when custom upsell popups are active
+      if (Array.isArray(popups) && popups.length > 0 && Math.random() > 0.15) {
         return;
       }
 
@@ -259,53 +280,89 @@ export const PromoModal = ({
     };
   }, [hasSpecificContextualMessage]);
 
-  // Select a Command Center card (keeping its exact Art + Badge + Headline + Copy + CTA paired together!)
+  // Pick ONCE per modal open after `isLoaded` is true:
+  // - Visitors (`isVisitor === true`) get the single `visitor_signup` card (#1)
+  // - Free Account holders (`isVisitor === false`) cycle through all 5 `plus_upsell` cards (#2-#6) before repeating!
   const selectedVariant = useMemo(() => {
+    if (!isLoaded) return null;
+
+    const audienceKey = isVisitor ? 'visitor' : 'plus';
+    if (lockedVariantRef.current && lockedVariantRef.current.audienceKey === audienceKey) {
+      const base = lockedVariantRef.current.variant;
+      return {
+        ...base,
+        title: hasSpecificContextualTitle ? customTitle : base.title,
+        message: hasSpecificContextualMessage ? customMessage : base.message
+      };
+    }
+
     const audienceFiltered = customCampaigns.filter(c =>
       isVisitor
         ? c.target_audience === 'visitor_signup' || c.target_audience === 'both'
         : c.target_audience === 'plus_upsell' || c.target_audience === 'both'
     );
 
-    // If audience-specific pool is empty, use all active Command Center cards
     const activePool = audienceFiltered.length > 0 ? audienceFiltered : customCampaigns;
 
     if (activePool.length > 0) {
-      const deckKey = isVisitor ? 'am_upsell_deck_visitor' : 'am_upsell_deck_plus';
-      const pickedIdx = pickNextFromDeck(activePool.length, deckKey);
-      const card = activePool[pickedIdx];
+      const deckKey = isVisitor
+        ? 'am_upsell_deck_visitor_v3'
+        : 'am_upsell_deck_plus_v3';
+      const card = pickNextCardFromPersistentDeck(activePool, deckKey);
 
-      return {
-        id: String(card.id || `cc_${pickedIdx}`),
+      const built = {
+        id: String(card.id || 'cc_card'),
         popupType: 'command_center_card' as const,
         badge: card.badge_text || (isVisitor ? 'FREE READER PASS' : 'SATURDAY AM+ PLUS'),
-        title: hasSpecificContextualTitle ? customTitle : card.title,
-        message: hasSpecificContextualMessage ? customMessage : card.message,
+        title: card.title,
+        message: card.message,
         cta: card.cta_text || (isVisitor ? 'Create Free Account' : 'Upgrade to PLUS ($1.99)'),
         imageUrl: card.image_url || ''
+      };
+
+      lockedVariantRef.current = { audienceKey, variant: built };
+
+      return {
+        ...built,
+        title: hasSpecificContextualTitle ? customTitle : built.title,
+        message: hasSpecificContextualMessage ? customMessage : built.message
       };
     }
 
     // Fallback ONLY if 0 cards exist in `upsell_popups`
     const copyPool = isVisitor ? DEFAULT_VISITOR_UPSELL_MESSAGES : DEFAULT_PLUS_UPSELL_MESSAGES;
-    const copyIdx = pickNextFromDeck(copyPool.length, 'am_fallback_copy_deck');
-    const baseCopy = copyPool[copyIdx];
+    const baseCopy = pickNextCardFromPersistentDeck(
+      copyPool,
+      isVisitor ? 'am_fallback_visitor_v3' : 'am_fallback_plus_v3'
+    );
 
     const seriesArtUrls = (seriesList || [])
       .map((s: any) => s.cover_url || s.banner_url)
       .filter(Boolean);
-    const artIdx = pickNextFromDeck(seriesArtUrls.length, 'am_fallback_art_deck');
+    const randomArt =
+      seriesArtUrls.length > 0
+        ? seriesArtUrls[Math.floor(Math.random() * seriesArtUrls.length)]
+        : '';
 
-    return {
+    const fallbackBuilt = {
       id: baseCopy.id,
       popupType: 'default_fallback' as const,
       badge: baseCopy.badge,
-      title: hasSpecificContextualTitle ? customTitle : baseCopy.title,
-      message: hasSpecificContextualMessage ? customMessage : baseCopy.message,
+      title: baseCopy.title,
+      message: baseCopy.message,
       cta: baseCopy.cta,
-      imageUrl: seriesArtUrls[artIdx] || ''
+      imageUrl: randomArt
+    };
+
+    lockedVariantRef.current = { audienceKey, variant: fallbackBuilt };
+
+    return {
+      ...fallbackBuilt,
+      title: hasSpecificContextualTitle ? customTitle : fallbackBuilt.title,
+      message: hasSpecificContextualMessage ? customMessage : fallbackBuilt.message
     };
   }, [
+    isLoaded,
     customCampaigns,
     isVisitor,
     seriesList,
@@ -321,7 +378,7 @@ export const PromoModal = ({
 
   // Track Upsell Popup Impression once when the modal renders
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || !selectedVariant) return;
     if (!featuredBundle && userTier === 'premium' && !forceMode) return;
     if (featuredBundle && alreadyOwnsBundle && !hasSpecificContextualMessage) return;
 
@@ -357,7 +414,7 @@ export const PromoModal = ({
 
   if (!featuredBundle && userTier === 'premium' && !forceMode) return null;
   if (featuredBundle && alreadyOwnsBundle && !hasSpecificContextualMessage) return null;
-  if (!isLoaded) return null;
+  if (!isLoaded || !selectedVariant) return null;
 
   // ============================================================================
   // 1. SPECIAL EVENT BUNDLE POP-UP AD (WHEN SELECTED)
