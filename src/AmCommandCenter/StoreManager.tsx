@@ -12,7 +12,6 @@ import {
   PenTool,
   Save,
   Loader2,
-  Sparkles,
   DollarSign,
   Calendar,
   Move,
@@ -26,7 +25,7 @@ import {
   Search,
   User,
   ShieldCheck,
-  Image as ImageIcon
+  Trophy
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
@@ -41,10 +40,44 @@ export interface CardSignatureStamp {
   color_mode: 'gold' | 'white' | 'black';
 }
 
+export type StoreCatalogSubCategory =
+  | 'all'
+  | 'sub_bundle'
+  | 'hype_card_bundle'
+  | 'single_skin'
+  | 'avatar_pack'
+  | 'emoji_pack'
+  | 'collectable';
+
+export interface ProductFormState {
+  id: string;
+  slug: string;
+  product_type: 'single_skin' | 'avatar_pack' | 'bundle' | 'emoji_pack' | 'collectable';
+  is_contest_only: boolean;
+  title: string;
+  description: string;
+  promo_badge: string;
+  listed_price_dollars: string;
+  normal_price_dollars: string;
+  promo_code: string;
+  include_1yr_sub: boolean;
+  card_skin_ids: string[];
+  avatar_urls: string[];
+  background_avatar_url: string;
+  autograph_creators: string[];
+  bonus_vaulted_hypes: number;
+  commission_creator_1: string;
+  commission_creator_2: string;
+  commission_bounty_dollars: number;
+  available_from: string;
+  available_until: string;
+  is_active: boolean;
+}
+
 export interface SavedStoreTemplate {
   id: string;
   template_name: string;
-  template_payload: typeof EMPTY_PRODUCT_FORM;
+  template_payload: ProductFormState;
 }
 
 const LOCAL_TEMPLATES_STORAGE_KEY = 'am_store_custom_templates_v1';
@@ -65,10 +98,11 @@ const makeSlug = (title: string): string =>
   '-' +
   Math.random().toString(36).slice(2, 6);
 
-const EMPTY_PRODUCT_FORM = {
-  id: '' as string,
-  slug: '' as string,
-  product_type: 'bundle' as 'single_skin' | 'avatar_pack' | 'bundle',
+const EMPTY_PRODUCT_FORM: ProductFormState = {
+  id: '',
+  slug: '',
+  product_type: 'bundle',
+  is_contest_only: false,
   title: '',
   description: '',
   promo_badge: '',
@@ -76,16 +110,10 @@ const EMPTY_PRODUCT_FORM = {
   normal_price_dollars: '35.00',
   promo_code: '',
   include_1yr_sub: true,
-  card_skin_1: '',
-  card_skin_2: '',
-  avatar_1: '',
-  avatar_2: '',
-  avatar_3: '',
-  avatar_4: '',
-  avatar_5: '',
+  card_skin_ids: [''],
+  avatar_urls: ['', '', ''],
   background_avatar_url: '',
-  autograph_1: '',
-  autograph_2: '',
+  autograph_creators: [''],
   bonus_vaulted_hypes: 10,
   commission_creator_1: '',
   commission_creator_2: '',
@@ -95,9 +123,10 @@ const EMPTY_PRODUCT_FORM = {
   is_active: true
 };
 
-const BUILT_IN_SUBSCRIPTION_BUNDLE_TEMPLATE: typeof EMPTY_PRODUCT_FORM = {
+const BUILT_IN_SUBSCRIPTION_BUNDLE_TEMPLATE: ProductFormState = {
   ...EMPTY_PRODUCT_FORM,
   product_type: 'bundle',
+  is_contest_only: false,
   title: 'MMWOG Diwali Annual Bundle',
   description:
     'Includes 1-Year Full App Pass, 2 Exclusive Hype Cards by Oscar Fong, 5 Character Avatars (Dia, Anil, Nilay, Tricia, Steel Tusk Durga), Oscar Fong & Frederick L. Jones Autographs, and +10 Vaulted Gold Hypes!',
@@ -106,8 +135,9 @@ const BUILT_IN_SUBSCRIPTION_BUNDLE_TEMPLATE: typeof EMPTY_PRODUCT_FORM = {
   normal_price_dollars: '35.00',
   promo_code: 'DIWALI-2026',
   include_1yr_sub: true,
-  autograph_1: 'Oscar Fong',
-  autograph_2: 'Frederick L. Jones',
+  card_skin_ids: ['', ''],
+  avatar_urls: ['', '', '', '', ''],
+  autograph_creators: ['Oscar Fong', 'Frederick L. Jones'],
   bonus_vaulted_hypes: 10,
   commission_creator_1: 'Oscar Fong',
   commission_creator_2: 'Frederick L. Jones',
@@ -115,10 +145,21 @@ const BUILT_IN_SUBSCRIPTION_BUNDLE_TEMPLATE: typeof EMPTY_PRODUCT_FORM = {
   is_active: true
 };
 
+const isContestOnlyProduct = (prod: any): boolean => {
+  if (!prod) return false;
+  const badge = String(prod.promo_badge || '').toUpperCase();
+  return !prod.is_active && badge.includes('CONTEST');
+};
+
 export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ setIsDirty }) => {
-  const { seriesList = [], vaultAvatars = [] } = useSeriesData();
+  const {
+    seriesList = [],
+    cardSkins: contextSkins = [],
+    vaultAvatars: contextAvatars = []
+  } = useSeriesData();
+
   const [products, setProducts] = useState<any[]>([]);
-  const [skins, setSkins] = useState<any[]>([]);
+  const [dbSkins, setDbSkins] = useState<any[]>([]);
   const [dbAvatars, setDbAvatars] = useState<any[]>([]);
   const [dbCreators, setDbCreators] = useState<string[]>([]);
   const [signatureMap, setSignatureMap] = useState<Record<string, string>>({});
@@ -129,12 +170,17 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [statusToast, setStatusToast] = useState<string | null>(null);
 
+  // Catalog Organization & Filter State
+  const [catalogViewFilter, setCatalogViewFilter] = useState<'all' | 'live' | 'contest'>('all');
+  const [catalogTypeFilter, setCatalogTypeFilter] = useState<StoreCatalogSubCategory>('all');
+  const [catalogSearch, setCatalogSearch] = useState<string>('');
+
   // Shopify-style Product Composer Modal State
   const [isComposerOpen, setIsComposerOpen] = useState(false);
-  const [form, setForm] = useState({ ...EMPTY_PRODUCT_FORM });
+  const [form, setForm] = useState<ProductFormState>({ ...EMPTY_PRODUCT_FORM });
 
-  // Visual Avatar Picker Modal State
-  const [activeAvatarSlotKey, setActiveAvatarSlotKey] = useState<string | null>(null);
+  // Visual Avatar Picker Modal State (Supports unlimited slots by index)
+  const [activeAvatarSlotIndex, setActiveAvatarSlotIndex] = useState<number | null>(null);
   const [avatarSearchQuery, setAvatarSearchQuery] = useState('');
 
   // Interactive Hype Card Signature Studio Modal State
@@ -147,7 +193,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
 
   const showToast = (msg: string) => {
     setStatusToast(msg);
-    setTimeout(() => setStatusToast(null), 3500);
+    setTimeout(() => setStatusToast(null), 4000);
   };
 
   const fetchCatalogAndVault = useCallback(async () => {
@@ -155,8 +201,10 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     try {
       const [
         { data: prodData },
-        { data: skinsData },
-        { data: avatarsData },
+        { data: cardSkinsData },
+        { data: vaultSkinsData },
+        { data: vaultAvatarsData },
+        { data: legacyAvatarsData },
         { data: creatorsData },
         { data: sigsData },
         templatesRes
@@ -166,6 +214,8 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
           .select('*')
           .order('created_at', { ascending: false }),
         supabase.from('card_skins').select('*').order('created_at', { ascending: false }),
+        supabase.from('vault_card_skins').select('*').order('created_at', { ascending: false }),
+        supabase.from('vault_avatars').select('*').order('created_at', { ascending: false }),
         supabase.from('avatars').select('*').order('created_at', { ascending: false }),
         supabase.from('series_creators').select('name'),
         supabase.from('creator_signatures').select('creator_name, signature_url'),
@@ -176,8 +226,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       ]);
 
       if (prodData) setProducts(prodData);
-      if (skinsData) setSkins(skinsData);
-      if (avatarsData) setDbAvatars(avatarsData);
+
+      const mergedDbSkins = [...(cardSkinsData || []), ...(vaultSkinsData || [])];
+      setDbSkins(mergedDbSkins);
+
+      const mergedDbAvatars = [...(vaultAvatarsData || []), ...(legacyAvatarsData || [])];
+      setDbAvatars(mergedDbAvatars);
 
       const sigLookup: Record<string, string> = {};
       (sigsData || []).forEach((r: any) => {
@@ -223,11 +277,35 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
 
   useEffect(() => {
     fetchCatalogAndVault();
+    window.addEventListener('vaultUpdated', fetchCatalogAndVault);
+    window.addEventListener('seriesUpdated', fetchCatalogAndVault);
+    return () => {
+      window.removeEventListener('vaultUpdated', fetchCatalogAndVault);
+      window.removeEventListener('seriesUpdated', fetchCatalogAndVault);
+    };
   }, [fetchCatalogAndVault]);
 
+  // Master Synced Card Skins (Merges `card_skins`, `vault_card_skins`, and `useSeriesData` skins!)
+  const skins = useMemo(() => {
+    const map = new Map<string, any>();
+    [...dbSkins, ...(contextSkins || [])].forEach((sk: any) => {
+      if (sk && sk.id && sk.image_url) {
+        map.set(String(sk.id), sk);
+      }
+    });
+    return Array.from(map.values());
+  }, [dbSkins, contextSkins]);
+
+  // Master Synced Avatars (Merges `vault_avatars`, `avatars`, and `useSeriesData` avatars!)
   const allVaultAvatars = useMemo(() => {
-    return dbAvatars.length > 0 ? dbAvatars : vaultAvatars || [];
-  }, [dbAvatars, vaultAvatars]);
+    const map = new Map<string, any>();
+    [...dbAvatars, ...(contextAvatars || [])].forEach((av: any) => {
+      if (av && av.image_url) {
+        map.set(String(av.image_url), av);
+      }
+    });
+    return Array.from(map.values());
+  }, [dbAvatars, contextAvatars]);
 
   const filteredModalAvatars = useMemo(() => {
     const q = avatarSearchQuery.trim().toLowerCase();
@@ -289,7 +367,10 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     form.include_1yr_sub
   ]);
 
-  const handleSelectProductType = (nextType: 'bundle' | 'single_skin' | 'avatar_pack') => {
+  const handleSelectProductType = (
+    nextType: 'bundle' | 'single_skin' | 'avatar_pack' | 'emoji_pack' | 'collectable',
+    includeSubOverride?: boolean
+  ) => {
     setForm(prev => {
       const currentListed = Number(prev.listed_price_dollars || 0);
       let nextListed = prev.listed_price_dollars;
@@ -301,38 +382,73 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
           nextListed = '10.00';
           nextNormal = '';
         }
-      } else if (nextType === 'avatar_pack') {
+      } else if (nextType === 'avatar_pack' || nextType === 'emoji_pack') {
         if (currentListed > 0 && currentListed < 5) nextListed = '5.00';
         if (!prev.id) {
           nextListed = '5.00';
           nextNormal = '';
         }
+      } else if (nextType === 'collectable') {
+        if (!prev.id) {
+          nextListed = '15.00';
+          nextNormal = '';
+        }
       } else if (nextType === 'bundle' && !prev.id) {
-        nextListed = '24.99';
-        nextNormal = '35.00';
+        nextListed = includeSubOverride === false ? '14.99' : '24.99';
+        nextNormal = includeSubOverride === false ? '20.00' : '35.00';
       }
+
+      const resolvedIncludeSub =
+        nextType === 'bundle'
+          ? includeSubOverride !== undefined
+            ? includeSubOverride
+            : prev.include_1yr_sub
+          : false;
 
       return {
         ...prev,
         product_type: nextType,
         listed_price_dollars: nextListed,
         normal_price_dollars: nextNormal,
-        include_1yr_sub: nextType === 'bundle' ? prev.include_1yr_sub : false
+        include_1yr_sub: resolvedIncludeSub
       };
     });
   };
 
-  const openNewProductModal = (preset?: 'subscription_bundle' | 'single_skin' | 'avatar_pack') => {
+  const openNewProductModal = (
+    preset?: 'subscription_bundle' | 'contest_bundle' | 'single_skin' | 'avatar_pack'
+  ) => {
+    fetchCatalogAndVault();
     if (preset === 'subscription_bundle') {
       setForm({
         ...BUILT_IN_SUBSCRIPTION_BUNDLE_TEMPLATE,
         id: '',
         slug: ''
       });
+    } else if (preset === 'contest_bundle') {
+      setForm({
+        ...EMPTY_PRODUCT_FORM,
+        product_type: 'bundle',
+        is_contest_only: true,
+        title: '',
+        description:
+          'Exclusive Contest Winner Bundle! Includes Hype Card Skins, Character Avatars, Gold Signatures & Bonus Hypes.',
+        promo_badge: 'CONTEST PRIZE BUNDLE',
+        listed_price_dollars: '24.99',
+        normal_price_dollars: '35.00',
+        promo_code: `CONTEST-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+        include_1yr_sub: true,
+        card_skin_ids: [''],
+        avatar_urls: ['', '', ''],
+        autograph_creators: [''],
+        bonus_vaulted_hypes: 10,
+        is_active: false
+      });
     } else if (preset === 'single_skin') {
       setForm({
         ...EMPTY_PRODUCT_FORM,
         product_type: 'single_skin',
+        is_contest_only: false,
         title: '',
         description:
           'Unlock this exclusive Hype Card skin for your profile & permanent art collection.',
@@ -341,6 +457,9 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         normal_price_dollars: '',
         promo_code: '',
         include_1yr_sub: false,
+        card_skin_ids: [''],
+        avatar_urls: [],
+        autograph_creators: [],
         bonus_vaulted_hypes: 0,
         commission_bounty_dollars: 0,
         is_active: true
@@ -349,6 +468,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       setForm({
         ...EMPTY_PRODUCT_FORM,
         product_type: 'avatar_pack',
+        is_contest_only: false,
         title: '',
         description: 'Unlock this exclusive Character Avatar Pack for your profile loadout.',
         promo_badge: 'AVATAR PACK',
@@ -356,6 +476,9 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         normal_price_dollars: '',
         promo_code: '',
         include_1yr_sub: false,
+        card_skin_ids: [],
+        avatar_urls: ['', '', ''],
+        autograph_creators: [],
         bonus_vaulted_hypes: 0,
         commission_bounty_dollars: 0,
         is_active: true
@@ -366,10 +489,38 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     setIsComposerOpen(true);
   };
 
-  const applySavedTemplate = (tplPayload: typeof EMPTY_PRODUCT_FORM) => {
+  const applySavedTemplate = (tplPayload: any) => {
+    const legacySkins = [tplPayload.card_skin_1, tplPayload.card_skin_2].filter(Boolean);
+    const legacyAvatars = [
+      tplPayload.avatar_1,
+      tplPayload.avatar_2,
+      tplPayload.avatar_3,
+      tplPayload.avatar_4,
+      tplPayload.avatar_5
+    ].filter(Boolean);
+    const legacyAutos = [tplPayload.autograph_1, tplPayload.autograph_2].filter(Boolean);
+
     setForm({
       ...EMPTY_PRODUCT_FORM,
       ...tplPayload,
+      card_skin_ids:
+        Array.isArray(tplPayload.card_skin_ids) && tplPayload.card_skin_ids.length > 0
+          ? tplPayload.card_skin_ids
+          : legacySkins.length > 0
+          ? legacySkins
+          : [''],
+      avatar_urls:
+        Array.isArray(tplPayload.avatar_urls) && tplPayload.avatar_urls.length > 0
+          ? tplPayload.avatar_urls
+          : legacyAvatars.length > 0
+          ? legacyAvatars
+          : ['', '', ''],
+      autograph_creators:
+        Array.isArray(tplPayload.autograph_creators) && tplPayload.autograph_creators.length > 0
+          ? tplPayload.autograph_creators
+          : legacyAutos.length > 0
+          ? legacyAutos
+          : [''],
       id: form.id,
       slug: form.id ? form.slug : ''
     });
@@ -390,7 +541,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     setSavingTemplate(true);
     try {
       const cleanName = tplName.trim();
-      const payloadToSave = {
+      const payloadToSave: ProductFormState = {
         ...form,
         id: '',
         slug: ''
@@ -446,10 +597,15 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
   };
 
   const openEditProductModal = (prod: any) => {
-    const skinIds: string[] = Array.isArray(prod.card_skin_ids) ? prod.card_skin_ids : [];
-    const avUrls: string[] = Array.isArray(prod.avatar_urls) ? prod.avatar_urls : [];
+    fetchCatalogAndVault();
+    const skinIds: string[] = Array.isArray(prod.card_skin_ids)
+      ? prod.card_skin_ids.filter(Boolean)
+      : [prod.card_skin_id, prod.card_skin_2_id].filter(Boolean);
+    const avUrls: string[] = Array.isArray(prod.avatar_urls)
+      ? prod.avatar_urls.filter(Boolean)
+      : [];
     const autoList: string[] = Array.isArray(prod.autograph_creators)
-      ? prod.autograph_creators
+      ? prod.autograph_creators.filter(Boolean)
       : [];
     const commList: string[] = Array.isArray(prod.commission_creators)
       ? prod.commission_creators
@@ -458,10 +614,13 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     const normalizedType =
       prod.product_type === 'single_avatar' ? 'avatar_pack' : prod.product_type || 'bundle';
 
+    const contestOnly = isContestOnlyProduct(prod);
+
     setForm({
       id: prod.id,
       slug: prod.slug || '',
       product_type: normalizedType,
+      is_contest_only: contestOnly,
       title: prod.title || '',
       description: prod.description || '',
       promo_badge: prod.promo_badge || '',
@@ -472,16 +631,10 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
           : '',
       promo_code: prod.promo_code || '',
       include_1yr_sub: Boolean(prod.include_1yr_sub),
-      card_skin_1: skinIds[0] || '',
-      card_skin_2: skinIds[1] || '',
-      avatar_1: avUrls[0] || '',
-      avatar_2: avUrls[1] || '',
-      avatar_3: avUrls[2] || '',
-      avatar_4: avUrls[3] || '',
-      avatar_5: avUrls[4] || '',
+      card_skin_ids: skinIds.length > 0 ? skinIds : [''],
+      avatar_urls: avUrls.length > 0 ? avUrls : ['', '', ''],
       background_avatar_url: prod.background_avatar_url || avUrls[0] || '',
-      autograph_1: autoList[0] || '',
-      autograph_2: autoList[1] || '',
+      autograph_creators: autoList.length > 0 ? autoList : [''],
       bonus_vaulted_hypes: Number(prod.bonus_vaulted_hypes || 0),
       commission_creator_1: commList[0] || '',
       commission_creator_2: commList[1] || '',
@@ -493,27 +646,43 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     setIsComposerOpen(true);
   };
 
-  const saveProductWithStatus = async (publishActiveStatus: boolean) => {
+  const saveProductWithStatus = async (
+    publishActiveStatus: boolean,
+    forceContestOnly?: boolean
+  ) => {
     if (!form.title.trim()) return alert('Please enter a Product Title.');
+
+    const isContestBundle =
+      forceContestOnly !== undefined ? forceContestOnly : form.is_contest_only;
+    // Contest-only bundles are saved with `is_active: false` so they don't appear in the public store
+    const effectiveActiveStatus = isContestBundle ? false : publishActiveStatus;
 
     const listedPrice = Math.max(0, Number(form.listed_price_dollars || 0));
 
-    if (form.product_type === 'single_skin' && listedPrice > 0 && listedPrice < 10) {
+    if (
+      !isContestBundle &&
+      form.product_type === 'single_skin' &&
+      listedPrice > 0 &&
+      listedPrice < 10
+    ) {
       return alert(
         'Individual Hype Card Skins must be priced at $10.00 or higher (or $0.00 for a Free Starter Skin).'
       );
     }
 
-    if (form.product_type === 'avatar_pack' && listedPrice > 0 && listedPrice < 5) {
+    if (
+      !isContestBundle &&
+      form.product_type === 'avatar_pack' &&
+      listedPrice > 0 &&
+      listedPrice < 5
+    ) {
       return alert('Character Avatar Packs must be priced at $5.00 or higher.');
     }
 
     const avatarUrls =
       form.product_type === 'single_skin'
         ? []
-        : [form.avatar_1, form.avatar_2, form.avatar_3, form.avatar_4, form.avatar_5].filter(
-            Boolean
-          );
+        : Array.from(new Set(form.avatar_urls.filter(Boolean)));
 
     if (form.product_type === 'avatar_pack' && avatarUrls.length === 0) {
       return alert('Please attach at least 1 character avatar from your Vault to this Avatar Pack.');
@@ -525,12 +694,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         form.product_type === 'avatar_pack'
           ? []
           : form.product_type === 'single_skin'
-          ? [form.card_skin_1].filter(Boolean)
-          : [form.card_skin_1, form.card_skin_2].filter(Boolean);
+          ? [form.card_skin_ids[0]].filter(Boolean)
+          : Array.from(new Set(form.card_skin_ids.filter(Boolean)));
 
       const autographCreators =
         form.product_type === 'bundle'
-          ? [form.autograph_1, form.autograph_2].filter(Boolean)
+          ? Array.from(new Set(form.autograph_creators.map(s => s.trim()).filter(Boolean)))
           : [];
 
       const commissionCreators =
@@ -550,18 +719,27 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
           ? Number(form.normal_price_dollars)
           : null;
 
-      // Resolve selected frosted background avatar (defaults to first attached avatar)
       const chosenBgAvatar =
         form.background_avatar_url && avatarUrls.includes(form.background_avatar_url)
           ? form.background_avatar_url
           : avatarUrls[0] || null;
+
+      const rawBadge = form.promo_badge.trim().toUpperCase();
+      const finalBadge = isContestBundle
+        ? rawBadge.includes('CONTEST')
+          ? rawBadge
+          : `CONTEST ONLY • ${rawBadge || 'PRIZE BUNDLE'}`
+        : rawBadge.replace(/^CONTEST ONLY\s*•\s*/i, '').trim() || null;
+
+      const sk1 = skins.find(s => String(s.id) === String(cardSkinIds[0]));
+      const sk2 = skins.find(s => String(s.id) === String(cardSkinIds[1]));
 
       const payload: Record<string, any> = {
         slug: cleanSlug,
         product_type: form.product_type,
         title: form.title.trim(),
         description: form.description.trim() || null,
-        promo_badge: form.promo_badge.trim().toUpperCase() || null,
+        promo_badge: finalBadge,
         listed_price_dollars: listedPrice,
         normal_price_dollars: normalPrice,
         promo_code: cleanPromoCode || null,
@@ -577,7 +755,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         commission_percentage: 0,
         available_from: form.available_from ? new Date(form.available_from).toISOString() : null,
         available_until: form.available_until ? new Date(form.available_until).toISOString() : null,
-        is_active: publishActiveStatus
+        is_active: effectiveActiveStatus
       };
 
       const executeUpsert = async (dataPayload: Record<string, any>) => {
@@ -589,7 +767,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       };
 
       let { error } = await executeUpsert(payload);
-      // Graceful fallback if background_avatar_url column hasn't been added via SQL yet
       if (error && String(error.message || '').includes('background_avatar_url')) {
         const { background_avatar_url, ...fallbackPayload } = payload;
         const retryRes = await executeUpsert(fallbackPayload);
@@ -598,15 +775,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       if (error) throw error;
 
       if (form.product_type === 'bundle') {
-        const sk1 = skins.find(s => String(s.id) === String(cardSkinIds[0]));
-        const sk2 = skins.find(s => String(s.id) === String(cardSkinIds[1]));
-
         await supabase.from('themed_annual_bundles').upsert(
           [
             {
               title: payload.title,
               subtitle: payload.description,
-              theme_badge: payload.promo_badge || 'SPECIAL EDITION BUNDLE',
+              theme_badge: finalBadge || 'SPECIAL EDITION BUNDLE',
               price_dollars: listedPrice,
               original_price_dollars: normalPrice || listedPrice,
               card_skin_id: cardSkinIds[0] || null,
@@ -622,19 +796,59 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               promo_code: cleanPromoCode || null,
               available_from: payload.available_from,
               available_until: payload.available_until,
-              is_active: publishActiveStatus
+              is_active: effectiveActiveStatus
             }
           ],
           { onConflict: 'title' }
         );
+
+        // Also sync or create the redeemable promo code if one was entered
+        if (cleanPromoCode) {
+          const expiresAt = new Date();
+          expiresAt.setDate(expiresAt.getDate() + 365);
+          const resolvedSkinObjs = cardSkinIds
+            .map(id => skins.find(s => String(s.id) === String(id)))
+            .filter(Boolean);
+
+          await supabase.from('promo_codes').upsert(
+            [
+              {
+                code: cleanPromoCode,
+                tier: 'premium',
+                max_uses: isContestBundle ? 5 : 500,
+                times_used: 0,
+                expires_at: expiresAt.toISOString(),
+                creator_name: autographCreators.join(', ') || null,
+                bundle_config: {
+                  include_1yr_sub: Boolean(form.include_1yr_sub),
+                  is_contest_only: isContestBundle,
+                  bundle_title: payload.title,
+                  card_skin_id: sk1?.id || undefined,
+                  card_skin_name: sk1?.name || undefined,
+                  card_skin_url: sk1?.image_url || undefined,
+                  card_skin_ids: cardSkinIds,
+                  card_skin_names: resolvedSkinObjs.map((s: any) => s.name),
+                  card_skin_urls: resolvedSkinObjs.map((s: any) => s.image_url),
+                  avatar_urls: avatarUrls,
+                  creator_autograph: autographCreators[0] || undefined,
+                  creator_autographs: autographCreators,
+                  bonus_hypes: payload.bonus_vaulted_hypes
+                }
+              }
+            ],
+            { onConflict: 'code' }
+          );
+        }
       }
 
       if (setIsDirty) setIsDirty(false);
       setIsComposerOpen(false);
       await fetchCatalogAndVault();
       showToast(
-        publishActiveStatus
-          ? `Published "${payload.title}" to the live In-App Store!`
+        isContestBundle
+          ? `🏆 Saved "${payload.title}" as a Contest-Only Bundle (Hidden from Storefront)! Click "Move to Live Store" anytime to sell it.`
+          : effectiveActiveStatus
+          ? `🛒 Published "${payload.title}" to the live In-App Store!`
           : `Saved "${payload.title}" as a Hidden Draft!`
       );
     } catch (err: any) {
@@ -644,19 +858,45 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     }
   };
 
+  // Seamless 1-Click Toggle: Move Contest-Only Bundle <-> Live In-App Store!
   const handleToggleActive = async (prod: any) => {
     const nextStatus = !prod.is_active;
+    const rawBadge = String(prod.promo_badge || '').trim();
+    const cleanedLiveBadge = rawBadge
+      .replace(/^CONTEST ONLY\s*•\s*/i, '')
+      .replace(/^CONTEST PRIZE BUNDLE$/i, 'SPECIAL BUNDLE')
+      .trim();
+
+    const updatedBadge = nextStatus
+      ? cleanedLiveBadge || 'SPECIAL BUNDLE'
+      : rawBadge.includes('CONTEST')
+      ? rawBadge
+      : `CONTEST ONLY • ${cleanedLiveBadge || 'PRIZE BUNDLE'}`;
+
     await supabase
       .from('in_app_store_products')
-      .update({ is_active: nextStatus })
+      .update({
+        is_active: nextStatus,
+        promo_badge: updatedBadge
+      })
       .eq('id', prod.id);
+
     if (prod.product_type === 'bundle') {
       await supabase
         .from('themed_annual_bundles')
-        .update({ is_active: nextStatus })
+        .update({
+          is_active: nextStatus,
+          theme_badge: updatedBadge
+        })
         .eq('title', prod.title);
     }
-    fetchCatalogAndVault();
+
+    await fetchCatalogAndVault();
+    showToast(
+      nextStatus
+        ? `🚀 Moved "${prod.title}" into the Live In-App Store!`
+        : `🏆 Switched "${prod.title}" to Contest-Only / Hidden from Store!`
+    );
   };
 
   const handleDeleteProduct = async (prod: any) => {
@@ -689,7 +929,8 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     setEditingStampSkin(found);
     setActiveStamps([...existing]);
     setSelectedStampId(existing[0]?.id || null);
-    setSelectedSigToAdd(Object.keys(signatureMap)[0] || '');
+    // Default to "-- Choose a Creator --" ('') unless a signature is already stamped on this card
+    setSelectedSigToAdd(existing[0]?.creator_name || '');
   };
 
   const handleAddSignatureStamp = () => {
@@ -737,16 +978,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
   };
 
   const selectedStampObj = activeStamps.find(s => s.id === selectedStampId) || null;
-  const selectedSkin1Obj = skins.find(s => String(s.id) === String(form.card_skin_1));
-  const selectedSkin2Obj = skins.find(s => String(s.id) === String(form.card_skin_2));
-
-  const activeFormAvatars = [
-    form.avatar_1,
-    form.avatar_2,
-    form.avatar_3,
-    form.avatar_4,
-    form.avatar_5
-  ].filter(Boolean);
+  const activeFormAvatars = form.avatar_urls.filter(Boolean);
 
   const activeFrostedBgUrl =
     form.background_avatar_url && activeFormAvatars.includes(form.background_avatar_url)
@@ -776,10 +1008,10 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
           </div>
           <div>
             <h2 className="text-xl font-black uppercase italic tracking-widest text-white">
-              In-App Store <span className="text-[#fe9a00]">Products</span>
+              In-App Store <span className="text-[#fe9a00]">&amp; Contest Bundles</span>
             </h2>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-              Subscription Bundles ($5 Creator Bounty) • Card Skins ($10+ / 100% Platform) • Avatar Packs ($5+ / 100% Platform)
+              Synced Live: {skins.length} Card Skins • {allVaultAvatars.length} Avatars • {creatorOptions.length} Creators
             </p>
           </div>
         </div>
@@ -787,25 +1019,33 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => openNewProductModal('subscription_bundle')}
-            className="px-3.5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-[#fe9a00] border border-[#fe9a00]/40 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer"
+            onClick={fetchCatalogAndVault}
+            className="px-3 py-2.5 rounded-xl bg-black hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer"
           >
-            <Sparkles className="w-3.5 h-3.5" /> + Subscription Bundle Template
+            <Loader2 className={`w-3.5 h-3.5 text-[#fe9a00] ${loading ? 'animate-spin' : ''}`} />
+            Sync Vault
+          </button>
+          <button
+            type="button"
+            onClick={() => openNewProductModal('contest_bundle')}
+            className="px-3.5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-[#fe9a00] border border-[#fe9a00]/50 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer"
+          >
+            <Trophy className="w-3.5 h-3.5" /> + Contest-Only Bundle
           </button>
           <button
             type="button"
             onClick={() => openNewProductModal()}
             className="px-5 py-2.5 rounded-xl bg-[#fe9a00] hover:bg-white text-black text-xs font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.35)] cursor-pointer"
           >
-            <Plus className="w-4 h-4 stroke-[3]" /> Add New Item
+            <Plus className="w-4 h-4 stroke-[3]" /> Add Store Item
           </button>
         </div>
       </div>
 
-      {/* EMPTY STATE OR SHOPIFY-STYLE PRODUCT CATALOG */}
+      {/* PRODUCT & CONTEST BUNDLE CATALOG */}
       {loading ? (
         <div className="py-20 flex items-center justify-center text-zinc-400 font-black uppercase tracking-widest text-xs gap-2">
-          <Loader2 className="w-5 h-5 animate-spin text-[#fe9a00]" /> Loading Store Products...
+          <Loader2 className="w-5 h-5 animate-spin text-[#fe9a00]" /> Loading Store Products &amp; Vault...
         </div>
       ) : products.length === 0 ? (
         <div className="bg-black border-2 border-dashed border-zinc-800 rounded-3xl py-20 px-6 flex flex-col items-center justify-center text-center">
@@ -816,7 +1056,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
             Your In-App Store Is Empty
           </h3>
           <p className="text-xs text-zinc-400 font-bold max-w-md mb-6 leading-relaxed">
-            Items created in your Avatar, Card Skin, Frame, and Signature makers stay safely in your private Vault until you list them here. Click below to add a Subscription Bundle, a $10+ Hype Card Skin, or a $5+ Avatar Pack!
+            Create a Live Store Bundle, a Contest-Only Bundle (hidden from the store until you move it live), a $10+ Hype Card Skin, or a $5+ Avatar Pack!
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button
@@ -828,201 +1068,586 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
             </button>
             <button
               type="button"
-              onClick={() => openNewProductModal('subscription_bundle')}
-              className="px-5 py-3.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-700 font-black uppercase tracking-widest text-xs flex items-center gap-2 cursor-pointer"
+              onClick={() => openNewProductModal('contest_bundle')}
+              className="px-5 py-3.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-[#fe9a00] border border-[#fe9a00]/50 font-black uppercase tracking-widest text-xs flex items-center gap-2 cursor-pointer"
             >
-              <Sparkles className="w-4 h-4 text-[#fe9a00]" /> Load Subscription Bundle Template
+              <Trophy className="w-4 h-4" /> Create Contest-Only Bundle
             </button>
           </div>
         </div>
-      ) : (
-        <div className="space-y-3">
-          {products.map(prod => {
-            const listed = Number(prod.listed_price_dollars || 0);
-            const normal = Number(prod.normal_price_dollars || 0);
-            const pctOff =
-              normal > listed && normal > 0 ? Math.round(((normal - listed) / normal) * 100) : 0;
+      ) : (() => {
+        const q = catalogSearch.trim().toLowerCase();
 
-            const skinIds: string[] = Array.isArray(prod.card_skin_ids) ? prod.card_skin_ids : [];
-            const firstSkin = skins.find(s => String(s.id) === String(skinIds[0]));
-            const avUrls: string[] = Array.isArray(prod.avatar_urls) ? prod.avatar_urls : [];
-            const thumbUrl = firstSkin?.image_url || avUrls[0] || '';
-            const commCreators: string[] = Array.isArray(prod.commission_creators)
-              ? prod.commission_creators.filter(Boolean)
-              : [];
-            const bountyAmt = Number(prod.commission_bounty_dollars ?? 5.0);
+        // Classify any product into one of the 6 exact Sub-Categories
+        const getProductSubCategory = (prod: any): Exclude<StoreCatalogSubCategory, 'all'> => {
+          const rawType = String(prod.product_type || 'bundle').toLowerCase();
+          const badgeUpper = String(prod.promo_badge || '').toUpperCase();
+          const titleUpper = String(prod.title || '').toUpperCase();
 
-            return (
-              <div
-                key={prod.id}
-                className={`bg-black border rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-all ${
-                  prod.is_active
-                    ? 'border-zinc-800 hover:border-[#fe9a00]/50'
-                    : 'border-dashed border-zinc-800 opacity-70'
-                }`}
-              >
-                <div className="flex items-center gap-4 min-w-0 flex-1">
-                  {prod.product_type === 'avatar_pack' && avUrls.length > 0 ? (
-                    <div className="relative w-24 h-14 rounded-xl overflow-hidden border border-[#fe9a00]/60 bg-zinc-950 flex items-center justify-center shrink-0">
-                      <img
-                        src={prod.background_avatar_url || avUrls[0]}
-                        alt=""
-                        className="absolute inset-0 w-full h-full object-cover scale-125 blur-sm opacity-50 pointer-events-none"
-                      />
-                      <div className="relative z-10 flex -space-x-2">
-                        {avUrls.slice(0, 3).map((u, idx) => (
-                          <img
-                            key={idx}
-                            src={u}
-                            alt="Avatar Pack"
-                            className="w-8 h-8 rounded-full object-cover border border-[#fe9a00] bg-zinc-900"
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ) : thumbUrl ? (
+          if (rawType === 'emoji_pack' || badgeUpper.includes('EMOJI') || titleUpper.includes('EMOJI')) {
+            return 'emoji_pack';
+          }
+          if (
+            rawType === 'collectable' ||
+            badgeUpper.includes('COLLECTABLE') ||
+            badgeUpper.includes('COLLECTIBLE') ||
+            titleUpper.includes('COLLECTABLE')
+          ) {
+            return 'collectable';
+          }
+          if (rawType === 'single_skin') {
+            return 'single_skin';
+          }
+          if (rawType === 'avatar_pack' || rawType === 'single_avatar') {
+            return 'avatar_pack';
+          }
+          // For bundles: distinguish Subscription Bundles vs Hype Card Bundles (no 1-Yr sub)
+          return prod.include_1yr_sub ? 'sub_bundle' : 'hype_card_bundle';
+        };
+
+        const SUB_CATEGORY_DEFINITIONS: {
+          id: Exclude<StoreCatalogSubCategory, 'all'>;
+          title: string;
+          badgeLabel: string;
+          subtitle: string;
+          accentBorder: string;
+          accentText: string;
+        }[] = [
+          {
+            id: 'sub_bundle',
+            title: '👑 Subscription Bundles',
+            badgeLabel: '👑 Subscription Bundle',
+            subtitle: 'Multi-Card & Avatar Bundles that include a 1-Year PLUS Subscription Pass',
+            accentBorder: 'border-amber-500/40',
+            accentText: 'text-amber-400'
+          },
+          {
+            id: 'hype_card_bundle',
+            title: '📦 Hype Card Bundles',
+            badgeLabel: '📦 Hype Card Bundle',
+            subtitle: 'Multiple Hype Cards & Avatars bundled together (Without a 1-Year Subscription)',
+            accentBorder: 'border-[#fe9a00]/40',
+            accentText: 'text-[#fe9a00]'
+          },
+          {
+            id: 'single_skin',
+            title: '🃏 Individual Hype Cards',
+            badgeLabel: '🃏 Individual Hype Card',
+            subtitle: 'Standalone collector Hype Card skins ($10+ minimum in Live Store)',
+            accentBorder: 'border-purple-500/40',
+            accentText: 'text-purple-400'
+          },
+          {
+            id: 'avatar_pack',
+            title: '👥 Avatar Packs',
+            badgeLabel: '👥 Avatar Pack',
+            subtitle: 'Character profile avatar packs ($5+ minimum in Live Store)',
+            accentBorder: 'border-cyan-500/40',
+            accentText: 'text-cyan-400'
+          },
+          {
+            id: 'emoji_pack',
+            title: '😎 Emojis',
+            badgeLabel: '😎 Emoji Pack',
+            subtitle: 'Custom Saturday AM comment & reaction emoji packs',
+            accentBorder: 'border-pink-500/40',
+            accentText: 'text-pink-400'
+          },
+          {
+            id: 'collectable',
+            title: '💎 Collectables',
+            badgeLabel: '💎 Digital Collectable',
+            subtitle: 'Limited-edition digital artifacts, badges & special Vault collectables',
+            accentBorder: 'border-emerald-500/40',
+            accentText: 'text-emerald-400'
+          }
+        ];
+
+        const matchesTypeAndSearch = (prod: any) => {
+          const subCat = getProductSubCategory(prod);
+          if (catalogTypeFilter !== 'all' && subCat !== catalogTypeFilter) return false;
+          if (!q) return true;
+          const titleStr = String(prod.title || '').toLowerCase();
+          const codeStr = String(prod.promo_code || '').toLowerCase();
+          const badgeStr = String(prod.promo_badge || '').toLowerCase();
+          const commStr = Array.isArray(prod.commission_creators)
+            ? prod.commission_creators.join(' ').toLowerCase()
+            : '';
+          return (
+            titleStr.includes(q) ||
+            codeStr.includes(q) ||
+            badgeStr.includes(q) ||
+            commStr.includes(q)
+          );
+        };
+
+        const liveStoreItems = products.filter(p => Boolean(p.is_active) && matchesTypeAndSearch(p));
+        const contestAndDraftItems = products.filter(
+          p => !p.is_active && matchesTypeAndSearch(p)
+        );
+
+        const totalLiveCount = products.filter(p => Boolean(p.is_active)).length;
+        const totalContestCount = products.filter(p => !p.is_active).length;
+
+        const renderProductRow = (prod: any) => {
+          const listed = Number(prod.listed_price_dollars || 0);
+          const normal = Number(prod.normal_price_dollars || 0);
+          const pctOff =
+            normal > listed && normal > 0 ? Math.round(((normal - listed) / normal) * 100) : 0;
+
+          const skinIds: string[] = Array.isArray(prod.card_skin_ids)
+            ? prod.card_skin_ids.filter(Boolean)
+            : [prod.card_skin_id, prod.card_skin_2_id].filter(Boolean);
+          const firstSkin = skins.find(s => String(s.id) === String(skinIds[0]));
+          const avUrls: string[] = Array.isArray(prod.avatar_urls)
+            ? prod.avatar_urls.filter(Boolean)
+            : [];
+          const autoCreators: string[] = Array.isArray(prod.autograph_creators)
+            ? prod.autograph_creators.filter(Boolean)
+            : [];
+          const thumbUrl = firstSkin?.image_url || prod.card_skin_url || avUrls[0] || '';
+          const commCreators: string[] = Array.isArray(prod.commission_creators)
+            ? prod.commission_creators.filter(Boolean)
+            : [];
+          const bountyAmt = Number(prod.commission_bounty_dollars ?? 5.0);
+          const contestOnly = isContestOnlyProduct(prod);
+          const subCat = getProductSubCategory(prod);
+
+          const typeSummaryBadge =
+            subCat === 'sub_bundle'
+              ? `👑 Subscription Bundle (1-Yr Pass • ${skinIds.length} Skins • ${avUrls.length} Avatars • ${autoCreators.length} Sigs)`
+              : subCat === 'hype_card_bundle'
+              ? `📦 Hype Card Bundle (${skinIds.length} Skins • ${avUrls.length} Avatars • No Sub)`
+              : subCat === 'avatar_pack'
+              ? `👥 Avatar Pack (${avUrls.length} Avatars)`
+              : subCat === 'emoji_pack'
+              ? `😎 Emoji Pack (${avUrls.length} Emojis)`
+              : subCat === 'collectable'
+              ? `💎 Collectable`
+              : '🃏 Individual Hype Card';
+
+          return (
+            <div
+              key={prod.id}
+              className={`bg-zinc-950/90 border rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-all ${
+                prod.is_active
+                  ? 'border-zinc-800 hover:border-emerald-500/60'
+                  : contestOnly
+                  ? 'border-[#fe9a00]/50 hover:border-[#fe9a00]'
+                  : 'border-dashed border-zinc-800 opacity-75'
+              }`}
+            >
+              <div className="flex items-center gap-4 min-w-0 flex-1">
+                {(subCat === 'avatar_pack' || subCat === 'emoji_pack') && avUrls.length > 0 ? (
+                  <div className="relative w-24 h-14 rounded-xl overflow-hidden border border-[#fe9a00]/60 bg-black flex items-center justify-center shrink-0">
                     <img
-                      src={thumbUrl}
-                      alt={prod.title}
-                      className="w-20 h-14 object-cover rounded-xl border border-zinc-700 shrink-0 bg-zinc-900"
+                      src={prod.background_avatar_url || avUrls[0]}
+                      alt=""
+                      className="absolute inset-0 w-full h-full object-cover scale-125 blur-sm opacity-50 pointer-events-none"
                     />
-                  ) : (
-                    <div className="w-20 h-14 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0">
-                      <ShoppingBag className="w-5 h-5 text-zinc-600" />
-                    </div>
-                  )}
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${
-                          prod.is_active
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                        }`}
-                      >
-                        {prod.is_active ? 'Published (Live)' : 'Draft (Hidden)'}
-                      </span>
-                      <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300">
-                        {prod.product_type === 'bundle'
-                          ? 'Subscription Bundle'
-                          : prod.product_type === 'avatar_pack' ||
-                            prod.product_type === 'single_avatar'
-                          ? `Avatar Pack (${avUrls.length})`
-                          : 'Hype Card Skin'}
-                      </span>
-                      {prod.promo_badge && (
-                        <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-[#fe9a00] text-black">
-                          {prod.promo_badge}
-                        </span>
-                      )}
-                      {pctOff > 0 && (
-                        <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-emerald-400 text-black">
-                          SAVE {pctOff}% OFF
-                        </span>
-                      )}
-                    </div>
-
-                    <h4 className="text-sm sm:text-base font-black italic uppercase text-white truncate mt-1">
-                      {prod.title}
-                    </h4>
-
-                    <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold text-zinc-400 mt-0.5">
-                      <span>
-                        Price:{' '}
-                        <strong className="text-[#fe9a00]">
-                          {listed === 0 ? 'FREE' : `$${listed.toFixed(2)}`}
-                        </strong>
-                        {normal > listed && (
-                          <span className="line-through text-zinc-600 ml-1">
-                            ${normal.toFixed(2)}
-                          </span>
-                        )}
-                      </span>
-                      {prod.product_type === 'bundle' && commCreators.length > 0 ? (
-                        <span>
-                          • Creator Bounty:{' '}
-                          <strong className="text-emerald-400">
-                            ${bountyAmt.toFixed(2)} Flat ({commCreators.join(' & ')})
-                          </strong>
-                        </span>
-                      ) : (
-                        <span>
-                          • <strong className="text-zinc-300">100% Platform Revenue</strong>
-                        </span>
-                      )}
-                      {prod.available_until && (
-                        <span className="text-amber-400">
-                          • Ends {new Date(prod.available_until).toLocaleDateString()}
-                        </span>
-                      )}
+                    <div className="relative z-10 flex -space-x-2">
+                      {avUrls.slice(0, 3).map((u, idx) => (
+                        <img
+                          key={idx}
+                          src={u}
+                          alt="Pack Preview"
+                          className="w-8 h-8 rounded-full object-cover border border-[#fe9a00] bg-zinc-900"
+                        />
+                      ))}
                     </div>
                   </div>
-                </div>
+                ) : thumbUrl ? (
+                  <img
+                    src={thumbUrl}
+                    alt={prod.title}
+                    className="w-24 h-14 object-cover rounded-xl border border-zinc-700 shrink-0 bg-zinc-900"
+                  />
+                ) : (
+                  <div className="w-24 h-14 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0">
+                    <ShoppingBag className="w-5 h-5 text-zinc-600" />
+                  </div>
+                )}
 
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => copyProductLink(prod)}
-                    className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer"
-                    title="Copy Direct Product Link"
-                  >
-                    {copiedId === prod.id ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" /> Link Copied
-                      </>
-                    ) : (
-                      <>
-                        <Link2 className="w-3.5 h-3.5 text-[#fe9a00]" /> Product Link
-                      </>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                        prod.is_active
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          : contestOnly
+                          ? 'bg-[#fe9a00] text-black shadow-[0_0_12px_rgba(254,154,0,0.4)]'
+                          : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                      }`}
+                    >
+                      {prod.is_active
+                        ? '🛒 Live in In-App Store'
+                        : contestOnly
+                        ? '🏆 Contest-Only Vault'
+                        : 'Draft (Hidden)'}
+                    </span>
+                    <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-black border border-zinc-700 text-zinc-300">
+                      {typeSummaryBadge}
+                    </span>
+                    {pctOff > 0 && (
+                      <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-emerald-400 text-black">
+                        SAVE {pctOff}% OFF
+                      </span>
                     )}
-                  </button>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => openEditProductModal(prod)}
-                    className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Edit3 className="w-3.5 h-3.5" /> Edit
-                  </button>
+                  <h4 className="text-sm sm:text-base font-black italic uppercase text-white truncate mt-1">
+                    {prod.title}
+                  </h4>
 
-                  <button
-                    type="button"
-                    onClick={() => handleToggleActive(prod)}
-                    className={`px-3 py-2 rounded-xl border text-[9px] font-black uppercase tracking-widest flex items-center gap-1 cursor-pointer ${
-                      prod.is_active
-                        ? 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700'
-                        : 'bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-black border-emerald-500/40'
-                    }`}
-                  >
-                    {prod.is_active ? (
-                      <>
-                        <EyeOff className="w-3.5 h-3.5" /> Move to Draft
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="w-3.5 h-3.5" /> Publish Now
-                      </>
+                  <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold text-zinc-400 mt-0.5">
+                    <span>
+                      Store Price:{' '}
+                      <strong className="text-[#fe9a00]">
+                        {listed === 0 ? 'FREE' : `$${listed.toFixed(2)}`}
+                      </strong>
+                      {normal > listed && (
+                        <span className="line-through text-zinc-600 ml-1">
+                          ${normal.toFixed(2)}
+                        </span>
+                      )}
+                    </span>
+                    {prod.promo_code && (
+                      <span className="text-[#fe9a00] font-mono">
+                        • Code: <strong>{prod.promo_code}</strong>
+                      </span>
                     )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteProduct(prod)}
-                    className="p-2 text-zinc-500 hover:text-red-500 cursor-pointer"
-                    title="Delete Product"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    {prod.product_type === 'bundle' && commCreators.length > 0 ? (
+                      <span>
+                        • Creator Bounty:{' '}
+                        <strong className="text-emerald-400">
+                          ${bountyAmt.toFixed(2)} ({commCreators.join(' & ')})
+                        </strong>
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => copyProductLink(prod)}
+                  className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer"
+                  title="Copy Direct Product Link"
+                >
+                  {copiedId === prod.id ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" /> Copied
+                    </>
+                  ) : (
+                    <>
+                      <Link2 className="w-3.5 h-3.5 text-[#fe9a00]" /> Link
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openEditProductModal(prod)}
+                  className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" /> Edit
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggleActive(prod)}
+                  className={`px-3.5 py-2 rounded-xl border text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer transition-all ${
+                    prod.is_active
+                      ? 'bg-zinc-900 hover:bg-amber-950 text-amber-300 border-amber-500/40'
+                      : 'bg-emerald-500 hover:bg-emerald-400 text-black border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                  }`}
+                >
+                  {prod.is_active ? (
+                    <>
+                      <EyeOff className="w-3.5 h-3.5" /> Switch to Contest-Only (Hide)
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3.5 h-3.5" /> 🚀 Move to Live In-App Store
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDeleteProduct(prod)}
+                  className="p-2 text-zinc-500 hover:text-red-500 cursor-pointer"
+                  title="Delete Product"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          );
+        };
+
+        // Renders the 6 organized Sub-Category shelves inside Live Store or Contest Vault
+        const renderCategorizedShelves = (itemsList: any[], isContestSection: boolean) => {
+          const visibleCategories = SUB_CATEGORY_DEFINITIONS.filter(
+            cat => catalogTypeFilter === 'all' || catalogTypeFilter === cat.id
+          );
+
+          return (
+            <div className="space-y-4">
+              {visibleCategories.map(cat => {
+                const catItems = itemsList.filter(p => getProductSubCategory(p) === cat.id);
+
+                return (
+                  <div
+                    key={cat.id}
+                    className={`bg-zinc-950/60 border ${cat.accentBorder} rounded-2xl p-3.5 sm:p-4 space-y-3`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800/80 pb-2.5">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className={`text-xs font-black uppercase tracking-widest ${cat.accentText}`}>
+                            {cat.title}
+                          </h4>
+                          <span className="px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-700 text-[9px] font-black text-white">
+                            {catItems.length}
+                          </span>
+                        </div>
+                        <p className="text-[9px] font-bold text-zinc-500 mt-0.5">{cat.subtitle}</p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          fetchCatalogAndVault();
+                          const isSubBundle = cat.id === 'sub_bundle';
+                          const isHypeCardBundle = cat.id === 'hype_card_bundle';
+                          const mappedType: ProductFormState['product_type'] =
+                            isSubBundle || isHypeCardBundle
+                              ? 'bundle'
+                              : (cat.id as ProductFormState['product_type']);
+
+                          setForm({
+                            ...EMPTY_PRODUCT_FORM,
+                            product_type: mappedType,
+                            is_contest_only: isContestSection,
+                            is_active: !isContestSection,
+                            include_1yr_sub: isSubBundle,
+                            listed_price_dollars: isSubBundle
+                              ? '24.99'
+                              : isHypeCardBundle
+                              ? '14.99'
+                              : cat.id === 'single_skin'
+                              ? '10.00'
+                              : cat.id === 'collectable'
+                              ? '15.00'
+                              : '5.00',
+                            normal_price_dollars: isSubBundle
+                              ? '35.00'
+                              : isHypeCardBundle
+                              ? '20.00'
+                              : '',
+                            promo_badge: isContestSection
+                              ? 'CONTEST PRIZE BUNDLE'
+                              : cat.id === 'emoji_pack'
+                              ? 'EMOJI PACK'
+                              : cat.id === 'collectable'
+                              ? 'COLLECTABLE'
+                              : cat.id === 'avatar_pack'
+                              ? 'AVATAR PACK'
+                              : isHypeCardBundle
+                              ? 'HYPE CARD BUNDLE'
+                              : 'SPECIAL BUNDLE',
+                            card_skin_ids:
+                              cat.id === 'avatar_pack' || cat.id === 'emoji_pack'
+                                ? []
+                                : isSubBundle || isHypeCardBundle
+                                ? ['', '']
+                                : [''],
+                            avatar_urls:
+                              cat.id === 'single_skin' ? [] : ['', '', '']
+                          });
+                          setIsComposerOpen(true);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-[#fe9a00] text-zinc-300 hover:text-black border border-zinc-700 text-[8px] font-black uppercase tracking-widest transition-colors cursor-pointer"
+                      >
+                        + Add {cat.badgeLabel.replace(/^[^\s]+\s/, '')}
+                      </button>
+                    </div>
+
+                    {catItems.length === 0 ? (
+                      <div className="py-3 px-3 rounded-xl bg-black/40 border border-dashed border-zinc-800/80 flex items-center justify-between">
+                        <span className="text-[10px] font-bold italic text-zinc-500">
+                          No {cat.title.replace(/^[^\s]+\s/, '')} in this section yet.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">{catItems.map(renderProductRow)}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        };
+
+        return (
+          <div className="space-y-6">
+            {/* FILTER & SEARCH BAR */}
+            <div className="bg-black border border-zinc-800 rounded-2xl p-3.5 space-y-3">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                {/* Visibility Filter Tabs */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCatalogViewFilter('all')}
+                    className={`px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer border ${
+                      catalogViewFilter === 'all'
+                        ? 'bg-white text-black border-white shadow'
+                        : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                    }`}
+                  >
+                    All Catalog ({products.length})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCatalogViewFilter('live')}
+                    className={`px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer border flex items-center gap-1.5 ${
+                      catalogViewFilter === 'live'
+                        ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                        : 'bg-zinc-900 text-emerald-400 border-emerald-500/30 hover:bg-zinc-800'
+                    }`}
+                  >
+                    🛒 Live In-App Store ({totalLiveCount})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCatalogViewFilter('contest')}
+                    className={`px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer border flex items-center gap-1.5 ${
+                      catalogViewFilter === 'contest'
+                        ? 'bg-[#fe9a00] text-black border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                        : 'bg-zinc-900 text-[#fe9a00] border-[#fe9a00]/40 hover:bg-zinc-800'
+                    }`}
+                  >
+                    🏆 Contest-Only Vault ({totalContestCount})
+                  </button>
+                </div>
+
+                {/* Search Input */}
+                <div className="relative min-w-[240px] flex-1 sm:flex-initial">
+                  <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search title, code, creator..."
+                    value={catalogSearch}
+                    onChange={e => setCatalogSearch(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-[#fe9a00]"
+                  />
+                </div>
+              </div>
+
+              {/* 6 Sub-Category Filter Pills */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-zinc-800/80">
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mr-1">
+                  Category Filter:
+                </span>
+                {(
+                  [
+                    { id: 'all', label: 'All Categories' },
+                    { id: 'sub_bundle', label: '👑 Subscription Bundles' },
+                    { id: 'hype_card_bundle', label: '📦 Hype Card Bundles' },
+                    { id: 'single_skin', label: '🃏 Individual Hype Cards' },
+                    { id: 'avatar_pack', label: '👥 Avatar Packs' },
+                    { id: 'emoji_pack', label: '😎 Emojis' },
+                    { id: 'collectable', label: '💎 Collectables' }
+                  ] as const
+                ).map(t => {
+                  const count =
+                    t.id === 'all'
+                      ? products.length
+                      : products.filter(p => getProductSubCategory(p) === t.id).length;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setCatalogTypeFilter(t.id)}
+                      className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer border ${
+                        catalogTypeFilter === t.id
+                          ? 'bg-[#fe9a00] text-black border-[#fe9a00] shadow'
+                          : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:border-zinc-600 hover:text-white'
+                      }`}
+                    >
+                      {t.label} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* SECTION 1: LIVE IN-APP STORE CATALOG (GROUPED INTO 6 SUB-CATEGORIES) */}
+            {(catalogViewFilter === 'all' || catalogViewFilter === 'live') && (
+              <div className="bg-black border-2 border-emerald-500/40 rounded-2xl p-4 sm:p-5 space-y-4 shadow-[0_0_25px_rgba(16,185,129,0.06)]">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <div>
+                      <h3 className="text-sm font-black italic uppercase tracking-widest text-emerald-400">
+                        🛒 Live In-App Store Catalog ({liveStoreItems.length})
+                      </h3>
+                      <p className="text-[10px] font-bold text-zinc-400">
+                        Organized by Subscription Bundles, Hype Card Bundles, Individual Hype Cards, Avatar Packs, Emojis &amp; Collectables
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openNewProductModal()}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-300 hover:text-black border border-emerald-500/40 text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                  >
+                    + Add Live Store Item
+                  </button>
+                </div>
+
+                {renderCategorizedShelves(liveStoreItems, false)}
+              </div>
+            )}
+
+            {/* SECTION 2: CONTEST-ONLY PRIZE VAULT (GROUPED INTO 6 SUB-CATEGORIES) */}
+            {(catalogViewFilter === 'all' || catalogViewFilter === 'contest') && (
+              <div className="bg-black border-2 border-[#fe9a00]/50 rounded-2xl p-4 sm:p-5 space-y-4 shadow-[0_0_25px_rgba(254,154,0,0.08)]">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <Trophy className="w-4 h-4 text-[#fe9a00]" />
+                    <div>
+                      <h3 className="text-sm font-black italic uppercase tracking-widest text-[#fe9a00]">
+                        🏆 Contest-Only Prize Vault ({contestAndDraftItems.length})
+                      </h3>
+                      <p className="text-[10px] font-bold text-zinc-400">
+                        Hidden from the public store • Organized by category for Monthly Leaderboard Super Fan Winners
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openNewProductModal('contest_bundle')}
+                    className="px-3 py-1.5 rounded-xl bg-[#fe9a00]/15 hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border border-[#fe9a00]/50 text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer"
+                  >
+                    + New Contest Bundle
+                  </button>
+                </div>
+
+                {renderCategorizedShelves(contestAndDraftItems, true)}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* =====================================================================
-          SHOPIFY-STYLE UNIFIED ADD / EDIT PRODUCT MODAL
+          UNIFIED ADD / EDIT PRODUCT & CONTEST BUNDLE MODAL
+          (NOW WITH ALL 6 CATEGORIES: SUB BUNDLES, HYPE CARD BUNDLES, CARDS, AVATARS, EMOJIS & COLLECTABLES)
       ===================================================================== */}
       {isComposerOpen && (
         <div
@@ -1037,10 +1662,10 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               <div>
                 <h3 className="text-xl font-black italic uppercase tracking-wider text-white flex items-center gap-2">
                   <ShoppingBag className="w-5 h-5 text-[#fe9a00]" />
-                  {form.id ? `Edit Store Product: ${form.title}` : 'Add New Store Item / Bundle'}
+                  {form.id ? `Edit Bundle / Item: ${form.title}` : 'Build Store or Contest Item'}
                 </h3>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mt-0.5">
-                  Subscription Bundles ($5 Creator Bounty) • Individual Card Skins ($10+ Min) • Avatar Packs ($5+ Min)
+                  Subscription Bundles • Hype Card Bundles • Individual Cards • Avatar Packs • Emojis • Collectables
                 </p>
               </div>
               <button
@@ -1050,6 +1675,65 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               >
                 <X className="w-6 h-6" />
               </button>
+            </div>
+
+            {/* CONTEST-ONLY vs. LIVE IN-APP STORE MODE SWITCHER */}
+            <div className="bg-black border border-[#fe9a00]/50 rounded-2xl p-4 space-y-2.5">
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] block">
+                Bundle Visibility Mode (Contest-Only vs. Live In-App Store)
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm(prev => ({
+                      ...prev,
+                      is_contest_only: false,
+                      is_active: true,
+                      promo_badge:
+                        prev.promo_badge === 'CONTEST PRIZE BUNDLE'
+                          ? 'SPECIAL BUNDLE'
+                          : prev.promo_badge
+                    }))
+                  }
+                  className={`p-3 rounded-xl border-2 text-left cursor-pointer transition-all ${
+                    !form.is_contest_only
+                      ? 'bg-emerald-500/15 border-emerald-400 text-white shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <div className="text-xs font-black uppercase text-emerald-400">
+                    🛒 Live in In-App Store
+                  </div>
+                  <p className="text-[10px] font-bold text-zinc-400 mt-0.5">
+                    Visible &amp; purchasable by all users in the In-App Store.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm(prev => ({
+                      ...prev,
+                      is_contest_only: true,
+                      is_active: false,
+                      promo_badge: prev.promo_badge || 'CONTEST PRIZE BUNDLE'
+                    }))
+                  }
+                  className={`p-3 rounded-xl border-2 text-left cursor-pointer transition-all ${
+                    form.is_contest_only
+                      ? 'bg-[#fe9a00]/15 border-[#fe9a00] text-white shadow-[0_0_15px_rgba(254,154,0,0.25)]'
+                      : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <div className="text-xs font-black uppercase text-[#fe9a00]">
+                    🏆 Contest-Only Bundle (Hidden from Store)
+                  </div>
+                  <p className="text-[10px] font-bold text-zinc-400 mt-0.5">
+                    Reserved for Leaderboard Contest Winners! Can be moved to the Live Store in 1 click later.
+                  </p>
+                </button>
+              </div>
             </div>
 
             {/* TEMPLATE BAR */}
@@ -1097,43 +1781,77 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               </button>
             </div>
 
-            {/* 1. PRODUCT TYPE SELECTOR */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* 1. 6-CATEGORY PRODUCT TYPE SELECTOR */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {[
                 {
-                  id: 'bundle',
-                  label: 'Subscription Bundle',
-                  desc: '1-Yr Pass + Up to 2 Cards, 5 Avatars, 2 Autographs & +Hypes ($5 Creator Bounty)'
+                  key: 'sub_bundle',
+                  type: 'bundle' as const,
+                  includeSub: true,
+                  label: '👑 Subscription Bundle',
+                  desc: 'Includes 1-Yr PLUS Subscription + Multiple Hype Cards, Avatars, Signatures & +Hypes'
                 },
                 {
-                  id: 'single_skin',
-                  label: 'Individual Hype Card Skin',
-                  desc: '1 Hype Card Skin ($10.00+ Min • 100% Platform Revenue)'
+                  key: 'hype_card_bundle',
+                  type: 'bundle' as const,
+                  includeSub: false,
+                  label: '📦 Hype Card Bundle (No Sub)',
+                  desc: 'Multiple Hype Card Skins & Avatars bundled together WITHOUT a 1-Yr Subscription'
                 },
                 {
-                  id: 'avatar_pack',
-                  label: 'Character Avatar Pack',
-                  desc: 'Up to 5 Character Avatars Sold as a Pack ($5.00+ Min • 100% Platform Revenue)'
+                  key: 'single_skin',
+                  type: 'single_skin' as const,
+                  includeSub: false,
+                  label: '🃏 Individual Hype Card',
+                  desc: '1 Standalone Hype Card Skin ($10.00+ Min • 100% Platform Revenue)'
+                },
+                {
+                  key: 'avatar_pack',
+                  type: 'avatar_pack' as const,
+                  includeSub: false,
+                  label: '👥 Avatar Pack',
+                  desc: 'Multiple Character Avatars Sold as a Pack ($5.00+ Min • 100% Platform Revenue)'
+                },
+                {
+                  key: 'emoji_pack',
+                  type: 'emoji_pack' as const,
+                  includeSub: false,
+                  label: '😎 Emoji Pack',
+                  desc: 'Custom Saturday AM Comment & Reaction Emoji Pack (100% Platform Revenue)'
+                },
+                {
+                  key: 'collectable',
+                  type: 'collectable' as const,
+                  includeSub: false,
+                  label: '💎 Collectable',
+                  desc: 'Limited-Edition Digital Artifact, Badge or Special Vault Collectable'
                 }
-              ].map(t => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => handleSelectProductType(t.id as any)}
-                  className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                    form.product_type === t.id
-                      ? 'bg-[#fe9a00]/15 border-[#fe9a00] text-white shadow-[0_0_20px_rgba(254,154,0,0.2)]'
-                      : 'bg-black border-zinc-800 text-zinc-400 hover:text-white'
-                  }`}
-                >
-                  <div className="text-xs font-black uppercase tracking-wider text-[#fe9a00]">
-                    {t.label}
-                  </div>
-                  <div className="text-[10px] font-bold text-zinc-400 mt-1 leading-snug">
-                    {t.desc}
-                  </div>
-                </button>
-              ))}
+              ].map(t => {
+                const isSelected =
+                  t.type === 'bundle'
+                    ? form.product_type === 'bundle' && Boolean(form.include_1yr_sub) === t.includeSub
+                    : form.product_type === t.type;
+
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => handleSelectProductType(t.type, t.includeSub)}
+                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#fe9a00]/15 border-[#fe9a00] text-white shadow-[0_0_20px_rgba(254,154,0,0.2)]'
+                        : 'bg-black border-zinc-800 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <div className="text-xs font-black uppercase tracking-wider text-[#fe9a00]">
+                      {t.label}
+                    </div>
+                    <div className="text-[10px] font-bold text-zinc-400 mt-1 leading-snug">
+                      {t.desc}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
             {/* 2. TITLE, DESCRIPTION & PROMO BADGE */}
@@ -1141,18 +1859,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                    Product Title *
+                    Product / Bundle Title *
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder={
-                      form.product_type === 'avatar_pack'
-                        ? 'e.g. MMWOG Diwali Avatar Pack'
-                        : form.product_type === 'single_skin'
-                        ? 'e.g. Apple Black Gold Hype Card Skin'
-                        : 'e.g. MMWOG Diwali Annual Bundle'
-                    }
+                    placeholder="e.g. Square Up! Top 5 Contest Bundle or MMWOG Diwali Bundle"
                     value={form.title}
                     onChange={e => setForm(prev => ({ ...prev, title: e.target.value }))}
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs font-bold text-white"
@@ -1160,11 +1872,11 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                 </div>
                 <div>
                   <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                    Promo / Event Badge (Optional)
+                    Promo / Event Badge
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. DIWALI SPECIAL"
+                    placeholder="e.g. CONTEST PRIZE BUNDLE"
                     value={form.promo_badge}
                     onChange={e =>
                       setForm(prev => ({ ...prev, promo_badge: e.target.value.toUpperCase() }))
@@ -1188,140 +1900,158 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               </div>
             </div>
 
-            {/* 3. VAULT ITEMS SELECTION WITH LIVE ART PREVIEWS */}
-            <div className="bg-black border border-zinc-800 rounded-2xl p-5 space-y-5">
-              <h4 className="text-xs font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-2">
-                <Layers className="w-4 h-4" /> Attach Vault Items to This Product
-              </h4>
+            {/* 3. UNLIMITED VAULT ITEMS SELECTION (+ BUTTONS FOR SKINS, AVATARS & SIGNATURES) */}
+            <div className="bg-black border border-zinc-800 rounded-2xl p-5 space-y-6">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-2">
+                  <Layers className="w-4 h-4" /> Attach Vault Items ({skins.length} Skins • {allVaultAvatars.length} Avatars Synced)
+                </h4>
+                <button
+                  type="button"
+                  onClick={fetchCatalogAndVault}
+                  className="text-[9px] font-black uppercase tracking-widest text-emerald-400 hover:text-white cursor-pointer"
+                >
+                  ↻ Refresh Vault List
+                </button>
+              </div>
 
-              {/* HYPE CARD SKINS WITH VISUAL THUMBNAIL PREVIEW */}
+              {/* A. UNLIMITED HYPE CARD SKINS (+ BUTTON) */}
               {form.product_type !== 'avatar_pack' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-white">
-                        Hype Card Skin #1 (From Vault)
-                      </label>
-                      {form.card_skin_1 && (
-                        <button
-                          type="button"
-                          onClick={() => openSignatureStudioById(form.card_skin_1)}
-                          className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] hover:text-white flex items-center gap-1 cursor-pointer"
-                        >
-                          <PenTool className="w-3 h-3" /> Stamp Signatures on Card
-                        </button>
-                      )}
-                    </div>
-                    <select
-                      value={form.card_skin_1}
-                      onChange={e => setForm(prev => ({ ...prev, card_skin_1: e.target.value }))}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer"
-                    >
-                      <option value="">-- Select Card Skin #1 --</option>
-                      {skins.map(sk => (
-                        <option key={sk.id} value={sk.id}>
-                          {sk.name}
-                        </option>
-                      ))}
-                    </select>
-                    {selectedSkin1Obj?.image_url && (
-                      <div className="flex items-center gap-3 pt-1">
-                        <img
-                          src={selectedSkin1Obj.image_url}
-                          alt={selectedSkin1Obj.name}
-                          className="w-24 aspect-[1.58] object-cover rounded-lg border border-[#fe9a00] shrink-0"
-                        />
-                        <div className="min-w-0">
-                          <span className="block text-[10px] font-black uppercase text-white truncate">
-                            {selectedSkin1Obj.name}
-                          </span>
-                          <span className="text-[9px] font-bold text-emerald-400">
-                            {Array.isArray(selectedSkin1Obj.signature_stamps) &&
-                            selectedSkin1Obj.signature_stamps.length > 0
-                              ? `✓ ${selectedSkin1Obj.signature_stamps.length} Signature(s) Stamped`
-                              : '✓ Card Art Attached'}
-                          </span>
-                        </div>
-                      </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white">
+                      Hype Card Skins ({form.card_skin_ids.filter(Boolean).length} Selected)
+                    </label>
+                    {form.product_type === 'bundle' && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm(prev => ({
+                            ...prev,
+                            card_skin_ids: [...prev.card_skin_ids, '']
+                          }))
+                        }
+                        className="px-3 py-1.5 rounded-lg bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-[9px] cursor-pointer flex items-center gap-1 shadow"
+                      >
+                        <Plus className="w-3 h-3 stroke-[3]" /> Add Card Skin Slot
+                      </button>
                     )}
                   </div>
 
-                  {form.product_type === 'bundle' && (
-                    <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[9px] font-black uppercase tracking-widest text-white">
-                          Hype Card Skin #2 (Optional 2nd Card)
-                        </label>
-                        {form.card_skin_2 && (
-                          <button
-                            type="button"
-                            onClick={() => openSignatureStudioById(form.card_skin_2)}
-                            className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] hover:text-white flex items-center gap-1 cursor-pointer"
-                          >
-                            <PenTool className="w-3 h-3" /> Stamp Signatures on Card
-                          </button>
-                        )}
-                      </div>
-                      <select
-                        value={form.card_skin_2}
-                        onChange={e => setForm(prev => ({ ...prev, card_skin_2: e.target.value }))}
-                        className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer"
-                      >
-                        <option value="">-- None --</option>
-                        {skins.map(sk => (
-                          <option key={sk.id} value={sk.id}>
-                            {sk.name}
-                          </option>
-                        ))}
-                      </select>
-                      {selectedSkin2Obj?.image_url && (
-                        <div className="flex items-center gap-3 pt-1">
-                          <img
-                            src={selectedSkin2Obj.image_url}
-                            alt={selectedSkin2Obj.name}
-                            className="w-24 aspect-[1.58] object-cover rounded-lg border border-[#fe9a00] shrink-0"
-                          />
-                          <div className="min-w-0">
-                            <span className="block text-[10px] font-black uppercase text-white truncate">
-                              {selectedSkin2Obj.name}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {(form.product_type === 'single_skin'
+                      ? [form.card_skin_ids[0] || '']
+                      : form.card_skin_ids
+                    ).map((skinId, idx) => {
+                      const skinObj = skins.find(s => String(s.id) === String(skinId));
+                      return (
+                        <div
+                          key={idx}
+                          className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 space-y-2.5"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
+                              Hype Card Skin #{idx + 1}
                             </span>
-                            <span className="text-[9px] font-bold text-emerald-400">
-                              {Array.isArray(selectedSkin2Obj.signature_stamps) &&
-                              selectedSkin2Obj.signature_stamps.length > 0
-                                ? `✓ ${selectedSkin2Obj.signature_stamps.length} Signature(s) Stamped`
-                                : '✓ Card Art Attached'}
-                          </span>
+                            <div className="flex items-center gap-2">
+                              {skinId && (
+                                <button
+                                  type="button"
+                                  onClick={() => openSignatureStudioById(skinId)}
+                                  className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] hover:text-white flex items-center gap-1 cursor-pointer"
+                                >
+                                  <PenTool className="w-3 h-3" /> Stamp Signatures
+                                </button>
+                              )}
+                              {form.product_type === 'bundle' && form.card_skin_ids.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setForm(prev => ({
+                                      ...prev,
+                                      card_skin_ids: prev.card_skin_ids.filter((_, i) => i !== idx)
+                                    }))
+                                  }
+                                  className="text-zinc-500 hover:text-red-400 cursor-pointer"
+                                  title="Remove Card Skin Slot"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </div>
+
+                          <select
+                            value={skinId}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setForm(prev => ({
+                                ...prev,
+                                card_skin_ids: prev.card_skin_ids.map((item, i) =>
+                                  i === idx ? val : item
+                                )
+                              }));
+                            }}
+                            className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer"
+                          >
+                            <option value="">-- Select Card Skin #{idx + 1} --</option>
+                            {skins.map(sk => (
+                              <option key={sk.id} value={sk.id}>
+                                {sk.name} {sk.creator_name ? `by ${sk.creator_name}` : ''}
+                              </option>
+                            ))}
+                          </select>
+
+                          {skinObj?.image_url && (
+                            <div className="flex items-center gap-3 pt-1">
+                              <img
+                                src={skinObj.image_url}
+                                alt={skinObj.name}
+                                className="w-24 aspect-[1.58] object-cover rounded-lg border border-[#fe9a00] shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <span className="block text-[10px] font-black uppercase text-white truncate">
+                                  {skinObj.name}
+                                </span>
+                                <span className="text-[9px] font-bold text-emerald-400">
+                                  {Array.isArray(skinObj.signature_stamps) &&
+                                  skinObj.signature_stamps.length > 0
+                                    ? `✓ ${skinObj.signature_stamps.length} Signature(s) Stamped`
+                                    : '✓ Card Art Attached'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  )}
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
-              {/* VISUAL 5-SLOT AVATAR PACK / BUNDLE PICKER + 1-CLICK FROSTED BG SELECTOR */}
+              {/* B. UNLIMITED CHARACTER AVATAR PICKER (+ BUTTON) */}
               {form.product_type !== 'single_skin' && (
-                <div className="space-y-3">
+                <div className="space-y-3 pt-3 border-t border-zinc-800/80">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                      Up to 5 Character Avatars in Pack/Bundle — Click Any Slot to Select Art, or Set as Frosted Store BG
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white">
+                      Character Avatars in Pack/Bundle ({activeFormAvatars.length} Selected)
                     </label>
-                    {activeFormAvatars.length > 0 && (
-                      <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
-                        ✨ Click &ldquo;Set Frosted BG&rdquo; on any avatar below to use it as the blurred card backdrop!
-                      </span>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm(prev => ({
+                          ...prev,
+                          avatar_urls: [...prev.avatar_urls, '']
+                        }))
+                      }
+                      className="px-3 py-1.5 rounded-lg bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-[9px] cursor-pointer flex items-center gap-1 shadow"
+                    >
+                      <Plus className="w-3 h-3 stroke-[3]" /> Add Avatar Slot
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                    {[
-                      { label: 'Avatar #1', key: 'avatar_1' },
-                      { label: 'Avatar #2', key: 'avatar_2' },
-                      { label: 'Avatar #3', key: 'avatar_3' },
-                      { label: 'Avatar #4', key: 'avatar_4' },
-                      { label: 'Avatar #5', key: 'avatar_5' }
-                    ].map((slot, idx) => {
-                      const currentUrl = (form as any)[slot.key] as string;
+                    {form.avatar_urls.map((currentUrl, idx) => {
                       const matchedAvatar = allVaultAvatars.find(
                         (av: any) => av.image_url === currentUrl
                       );
@@ -1334,7 +2064,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                           key={idx}
                           onClick={() => {
                             setAvatarSearchQuery('');
-                            setActiveAvatarSlotKey(slot.key);
+                            setActiveAvatarSlotIndex(idx);
                           }}
                           className={`relative rounded-2xl p-3 flex flex-col items-center justify-between text-center cursor-pointer border transition-all group ${
                             isFrostedBg
@@ -1344,22 +2074,28 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                               : 'bg-zinc-950/60 border-dashed border-zinc-700 hover:border-[#fe9a00]'
                           }`}
                         >
-                          {currentUrl && (
+                          {(currentUrl || form.avatar_urls.length > 1) && (
                             <button
                               type="button"
                               onClick={e => {
                                 e.stopPropagation();
-                                setForm(prev => ({
-                                  ...prev,
-                                  [slot.key]: '',
-                                  background_avatar_url:
-                                    prev.background_avatar_url === currentUrl
-                                      ? ''
-                                      : prev.background_avatar_url
-                                }));
+                                setForm(prev => {
+                                  const nextUrls =
+                                    prev.avatar_urls.length > 1
+                                      ? prev.avatar_urls.filter((_, i) => i !== idx)
+                                      : [''];
+                                  return {
+                                    ...prev,
+                                    avatar_urls: nextUrls,
+                                    background_avatar_url:
+                                      prev.background_avatar_url === currentUrl
+                                        ? ''
+                                        : prev.background_avatar_url
+                                  };
+                                });
                               }}
                               className="absolute top-1.5 right-1.5 p-1 rounded-full bg-black/80 text-zinc-400 hover:text-red-400 border border-zinc-700 z-10 cursor-pointer"
-                              title="Clear Slot"
+                              title="Remove or Clear Slot"
                             >
                               <X className="w-3 h-3" />
                             </button>
@@ -1370,18 +2106,17 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                               <div className="flex flex-col items-center">
                                 <img
                                   src={currentUrl}
-                                  alt={matchedAvatar?.name || slot.label}
+                                  alt={matchedAvatar?.name || `Avatar #${idx + 1}`}
                                   className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-2 shadow-md group-hover:scale-105 transition-transform"
                                 />
                                 <span className="text-[10px] font-black text-white leading-tight line-clamp-1">
-                                  {matchedAvatar?.name || slot.label}
+                                  {matchedAvatar?.name || `Avatar #${idx + 1}`}
                                 </span>
                                 <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-400 mt-0.5">
                                   Click to Change
                                 </span>
                               </div>
 
-                              {/* 1-Click Toggle to Set This Avatar as the Frosted Store Card Backdrop */}
                               <button
                                 type="button"
                                 onClick={e => {
@@ -1406,10 +2141,10 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                                 <Plus className="w-5 h-5 text-zinc-500 group-hover:text-[#fe9a00]" />
                               </div>
                               <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400 group-hover:text-white">
-                                {slot.label}
+                                Avatar #{idx + 1}
                               </span>
                               <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-500 mt-0.5">
-                                Browse Art
+                                Browse Vault
                               </span>
                             </div>
                           )}
@@ -1417,132 +2152,108 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                       );
                     })}
                   </div>
-
-                  {/* LIVE STORE THUMBNAIL PREVIEW FOR AVATAR PACKS */}
-                  {form.product_type === 'avatar_pack' && activeFormAvatars.length > 0 && (
-                    <div className="pt-3 border-t border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-zinc-950/90 border border-zinc-800 rounded-2xl p-4">
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
-                          <ImageIcon className="w-3.5 h-3.5" /> Live Store Card Frosted Preview
-                        </span>
-                        <p className="text-[10px] text-zinc-400 font-bold leading-relaxed max-w-md">
-                          Your selected avatar is frosted and blurred in the background so the crisp circular avatars on display pop out on the storefront!
-                        </p>
-                      </div>
-
-                      <div className="w-60 bg-black border border-zinc-800 rounded-2xl overflow-hidden shadow-xl shrink-0 mx-auto sm:mx-0">
-                        <div className="relative aspect-[1.58] bg-zinc-950 overflow-hidden flex items-center justify-center">
-                          {activeFrostedBgUrl && (
-                            <>
-                              <img
-                                src={activeFrostedBgUrl}
-                                alt=""
-                                className="absolute inset-0 w-full h-full object-cover scale-125 blur-md opacity-50 pointer-events-none"
-                              />
-                              <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px] pointer-events-none" />
-                            </>
-                          )}
-                          <div className="relative z-10 flex items-center justify-center -space-x-2.5 p-2">
-                            {activeFormAvatars.map((u, i) => (
-                              <img
-                                key={i}
-                                src={u}
-                                alt=""
-                                className="w-10 h-10 rounded-full object-cover border-2 border-[#fe9a00] bg-zinc-950 shadow-lg"
-                              />
-                            ))}
-                          </div>
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/30 pointer-events-none z-10" />
-                          <span className="absolute top-2 left-2 z-20 bg-[#fe9a00] text-black text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded">
-                            {activeFormAvatars.length}-PACK
-                          </span>
-                          <span className="absolute top-2 right-2 z-20 bg-black/85 border border-[#fe9a00] text-[#fe9a00] text-[8px] font-black uppercase px-2 py-0.5 rounded-full">
-                            ${Number(form.listed_price_dollars || 5).toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="p-2.5 bg-zinc-950 border-t border-zinc-900 flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-black italic uppercase text-white leading-tight line-clamp-2 flex-1">
-                            {form.title || 'MMWOG DIWALI AVATAR PACK'}
-                          </span>
-                          <span className="px-2 py-1 rounded bg-[#fe9a00] text-black text-[8px] font-black uppercase shrink-0">
-                            Get
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
-              {/* Bundle Extras: 2 Autographs, 1-Yr Sub Toggle & +10 Vaulted Gold Hypes */}
+              {/* C. UNLIMITED BINGO AUTOGRAPHS (+ BUTTON), 1-YR SUB TOGGLE & +VAULTED GOLD HYPES */}
               {form.product_type === 'bundle' && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-3 border-t border-zinc-800/80 items-end">
-                  <div>
-                    <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                      Bingo Autograph #1
+                <div className="space-y-4 pt-3 border-t border-zinc-800/80">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white">
+                      Creator Bingo Autographs ({form.autograph_creators.filter(Boolean).length} Selected)
                     </label>
-                    <select
-                      value={form.autograph_1}
-                      onChange={e => setForm(prev => ({ ...prev, autograph_1: e.target.value }))}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer"
-                    >
-                      <option value="">-- None --</option>
-                      {creatorOptions.map(c => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                      Bingo Autograph #2
-                    </label>
-                    <select
-                      value={form.autograph_2}
-                      onChange={e => setForm(prev => ({ ...prev, autograph_2: e.target.value }))}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer"
-                    >
-                      <option value="">-- None --</option>
-                      {creatorOptions.map(c => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-black uppercase tracking-widest text-yellow-300 mb-1">
-                      <Flame className="w-3 h-3 inline mr-1" /> +Vaulted Gold Hypes
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={200}
-                      value={form.bonus_vaulted_hypes}
-                      onChange={e =>
+                    <button
+                      type="button"
+                      onClick={() =>
                         setForm(prev => ({
                           ...prev,
-                          bonus_vaulted_hypes: Number(e.target.value)
+                          autograph_creators: [...prev.autograph_creators, '']
                         }))
                       }
-                      className="w-full bg-zinc-900 border border-yellow-400/60 rounded-xl px-3 py-2 text-xs font-black text-yellow-300"
-                    />
+                      className="px-3 py-1.5 rounded-lg bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-[9px] cursor-pointer flex items-center gap-1 shadow"
+                    >
+                      <Plus className="w-3 h-3 stroke-[3]" /> Add Signature Slot
+                    </button>
                   </div>
 
-                  <label className="flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2.5 cursor-pointer text-[10px] font-black uppercase tracking-wider text-emerald-400">
-                    <input
-                      type="checkbox"
-                      checked={form.include_1yr_sub}
-                      onChange={e =>
-                        setForm(prev => ({ ...prev, include_1yr_sub: e.target.checked }))
-                      }
-                      className="accent-emerald-400 w-4 h-4"
-                    />
-                    <Crown className="w-3.5 h-3.5" /> Includes 1-Yr Pass
-                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {form.autograph_creators.map((sigCreator, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <select
+                          value={sigCreator}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setForm(prev => ({
+                              ...prev,
+                              autograph_creators: prev.autograph_creators.map((item, i) =>
+                                i === idx ? val : item
+                              )
+                            }));
+                          }}
+                          className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer"
+                        >
+                          <option value="">-- Autograph #{idx + 1} --</option>
+                          {creatorOptions.map(c => (
+                            <option key={c} value={c}>
+                              {c}&apos;s Signature
+                            </option>
+                          ))}
+                        </select>
+                        {form.autograph_creators.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setForm(prev => ({
+                                ...prev,
+                                autograph_creators: prev.autograph_creators.filter(
+                                  (_, i) => i !== idx
+                                )
+                              }))
+                            }
+                            className="p-2 text-zinc-500 hover:text-red-400 cursor-pointer"
+                            title="Remove Signature Slot"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    <div>
+                      <label className="block text-[9px] font-black uppercase tracking-widest text-yellow-300 mb-1">
+                        <Flame className="w-3 h-3 inline mr-1" /> +Vaulted Gold Hypes
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={500}
+                        value={form.bonus_vaulted_hypes}
+                        onChange={e =>
+                          setForm(prev => ({
+                            ...prev,
+                            bonus_vaulted_hypes: Number(e.target.value)
+                          }))
+                        }
+                        className="w-full bg-zinc-900 border border-yellow-400/60 rounded-xl px-3 py-2 text-xs font-black text-yellow-300"
+                      />
+                    </div>
+
+                    <div className="flex items-end">
+                      <label className="w-full flex items-center gap-2 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2.5 cursor-pointer text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                        <input
+                          type="checkbox"
+                          checked={form.include_1yr_sub}
+                          onChange={e =>
+                            setForm(prev => ({ ...prev, include_1yr_sub: e.target.checked }))
+                          }
+                          className="accent-emerald-400 w-4 h-4"
+                        />
+                        <Crown className="w-3.5 h-3.5" /> Includes 1-Yr PLUS Pass
+                      </label>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1552,7 +2263,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               <div className="bg-black border border-zinc-800 rounded-2xl p-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black uppercase tracking-widest text-[#fe9a00]">
-                    Pricing & Promo Code
+                    Pricing &amp; Promo Code
                   </span>
                   {discountPercentPreview > 0 && (
                     <span className="px-2.5 py-0.5 rounded-full bg-emerald-400 text-black text-[9px] font-black uppercase tracking-widest">
@@ -1568,7 +2279,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                         ? 'Skin Price ($10+ Min) *'
                         : form.product_type === 'avatar_pack'
                         ? 'Pack Price ($5+ Min) *'
-                        : 'Listed Price ($) *'}
+                        : 'Store Price ($) *'}
                     </label>
                     <input
                       type="number"
@@ -1601,11 +2312,11 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
 
                   <div>
                     <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                      Promo Code (Opt)
+                      Winner / Promo Code
                     </label>
                     <input
                       type="text"
-                      placeholder="DIWALI-2026"
+                      placeholder="CONTEST-NOV"
                       value={form.promo_code}
                       onChange={e =>
                         setForm(prev => ({ ...prev, promo_code: e.target.value.toUpperCase() }))
@@ -1615,7 +2326,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                   </div>
                 </div>
 
-                {/* Live Net Retained Cash Summary */}
                 <div className="pt-2 border-t border-zinc-800/80 flex flex-wrap items-center justify-between text-[10px] font-bold text-zinc-400">
                   <span>
                     Stripe: ~${netBreakdownPreview.stripeFee.toFixed(2)}
@@ -1632,7 +2342,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                 </div>
               </div>
 
-              {/* Creator Bounty (Bundles Only) OR 100% Platform Revenue Badge */}
               <div className="bg-black border border-zinc-800 rounded-2xl p-5 flex flex-col justify-between space-y-3">
                 {form.product_type === 'bundle' ? (
                   <>
@@ -1771,25 +2480,25 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                 <button
                   type="button"
                   disabled={saving}
-                  onClick={() => saveProductWithStatus(false)}
-                  className="px-6 py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-black uppercase tracking-widest text-xs flex items-center gap-2 cursor-pointer"
+                  onClick={() => saveProductWithStatus(false, true)}
+                  className="px-5 py-3.5 rounded-xl bg-zinc-900 hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border border-[#fe9a00]/60 font-black uppercase tracking-widest text-xs flex items-center gap-2 cursor-pointer"
                 >
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Save as Draft
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
+                  Save as Contest-Only (Hidden)
                 </button>
 
                 <button
                   type="button"
                   disabled={saving}
-                  onClick={() => saveProductWithStatus(true)}
-                  className="px-7 py-3.5 rounded-xl bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs flex items-center gap-2 shadow-[0_0_25px_rgba(254,154,0,0.4)] cursor-pointer"
+                  onClick={() => saveProductWithStatus(true, false)}
+                  className="px-6 py-3.5 rounded-xl bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs flex items-center gap-2 shadow-[0_0_25px_rgba(254,154,0,0.4)] cursor-pointer"
                 >
                   {saving ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <Upload className="w-4 h-4" />
                   )}
-                  {form.id ? 'Update & Publish' : 'Publish to Store'}
+                  {form.id ? 'Publish to Live Store' : 'Publish to Live Store'}
                 </button>
               </div>
             </div>
@@ -1798,12 +2507,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       )}
 
       {/* =====================================================================
-          VISUAL AVATAR VAULT PICKER MODAL
+          VISUAL AVATAR VAULT PICKER MODAL (DYNAMIC INDEX SUPPORT)
       ===================================================================== */}
-      {activeAvatarSlotKey && (
+      {activeAvatarSlotIndex !== null && (
         <div
           className="fixed inset-0 z-[8600] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in"
-          onClick={() => setActiveAvatarSlotKey(null)}
+          onClick={() => setActiveAvatarSlotIndex(null)}
         >
           <div
             onClick={e => e.stopPropagation()}
@@ -1813,17 +2522,15 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               <div>
                 <h3 className="text-lg font-black italic uppercase tracking-wider text-white flex items-center gap-2">
                   <User className="w-5 h-5 text-[#fe9a00]" /> Select Avatar for{' '}
-                  <span className="text-[#fe9a00]">
-                    {activeAvatarSlotKey.replace('_', ' #').toUpperCase()}
-                  </span>
+                  <span className="text-[#fe9a00]">SLOT #{activeAvatarSlotIndex + 1}</span>
                 </h3>
                 <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">
-                  Click any character avatar below to attach it to this slot
+                  Showing all {allVaultAvatars.length} synced avatars from your Vault
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setActiveAvatarSlotKey(null)}
+                onClick={() => setActiveAvatarSlotIndex(null)}
                 className="p-2 text-zinc-400 hover:text-white cursor-pointer"
               >
                 <X className="w-6 h-6" />
@@ -1836,7 +2543,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                 <input
                   type="text"
                   autoFocus
-                  placeholder="Search avatar name (e.g. Dia, Anil, Nilay, Tricia, Durga)..."
+                  placeholder="Search avatar name or series..."
                   value={avatarSearchQuery}
                   onChange={e => setAvatarSearchQuery(e.target.value)}
                   className="w-full bg-black border border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-[#fe9a00]"
@@ -1845,8 +2552,13 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               <button
                 type="button"
                 onClick={() => {
-                  setForm(prev => ({ ...prev, [activeAvatarSlotKey]: '' }));
-                  setActiveAvatarSlotKey(null);
+                  setForm(prev => ({
+                    ...prev,
+                    avatar_urls: prev.avatar_urls.map((u, i) =>
+                      i === activeAvatarSlotIndex ? '' : u
+                    )
+                  }));
+                  setActiveAvatarSlotIndex(null);
                 }}
                 className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-red-950 text-red-400 border border-zinc-800 text-[10px] font-black uppercase tracking-widest cursor-pointer shrink-0"
               >
@@ -1857,14 +2569,8 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3.5 overflow-y-auto pr-1 py-1 custom-scrollbar">
               {filteredModalAvatars.map((av: any) => {
                 const isSelectedInThisSlot =
-                  (form as any)[activeAvatarSlotKey] === av.image_url;
-                const isSelectedInAnySlot = [
-                  form.avatar_1,
-                  form.avatar_2,
-                  form.avatar_3,
-                  form.avatar_4,
-                  form.avatar_5
-                ].includes(av.image_url);
+                  form.avatar_urls[activeAvatarSlotIndex] === av.image_url;
+                const isSelectedInAnySlot = form.avatar_urls.includes(av.image_url);
 
                 return (
                   <div
@@ -1872,10 +2578,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                     onClick={() => {
                       setForm(prev => ({
                         ...prev,
-                        [activeAvatarSlotKey]: av.image_url,
+                        avatar_urls: prev.avatar_urls.map((u, i) =>
+                          i === activeAvatarSlotIndex ? av.image_url : u
+                        ),
                         background_avatar_url: prev.background_avatar_url || av.image_url
                       }));
-                      setActiveAvatarSlotKey(null);
+                      setActiveAvatarSlotIndex(null);
                     }}
                     className={`relative rounded-2xl p-3 flex flex-col items-center text-center cursor-pointer border transition-all group ${
                       isSelectedInThisSlot
@@ -1928,7 +2636,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div>
                 <h3 className="text-lg font-black italic uppercase tracking-wider text-white flex items-center gap-2">
-                  <PenTool className="w-5 h-5 text-[#fe9a00]" /> Stamp & Resize Signatures —{' '}
+                  <PenTool className="w-5 h-5 text-[#fe9a00]" /> Stamp &amp; Resize Signatures —{' '}
                   <span className="text-[#fe9a00]">{editingStampSkin.name}</span>
                 </h3>
                 <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">
@@ -2022,7 +2730,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                       onChange={e => setSelectedSigToAdd(e.target.value)}
                       className="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-2 text-xs font-bold text-white cursor-pointer"
                     >
-                      <option value="">-- Choose Signature --</option>
+                      <option value="">-- Choose a Creator --</option>
                       {Object.keys(signatureMap)
                         .sort((a, b) => a.localeCompare(b))
                         .map(cName => (
