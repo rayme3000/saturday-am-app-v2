@@ -1305,18 +1305,103 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           </div>
         )}
 
-        {homeSections.map(section => {
-          const seriesInSection = seriesList
-            .filter((s: any) => s.home_section === section.title && !s.is_hidden && isReleasedYet(s.publish_at))
-            .sort((a: any, b: any) => (a.display_order || 99) - (b.display_order || 99));
-          if (seriesInSection.length === 0) return null;
-          return (
-            <SeriesSection
-              key={section.id} title={section.title} series={seriesInSection} onSeriesClick={onNavigate}
-              currentUser={currentUser} userTier={userTier} nextScheduledBySeries={nextScheduledBySeries} onRequireAuth={onLoginClick}
-            />
-          );
-        })}
+        {(() => {
+          // Detect if today in Eastern Time (America/New_York) is Monday (1), Wednesday (3), or Saturday (6)
+          const getEstCalendarInfo = (d: Date) => {
+            try {
+              const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/New_York',
+                weekday: 'short',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+              }).formatToParts(d);
+              const wk = parts.find(p => p.type === 'weekday')?.value || '';
+              const yr = parts.find(p => p.type === 'year')?.value || '';
+              const mo = parts.find(p => p.type === 'month')?.value || '';
+              const da = parts.find(p => p.type === 'day')?.value || '';
+              const dowMap: Record<string, number> = {
+                Sun: 0,
+                Mon: 1,
+                Tue: 2,
+                Wed: 3,
+                Thu: 4,
+                Fri: 5,
+                Sat: 6
+              };
+              return { dow: dowMap[wk] ?? d.getDay(), dateKey: `${yr}-${mo}-${da}` };
+            } catch {
+              return { dow: d.getDay(), dateKey: getLocalCalendarDateKey(d) };
+            }
+          };
+
+          const todayEst = getEstCalendarInfo(new Date());
+          const isOfficialReleaseDay =
+            todayEst.dow === 1 || todayEst.dow === 3 || todayEst.dow === 6;
+
+          const droppingTodayCounts = new Map<string, number>();
+          if (isOfficialReleaseDay) {
+            latestChapters.forEach((ch: any) => {
+              if (!ch?.is_published || !ch?.series_slug || !ch?.publish_at) return;
+              if (!isChapterReleasedForUser(ch.publish_at, isPlusSubscriber)) return;
+              const chapEst = getEstCalendarInfo(new Date(ch.publish_at));
+              if (chapEst.dateKey === todayEst.dateKey) {
+                const slugKey = String(ch.series_slug).toLowerCase();
+                droppingTodayCounts.set(slugKey, (droppingTodayCounts.get(slugKey) || 0) + 1);
+              }
+            });
+
+            seriesList.forEach((s: any) => {
+              if (!s?.slug || s.is_hidden) return;
+              const slugKey = String(s.slug).toLowerCase();
+              if (todayEst.dow === 3 && isActiveOneShotWednesday(s, seriesList)) {
+                if (!droppingTodayCounts.has(slugKey)) droppingTodayCounts.set(slugKey, 1);
+              } else if (isInOneShotDebutWindow(s, seriesList) && s.publish_at) {
+                const sEst = getEstCalendarInfo(new Date(s.publish_at));
+                if (sEst.dateKey === todayEst.dateKey && !droppingTodayCounts.has(slugKey)) {
+                  droppingTodayCounts.set(slugKey, 1);
+                }
+              }
+            });
+          }
+
+          return homeSections.map(section => {
+            const seriesInSection = seriesList
+              .filter(
+                (s: any) =>
+                  s.home_section === section.title &&
+                  !s.is_hidden &&
+                  isReleasedYet(s.publish_at)
+              )
+              .map((s: any) => {
+                const dropCount = droppingTodayCounts.get(String(s.slug || '').toLowerCase()) || 0;
+                return {
+                  ...s,
+                  isReleaseDayDrop: dropCount > 0,
+                  releaseDayDropCount: dropCount
+                };
+              })
+              .sort((a: any, b: any) => {
+                if (a.isReleaseDayDrop && !b.isReleaseDayDrop) return -1;
+                if (!a.isReleaseDayDrop && b.isReleaseDayDrop) return 1;
+                return (a.display_order || 99) - (b.display_order || 99);
+              });
+
+            if (seriesInSection.length === 0) return null;
+            return (
+              <SeriesSection
+                key={section.id}
+                title={section.title}
+                series={seriesInSection}
+                onSeriesClick={onNavigate}
+                currentUser={currentUser}
+                userTier={userTier}
+                nextScheduledBySeries={nextScheduledBySeries}
+                onRequireAuth={onLoginClick}
+              />
+            );
+          });
+        })()}
       </div>
     </div>
   );

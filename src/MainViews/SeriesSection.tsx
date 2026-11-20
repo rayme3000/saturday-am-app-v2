@@ -153,20 +153,25 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
 
   const sortedSeries = useMemo(() => {
     if (!series || series.length === 0) return [];
-    if (isPlusSubscriber || (title !== 'Completed Runs' && !hasAnyActiveFreeCompletedRun)) {
-      return series;
-    }
 
     return [...series].sort((a: any, b: any) => {
-      const aIsDebut = isInOneShotDebutWindow(a, series);
-      const bIsDebut = isInOneShotDebutWindow(b, series);
-      if (aIsDebut && !bIsDebut) return -1;
-      if (!aIsDebut && bIsDebut) return 1;
+      // 1. Always promote Release-Day Drops (Mon / Wed / Sat) to the front of the section
+      if (a.isReleaseDayDrop && !b.isReleaseDayDrop) return -1;
+      if (!a.isReleaseDayDrop && b.isReleaseDayDrop) return 1;
 
-      const aIsSpotlight = isActiveOneShotWednesday(a, series);
-      const bIsSpotlight = isActiveOneShotWednesday(b, series);
-      if (aIsSpotlight && !bIsSpotlight) return -1;
-      if (!aIsSpotlight && bIsSpotlight) return 1;
+      // 2. For non-PLUS users on Completed Runs, keep active 48h Debuts & Free OSW picks up front
+      if (!isPlusSubscriber && (title === 'Completed Runs' || hasAnyActiveFreeCompletedRun)) {
+        const aIsDebut = isInOneShotDebutWindow(a, series);
+        const bIsDebut = isInOneShotDebutWindow(b, series);
+        if (aIsDebut && !bIsDebut) return -1;
+        if (!aIsDebut && bIsDebut) return 1;
+
+        const aIsSpotlight = isActiveOneShotWednesday(a, series);
+        const bIsSpotlight = isActiveOneShotWednesday(b, series);
+        if (aIsSpotlight && !bIsSpotlight) return -1;
+        if (!aIsSpotlight && bIsSpotlight) return 1;
+      }
+
       return 0;
     });
   }, [series, isPlusSubscriber, title, hasAnyActiveFreeCompletedRun]);
@@ -306,6 +311,8 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
           const is48hDebut = isCompleted && isInOneShotDebutWindow(s, series);
           const showFreeWednesdayCue = !isPlusSubscriber && isCompleted && isActiveOneShotWednesday(s, series);
           const showPlusVaultTag = !isPlusSubscriber && isCompleted && !showFreeWednesdayCue;
+          const isDropDaySpotlight = Boolean(s.isReleaseDayDrop);
+          const shouldGlowCard = showFreeWednesdayCue || isDropDaySpotlight;
           const cardCountdownText = showFreeWednesdayCue ? getOneShotFreeCountdown(s, series) : getWednesdayCountdownEST();
 
           const candidateFromParent = nextScheduledBySeries[s.slug] || s.next_chapter_publish_at || null;
@@ -326,7 +333,7 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
             <div key={s.id || s.slug} className="w-1/3 sm:w-1/4 md:w-1/5 flex-shrink-0 snap-start cursor-pointer group/card" onClick={() => onSeriesClick(s)}>
               <div 
                 className={`relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] transition-all duration-300 mb-3 bg-black ${
-                  showFreeWednesdayCue
+                  shouldGlowCard
                     ? 'border-2 border-[#fe9a00] animate-oneshot-card-glow group-hover/card:-translate-y-1.5'
                     : 'border border-white/70 shadow-[4px_4px_0px_0px_#fe9a00] group-hover/card:shadow-[6px_6px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1'
                 }`}
@@ -334,7 +341,7 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
               >
                 <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
 
-                {showFreeWednesdayCue && (
+                {shouldGlowCard && (
                   <div className="absolute inset-0 bg-gradient-to-t from-[#fe9a00]/30 via-transparent to-[#fe9a00]/20 z-10 pointer-events-none animate-pulse" />
                 )}
                 
@@ -367,13 +374,22 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                   <div className="absolute top-1.5 left-1.5 right-8 z-40 flex flex-col gap-0.5 pointer-events-none">
                     <div className="bg-gradient-to-r from-[#fe9a00] via-yellow-400 to-[#fe9a00] text-black text-[7px] sm:text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded sm:rounded-b-none sm:rounded-t shadow-[0_0_12px_rgba(254,154,0,0.9)] flex items-center gap-0.5 sm:gap-1 w-max max-w-full">
                       <Zap className="w-2.5 h-2.5 fill-black shrink-0" />
-                      <span className="sm:hidden">{is48hDebut ? 'DEBUT' : 'FREE'}</span>
-                      <span className="hidden sm:inline truncate">{is48hDebut ? '48H FREE DEBUT' : 'FREE TODAY'}</span>
+                      <span className="sm:hidden">{is48hDebut ? 'NEW' : 'FREE'}</span>
+                      <span className="hidden sm:inline truncate">{is48hDebut ? 'NEW • 48H FREE' : 'FREE TODAY'}</span>
                     </div>
                     <div className="hidden sm:flex bg-black/90 backdrop-blur-md border border-[#fe9a00] text-[#fe9a00] text-[8px] font-mono font-black uppercase tracking-tight px-1.5 py-0.5 rounded-b shadow-lg items-center gap-1 w-max max-w-full">
                       <Clock className="w-2.5 h-2.5 text-red-500 animate-spin shrink-0" style={{ animationDuration: '6s' }} />
                       <span>{cardCountdownText}</span>
                     </div>
+                  </div>
+                ) : isDropDaySpotlight ? (
+                  <div className="absolute top-1.5 left-1.5 z-40 bg-gradient-to-r from-red-600 via-[#fe9a00] to-amber-400 text-black text-[8px] sm:text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded shadow-[0_0_15px_rgba(254,154,0,0.95)] flex items-center gap-1 animate-pulse pointer-events-none">
+                    <Zap className="w-2.5 h-2.5 fill-black shrink-0" />
+                    <span>
+                      {Number(s.releaseDayDropCount) > 1
+                        ? `${s.releaseDayDropCount} NEW CH`
+                        : 'NEW'}
+                    </span>
                   </div>
                 ) : showPlusVaultTag ? (
                   <div className="absolute top-1 left-1 z-40 bg-purple-900/90 text-purple-200 border border-purple-400/50 text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-md pointer-events-none">
@@ -413,7 +429,7 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
               
               <div className="px-1 text-left bg-black/40 backdrop-blur-[2px] rounded-lg mt-1 p-1">
                 <h3 className={`font-bold text-xs truncate tracking-wide transition-colors ${
-                  showFreeWednesdayCue ? 'text-[#fe9a00]' : 'text-white group-hover/card:text-[#fe9a00]'
+                  shouldGlowCard ? 'text-[#fe9a00]' : 'text-white group-hover/card:text-[#fe9a00]'
                 }`}>
                   {s.title}
                 </h3>
