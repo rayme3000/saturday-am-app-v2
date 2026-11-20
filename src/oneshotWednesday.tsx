@@ -30,7 +30,45 @@ export const isCompletedRunSeries = (series: any, seriesList?: any[]): boolean =
   );
 };
 
-// Helper: Finds the valid 48-hour debut start timestamp (checks publish_at, updated_at, and created_at)
+// Helper: Calculates the exact end timestamp (ms) of a One-Shot Debut.
+// Standard debuts last 48 hours. Thursday (Holiday / Thanksgiving) debuts run through Monday 11:59:59 PM EST (locking Tuesday 12:00 AM EST).
+export const getOneShotDebutEndMs = (debutStartMs: number): number => {
+  try {
+    const estString = new Date(debutStartMs).toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const estStart = new Date(estString);
+
+    // 4 = Thursday in America/New_York (e.g. Thanksgiving 11/26 -> Locks Tuesday 12/1 at 12:00 AM EST)
+    if (estStart.getDay() === 4) {
+      const estEndMondayNight = new Date(estStart);
+      estEndMondayNight.setDate(estStart.getDate() + 4); // Thursday + 4 days = Monday
+      estEndMondayNight.setHours(23, 59, 59, 999);
+      const diffMs = estEndMondayNight.getTime() - estStart.getTime();
+      if (diffMs > ONESHOT_DEBUT_WINDOW_MS) {
+        return debutStartMs + diffMs;
+      }
+    }
+  } catch {
+    // Fallback to standard 48h window
+  }
+  return debutStartMs + ONESHOT_DEBUT_WINDOW_MS;
+};
+
+// Helper: Returns a future scheduled debut start timestamp (in ms) if publish_at is still in the future
+export const getScheduledOneShotDebutFutureMs = (series: any, seriesList?: any[]): number | null => {
+  if (!series || !isCompletedRunSeries(series, seriesList)) return null;
+  const matchedFromList = seriesList?.find(
+    (s: any) => s.slug && series.slug && String(s.slug).toLowerCase() === String(series.slug).toLowerCase()
+  );
+  const pubIso = series.publish_at || matchedFromList?.publish_at;
+  if (!pubIso) return null;
+  const ms = new Date(pubIso).getTime();
+  if (!isNaN(ms) && ms > Date.now() + 60000) {
+    return ms;
+  }
+  return null;
+};
+
+// Helper: Finds the valid debut start timestamp
 export const getOneShotDebutStartMs = (series: any, seriesList?: any[]): number | null => {
   if (!series || !isCompletedRunSeries(series, seriesList)) return null;
 
@@ -39,21 +77,26 @@ export const getOneShotDebutStartMs = (series: any, seriesList?: any[]): number 
   );
 
   const now = Date.now();
-  const candidates = [
-    series.publish_at,
-    matchedFromList?.publish_at,
-    series.created_at,
-    matchedFromList?.created_at,
-    series.updated_at,
-    matchedFromList?.updated_at
-  ].filter(Boolean);
+  const explicitPublishAt = series.publish_at || matchedFromList?.publish_at;
 
-  for (const iso of candidates) {
+  // If publish_at is explicitly set, ONLY evaluate publish_at (never fall back to updated_at while waiting for a future debut!)
+  if (explicitPublishAt) {
+    const pubMs = new Date(explicitPublishAt).getTime();
+    if (!isNaN(pubMs)) {
+      const endMs = getOneShotDebutEndMs(pubMs);
+      if (now >= pubMs - 60000 && now < endMs) {
+        return pubMs;
+      }
+      return null;
+    }
+  }
+
+  const fallbackCandidates = [series.created_at, matchedFromList?.created_at].filter(Boolean);
+  for (const iso of fallbackCandidates) {
     const ms = new Date(iso).getTime();
     if (!isNaN(ms)) {
-      const elapsed = now - ms;
-      // If timestamp is in the past within 48 hours, it's an active 48-hour debut!
-      if (elapsed >= -60000 && elapsed < ONESHOT_DEBUT_WINDOW_MS) {
+      const endMs = getOneShotDebutEndMs(ms);
+      if (now >= ms - 60000 && now < endMs) {
         return ms;
       }
     }
@@ -62,7 +105,7 @@ export const getOneShotDebutStartMs = (series: any, seriesList?: any[]): number 
   return null;
 };
 
-// Checks if a Completed Run / One-Shot is currently inside its 48-hour (2-Day) "One-Shot Wednesday Debut" free window
+// Checks if a Completed Run / One-Shot is currently inside its free Debut window
 export const isInOneShotDebutWindow = (series: any, seriesList?: any[]): boolean => {
   return getOneShotDebutStartMs(series, seriesList) !== null;
 };
@@ -71,7 +114,7 @@ export const isInOneShotDebutWindow = (series: any, seriesList?: any[]): boolean
 export const getOneShotRemainingMs = (series?: any, seriesList?: any[]): number => {
   const debutStartMs = series ? getOneShotDebutStartMs(series, seriesList) : null;
   if (debutStartMs !== null) {
-    const debutEndMs = debutStartMs + ONESHOT_DEBUT_WINDOW_MS;
+    const debutEndMs = getOneShotDebutEndMs(debutStartMs);
     return Math.max(0, debutEndMs - Date.now());
   }
 
@@ -88,18 +131,24 @@ export const getOneShotRemainingMs = (series?: any, seriesList?: any[]): number 
   }
 };
 
-// Returns live countdown string ("47h 12m 05s") for either an active 48h Debut Window OR Wednesday 11:59:59 PM EST
+// Returns live countdown string ("4d 14h 05m" or "47h 12m 05s") for an active Debut Window OR Wednesday 11:59:59 PM EST
 export const getOneShotFreeCountdown = (series?: any, seriesList?: any[]): string => {
   const debutStartMs = series ? getOneShotDebutStartMs(series, seriesList) : null;
   if (debutStartMs !== null) {
-    const debutEndMs = debutStartMs + ONESHOT_DEBUT_WINDOW_MS;
+    const debutEndMs = getOneShotDebutEndMs(debutStartMs);
     const diffMs = Math.max(0, debutEndMs - Date.now());
 
-    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
 
-    const h = String(hours).padStart(2, '0');
+    if (totalHours >= 48) {
+      const days = Math.floor(totalHours / 24);
+      const remHours = totalHours % 24;
+      return `${days}d ${remHours}h ${String(minutes).padStart(2, '0')}m`;
+    }
+
+    const h = String(totalHours).padStart(2, '0');
     const m = String(minutes).padStart(2, '0');
     const s = String(seconds).padStart(2, '0');
     return `${h}h ${m}m ${s}s`;
@@ -166,11 +215,11 @@ export const getOneShotWednesdaySeries = (seriesList: any[]): any | null => {
   return completedRuns[activeIndex];
 };
 
-// Returns true if the series is unlocked for free today (either via 48h One-Shot Debut OR Wednesday OSW rotation)
+// Returns true if the series is unlocked for free today (either via Debut window OR Wednesday OSW rotation)
 export const isActiveOneShotWednesday = (series: any, seriesList: any[]): boolean => {
   if (!series || !isCompletedRunSeries(series, seriesList)) return false;
 
-  // 1. Check if the series is inside its 48-hour "One-Shot Wednesday Debut" window (any day of the week)
+  // 1. Check if the series is inside its free Debut window (48h standard, or Thu -> Mon night holiday run)
   if (isInOneShotDebutWindow(series, seriesList)) {
     return true;
   }
@@ -199,7 +248,7 @@ export const getActiveOneShotWednesdayUnlockedStories = (seriesList: any[]): any
         ...s,
         isOswSpotlightCard: true,
         oswTimerText: countdown,
-        oswBadgeLabel: isDebut ? `⚡ 48H FREE • ${countdown}` : `⚡ FREE OSW • ${countdown}`
+        oswBadgeLabel: isDebut ? `⚡ FREE DEBUT • ${countdown}` : `⚡ FREE OSW • ${countdown}`
       };
     });
 };

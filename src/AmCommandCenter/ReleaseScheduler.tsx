@@ -10,15 +10,25 @@ import {
   Eye,
   Bell,
   Trash2,
-  Star,
   Pause,
   Play,
-  Sliders,
-  AlertTriangle,
-  ArrowRightLeft
+  Calendar,
+  BookOpen,
+  Lock,
+  Search,
+  Wrench,
+  Clock,
+  ArrowRightLeft,
+  Package
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+import {
+  getOneShotWednesdaySeries,
+  isInOneShotDebutWindow,
+  getOneShotFreeCountdown,
+  getScheduledOneShotDebutFutureMs
+} from '../oneshotWednesday';
 
 // Generates an ISO timestamp corresponding to 9:00 AM Eastern Time (America/New_York) for a given YYYY-MM-DD
 export const toNineAmEstIso = (dateStr: string, timeStr: string = '09:00'): string => {
@@ -32,7 +42,7 @@ export const toNineAmEstIso = (dateStr: string, timeStr: string = '09:00'): stri
   return new Date(year, month - 1, day, hour, minute, 0).toISOString();
 };
 
-// Formats a Date or ISO timestamp into YYYY-MM-DD in Eastern Time so UTC offsets never shift the day!
+// Formats a Date or ISO timestamp into YYYY-MM-DD in Eastern Time so UTC offsets never shift the day
 export const formatDateInput = (d: Date): string => {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -82,6 +92,14 @@ const formatTimeInput = (iso?: string | null): string => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
+const toLocalDateTimeValue = (ms: number): string => {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+};
+
 export type TrackDayType = 'MONDAY' | 'WEDNESDAY' | 'SATURDAY';
 
 export type CadencePattern =
@@ -104,36 +122,26 @@ export interface TrackAssignment {
   paused: boolean;
 }
 
-export interface WildcardDrop {
-  id: string;
-  title: string;
-  dateStr: string;
-  timeStr: string;
-  seriesSlug: string;
-  chapterIds: string[];
-}
-
-// Default track map used ONLY when a series has no existing track assignment and no scheduled chapters yet.
-// It NEVER overrides an admin's manual track changes or reschedule!
+// Fallback defaults used ONLY when a brand-new series has zero scheduled chapters yet.
 export const CANONICAL_SERIES_TRACK_DEFAULTS: Record<
   string,
   { dayType: TrackDayType; cadence: CadencePattern; chaptersPerDrop?: number }
 > = {
-  'underground': { dayType: 'WEDNESDAY', cadence: 'weekly', chaptersPerDrop: 1 },
+  underground: { dayType: 'WEDNESDAY', cadence: 'weekly', chaptersPerDrop: 1 },
   'fan-x-boy': { dayType: 'WEDNESDAY', cadence: 'first_3_then_monthly', chaptersPerDrop: 1 },
-  'spoon': { dayType: 'WEDNESDAY', cadence: 'weekly', chaptersPerDrop: 3 },
-  'hammer': { dayType: 'MONDAY', cadence: 'weekly', chaptersPerDrop: 1 },
-  'redskin': { dayType: 'MONDAY', cadence: 'weekly', chaptersPerDrop: 1 },
-  'zephyr': { dayType: 'MONDAY', cadence: 'weekly', chaptersPerDrop: 1 },
+  spoon: { dayType: 'WEDNESDAY', cadence: 'weekly', chaptersPerDrop: 3 },
+  hammer: { dayType: 'MONDAY', cadence: 'weekly', chaptersPerDrop: 1 },
+  redskin: { dayType: 'MONDAY', cadence: 'weekly', chaptersPerDrop: 1 },
+  zephyr: { dayType: 'MONDAY', cadence: 'weekly', chaptersPerDrop: 1 },
   'titan-king': { dayType: 'MONDAY', cadence: 'weekly', chaptersPerDrop: 1 },
-  'orisha': { dayType: 'MONDAY', cadence: 'weekly', chaptersPerDrop: 1 },
+  orisha: { dayType: 'MONDAY', cadence: 'weekly', chaptersPerDrop: 1 },
   'apple-black': { dayType: 'SATURDAY', cadence: 'odd_weeks', chaptersPerDrop: 1 },
   'clock-striker': { dayType: 'SATURDAY', cadence: 'launch_then_even', chaptersPerDrop: 1 },
   'saturday-playdate': { dayType: 'SATURDAY', cadence: 'weekly', chaptersPerDrop: 1 },
   'bully-eater': { dayType: 'SATURDAY', cadence: 'weekly', chaptersPerDrop: 1 },
   'gun-bone': { dayType: 'SATURDAY', cadence: 'weekly', chaptersPerDrop: 1 },
   'oblivion-rouge': { dayType: 'SATURDAY', cadence: 'weekly', chaptersPerDrop: 1 },
-  'mmwog': { dayType: 'SATURDAY', cadence: 'weekly', chaptersPerDrop: 1 },
+  mmwog: { dayType: 'SATURDAY', cadence: 'weekly', chaptersPerDrop: 1 },
   'yellow-stringer': { dayType: 'SATURDAY', cadence: 'weekly', chaptersPerDrop: 1 },
   'soul-beat': { dayType: 'SATURDAY', cadence: 'weekly', chaptersPerDrop: 1 }
 };
@@ -213,16 +221,18 @@ export const getMatchingDropDatesForTrack = (
 };
 
 export const STORAGE_TRACKS_KEY = 'am_automation_tracks_v5';
-const STORAGE_WILDCARDS_KEY = 'am_automation_wildcards_v3';
 
 export const ReleaseScheduler = ({ setIsDirty }: any) => {
   const { seriesList = [] } = useSeriesData();
-  const [mode, setMode] = useState<'tracks' | 'custom'>('tracks');
+  const [activeSubTab, setActiveSubTab] = useState<'tracks' | 'series_status' | 'chapters'>('tracks');
   const [allChapters, setAllChapters] = useState<any[]>([]);
+  const [homeSectionsList, setHomeSectionsList] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [autoQueueNotifs, setAutoQueueNotifs] = useState(true);
+  const [statusBanner, setStatusBanner] = useState<string | null>(null);
 
+  // Tab 1: Weekly Tracks state
   const [trackAssignments, setTrackAssignments] = useState<TrackAssignment[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_TRACKS_KEY);
@@ -233,27 +243,26 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     return [];
   });
 
-  const [wildcards, setWildcards] = useState<WildcardDrop[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_WILDCARDS_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // ignore
-    }
-    return [];
-  });
+  // Tab 2: Series Visibility, Vault & One-Shots state
+  const [seriesSearch, setSeriesSearch] = useState('');
+  const [seriesFilter, setSeriesFilter] = useState<'all' | 'published' | 'hidden' | 'vault'>('all');
+  const [debutScheduleDrafts, setDebutScheduleDrafts] = useState<Record<string, string>>({});
 
-  const [showWildcardModal, setShowWildcardModal] = useState(false);
-  const [wcTitle, setWcTitle] = useState('');
-  const [wcDate, setWcDate] = useState(() => formatDateInput(new Date()));
-  const [wcTime] = useState('09:00');
-  const [wcSeriesSlug, setWcSeriesSlug] = useState('');
-  const [wcChapterCount, setWcChapterCount] = useState(6);
-
+  // Tab 3: Individual Chapters & Multi-Chapter Event Drop state
   const [selectedSeriesSlug, setSelectedSeriesSlug] = useState<string>('');
   const [oneOffEdits, setOneOffEdits] = useState<
     Record<string, { date: string; time: string; isPublished: boolean }>
   >({});
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchTitle, setBatchTitle] = useState('');
+  const [batchSeriesSlug, setBatchSeriesSlug] = useState('');
+  const [batchDate, setBatchDate] = useState(() => formatDateInput(new Date()));
+  const [batchCount, setBatchCount] = useState(3);
+
+  const showNotice = (msg: string) => {
+    setStatusBanner(msg);
+    setTimeout(() => setStatusBanner(null), 5000);
+  };
 
   useEffect(() => {
     try {
@@ -264,12 +273,16 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
   }, [trackAssignments]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_WILDCARDS_KEY, JSON.stringify(wildcards));
-    } catch {
-      // ignore
-    }
-  }, [wildcards]);
+    supabase
+      .from('home_sections')
+      .select('title, display_order')
+      .order('display_order', { ascending: true })
+      .then(({ data }) => {
+        if (data) {
+          setHomeSectionsList(data.map((r: any) => r.title).filter(Boolean));
+        }
+      });
+  }, []);
 
   const isChapterUnreleased = useCallback((ch: any) => {
     if (!ch.is_published) return true;
@@ -277,6 +290,13 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     return false;
   }, []);
 
+  const isChapterCurrentlyLive = useCallback((ch: any) => {
+    if (!ch.is_published) return false;
+    if (!ch.publish_at) return true;
+    return new Date(ch.publish_at).getTime() <= Date.now();
+  }, []);
+
+  // Updates ONLY the single target series' unreleased chapters when explicitly requested
   const syncSingleTrackToDatabase = useCallback(
     async (track: TrackAssignment, chaptersForSeries: any[]) => {
       if (track.paused) return 0;
@@ -320,7 +340,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
           if (error) throw error;
           scheduledCount++;
 
-          if (autoQueueNotifs && matchedSeries) {
+          if (autoQueueNotifs && matchedSeries && !matchedSeries.is_hidden) {
             await supabase.from('app_notifications').upsert(
               [
                 {
@@ -344,18 +364,22 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     [autoQueueNotifs, isChapterUnreleased, seriesList]
   );
 
-  // Detects cadence automatically from the gap between the first 2 scheduled chapters in Supabase
   const detectCadenceFromDbChapters = (unreleasedChaps: any[], slug: string): CadencePattern => {
     const slugLower = slug.toLowerCase();
     const canonical = CANONICAL_SERIES_TRACK_DEFAULTS[slugLower];
 
-    if (unreleasedChaps.length >= 2 && unreleasedChaps[0].publish_at && unreleasedChaps[1].publish_at) {
+    if (
+      unreleasedChaps.length >= 2 &&
+      unreleasedChaps[0].publish_at &&
+      unreleasedChaps[1].publish_at
+    ) {
       const t1 = new Date(unreleasedChaps[0].publish_at).getTime();
       const t2 = new Date(unreleasedChaps[1].publish_at).getTime();
       const diffDays = Math.round((t2 - t1) / (1000 * 60 * 60 * 24));
       if (diffDays >= 13 && diffDays <= 15) {
-        if (slugLower.includes('clock-striker')) return 'launch_then_even';
-        return 'odd_weeks';
+        return canonical?.cadence === 'even_weeks' || canonical?.cadence === 'launch_then_even'
+          ? canonical.cadence
+          : 'odd_weeks';
       }
       if (diffDays >= 26) {
         return 'monthly_w1';
@@ -373,7 +397,9 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     try {
       const { data, error } = await supabase
         .from('chapters')
-        .select('id, series_slug, chapter_number, title, thumbnail_url, is_published, publish_at, created_at')
+        .select(
+          'id, series_slug, chapter_number, title, thumbnail_url, is_published, publish_at, created_at'
+        )
         .order('series_slug', { ascending: true })
         .order('chapter_number', { ascending: true });
 
@@ -385,7 +411,8 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
         const unreleasedBySlug = new Map<string, any[]>();
 
         chaptersList.forEach((ch: any) => {
-          const isUnrel = !ch.is_published || (ch.publish_at && new Date(ch.publish_at).getTime() > now);
+          const isUnrel =
+            !ch.is_published || (ch.publish_at && new Date(ch.publish_at).getTime() > now);
           if (isUnrel && ch.series_slug) {
             const list = unreleasedBySlug.get(ch.series_slug) || [];
             list.push(ch);
@@ -393,12 +420,15 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
           }
         });
 
-        // Sync trackAssignments with actual Supabase chapter dates FIRST so the database is always the source of truth!
+        // Read-only sync from Supabase into local UI state (never overwrites DB dates!)
         setTrackAssignments(prev => {
           const bySlug = new Map<string, TrackAssignment>();
           prev.forEach(t => bySlug.set(t.seriesSlug, t));
 
           unreleasedBySlug.forEach((unrelChaps, slug) => {
+            const matchedSeries = seriesList.find((s: any) => s.slug === slug);
+            if (matchedSeries?.home_section === 'Completed Runs') return;
+
             const sorted = [...unrelChaps].sort(
               (a, b) => Number(a.chapter_number) - Number(b.chapter_number)
             );
@@ -416,7 +446,6 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
             const canonical = CANONICAL_SERIES_TRACK_DEFAULTS[slug.toLowerCase()];
 
             if (existing) {
-              // If the database already has a valid Mon/Wed/Sat timestamp, trust the DB's dayType so all browsers stay in sync!
               if (dbDayType && existing.dayType !== dbDayType) {
                 bySlug.set(slug, {
                   ...existing,
@@ -432,7 +461,7 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                 seriesSlug: slug,
                 dayType: resolvedDay,
                 cadence: resolvedCadence,
-                chaptersPerDrop: canonical?.chaptersPerDrop || (slug.toLowerCase().includes('spoon') ? 3 : 1),
+                chaptersPerDrop: canonical?.chaptersPerDrop || 1,
                 startWeekOffset: 1,
                 paused: false
               });
@@ -449,17 +478,14 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [seriesList]);
 
   useEffect(() => {
     fetchAllChapters();
-    const handleVaultUpdated = () => {
-      fetchAllChapters();
-    };
+    const handleVaultUpdated = () => fetchAllChapters();
     window.addEventListener('vaultUpdated', handleVaultUpdated);
     return () => window.removeEventListener('vaultUpdated', handleVaultUpdated);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchAllChapters]);
 
   const chaptersBySeries = useMemo(() => {
     const map: Record<string, any[]> = {};
@@ -470,280 +496,276 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     return map;
   }, [allChapters]);
 
-  const isTrackOutOfSyncWithDb = useCallback(
-    (track: TrackAssignment): boolean => {
-      if (track.paused) return false;
-      const chaps = (chaptersBySeries[track.seriesSlug] || [])
-        .filter(isChapterUnreleased)
-        .sort((a: any, b: any) => Number(a.chapter_number) - Number(b.chapter_number));
-      if (chaps.length === 0) return false;
-
-      const countPerDrop = Math.max(1, track.chaptersPerDrop || 1);
-      const requiredDrops = Math.ceil(chaps.length / countPerDrop);
-      const validDropDates = getMatchingDropDatesForTrack(
-        track.dayType,
-        track.cadence,
-        track.startWeekOffset || 1,
-        requiredDrops
-      );
-
-      let cursor = 0;
-      for (const dropDay of validDropDates) {
-        for (let c = 0; c < countPerDrop; c++) {
-          if (cursor >= chaps.length) break;
-          const ch = chaps[cursor++];
-          if (!ch.publish_at) return true;
-          const dbDateStr = formatDateInput(new Date(ch.publish_at));
-          if (dbDateStr !== dropDay.dateStr) return true;
-        }
-      }
-      return false;
-    },
-    [chaptersBySeries, isChapterUnreleased]
-  );
-
+  // ============================================================================
+  // TAB 1 HANDLERS: WEEKLY TRACKS (SAFE PER-SERIES UPDATES ONLY)
+  // ============================================================================
   const handleAddSeriesToTrack = async (dayType: TrackDayType, seriesSlug: string) => {
     if (!seriesSlug) return;
     if (trackAssignments.some(t => t.dayType === dayType && t.seriesSlug === seriesSlug)) {
-      return alert('This series is already assigned to this track.');
+      return alert('This series is already assigned to this release day.');
     }
 
     const canonical = CANONICAL_SERIES_TRACK_DEFAULTS[seriesSlug.toLowerCase()];
-    const defaultCadence: CadencePattern = canonical?.cadence || 'weekly';
-    const defaultChPerDrop = canonical?.chaptersPerDrop || (seriesSlug.toLowerCase().includes('spoon') ? 3 : 1);
-
     const newItem: TrackAssignment = {
       id: `${dayType}_${seriesSlug}_${Date.now()}`,
       seriesSlug,
       dayType,
-      cadence: defaultCadence,
-      chaptersPerDrop: defaultChPerDrop,
+      cadence: canonical?.cadence || 'weekly',
+      chaptersPerDrop: canonical?.chaptersPerDrop || 1,
       startWeekOffset: 1,
       paused: false
     };
 
-    const nextTracks = [
-      ...trackAssignments.filter(t => t.seriesSlug !== seriesSlug),
-      newItem
-    ];
+    const nextTracks = [...trackAssignments.filter(t => t.seriesSlug !== seriesSlug), newItem];
     setTrackAssignments(nextTracks);
 
     const seriesChaps = chaptersBySeries[seriesSlug] || [];
-    if (seriesChaps.some(isChapterUnreleased)) {
-      setSaving(true);
-      try {
-        await syncSingleTrackToDatabase(newItem, seriesChaps);
-        window.dispatchEvent(new Event('seriesUpdated'));
-        window.dispatchEvent(new Event('vaultUpdated'));
-        await fetchAllChapters();
-      } catch (err: any) {
-        console.error('Auto-schedule error on track assignment:', err.message);
-      } finally {
-        setSaving(false);
+    const unreleasedCount = seriesChaps.filter(isChapterUnreleased).length;
+    if (unreleasedCount > 0) {
+      if (
+        window.confirm(
+          `Schedule the ${unreleasedCount} queued chapter(s) of this series onto ${dayType}s starting Week 1?`
+        )
+      ) {
+        setSaving(true);
+        try {
+          await syncSingleTrackToDatabase(newItem, seriesChaps);
+          window.dispatchEvent(new Event('seriesUpdated'));
+          window.dispatchEvent(new Event('vaultUpdated'));
+          await fetchAllChapters();
+          showNotice(`Scheduled ${unreleasedCount} queued chapter(s) onto ${dayType}s.`);
+        } finally {
+          setSaving(false);
+        }
       }
-    } else if (setIsDirty) {
-      setIsDirty(true);
     }
   };
 
-  // Immediately updates Supabase when you change Track Day (Mon/Wed/Sat), Cadence, Ch/Drop, or Start Week!
   const handleUpdateTrackItem = async (id: string, patch: Partial<TrackAssignment>) => {
     const existing = trackAssignments.find(t => t.id === id);
     if (!existing) return;
     const updatedItem: TrackAssignment = { ...existing, ...patch };
-
     setTrackAssignments(prev => prev.map(item => (item.id === id ? updatedItem : item)));
 
+    // Only touch DB if user changed Day, Cadence, Ch/Drop, or Start Week on an unpaused series with queued chapters
+    const scheduleRuleChanged =
+      patch.dayType !== undefined ||
+      patch.cadence !== undefined ||
+      patch.chaptersPerDrop !== undefined ||
+      patch.startWeekOffset !== undefined;
+
     const seriesChaps = chaptersBySeries[updatedItem.seriesSlug] || [];
-    if (!updatedItem.paused && seriesChaps.some(isChapterUnreleased)) {
+    const matchedSeries = seriesList.find((s: any) => s.slug === updatedItem.seriesSlug);
+
+    if (scheduleRuleChanged && !updatedItem.paused && seriesChaps.some(isChapterUnreleased)) {
+      if (
+        !window.confirm(
+          `Update queued chapter dates for "${matchedSeries?.title || updatedItem.seriesSlug}" to match this new rule? (Other series will NOT be affected.)`
+        )
+      ) {
+        setTrackAssignments(prev => prev.map(item => (item.id === id ? existing : item)));
+        return;
+      }
+
       setSaving(true);
       try {
-        await syncSingleTrackToDatabase(updatedItem, seriesChaps);
+        const count = await syncSingleTrackToDatabase(updatedItem, seriesChaps);
         window.dispatchEvent(new Event('seriesUpdated'));
         window.dispatchEvent(new Event('vaultUpdated'));
         await fetchAllChapters();
+        showNotice(
+          `Updated ${count} queued chapter date(s) for ${matchedSeries?.title || updatedItem.seriesSlug}.`
+        );
       } catch (err: any) {
-        console.error('Error auto-syncing updated track:', err.message);
+        alert('Error updating series schedule: ' + err.message);
       } finally {
         setSaving(false);
       }
     }
   };
 
-  const handleRemoveTrackItem = async (item: TrackAssignment) => {
+  const handleRemoveTrackItem = (item: TrackAssignment) => {
     const matchedSeries = seriesList.find((s: any) => s.slug === item.seriesSlug);
     const title = matchedSeries?.title || item.seriesSlug;
-    if (!window.confirm(`Remove "${title}" from the ${item.dayType} track?`)) return;
-
+    if (
+      !window.confirm(
+        `Remove "${title}" from the ${item.dayType} board? (Existing chapter dates in the database will remain untouched.)`
+      )
+    )
+      return;
     setTrackAssignments(prev => prev.filter(t => t.id !== item.id));
   };
 
-  const handleApplyLaunchAlternatingPreset = async () => {
-    const abSeries = seriesList.find(
-      (s: any) =>
-        s.slug?.toLowerCase() === 'apple-black' ||
-        s.title?.toLowerCase() === 'apple black'
-    );
-    const csSeries = seriesList.find(
-      (s: any) =>
-        s.slug?.toLowerCase() === 'clock-striker' ||
-        s.title?.toLowerCase() === 'clock striker'
-    );
-
-    if (!abSeries && !csSeries) {
-      return alert('Could not find Apple Black or Clock Striker in series list.');
-    }
-
-    const abTrack: TrackAssignment | null = abSeries
-      ? {
-          id: `SATURDAY_${abSeries.slug}_ab`,
-          seriesSlug: abSeries.slug,
-          dayType: 'SATURDAY',
-          cadence: 'odd_weeks',
-          chaptersPerDrop: 1,
-          startWeekOffset: 1,
-          paused: false
-        }
-      : null;
-
-    const csTrack: TrackAssignment | null = csSeries
-      ? {
-          id: `SATURDAY_${csSeries.slug}_cs`,
-          seriesSlug: csSeries.slug,
-          dayType: 'SATURDAY',
-          cadence: 'even_weeks',
-          chaptersPerDrop: 1,
-          startWeekOffset: 2,
-          paused: false
-        }
-      : null;
-
-    setTrackAssignments(prev => {
-      const filtered = prev.filter(
-        t => t.seriesSlug !== abSeries?.slug && t.seriesSlug !== csSeries?.slug
-      );
-      const next = [...filtered];
-      if (abTrack) next.push(abTrack);
-      if (csTrack) next.push(csTrack);
-      return next;
-    });
-
+  // ============================================================================
+  // TAB 2 HANDLERS: SERIES VISIBILITY, VAULT (COMPLETED RUNS) & ONE-SHOT DEBUTS
+  // ============================================================================
+  const handleToggleSeriesPublishStatus = async (seriesObj: any) => {
+    const nextHidden = !seriesObj.is_hidden;
     setSaving(true);
     try {
-      if (abTrack) {
-        await syncSingleTrackToDatabase(abTrack, chaptersBySeries[abTrack.seriesSlug] || []);
-      }
-      if (csTrack) {
-        await syncSingleTrackToDatabase(csTrack, chaptersBySeries[csTrack.seriesSlug] || []);
-      }
-      window.dispatchEvent(new Event('seriesUpdated'));
-      window.dispatchEvent(new Event('vaultUpdated'));
-      await fetchAllChapters();
-    } finally {
-      setSaving(false);
-    }
-  };
+      const { error } = await supabase
+        .from('series')
+        .update({ is_hidden: nextHidden })
+        .eq('slug', seriesObj.slug);
+      if (error) throw error;
 
-  const handleSyncAllTracksToDatabase = async () => {
-    const activeTracks = trackAssignments.filter(t => !t.paused);
-    if (activeTracks.length === 0 && wildcards.length === 0) {
-      return alert('Assign at least one active series to Monday, Wednesday, or Saturday before syncing.');
-    }
-
-    setSaving(true);
-    try {
-      let totalScheduledChapters = 0;
-
-      for (const track of activeTracks) {
-        const seriesChaps = chaptersBySeries[track.seriesSlug] || [];
-        const count = await syncSingleTrackToDatabase(track, seriesChaps);
-        totalScheduledChapters += count;
-      }
-
-      for (const wc of wildcards) {
-        const publishIso = toNineAmEstIso(wc.dateStr, wc.timeStr || '09:00');
-        const matchedSeries = seriesList.find((s: any) => s.slug === wc.seriesSlug);
-
-        for (const chapId of wc.chapterIds) {
-          const targetChap = allChapters.find((c: any) => String(c.id) === String(chapId));
-          if (!targetChap) continue;
-
-          const { error } = await supabase
-            .from('chapters')
-            .update({
-              is_published: true,
-              publish_at: publishIso
-            })
-            .eq('id', chapId);
-
-          if (error) throw error;
-          totalScheduledChapters++;
-
-          if (autoQueueNotifs && matchedSeries) {
-            await supabase.from('app_notifications').upsert(
-              [
-                {
-                  title: wc.title || 'Special Binge Drop!',
-                  message: `${matchedSeries.title} Chapter ${targetChap.chapter_number} is now live!`,
-                  thumbnail_url: targetChap.thumbnail_url || matchedSeries.cover_url || null,
-                  link_target: matchedSeries.slug,
-                  publish_at: publishIso,
-                  created_at: publishIso,
-                  source_key: `chapter_${targetChap.id}`
-                }
-              ],
-              { onConflict: 'source_key' }
-            );
-          }
-        }
+      if (nextHidden) {
+        await supabase
+          .from('app_notifications')
+          .delete()
+          .eq('source_key', `series_${seriesObj.slug}`);
       }
 
       window.dispatchEvent(new Event('seriesUpdated'));
-      window.dispatchEvent(new Event('vaultUpdated'));
-      if (setIsDirty) setIsDirty(false);
-      await fetchAllChapters();
-      alert(
-        `SUCCESS! Synced and scheduled ${totalScheduledChapters} upcoming chapter drop(s) across your active release tracks!`
+      showNotice(
+        nextHidden
+          ? `Unpublished "${seriesObj.title}" (Hidden from readers).`
+          : `Published "${seriesObj.title}" (Visible to readers).`
       );
     } catch (err: any) {
-      alert('Error syncing schedule to database: ' + err.message);
+      alert('Failed to update series visibility: ' + err.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleCreateWildcard = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!wcSeriesSlug || !wcDate) return alert('Select a series and date for the Wildcard drop.');
+  const handleAssignSeriesHomeSection = async (seriesObj: any, nextSection: string) => {
+    setSaving(true);
+    try {
+      const patch: Record<string, any> = {
+        home_section: nextSection || null
+      };
+      // If moving directly into Completed Runs without an active debut, set publish_at > 3 days ago so it enters normal Vault/OSW rotation cleanly
+      if (nextSection === 'Completed Runs' && !isInOneShotDebutWindow(seriesObj, seriesList)) {
+        const futureMs = getScheduledOneShotDebutFutureMs(seriesObj, seriesList);
+        if (!futureMs) {
+          patch.publish_at = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+        }
+      }
 
-    const unreleased = (chaptersBySeries[wcSeriesSlug] || [])
-      .filter(isChapterUnreleased)
-      .sort((a: any, b: any) => Number(a.chapter_number) - Number(b.chapter_number));
+      const { error } = await supabase.from('series').update(patch).eq('slug', seriesObj.slug);
+      if (error) throw error;
 
-    if (unreleased.length === 0) {
-      return alert('That series has 0 queued chapters available.');
+      // Also remove from weekly ongoing tracks if moved to Completed Runs
+      if (nextSection === 'Completed Runs') {
+        setTrackAssignments(prev => prev.filter(t => t.seriesSlug !== seriesObj.slug));
+      }
+
+      window.dispatchEvent(new Event('seriesUpdated'));
+      showNotice(
+        nextSection === 'Completed Runs'
+          ? `Moved "${seriesObj.title}" into Completed Runs (PLUS Vault & One-Shot Wednesday Rotation).`
+          : `Assigned "${seriesObj.title}" to homepage shelf: ${nextSection || 'Unassigned'}.`
+      );
+    } catch (err: any) {
+      alert('Failed to update homepage shelf: ' + err.message);
+    } finally {
+      setSaving(false);
     }
-
-    const pickedIds = unreleased.slice(0, Math.max(1, wcChapterCount)).map((c: any) => String(c.id));
-
-    const newWc: WildcardDrop = {
-      id: `wc_${Date.now()}`,
-      title: wcTitle.trim() || 'Special Event / Binge Drop',
-      dateStr: wcDate,
-      timeStr: wcTime || '09:00',
-      seriesSlug: wcSeriesSlug,
-      chapterIds: pickedIds
-    };
-
-    setWildcards(prev => [...prev, newWc]);
-    setWcTitle('');
-    setShowWildcardModal(false);
-    if (setIsDirty) setIsDirty(true);
   };
 
+  const handleScheduleFreeDebutRun = async (seriesObj: any, customStartLocal?: string) => {
+    setSaving(true);
+    try {
+      let publishIso = new Date().toISOString();
+      if (customStartLocal) {
+        const parsed = new Date(customStartLocal);
+        if (!isNaN(parsed.getTime())) {
+          publishIso = parsed.toISOString();
+        }
+      }
+
+      // 1. Set series to Published, Completed Runs, and set publish_at to the debut start timestamp
+      const { error: sErr } = await supabase
+        .from('series')
+        .update({
+          home_section: 'Completed Runs',
+          is_hidden: false,
+          publish_at: publishIso
+        })
+        .eq('slug', seriesObj.slug);
+      if (sErr) throw sErr;
+
+      // 2. Sync chapters of this One-Shot to publish at the exact same debut timestamp
+      await supabase
+        .from('chapters')
+        .update({
+          is_published: true,
+          publish_at: publishIso
+        })
+        .eq('series_slug', seriesObj.slug);
+
+      // 3. Remove from ongoing weekly tracks if it was sitting there
+      setTrackAssignments(prev => prev.filter(t => t.seriesSlug !== seriesObj.slug));
+
+      // 4. Queue automated launch notification at debut start time
+      if (autoQueueNotifs) {
+        await supabase.from('app_notifications').upsert(
+          [
+            {
+              title: '⚡ Special One-Shot Debut (Free Unlock)!',
+              message: `Read "${seriesObj.title}" FREE for a limited time before it enters the Saturday AM+ Vault!`,
+              thumbnail_url: seriesObj.cover_url || seriesObj.character_url || null,
+              link_target: seriesObj.slug,
+              publish_at: publishIso,
+              created_at: publishIso,
+              source_key: `series_${seriesObj.slug}`
+            }
+          ],
+          { onConflict: 'source_key' }
+        );
+      }
+
+      window.dispatchEvent(new Event('seriesUpdated'));
+      window.dispatchEvent(new Event('vaultUpdated'));
+      await fetchAllChapters();
+
+      const isFuture = new Date(publishIso).getTime() > Date.now() + 60000;
+      showNotice(
+        isFuture
+          ? `Scheduled "${seriesObj.title}" Free Debut for ${new Date(
+              publishIso
+            ).toLocaleString()}! It will automatically move into the PLUS Vault & One-Shot Wednesday rotation afterwards.`
+          : `"${seriesObj.title}" is now LIVE & FREE, and will automatically enter the PLUS Vault & One-Shot Wednesday rotation when its debut timer ends!`
+      );
+    } catch (err: any) {
+      alert('Failed to schedule debut: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEndDebutAndMoveToVaultNow = async (seriesObj: any) => {
+    setSaving(true);
+    try {
+      const pastIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { error } = await supabase
+        .from('series')
+        .update({
+          home_section: 'Completed Runs',
+          publish_at: pastIso
+        })
+        .eq('slug', seriesObj.slug);
+      if (error) throw error;
+      window.dispatchEvent(new Event('seriesUpdated'));
+      showNotice(
+        `Ended free debut window for "${seriesObj.title}" — now locked in PLUS Vault & One-Shot Wednesday rotation.`
+      );
+    } catch (err: any) {
+      alert('Error ending debut window: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ============================================================================
+  // TAB 3 HANDLERS: INDIVIDUAL CHAPTER PUBLISHING, DATES & MULTI-CHAPTER PACKS
+  // ============================================================================
   const currentSeriesChapters = useMemo(() => {
     if (!selectedSeriesSlug) return [];
-    return chaptersBySeries[selectedSeriesSlug] || [];
+    return [...(chaptersBySeries[selectedSeriesSlug] || [])].sort(
+      (a: any, b: any) => Number(a.chapter_number) - Number(b.chapter_number)
+    );
   }, [selectedSeriesSlug, chaptersBySeries]);
 
   useEffect(() => {
@@ -763,6 +785,28 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
     setOneOffEdits(initialEdits);
   }, [selectedSeriesSlug, chaptersBySeries]);
 
+  const handleToggleSingleChapterVisibility = async (ch: any) => {
+    setSaving(true);
+    try {
+      const nextPub = !ch.is_published;
+      const { error } = await supabase
+        .from('chapters')
+        .update({ is_published: nextPub })
+        .eq('id', ch.id);
+      if (error) throw error;
+      if (!nextPub) {
+        await supabase.from('app_notifications').delete().eq('source_key', `chapter_${ch.id}`);
+      }
+      window.dispatchEvent(new Event('seriesUpdated'));
+      window.dispatchEvent(new Event('vaultUpdated'));
+      await fetchAllChapters();
+    } catch (err: any) {
+      alert('Failed to update chapter visibility: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleInstantPushChapterLive = async (ch: any) => {
     setSaving(true);
     try {
@@ -770,13 +814,14 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
         .from('chapters')
         .update({
           is_published: true,
-          publish_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+          publish_at: new Date().toISOString()
         })
         .eq('id', ch.id);
       if (error) throw error;
       window.dispatchEvent(new Event('seriesUpdated'));
       window.dispatchEvent(new Event('vaultUpdated'));
       await fetchAllChapters();
+      showNotice(`Chapter ${ch.chapter_number} is now LIVE!`);
     } catch (err: any) {
       alert('Failed to push chapter live: ' + err.message);
     } finally {
@@ -808,7 +853,8 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
           edit.isPublished &&
           publishIso &&
           new Date(publishIso).getTime() > Date.now() &&
-          matchedSeries
+          matchedSeries &&
+          !matchedSeries.is_hidden
         ) {
           await supabase.from('app_notifications').upsert(
             [
@@ -828,753 +874,1144 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
       }
       window.dispatchEvent(new Event('seriesUpdated'));
       window.dispatchEvent(new Event('vaultUpdated'));
+      if (setIsDirty) setIsDirty(false);
       await fetchAllChapters();
-      alert(`Saved custom chapter release dates for ${matchedSeries?.title || selectedSeriesSlug}!`);
+      showNotice(`Saved chapter dates for ${matchedSeries?.title || selectedSeriesSlug}.`);
     } catch (err: any) {
-      alert('Error saving custom chapter dates: ' + err.message);
+      alert('Error saving chapter dates: ' + err.message);
     } finally {
       setSaving(false);
     }
   };
 
+  const handleRepairSeriesCutoff = async () => {
+    if (!selectedSeriesSlug || currentSeriesChapters.length === 0) return;
+    const matchedSeries = seriesList.find((s: any) => s.slug === selectedSeriesSlug);
+    const input = window.prompt(
+      `Set Live vs. Scheduled Cutoff for ${matchedSeries?.title || selectedSeriesSlug}:\n\nEnter the HIGHEST Chapter Number that should be LIVE right now:`,
+      '1'
+    );
+    if (!input) return;
+    const cutoffNum = Number(input.trim());
+    if (isNaN(cutoffNum) || cutoffNum < 0) return alert('Invalid chapter number.');
+
+    setSaving(true);
+    try {
+      const toMakeLive = currentSeriesChapters.filter(
+        (c: any) => Number(c.chapter_number) <= cutoffNum
+      );
+      const toSchedule = currentSeriesChapters.filter(
+        (c: any) => Number(c.chapter_number) > cutoffNum
+      );
+
+      for (const ch of toMakeLive) {
+        const isNewest = Number(ch.chapter_number) === cutoffNum;
+        const ts = isNewest
+          ? new Date(Date.now() - 60 * 60 * 1000).toISOString()
+          : new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+        const { error } = await supabase
+          .from('chapters')
+          .update({ is_published: true, publish_at: ts })
+          .eq('id', ch.id);
+        if (error) throw error;
+      }
+
+      if (toSchedule.length > 0) {
+        const assignedTrack = trackAssignments.find(t => t.seriesSlug === selectedSeriesSlug);
+        const dayType = assignedTrack?.dayType || 'SATURDAY';
+        const cadence = assignedTrack?.cadence || 'weekly';
+        const countPerDrop = Math.max(1, assignedTrack?.chaptersPerDrop || 1);
+        const validDates = getMatchingDropDatesForTrack(
+          dayType,
+          cadence,
+          1,
+          Math.ceil(toSchedule.length / countPerDrop) + 2
+        );
+
+        let cursor = 0;
+        for (const dropDay of validDates) {
+          if (cursor >= toSchedule.length) break;
+          const publishIso = toNineAmEstIso(dropDay.dateStr, '09:00');
+          for (let i = 0; i < countPerDrop; i++) {
+            if (cursor >= toSchedule.length) break;
+            const ch = toSchedule[cursor++];
+            const { error } = await supabase
+              .from('chapters')
+              .update({ is_published: true, publish_at: publishIso })
+              .eq('id', ch.id);
+            if (error) throw error;
+          }
+        }
+      }
+
+      window.dispatchEvent(new Event('vaultUpdated'));
+      window.dispatchEvent(new Event('seriesUpdated'));
+      await fetchAllChapters();
+      showNotice(
+        `Updated ${matchedSeries?.title}: Ch. 1–${cutoffNum} Live, Ch. ${cutoffNum + 1}+ Scheduled.`
+      );
+    } catch (err: any) {
+      alert('Error repairing cutoff: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleScheduleMultiChapterEventDrop = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!batchSeriesSlug || !batchDate) return alert('Please select a series and release date.');
+
+    const unreleased = (chaptersBySeries[batchSeriesSlug] || [])
+      .filter(isChapterUnreleased)
+      .sort((a: any, b: any) => Number(a.chapter_number) - Number(b.chapter_number));
+
+    if (unreleased.length === 0) {
+      return alert('That series has no unreleased/queued chapters to schedule.');
+    }
+
+    const picked = unreleased.slice(0, Math.max(1, batchCount));
+    const publishIso = toNineAmEstIso(batchDate, '09:00');
+    const matchedSeries = seriesList.find((s: any) => s.slug === batchSeriesSlug);
+
+    setSaving(true);
+    try {
+      for (const ch of picked) {
+        const { error } = await supabase
+          .from('chapters')
+          .update({
+            is_published: true,
+            publish_at: publishIso
+          })
+          .eq('id', ch.id);
+        if (error) throw error;
+
+        if (autoQueueNotifs && matchedSeries && !matchedSeries.is_hidden) {
+          await supabase.from('app_notifications').upsert(
+            [
+              {
+                title: batchTitle.trim() || 'Multi-Chapter Release!',
+                message: `${matchedSeries.title} Chapter ${ch.chapter_number} is now live!`,
+                thumbnail_url: ch.thumbnail_url || matchedSeries.cover_url || null,
+                link_target: matchedSeries.slug,
+                publish_at: publishIso,
+                created_at: publishIso,
+                source_key: `chapter_${ch.id}`
+              }
+            ],
+            { onConflict: 'source_key' }
+          );
+        }
+      }
+
+      setShowBatchModal(false);
+      setBatchTitle('');
+      window.dispatchEvent(new Event('seriesUpdated'));
+      window.dispatchEvent(new Event('vaultUpdated'));
+      await fetchAllChapters();
+      showNotice(
+        `Scheduled ${picked.length} chapter(s) of ${
+          matchedSeries?.title || batchSeriesSlug
+        } for ${batchDate} at 9:00 AM EST!`
+      );
+    } catch (err: any) {
+      alert('Failed to schedule multi-chapter drop: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ============================================================================
+  // RENDER HELPERS
+  // ============================================================================
   const renderTrackColumn = (
     dayType: TrackDayType,
-    badgeLabel: string,
-    subLabel: string,
+    dayHeading: string,
     accentBorder: string,
     badgeBg: string
   ) => {
     const items = trackAssignments.filter(t => t.dayType === dayType);
-    const previewEightDates = getUpcomingDatesForDay(dayType, 8);
+    const previewDates = getUpcomingDatesForDay(dayType, 6);
 
     return (
       <div
-        className={`bg-zinc-950 border ${accentBorder} rounded-2xl p-4 sm:p-5 flex flex-col justify-between space-y-4 shadow-xl`}
+        className={`bg-zinc-950 border ${accentBorder} rounded-2xl p-4 sm:p-5 flex flex-col space-y-4 shadow-xl`}
       >
-        <div className="space-y-4">
-          <div className="flex items-start justify-between gap-2 border-b border-zinc-800/80 pb-3.5">
-            <div>
-              <span
-                className={`inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md mb-1.5 ${badgeBg}`}
-              >
-                {badgeLabel}
-              </span>
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider leading-relaxed">
-                {subLabel}
-              </p>
-            </div>
-            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 bg-zinc-900 border border-zinc-800 px-2.5 py-1 rounded-lg shrink-0">
-              {items.length} Series
+        <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+          <div>
+            <span
+              className={`inline-block text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md ${badgeBg}`}
+            >
+              {dayHeading}
             </span>
+            <p className="text-[10px] font-bold text-zinc-400 mt-1">
+              9:00 AM EST • PLUS Early Access 12h Prior
+            </p>
           </div>
+          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-300 bg-zinc-900 border border-zinc-800 px-2.5 py-1 rounded-lg">
+            {items.length} Series
+          </span>
+        </div>
 
-          {dayType === 'SATURDAY' && (
-            <button
-              type="button"
-              onClick={handleApplyLaunchAlternatingPreset}
-              className="w-full py-2 px-3 rounded-xl bg-[#fe9a00]/15 hover:bg-[#fe9a00]/25 border border-[#fe9a00]/50 text-[#fe9a00] text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-              title="Alternates Apple Black (Odd Weeks) and Clock Striker (Even Weeks) on opposite Saturdays!"
-            >
-              <Zap className="w-3.5 h-3.5 shrink-0" />
-              1-Click Preset: Alternate Apple Black & Clock Striker
-            </button>
-          )}
-
-          <div className="bg-zinc-900/60 border border-zinc-800/90 rounded-xl p-3">
-            <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">
-              + Assign or Move Series to {dayType}s
-            </label>
-            <select
-              value=""
-              onChange={e => {
-                handleAddSeriesToTrack(dayType, e.target.value);
-              }}
-              className="w-full bg-black border border-zinc-700 hover:border-[#fe9a00] rounded-lg px-3 py-2.5 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
-            >
-              <option value="">-- Choose Series to Automate --</option>
-              {seriesList.map((s: any) => {
+        <div>
+          <select
+            value=""
+            onChange={e => handleAddSeriesToTrack(dayType, e.target.value)}
+            className="w-full bg-black border border-zinc-700 hover:border-[#fe9a00] rounded-xl px-3 py-2.5 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
+          >
+            <option value="">+ Add Ongoing Series to {dayHeading}...</option>
+            {seriesList
+              .filter((s: any) => s.home_section !== 'Completed Runs')
+              .map((s: any) => {
                 const chaps = chaptersBySeries[s.slug] || [];
-                const scheduledCount = chaps.filter(isChapterUnreleased).length;
-                const liveCount = chaps.length - scheduledCount;
+                const queued = chaps.filter(isChapterUnreleased).length;
                 return (
                   <option key={s.slug} value={s.slug}>
-                    {s.title} ({scheduledCount} Scheduled • {liveCount} Live)
+                    {s.title} ({queued} Queued)
                   </option>
                 );
               })}
-            </select>
-          </div>
+          </select>
+        </div>
 
-          <div className="space-y-3">
-            {items.length === 0 ? (
-              <div className="border border-dashed border-zinc-800 rounded-xl py-10 px-4 text-center text-[10px] font-black uppercase tracking-widest text-zinc-600">
-                No series assigned to {dayType.toLowerCase()}s yet
-              </div>
-            ) : (
-              items.map(item => {
-                const matchedSeries = seriesList.find((s: any) => s.slug === item.seriesSlug);
-                const fullTitle = matchedSeries?.title || item.seriesSlug;
-                const chaps = chaptersBySeries[item.seriesSlug] || [];
-                const unreleasedChaps = chaps
-                  .filter(isChapterUnreleased)
-                  .sort((a: any, b: any) => Number(a.chapter_number) - Number(b.chapter_number));
-                const liveCount = chaps.length - unreleasedChaps.length;
+        <div className="space-y-3">
+          {items.length === 0 ? (
+            <div className="border border-dashed border-zinc-800 rounded-xl py-10 px-4 text-center text-[10px] font-bold uppercase tracking-widest text-zinc-600">
+              No series assigned to {dayHeading}
+            </div>
+          ) : (
+            items.map(item => {
+              const matchedSeries = seriesList.find((s: any) => s.slug === item.seriesSlug);
+              const fullTitle = matchedSeries?.title || item.seriesSlug;
+              const chaps = chaptersBySeries[item.seriesSlug] || [];
+              const unreleasedChaps = chaps
+                .filter(isChapterUnreleased)
+                .sort((a: any, b: any) => Number(a.chapter_number) - Number(b.chapter_number));
+              const liveCount = chaps.length - unreleasedChaps.length;
 
-                const countPerDrop = Math.max(1, item.chaptersPerDrop || 1);
-                const requiredDrops = Math.max(4, Math.ceil(unreleasedChaps.length / countPerDrop));
-                const upcomingDropDates = getMatchingDropDatesForTrack(
-                  dayType,
-                  item.cadence,
-                  item.startWeekOffset || 1,
-                  requiredDrops
-                ).slice(0, Math.max(4, Math.ceil(unreleasedChaps.length / countPerDrop)));
-
-                const outOfSync = isTrackOutOfSyncWithDb(item);
-
-                return (
-                  <div
-                    key={item.id}
-                    className={`rounded-xl border p-3.5 space-y-3 transition-all ${
-                      item.paused
-                        ? 'bg-zinc-950/60 border-zinc-800 opacity-65'
-                        : outOfSync
-                        ? 'bg-amber-950/20 border-amber-500/70 shadow-md'
-                        : unreleasedChaps.length > 0
-                        ? 'bg-zinc-900/90 border-[#fe9a00]/50 shadow-md'
-                        : 'bg-zinc-900/50 border-zinc-800'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <h4 className="text-sm font-black italic uppercase tracking-wide text-white leading-snug break-words">
+              return (
+                <div
+                  key={item.id}
+                  className={`rounded-xl border p-3.5 space-y-3 transition-all ${
+                    item.paused
+                      ? 'bg-zinc-950/60 border-zinc-800 opacity-65'
+                      : unreleasedChaps.length > 0
+                      ? 'bg-zinc-900/90 border-zinc-700 hover:border-[#fe9a00]/60'
+                      : 'bg-zinc-900/40 border-zinc-800/80'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-sm font-black italic uppercase text-white truncate">
                           {fullTitle}
                         </h4>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                          {item.paused ? (
-                            <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">
-                              PAUSED
-                            </span>
-                          ) : outOfSync ? (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                setSaving(true);
-                                try {
-                                  await syncSingleTrackToDatabase(item, chaps);
-                                  window.dispatchEvent(new Event('seriesUpdated'));
-                                  window.dispatchEvent(new Event('vaultUpdated'));
-                                  await fetchAllChapters();
-                                } finally {
-                                  setSaving(false);
-                                }
-                              }}
-                              className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-[#fe9a00] hover:bg-white text-black flex items-center gap-1 cursor-pointer"
-                            >
-                              <AlertTriangle className="w-2.5 h-2.5" /> Custom Stagger / Click to Re-Sync
-                            </button>
-                          ) : unreleasedChaps.length > 0 ? (
-                            <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                              ✓ DB SYNCED • {unreleasedChaps.length} IN QUEUE
-                            </span>
-                          ) : (
-                            <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                              ALL {liveCount} CH LIVE (0 IN QUEUE)
-                            </span>
-                          )}
-
-                          {unreleasedChaps.length > 0 && (
-                            <span className="text-[9px] font-bold text-[#fe9a00]">
-                              Ch. {unreleasedChaps[0].chapter_number}
-                              {unreleasedChaps.length > 1
-                                ? ` – Ch. ${unreleasedChaps[unreleasedChaps.length - 1].chapter_number}`
-                                : ''}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateTrackItem(item.id, { paused: !item.paused })}
-                          className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-1 border transition-colors cursor-pointer ${
-                            item.paused
-                              ? 'bg-emerald-950/50 border-emerald-600/50 text-emerald-300 hover:bg-emerald-600 hover:text-black'
-                              : 'bg-amber-950/40 border-amber-600/40 text-amber-300 hover:bg-amber-500 hover:text-black'
-                          }`}
-                          title={item.paused ? 'Resume Syndication' : 'Pause Syndication'}
-                        >
-                          {item.paused ? (
-                            <>
-                              <Play className="w-2.5 h-2.5 fill-current" /> Resume
-                            </>
-                          ) : (
-                            <>
-                              <Pause className="w-2.5 h-2.5" /> Pause
-                            </>
-                          )}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveTrackItem(item)}
-                          className="p-1.5 rounded-lg bg-red-950/50 hover:bg-red-600 text-red-400 hover:text-white border border-red-900/50 transition-colors cursor-pointer"
-                          title="Remove Series from Track"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* 1-CLICK RESCHEDULE CONTROLS: MOVE TRACK DAY, CADENCE & CH/DROP */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-zinc-800/80">
-                      <div>
-                        <label className="block text-[8px] font-black uppercase tracking-widest text-[#fe9a00] mb-1 flex items-center gap-1">
-                          <ArrowRightLeft className="w-2.5 h-2.5" /> Track Day
-                        </label>
-                        <select
-                          value={item.dayType}
-                          onChange={e =>
-                            handleUpdateTrackItem(item.id, {
-                              dayType: e.target.value as TrackDayType
-                            })
-                          }
-                          className="w-full bg-black border border-[#fe9a00]/50 rounded-lg px-2 py-1.5 text-[11px] text-[#fe9a00] font-black focus:outline-none focus:border-[#fe9a00] cursor-pointer"
-                          title="Move this series to Monday, Wednesday, or Saturday and immediately reschedule its queued chapters in Supabase!"
-                        >
-                          <option value="MONDAY">Mondays</option>
-                          <option value="WEDNESDAY">Wednesdays</option>
-                          <option value="SATURDAY">Saturdays</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[8px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                          Cadence Rule
-                        </label>
-                        <select
-                          value={item.cadence}
-                          onChange={e =>
-                            handleUpdateTrackItem(item.id, {
-                              cadence: e.target.value as CadencePattern
-                            })
-                          }
-                          className="w-full bg-black border border-zinc-700 rounded-lg px-2 py-1.5 text-[11px] text-white font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
-                        >
-                          <option value="weekly">Every Week (Weekly)</option>
-                          <option value="odd_weeks">Odd Weeks (Wk 1, 3, 5...)</option>
-                          <option value="even_weeks">Even Weeks (Wk 2, 4, 6...)</option>
-                          <option value="launch_then_even">Launch Wk 1 + Even Wks</option>
-                          <option value="first_3_then_monthly">3-Wk Burst → Monthly</option>
-                          <option value="monthly_w1">Monthly (Wk 1, 5, 9...)</option>
-                          <option value="monthly_w4">Monthly (Wk 4, 8, 12...)</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[8px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                          Ch / Drop
-                        </label>
-                        <select
-                          value={item.chaptersPerDrop}
-                          onChange={e =>
-                            handleUpdateTrackItem(item.id, {
-                              chaptersPerDrop: Number(e.target.value)
-                            })
-                          }
-                          className="w-full bg-black border border-zinc-700 rounded-lg px-2 py-1.5 text-[11px] text-white font-black focus:outline-none focus:border-[#fe9a00] cursor-pointer"
-                        >
-                          <option value={1}>1 Ch / Drop</option>
-                          <option value={2}>2 Ch / Drop</option>
-                          <option value={3}>3 Ch (Spoon)</option>
-                          <option value={6}>6 Ch Pack</option>
-                          <option value={10}>10 Ch Launch</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[9px]">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-black uppercase tracking-wider text-zinc-500">
-                          Start:
-                        </span>
-                        <select
-                          value={item.startWeekOffset || 1}
-                          onChange={e =>
-                            handleUpdateTrackItem(item.id, {
-                              startWeekOffset: Number(e.target.value)
-                            })
-                          }
-                          className="bg-black border border-zinc-800 rounded px-1.5 py-0.5 text-[9px] text-zinc-300 font-bold cursor-pointer"
-                        >
-                          <option value={1}>Week 1 ({previewEightDates[0]?.label})</option>
-                          <option value={2}>Week 2 ({previewEightDates[1]?.label})</option>
-                          <option value={3}>Week 3 ({previewEightDates[2]?.label})</option>
-                          <option value={4}>Week 4 ({previewEightDates[3]?.label})</option>
-                        </select>
-                      </div>
-
-                      {/* Displays ACTUAL Database Dates for Each Queued Chapter */}
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <span className="text-zinc-500 font-bold">DB Dates:</span>
-                        {unreleasedChaps.length > 0 ? (
-                          unreleasedChaps.slice(0, 6).map((ch: any) => {
-                            const dbLabel = ch.publish_at
-                              ? new Date(ch.publish_at).toLocaleDateString('en-US', {
-                                  timeZone: 'America/New_York',
-                                  month: 'short',
-                                  day: 'numeric'
-                                })
-                              : 'Unset';
-                            return (
-                              <span
-                                key={ch.id}
-                                className="px-1.5 py-0.5 rounded bg-black border border-zinc-800 text-zinc-200 font-mono text-[8px]"
-                                title={`Database publish_at: ${ch.publish_at || 'None'}`}
-                              >
-                                Ch.{ch.chapter_number}: {dbLabel}
-                              </span>
-                            );
-                          })
-                        ) : (
-                          upcomingDropDates.slice(0, 4).map(d => (
-                            <span
-                              key={d.dateStr}
-                              className="px-1.5 py-0.5 rounded bg-black border border-zinc-800 text-zinc-500 font-mono text-[8px]"
-                            >
-                              W{d.weekNum}: {d.label}
-                            </span>
-                          ))
-                        )}
-                        {unreleasedChaps.length > 6 && (
-                          <span className="text-[8px] text-zinc-500 font-bold">
-                            +{unreleasedChaps.length - 6} more
+                        {matchedSeries?.is_hidden && (
+                          <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-red-950 text-red-400 border border-red-800">
+                            Series Hidden
                           </span>
                         )}
                       </div>
+
+                      <p className="text-[10px] font-bold text-zinc-400 mt-0.5">
+                        <span className="text-emerald-400">{liveCount} Live</span>
+                        {' • '}
+                        <span className={unreleasedChaps.length > 0 ? 'text-[#fe9a00]' : 'text-zinc-500'}>
+                          {unreleasedChaps.length} Scheduled
+                        </span>
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateTrackItem(item.id, { paused: !item.paused })}
+                        className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border cursor-pointer flex items-center gap-1 ${
+                          item.paused
+                            ? 'bg-emerald-950/50 border-emerald-600/50 text-emerald-300'
+                            : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white'
+                        }`}
+                      >
+                        {item.paused ? (
+                          <>
+                            <Play className="w-2.5 h-2.5 fill-current" /> Resume
+                          </>
+                        ) : (
+                          <>
+                            <Pause className="w-2.5 h-2.5" /> Pause
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTrackItem(item)}
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 cursor-pointer"
+                        title="Remove from Track"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
-                );
-              })
-            )}
-          </div>
+
+                  {/* Next Upcoming Drop Dates Summary */}
+                  {unreleasedChaps.length > 0 && (
+                    <div className="bg-black/70 border border-zinc-800 rounded-lg p-2 flex flex-wrap gap-1.5">
+                      {unreleasedChaps.slice(0, 4).map((ch: any) => {
+                        const dateTxt = ch.publish_at
+                          ? new Date(ch.publish_at).toLocaleDateString('en-US', {
+                              timeZone: 'America/New_York',
+                              month: 'short',
+                              day: 'numeric'
+                            })
+                          : 'Unset';
+                        return (
+                          <span
+                            key={ch.id}
+                            className="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-200"
+                          >
+                            Ch.{ch.chapter_number}: <strong className="text-[#fe9a00]">{dateTxt}</strong>
+                          </span>
+                        );
+                      })}
+                      {unreleasedChaps.length > 4 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSeriesSlug(item.seriesSlug);
+                            setActiveSubTab('chapters');
+                          }}
+                          className="text-[9px] font-black text-[#fe9a00] hover:underline px-1 cursor-pointer"
+                        >
+                          +{unreleasedChaps.length - 4} more →
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Clean Generic Controls */}
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    <div>
+                      <label className="block text-[8px] font-black uppercase text-zinc-500 mb-1">
+                        <ArrowRightLeft className="w-2.5 h-2.5 inline mr-0.5" /> Day
+                      </label>
+                      <select
+                        value={item.dayType}
+                        onChange={e =>
+                          handleUpdateTrackItem(item.id, {
+                            dayType: e.target.value as TrackDayType
+                          })
+                        }
+                        className="w-full bg-black border border-zinc-700 rounded-lg px-2 py-1.5 text-[10px] text-white font-bold cursor-pointer"
+                      >
+                        <option value="MONDAY">Mondays</option>
+                        <option value="WEDNESDAY">Wednesdays</option>
+                        <option value="SATURDAY">Saturdays</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[8px] font-black uppercase text-zinc-500 mb-1">
+                        Frequency
+                      </label>
+                      <select
+                        value={item.cadence}
+                        onChange={e =>
+                          handleUpdateTrackItem(item.id, {
+                            cadence: e.target.value as CadencePattern
+                          })
+                        }
+                        className="w-full bg-black border border-zinc-700 rounded-lg px-2 py-1.5 text-[10px] text-white font-bold cursor-pointer"
+                      >
+                        <option value="weekly">Every Week</option>
+                        <option value="odd_weeks">Bi-Weekly (Odd Wks)</option>
+                        <option value="even_weeks">Bi-Weekly (Even Wks)</option>
+                        <option value="launch_then_even">Wk 1 + Even Wks</option>
+                        <option value="first_3_then_monthly">3 Weekly → Monthly</option>
+                        <option value="monthly_w1">Monthly (1st Wk)</option>
+                        <option value="monthly_w4">Monthly (4th Wk)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[8px] font-black uppercase text-zinc-500 mb-1">
+                        Per Drop
+                      </label>
+                      <select
+                        value={item.chaptersPerDrop}
+                        onChange={e =>
+                          handleUpdateTrackItem(item.id, {
+                            chaptersPerDrop: Number(e.target.value)
+                          })
+                        }
+                        className="w-full bg-black border border-zinc-700 rounded-lg px-2 py-1.5 text-[10px] text-[#fe9a00] font-black cursor-pointer"
+                      >
+                        <option value={1}>1 Ch / Drop</option>
+                        <option value={2}>2 Ch / Drop</option>
+                        <option value={3}>3 Ch / Drop</option>
+                        <option value={5}>5 Ch Pack</option>
+                        <option value={10}>10 Ch Pack</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 text-[9px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-zinc-500 uppercase">Next Start Slot:</span>
+                      <select
+                        value={item.startWeekOffset || 1}
+                        onChange={e =>
+                          handleUpdateTrackItem(item.id, {
+                            startWeekOffset: Number(e.target.value)
+                          })
+                        }
+                        className="bg-black border border-zinc-800 rounded px-2 py-0.5 text-zinc-300 font-bold cursor-pointer"
+                      >
+                        <option value={1}>Next {dayHeading.slice(0, -1)} ({previewDates[0]?.label})</option>
+                        <option value={2}>In 2 Weeks ({previewDates[1]?.label})</option>
+                        <option value={3}>In 3 Weeks ({previewDates[2]?.label})</option>
+                        <option value={4}>In 4 Weeks ({previewDates[3]?.label})</option>
+                      </select>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedSeriesSlug(item.seriesSlug);
+                        setActiveSubTab('chapters');
+                      }}
+                      className="text-[9px] font-black uppercase text-zinc-400 hover:text-[#fe9a00] cursor-pointer"
+                    >
+                      Edit Chapters →
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     );
   };
 
+  const filteredSeriesForStatusTab = useMemo(() => {
+    const q = seriesSearch.trim().toLowerCase();
+    return seriesList.filter((s: any) => {
+      if (seriesFilter === 'published' && s.is_hidden) return false;
+      if (seriesFilter === 'hidden' && !s.is_hidden) return false;
+      if (seriesFilter === 'vault' && s.home_section !== 'Completed Runs') return false;
+      if (!q) return true;
+      return (
+        String(s.title || '').toLowerCase().includes(q) ||
+        String(s.creator_name || '').toLowerCase().includes(q)
+      );
+    });
+  }, [seriesList, seriesSearch, seriesFilter]);
+
+  const currentWednesdayPick = getOneShotWednesdaySeries(seriesList);
+
   return (
-    <div id="release-scheduler-root" className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-lg max-w-7xl mx-auto animate-fade-in space-y-6">
-      <div className="bg-black border border-zinc-800 rounded-2xl p-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
-            Series Release Queue Status (Click any series pill to inspect or manually edit individual chapter dates)
-          </span>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#fe9a00]">
-              <input
-                type="checkbox"
-                checked={autoQueueNotifs}
-                onChange={e => setAutoQueueNotifs(e.target.checked)}
-                className="accent-[#fe9a00] w-3.5 h-3.5"
-              />
-              <Bell className="w-3 h-3" /> Auto-Queue Push Alerts
-            </label>
-
-            <div className="flex bg-zinc-900 p-1 rounded-lg border border-zinc-800">
-              <button
-                type="button"
-                onClick={() => setMode('tracks')}
-                className={`px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors ${
-                  mode === 'tracks' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                <Layers className="w-3 h-3 inline mr-1" /> Track Builder
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('custom')}
-                className={`px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest cursor-pointer transition-colors ${
-                  mode === 'custom' ? 'bg-[#fe9a00] text-black' : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                <Sliders className="w-3 h-3 inline mr-1" /> Manual Chapter Dates
-              </button>
-            </div>
-          </div>
+    <div
+      id="release-scheduler-root"
+      className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-lg max-w-7xl mx-auto animate-fade-in space-y-6"
+    >
+      {/* HEADER & 3 CLEAN SUB-TABS */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-800 pb-5">
+        <div>
+          <h2 className="text-xl font-black italic uppercase tracking-wider text-white flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-[#fe9a00]" /> Publishing &amp; Release Scheduler
+          </h2>
+          <p className="text-[11px] text-zinc-400 font-bold mt-1">
+            Manage weekly release days, series visibility, Completed Runs / One-Shot launches, and individual chapter dates in one place.
+          </p>
         </div>
 
-        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-1">
-          {seriesList.map((s: any) => {
-            const chaps = chaptersBySeries[s.slug] || [];
-            const unreleased = chaps.filter(isChapterUnreleased);
-            const liveCount = chaps.length - unreleased.length;
-            return (
-              <button
-                key={s.slug}
-                type="button"
-                onClick={() => {
-                  setSelectedSeriesSlug(s.slug);
-                  setMode('custom');
-                }}
-                className={`px-3 py-1.5 rounded-lg border text-[10px] font-black italic uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer ${
-                  unreleased.length > 0
-                    ? 'bg-zinc-900 border-[#fe9a00]/50 text-white hover:border-[#fe9a00]'
-                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
-                }`}
-              >
-                <span>{s.title}:</span>
-                <span className="text-emerald-400">{liveCount} LIVE</span>
-                <span className="text-zinc-600">•</span>
-                <span className={unreleased.length > 0 ? 'text-[#fe9a00]' : 'text-zinc-500'}>
-                  {unreleased.length} SCHEDULED
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 bg-black border border-zinc-800 px-3 py-2 rounded-xl cursor-pointer text-[10px] font-black uppercase tracking-widest text-[#fe9a00]">
+            <input
+              type="checkbox"
+              checked={autoQueueNotifs}
+              onChange={e => setAutoQueueNotifs(e.target.checked)}
+              className="accent-[#fe9a00] w-3.5 h-3.5"
+            />
+            <Bell className="w-3.5 h-3.5" /> Auto-Queue Push Alerts
+          </label>
 
-      {/* ACTION BAR */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-black border border-zinc-800 rounded-2xl p-4">
-        <button
-          type="button"
-          onClick={() => setShowWildcardModal(!showWildcardModal)}
-          className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(168,85,247,0.4)] transition-all cursor-pointer"
-        >
-          <Star className="w-3.5 h-3.5 fill-white" /> + Add Wildcard / Holiday Drop
-        </button>
-
-        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={fetchAllChapters}
-            className="px-3.5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="px-3.5 py-2 rounded-xl bg-black hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[#fe9a00]' : ''}`} />
-            Refresh Queue
+            Refresh
           </button>
-
-          {mode === 'tracks' && (
-            <button
-              type="button"
-              disabled={saving}
-              onClick={handleSyncAllTracksToDatabase}
-              className="px-5 py-2.5 rounded-xl bg-[#fe9a00] hover:bg-white text-black text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.35)] transition-all cursor-pointer disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 fill-black" />}
-              Apply & Sync Schedule to Database
-            </button>
-          )}
         </div>
       </div>
 
-      {/* WILDCARD / BINGE DROP CREATOR MODAL */}
-      {showWildcardModal && (
-        <form
-          onSubmit={handleCreateWildcard}
-          className="bg-purple-950/25 border-2 border-purple-500/60 rounded-2xl p-5 space-y-4 animate-fade-in"
+      {/* NAVIGATION PILLS */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-black p-2 rounded-2xl border border-zinc-800">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('tracks')}
+          className={`py-3 px-4 rounded-xl text-left transition-all cursor-pointer border ${
+            activeSubTab === 'tracks'
+              ? 'bg-[#fe9a00] text-black border-[#fe9a00] shadow-lg'
+              : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white'
+          }`}
         >
-          <div className="flex items-center justify-between border-b border-purple-500/30 pb-3">
-            <span className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
-              <Star className="w-4 h-4 text-[#fe9a00] fill-[#fe9a00]" />
-              Schedule Special Wildcard / Spoon Binge Pack (Does Not Disrupt Weekly Tracks)
+          <div className="text-xs font-black uppercase tracking-wider flex items-center gap-2">
+            <Layers className="w-4 h-4" /> 1. Weekly Release Tracks
+          </div>
+          <div
+            className={`text-[10px] font-bold mt-0.5 ${
+              activeSubTab === 'tracks' ? 'text-black/80' : 'text-zinc-500'
+            }`}
+          >
+            Ongoing Monday, Wednesday &amp; Saturday Lineup
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('series_status')}
+          className={`py-3 px-4 rounded-xl text-left transition-all cursor-pointer border ${
+            activeSubTab === 'series_status'
+              ? 'bg-[#fe9a00] text-black border-[#fe9a00] shadow-lg'
+              : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white'
+          }`}
+        >
+          <div className="text-xs font-black uppercase tracking-wider flex items-center gap-2">
+            <Sparkles className="w-4 h-4" /> 2. Series Visibility &amp; One-Shots
+          </div>
+          <div
+            className={`text-[10px] font-bold mt-0.5 ${
+              activeSubTab === 'series_status' ? 'text-black/80' : 'text-zinc-500'
+            }`}
+          >
+            Publish / Hide Series, PLUS Vault &amp; Free Debuts
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('chapters')}
+          className={`py-3 px-4 rounded-xl text-left transition-all cursor-pointer border ${
+            activeSubTab === 'chapters'
+              ? 'bg-[#fe9a00] text-black border-[#fe9a00] shadow-lg'
+              : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-white'
+          }`}
+        >
+          <div className="text-xs font-black uppercase tracking-wider flex items-center gap-2">
+            <BookOpen className="w-4 h-4" /> 3. Chapters &amp; Multi-Chapter Drops
+          </div>
+          <div
+            className={`text-[10px] font-bold mt-0.5 ${
+              activeSubTab === 'chapters' ? 'text-black/80' : 'text-zinc-500'
+            }`}
+          >
+            Custom Chapter Dates, Hide/Publish &amp; Batch Drops
+          </div>
+        </button>
+      </div>
+
+      {statusBanner && (
+        <div className="bg-emerald-950/90 border border-emerald-500 text-emerald-200 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            {statusBanner}
+          </span>
+          <button
+            type="button"
+            onClick={() => setStatusBanner(null)}
+            className="text-[10px] text-emerald-400 hover:text-white uppercase cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="py-16 flex items-center justify-center text-zinc-400 font-black uppercase tracking-widest text-xs gap-2">
+          <Loader2 className="w-5 h-5 animate-spin text-[#fe9a00]" /> Loading Current Schedule...
+        </div>
+      ) : activeSubTab === 'tracks' ? (
+        /* ===================================================================
+           TAB 1: WEEKLY RELEASE TRACKS (MONDAY / WEDNESDAY / SATURDAY)
+        =================================================================== */
+        <div className="space-y-4">
+          <div className="bg-black/60 border border-zinc-800 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-300 font-bold">
+            <span>
+              🛡️ <strong className="text-white">Safe Per-Series Mode:</strong> Changing a series card below only updates that specific series—your other scheduled series remain untouched.
             </span>
             <button
               type="button"
-              onClick={() => setShowWildcardModal(false)}
-              className="text-[10px] font-black uppercase text-zinc-400 hover:text-white cursor-pointer"
+              onClick={() => {
+                setActiveSubTab('chapters');
+                setShowBatchModal(true);
+              }}
+              className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] hover:underline cursor-pointer"
             >
-              Cancel
+              + Schedule Multi-Chapter Drop →
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-[9px] font-bold uppercase tracking-widest text-purple-200 mb-1">
-                Event Title
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Spoon 10-Ch Launch Pack"
-                value={wcTitle}
-                onChange={e => setWcTitle(e.target.value)}
-                required
-                className="w-full bg-black border border-purple-500/50 rounded-lg px-3 py-2 text-xs text-white font-bold"
-              />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {renderTrackColumn(
+              'MONDAY',
+              'Mondays',
+              'border-blue-500/30',
+              'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+            )}
+            {renderTrackColumn(
+              'WEDNESDAY',
+              'Wednesdays',
+              'border-emerald-500/30',
+              'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+            )}
+            {renderTrackColumn(
+              'SATURDAY',
+              'Saturdays',
+              'border-[#fe9a00]/40',
+              'bg-[#fe9a00] text-black'
+            )}
+          </div>
+        </div>
+      ) : activeSubTab === 'series_status' ? (
+        /* ===================================================================
+           TAB 2: SERIES VISIBILITY, COMPLETED RUNS (VAULT) & ONE-SHOT DEBUTS
+        =================================================================== */
+        <div className="space-y-5">
+          <div className="bg-black border border-zinc-800 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  { id: 'all', label: `All Series (${seriesList.length})` },
+                  {
+                    id: 'published',
+                    label: `Published (${seriesList.filter((s: any) => !s.is_hidden).length})`
+                  },
+                  {
+                    id: 'hidden',
+                    label: `Unpublished / Hidden (${
+                      seriesList.filter((s: any) => s.is_hidden).length
+                    })`
+                  },
+                  {
+                    id: 'vault',
+                    label: `Completed Runs & One-Shots (${
+                      seriesList.filter((s: any) => s.home_section === 'Completed Runs').length
+                    })`
+                  }
+                ] as const
+              ).map(f => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setSeriesFilter(f.id)}
+                  className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest cursor-pointer border ${
+                    seriesFilter === f.id
+                      ? 'bg-[#fe9a00] text-black border-[#fe9a00]'
+                      : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
             </div>
 
-            <div>
-              <label className="block text-[9px] font-bold uppercase tracking-widest text-purple-200 mb-1">
-                Target Series
-              </label>
-              <select
-                value={wcSeriesSlug}
-                onChange={e => setWcSeriesSlug(e.target.value)}
-                required
-                className="w-full bg-black border border-purple-500/50 rounded-lg px-3 py-2 text-xs text-white font-bold"
-              >
-                <option value="">-- Select Series --</option>
-                {seriesList.map((s: any) => {
-                  const q = (chaptersBySeries[s.slug] || []).filter(isChapterUnreleased).length;
-                  return (
-                    <option key={s.slug} value={s.slug}>
-                      {s.title} ({q} Scheduled)
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[9px] font-bold uppercase tracking-widest text-purple-200 mb-1">
-                Drop Date
-              </label>
-              <input
-                type="date"
-                value={wcDate}
-                onChange={e => setWcDate(e.target.value)}
-                required
-                className="w-full bg-black border border-purple-500/50 rounded-lg px-3 py-2 text-xs text-white font-bold"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[9px] font-bold uppercase tracking-widest text-purple-200 mb-1">
-                Chapters to Drop
-              </label>
-              <select
-                value={wcChapterCount}
-                onChange={e => setWcChapterCount(Number(e.target.value))}
-                className="w-full bg-black border border-purple-500/50 rounded-lg px-3 py-2 text-xs text-[#fe9a00] font-black"
-              >
-                <option value={1}>1 Chapter</option>
-                <option value={3}>3 Chapters</option>
-                <option value={6}>6 Chapters (Monthly Pack)</option>
-                <option value={10}>10 Chapters (Arc Launch)</option>
-              </select>
+            <div className="flex items-center gap-3">
+              {currentWednesdayPick && (
+                <span className="text-[10px] font-bold text-zinc-400 hidden xl:inline">
+                  This Week&apos;s One-Shot Wed:{' '}
+                  <strong className="text-[#fe9a00]">{currentWednesdayPick.title}</strong>
+                </span>
+              )}
+              <div className="relative min-w-[220px]">
+                <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search series..."
+                  value={seriesSearch}
+                  onChange={e => setSeriesSearch(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-8 pr-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-[#fe9a00]"
+                />
+              </div>
             </div>
           </div>
 
-          <button
-            type="submit"
-            className="w-full py-3 bg-gradient-to-r from-purple-600 to-[#fe9a00] text-black font-black uppercase tracking-widest text-xs rounded-xl cursor-pointer"
-          >
-            + Add Wildcard Binge Drop
-          </button>
-        </form>
-      )}
+          <div className="space-y-3">
+            {filteredSeriesForStatusTab.map((s: any) => {
+              const isCompleted = s.home_section === 'Completed Runs';
+              const inDebutNow = isInOneShotDebutWindow(s, seriesList);
+              const futureDebutMs = getScheduledOneShotDebutFutureMs(s, seriesList);
+              const countdown = inDebutNow ? getOneShotFreeCountdown(s, seriesList) : null;
 
-      {/* ACTIVE WILDCARDS PILL LIST */}
-      {wildcards.length > 0 && (
-        <div className="bg-purple-950/20 border border-purple-500/40 rounded-2xl p-4 space-y-2">
-          <div className="text-[10px] font-black uppercase tracking-widest text-purple-300">
-            Queued Wildcard / Binge Drops ({wildcards.length})
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {wildcards.map(wc => {
-              const s = seriesList.find((item: any) => item.slug === wc.seriesSlug);
+              const draftValue =
+                debutScheduleDrafts[s.slug] !== undefined
+                  ? debutScheduleDrafts[s.slug]
+                  : futureDebutMs
+                  ? toLocalDateTimeValue(futureDebutMs)
+                  : '';
+
+              const shelfOptions = Array.from(
+                new Set([
+                  ...homeSectionsList,
+                  'Completed Runs',
+                  ...(s.home_section ? [s.home_section] : [])
+                ])
+              );
+
               return (
                 <div
-                  key={wc.id}
-                  className="bg-black border border-purple-500/50 rounded-xl px-3 py-2 flex items-center gap-3 text-xs"
+                  key={s.slug}
+                  className={`bg-black border rounded-2xl p-4 space-y-3 transition-all ${
+                    s.is_hidden
+                      ? 'border-red-900/50 bg-red-950/10'
+                      : inDebutNow || futureDebutMs
+                      ? 'border-[#fe9a00]'
+                      : isCompleted
+                      ? 'border-purple-500/40'
+                      : 'border-zinc-800'
+                  }`}
                 >
-                  <span className="font-black text-[#fe9a00] uppercase">{wc.title}</span>
-                  <span className="text-white font-bold">
-                    {s?.title || wc.seriesSlug} ({wc.chapterIds.length} Ch)
-                  </span>
-                  <span className="text-zinc-400 font-mono text-[10px]">{wc.dateStr}</span>
-                  <button
-                    type="button"
-                    onClick={() => setWildcards(prev => prev.filter(w => w.id !== wc.id))}
-                    className="text-red-400 hover:text-red-300 cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <img
+                        src={
+                          s.cover_url ||
+                          s.character_url ||
+                          'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'
+                        }
+                        alt={s.title}
+                        className={`w-14 h-14 rounded-xl object-cover border border-zinc-700 shrink-0 ${
+                          s.is_hidden ? 'grayscale opacity-50' : ''
+                        }`}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-base font-black italic uppercase text-white truncate">
+                            {s.title}
+                          </h4>
+                          <span
+                            className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                              s.is_hidden
+                                ? 'bg-red-950 text-red-400 border-red-800'
+                                : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
+                            }`}
+                          >
+                            {s.is_hidden ? 'Unpublished (Hidden)' : 'Published'}
+                          </span>
+                          {isCompleted && (
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-950/80 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+                              <Lock className="w-2.5 h-2.5" /> Completed Run (Vault &amp; OSW)
+                            </span>
+                          )}
+                          {inDebutNow && (
+                            <span className="text-[9px] font-mono font-black uppercase px-2 py-0.5 rounded-full bg-[#fe9a00] text-black">
+                              ⚡ Free Debut Active ({countdown} left)
+                            </span>
+                          )}
+                          {futureDebutMs && (
+                            <span className="text-[9px] font-mono font-black uppercase px-2 py-0.5 rounded-full bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]">
+                              🗓️ Scheduled Free Debut:{' '}
+                              {new Date(futureDebutMs).toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit'
+                              })}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] font-bold text-zinc-400 mt-0.5">
+                          Creator: {s.creator_name || 'Saturday AM'} • Homepage Shelf:{' '}
+                          <strong className="text-zinc-200">{s.home_section || 'Unassigned'}</strong>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Series Visibility & Shelf Controls */}
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <select
+                        value={s.home_section || ''}
+                        onChange={e => handleAssignSeriesHomeSection(s, e.target.value)}
+                        className="bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer focus:border-[#fe9a00]"
+                        title="Choose which Homepage section this series belongs to (Select 'Completed Runs' for PLUS Vault & One-Shot Wednesday rotation)"
+                      >
+                        <option value="">-- Homepage Shelf: None --</option>
+                        {shelfOptions.map(sec => (
+                          <option key={sec} value={sec}>
+                            {sec === 'Completed Runs'
+                              ? '🔒 Completed Runs (PLUS Vault & OSW)'
+                              : `Shelf: ${sec}`}
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => handleToggleSeriesPublishStatus(s)}
+                        className={`px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 border cursor-pointer transition-colors ${
+                          s.is_hidden
+                            ? 'bg-emerald-500 hover:bg-emerald-400 text-black border-emerald-400'
+                            : 'bg-zinc-900 hover:bg-red-950 text-zinc-300 hover:text-red-300 border-zinc-700'
+                        }`}
+                      >
+                        {s.is_hidden ? (
+                          <>
+                            <Eye className="w-3.5 h-3.5" /> Publish Series
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5" /> Unpublish (Hide)
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSeriesSlug(s.slug);
+                          setActiveSubTab('chapters');
+                        }}
+                        className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                      >
+                        Chapters ({(chaptersBySeries[s.slug] || []).length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Free Launch / One-Shot Debut Bar */}
+                  <div className="pt-3 border-t border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="text-[10px] font-bold text-zinc-400">
+                      <strong className="text-[#fe9a00] uppercase">
+                        ⚡ Free Debut → Auto-Vault &amp; One-Shot Wednesday:
+                      </strong>{' '}
+                      Pick a launch date/time (leave blank to launch now). Runs free (48h standard, or Thu → Mon night for Thursday holiday launches), then enters the One-Shot Wednesday rotation automatically.
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <input
+                        type="datetime-local"
+                        value={draftValue}
+                        onChange={e =>
+                          setDebutScheduleDrafts(prev => ({ ...prev, [s.slug]: e.target.value }))
+                        }
+                        className="bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs font-bold text-white"
+                      />
+
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => handleScheduleFreeDebutRun(s, draftValue)}
+                        className="px-3.5 py-2 rounded-lg bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-[9px] cursor-pointer flex items-center gap-1"
+                      >
+                        <Zap className="w-3 h-3 fill-black" />
+                        {draftValue ? 'Schedule Free Debut' : 'Start Free Debut Now'}
+                      </button>
+
+                      {(inDebutNow || futureDebutMs) && (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => handleEndDebutAndMoveToVaultNow(s)}
+                          className="px-3 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 font-black uppercase tracking-widest text-[9px] cursor-pointer"
+                        >
+                          End Debut &amp; Lock in Vault
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               );
             })}
           </div>
         </div>
-      )}
-
-      {/* MAIN VIEW: 3-COLUMN AUTOMATION TRACKS OR MANUAL CHAPTER OVERRIDE */}
-      {loading ? (
-        <div className="py-16 flex items-center justify-center text-zinc-400 font-black uppercase tracking-widest text-xs gap-2">
-          <Loader2 className="w-5 h-5 animate-spin text-[#fe9a00]" /> Loading Release Queue...
-        </div>
-      ) : mode === 'tracks' ? (
-        <>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            {renderTrackColumn(
-              'MONDAY',
-              '📅 MONDAY MOMENTUM TRACK',
-              'EVERY MONDAY DROP • @ 09:00 AM EST (PLUS: 12H EARLY)',
-              'border-blue-500/30',
-              'bg-blue-500/20 text-blue-300 border border-blue-500/40'
-            )}
-
-            {renderTrackColumn(
-              'WEDNESDAY',
-              '🥄 WEDNESDAY ORIGINALS & OSW',
-              'EVERY WEDNESDAY DROP • @ 09:00 AM EST (PLUS: 12H EARLY)',
-              'border-emerald-500/30',
-              'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-            )}
-
-            {renderTrackColumn(
-              'SATURDAY',
-              '⚡ SATURDAY MORNING FLAGSHIP',
-              'EVERY SATURDAY DROP • @ 09:00 AM EST (PLUS: 12H EARLY)',
-              'border-[#fe9a00]/40',
-              'bg-[#fe9a00] text-black'
-            )}
-          </div>
-
-          <button
-            type="button"
-            disabled={saving}
-            onClick={handleSyncAllTracksToDatabase}
-            className="w-full py-4 bg-gradient-to-r from-[#fe9a00] to-yellow-500 hover:from-white hover:to-white text-black font-black uppercase tracking-widest text-xs rounded-2xl transition-all shadow-[0_0_25px_rgba(254,154,0,0.35)] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-          >
-            {saving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Zap className="w-4 h-4 fill-black" />
-            )}
-            {saving
-              ? 'Syncing All Release Tracks to Database...'
-              : 'Sync & Save All Active Release Tracks to Database'}
-          </button>
-        </>
       ) : (
-        <div className="bg-black border border-zinc-800 rounded-2xl p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+        /* ===================================================================
+           TAB 3: INDIVIDUAL CHAPTERS & MULTI-CHAPTER EVENT DROPS
+        =================================================================== */
+        <div className="space-y-5">
+          {/* Top Multi-Chapter / Special Event Drop Bar */}
+          <div className="bg-black border border-zinc-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-2">
-                <Sparkles className="w-4 h-4" /> Individual Series Chapter Date Inspector & Override
+              <h3 className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
+                <Package className="w-4 h-4 text-[#fe9a00]" /> Multi-Chapter &amp; Special Event Drops
               </h3>
-              <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
-                Inspect or fine-tune exact dates for any individual chapter
+              <p className="text-[10px] font-bold text-zinc-400 mt-0.5">
+                Release multiple queued chapters of a series together on any date (holiday drops, multi-chapter launches, or catch-up packs).
               </p>
             </div>
-
-            <select
-              value={selectedSeriesSlug}
-              onChange={e => setSelectedSeriesSlug(e.target.value)}
-              className="bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-2.5 text-xs text-white font-bold focus:outline-none focus:border-[#fe9a00] cursor-pointer"
-            >
-              <option value="">-- Choose Series to Inspect --</option>
-              {seriesList.map((s: any) => (
-                <option key={s.slug} value={s.slug}>
-                  {s.title}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {selectedSeriesSlug && (
-            <div className="space-y-2 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
-              {currentSeriesChapters.map((ch: any) => {
-                const cId = String(ch.id);
-                const edit = oneOffEdits[cId] || {
-                  date: formatDateInput(new Date()),
-                  time: '09:00',
-                  isPublished: true
-                };
-                const isFuture = isChapterUnreleased(ch);
-
-                return (
-                  <div
-                    key={cId}
-                    className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                      isFuture
-                        ? 'bg-zinc-900 border-[#fe9a00]/50'
-                        : 'bg-zinc-950 border-zinc-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-xs font-black text-white uppercase">
-                        Ch. {ch.chapter_number}: {ch.title || `Chapter ${ch.chapter_number}`}
-                      </span>
-                      {isFuture ? (
-                        <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/40">
-                          Scheduled ({edit.date})
-                        </span>
-                      ) : (
-                        <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-emerald-900/30 text-emerald-400">
-                          Live
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      {isFuture && (
-                        <button
-                          type="button"
-                          onClick={() => handleInstantPushChapterLive(ch)}
-                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-black text-[9px] font-black uppercase tracking-widest flex items-center gap-1 cursor-pointer"
-                        >
-                          <Zap className="w-3 h-3 fill-black" /> Push Live Now
-                        </button>
-                      )}
-                      <input
-                        type="date"
-                        value={edit.date}
-                        onChange={e =>
-                          setOneOffEdits(prev => ({
-                            ...prev,
-                            [cId]: { ...edit, date: e.target.value, isPublished: true }
-                          }))
-                        }
-                        className="bg-black border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold"
-                      />
-                      <input
-                        type="time"
-                        value={edit.time}
-                        onChange={e =>
-                          setOneOffEdits(prev => ({
-                            ...prev,
-                            [cId]: { ...edit, time: e.target.value, isPublished: true }
-                          }))
-                        }
-                        className="bg-black border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOneOffEdits(prev => ({
-                            ...prev,
-                            [cId]: { ...edit, isPublished: !edit.isPublished }
-                          }))
-                        }
-                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-1 cursor-pointer ${
-                          edit.isPublished
-                            ? 'bg-emerald-900/30 border border-emerald-700 text-emerald-300'
-                            : 'bg-[#fe9a00]/20 border border-[#fe9a00]/50 text-[#fe9a00]'
-                        }`}
-                      >
-                        {edit.isPublished ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                        {edit.isPublished ? 'Active' : 'Queued'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {selectedSeriesSlug && (
             <button
               type="button"
-              disabled={saving}
-              onClick={handleSaveCustomChapterDates}
-              className="w-full py-3.5 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              onClick={() => setShowBatchModal(!showBatchModal)}
+              className="px-4 py-2.5 rounded-xl bg-[#fe9a00] hover:bg-white text-black text-[10px] font-black uppercase tracking-widest cursor-pointer"
             >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              Save Custom Chapter Dates
+              {showBatchModal ? 'Close Multi-Chapter Builder' : '+ Schedule Multi-Chapter Drop'}
             </button>
+          </div>
+
+          {showBatchModal && (
+            <form
+              onSubmit={handleScheduleMultiChapterEventDrop}
+              className="bg-zinc-950 border-2 border-[#fe9a00]/60 rounded-2xl p-5 space-y-4 animate-fade-in"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+                    Alert Headline (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 3-Chapter Special Drop!"
+                    value={batchTitle}
+                    onChange={e => setBatchTitle(e.target.value)}
+                    className="w-full bg-black border border-zinc-700 rounded-xl px-3 py-2.5 text-xs text-white font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+                    Select Series *
+                  </label>
+                  <select
+                    value={batchSeriesSlug}
+                    onChange={e => setBatchSeriesSlug(e.target.value)}
+                    required
+                    className="w-full bg-black border border-zinc-700 rounded-xl px-3 py-2.5 text-xs text-white font-bold cursor-pointer"
+                  >
+                    <option value="">-- Choose Series --</option>
+                    {seriesList.map((s: any) => {
+                      const q = (chaptersBySeries[s.slug] || []).filter(isChapterUnreleased).length;
+                      return (
+                        <option key={s.slug} value={s.slug}>
+                          {s.title} ({q} Queued)
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+                    Release Date (9:00 AM EST) *
+                  </label>
+                  <input
+                    type="date"
+                    value={batchDate}
+                    onChange={e => setBatchDate(e.target.value)}
+                    required
+                    className="w-full bg-black border border-zinc-700 rounded-xl px-3 py-2.5 text-xs text-white font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+                    Queued Chapters to Drop
+                  </label>
+                  <select
+                    value={batchCount}
+                    onChange={e => setBatchCount(Number(e.target.value))}
+                    className="w-full bg-black border border-zinc-700 rounded-xl px-3 py-2.5 text-xs text-[#fe9a00] font-black cursor-pointer"
+                  >
+                    <option value={2}>Next 2 Queued Chapters</option>
+                    <option value={3}>Next 3 Queued Chapters</option>
+                    <option value={5}>Next 5 Queued Chapters</option>
+                    <option value={10}>Next 10 Queued Chapters</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={saving}
+                className="w-full py-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs rounded-xl cursor-pointer"
+              >
+                {saving ? 'Scheduling...' : 'Confirm Multi-Chapter Release Date'}
+              </button>
+            </form>
           )}
+
+          {/* Per-Series Chapter Inspector */}
+          <div className="bg-black border border-zinc-800 rounded-2xl p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-[#fe9a00]">
+                  Individual Chapter Publishing &amp; Dates
+                </h3>
+                <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                  Select any series to publish chapters immediately, hide/unpublish a chapter, or set custom release dates.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={selectedSeriesSlug}
+                  onChange={e => setSelectedSeriesSlug(e.target.value)}
+                  className="bg-zinc-900 border border-[#fe9a00] rounded-xl px-4 py-2.5 text-xs text-white font-bold cursor-pointer"
+                >
+                  <option value="">-- Select a Series --</option>
+                  {seriesList.map((s: any) => {
+                    const chaps = chaptersBySeries[s.slug] || [];
+                    const queued = chaps.filter(isChapterUnreleased).length;
+                    return (
+                      <option key={s.slug} value={s.slug}>
+                        {s.title} ({chaps.length - queued} Live • {queued} Queued)
+                      </option>
+                    );
+                  })}
+                </select>
+
+                {selectedSeriesSlug && currentSeriesChapters.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={handleRepairSeriesCutoff}
+                    className="px-3.5 py-2.5 rounded-xl bg-zinc-900 hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border border-[#fe9a00]/50 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer"
+                    title="Set which chapter number is the latest live chapter and schedule the rest in order"
+                  >
+                    <Wrench className="w-3.5 h-3.5" /> Set Live Chapter Cutoff
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {!selectedSeriesSlug ? (
+              <div className="py-12 text-center text-xs font-bold uppercase tracking-widest text-zinc-500">
+                Choose a series from the dropdown above to manage its chapters.
+              </div>
+            ) : currentSeriesChapters.length === 0 ? (
+              <div className="py-12 text-center text-xs font-bold uppercase tracking-widest text-zinc-500">
+                No chapters uploaded for this series yet.
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1 custom-scrollbar">
+                  {currentSeriesChapters.map((ch: any) => {
+                    const cId = String(ch.id);
+                    const edit = oneOffEdits[cId] || {
+                      date: formatDateInput(new Date()),
+                      time: '09:00',
+                      isPublished: true
+                    };
+                    const isHidden = !ch.is_published;
+                    const isLive = isChapterCurrentlyLive(ch);
+
+                    return (
+                      <div
+                        key={cId}
+                        className={`p-3.5 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                          isHidden
+                            ? 'bg-red-950/15 border-red-900/40'
+                            : isLive
+                            ? 'bg-zinc-950 border-zinc-800'
+                            : 'bg-zinc-900 border-[#fe9a00]/50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="text-xs font-black text-white uppercase shrink-0">
+                            Ch. {ch.chapter_number}
+                          </span>
+                          <span className="text-xs font-bold text-zinc-300 truncate">
+                            {ch.title || `Chapter ${ch.chapter_number}`}
+                          </span>
+                          <span
+                            className={`text-[9px] font-black uppercase px-2 py-0.5 rounded shrink-0 ${
+                              isHidden
+                                ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                                : isLive
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/40'
+                            }`}
+                          >
+                            {isHidden
+                              ? 'Unpublished (Hidden)'
+                              : isLive
+                              ? 'Live Now'
+                              : `Scheduled (${edit.date})`}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {!isLive && (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => handleInstantPushChapterLive(ch)}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-[9px] font-black uppercase tracking-widest flex items-center gap-1 cursor-pointer"
+                            >
+                              <Zap className="w-3 h-3 fill-black" /> Publish Now
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => handleToggleSingleChapterVisibility(ch)}
+                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-1 border cursor-pointer ${
+                              isHidden
+                                ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
+                                : 'bg-zinc-900 hover:bg-red-950 border-zinc-700 text-zinc-300 hover:text-red-300'
+                            }`}
+                          >
+                            {isHidden ? (
+                              <>
+                                <Eye className="w-3 h-3" /> Re-Enable
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="w-3 h-3" /> Unpublish (Hide)
+                              </>
+                            )}
+                          </button>
+
+                          <div className="flex items-center gap-1.5 bg-black border border-zinc-800 rounded-lg px-2 py-1">
+                            <Clock className="w-3 h-3 text-zinc-500" />
+                            <input
+                              type="date"
+                              value={edit.date}
+                              onChange={e =>
+                                setOneOffEdits(prev => ({
+                                  ...prev,
+                                  [cId]: { ...edit, date: e.target.value, isPublished: true }
+                                }))
+                              }
+                              className="bg-transparent text-xs text-white font-bold focus:outline-none"
+                            />
+                            <input
+                              type="time"
+                              value={edit.time}
+                              onChange={e =>
+                                setOneOffEdits(prev => ({
+                                  ...prev,
+                                  [cId]: { ...edit, time: e.target.value, isPublished: true }
+                                }))
+                              }
+                              className="bg-transparent text-xs text-zinc-300 font-bold focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={handleSaveCustomChapterDates}
+                  className="w-full py-3.5 bg-[#fe9a00] hover:bg-white text-black font-black uppercase tracking-widest text-xs rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {saving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  Save Custom Chapter Dates for Selected Series
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
