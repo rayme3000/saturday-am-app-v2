@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import {
   ArrowLeft, DollarSign, Sparkles, Flame, BookOpen, KeyRound, Copy, Check,
-  ExternalLink, Heart, RefreshCw, Award, Eye, QrCode, Download, X, Link2, Gift, Plus, Trash2, MessageSquare, Zap, Users, ChevronDown, ChevronUp, Crown, Calendar
+  ExternalLink, Heart, RefreshCw, Award, Eye, QrCode, Download, X, Link2, Gift, Plus, Trash2, MessageSquare, Zap, Users, ChevronDown, ChevronUp, Crown, Calendar, MapPin, Share2, Crop
 } from 'lucide-react';
 import { resolveCreatorStripeAccountId, normalizeCreatorKey } from './CreatorsPage';
+import { ThumbnailCropperModal } from '../Components/UploadTools';
+import { MangaReader, normalizeMangaPageUrl } from './MangaReader';
+
+const MAX_AUTHOR_NOTES_PER_PAGE = 3;
+const MAX_SHARE_NODES_PER_PAGE = 1;
 
 interface CreatorStudioProps {
   currentUser: any;
@@ -73,7 +79,6 @@ export const getCreatorReferralCodeVariants = (rawCreatorName?: string): string[
   return Array.from(variants);
 };
 
-// Helper: Current Year-Month key (e.g. "2026-11") and End-of-Month ISO timestamp
 const getCurrentMonthKeyAndExpiry = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -236,7 +241,6 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
   const [generatingPin, setGeneratingPin] = useState(false);
   const [generatingOneTimePin, setGeneratingOneTimePin] = useState(false);
 
-  // Monthly 1-Year Gift Sub Code State (1 Per Month, Non-Stacking)
   const [monthlyGiftCodes, setMonthlyGiftCodes] = useState<any[]>([]);
   const [generatingMonthlyGift, setGeneratingMonthlyGift] = useState(false);
 
@@ -249,6 +253,199 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
 
   const [isSeriesSectionOpen, setIsSeriesSectionOpen] = useState<boolean>(true);
   const [visibleChaptersBySeries, setVisibleChaptersBySeries] = useState<Record<string, number>>({});
+
+  // --- CREATOR HOTSPOT STUDIO STATE (COLLAPSIBLE • READ-ONLY PAGES • 3 AUTHOR NOTES + 1 PANEL SHARE MAX/PAGE) ---
+  const [isHotspotStudioOpen, setIsHotspotStudioOpen] = useState<boolean>(false);
+  const [allCreatorChapters, setAllCreatorChapters] = useState<any[]>([]);
+  const [studioSeriesSlug, setStudioSeriesSlug] = useState<string>('');
+  const [studioChapterId, setStudioChapterId] = useState<string>('');
+  const [studioPages, setStudioPages] = useState<string[]>([]);
+  const [studioHotspots, setStudioHotspots] = useState<any[]>([]);
+  const [loadingStudioPages, setLoadingStudioPages] = useState<boolean>(false);
+  const [activeStudioPageIdx, setActiveStudioPageIdx] = useState<number | null>(null);
+  const [studioMode, setStudioMode] = useState<'info' | 'share'>('info');
+  const [studioDraft, setStudioDraft] = useState<{ x: number; y: number; id?: any } | null>(null);
+  const [studioContent, setStudioContent] = useState<string>('');
+  const [savingHotspot, setSavingHotspot] = useState<boolean>(false);
+  const [cropPanelSourceUrl, setCropPanelSourceUrl] = useState<string | null>(null);
+  const [isStudioReaderPreviewOpen, setIsStudioReaderPreviewOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!studioChapterId) {
+      setStudioPages([]);
+      setStudioHotspots([]);
+      return;
+    }
+    let cancelled = false;
+    const loadChapterPagesAndNodes = async () => {
+      setLoadingStudioPages(true);
+      try {
+        const [{ data: pRows }, { data: hRows }] = await Promise.all([
+          supabase
+            .from('pages')
+            .select('image_url, page_order')
+            .eq('chapter_id', studioChapterId)
+            .order('page_order', { ascending: true }),
+          supabase
+            .from('page_hotspots')
+            .select('*')
+            .eq('chapter_id', studioChapterId)
+        ]);
+        if (!cancelled) {
+          setStudioPages((pRows || []).map((p: any) => p.image_url));
+          setStudioHotspots(hRows || []);
+        }
+      } finally {
+        if (!cancelled) setLoadingStudioPages(false);
+      }
+    };
+    loadChapterPagesAndNodes();
+    return () => {
+      cancelled = true;
+    };
+  }, [studioChapterId]);
+
+  const openCreatorPageHotspotModal = (pageIndex: number, preferredMode: 'info' | 'share') => {
+    setActiveStudioPageIdx(pageIndex);
+    setStudioMode(preferredMode);
+
+    if (preferredMode === 'share') {
+      const existingShare = studioHotspots.find(
+        h => Number(h.page_index) === pageIndex && h.icon_type === 'share'
+      );
+      if (existingShare) {
+        setStudioDraft({
+          x: existingShare.x_percent,
+          y: existingShare.y_percent,
+          id: existingShare.id
+        });
+        setStudioContent(existingShare.content || '');
+        return;
+      }
+    }
+    setStudioDraft(null);
+    setStudioContent('');
+  };
+
+  const handleCreatorCanvasClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (activeStudioPageIdx === null) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+
+    if (studioDraft?.id) {
+      setStudioDraft({ ...studioDraft, x, y });
+      return;
+    }
+
+    const pageNodes = studioHotspots.filter(h => Number(h.page_index) === activeStudioPageIdx);
+    const infoCount = pageNodes.filter(h => h.icon_type !== 'share').length;
+    const shareCount = pageNodes.filter(h => h.icon_type === 'share').length;
+
+    if (studioMode === 'info' && infoCount >= MAX_AUTHOR_NOTES_PER_PAGE) {
+      alert(
+        `Limit reached: Up to ${MAX_AUTHOR_NOTES_PER_PAGE} Author Note nodes are allowed per page. Click an existing gold pin on this page to edit or delete it!`
+      );
+      return;
+    }
+
+    if (studioMode === 'share' && shareCount >= MAX_SHARE_NODES_PER_PAGE) {
+      const existingShare = pageNodes.find(h => h.icon_type === 'share');
+      if (existingShare) {
+        setStudioDraft({ x, y, id: existingShare.id });
+        setStudioContent(existingShare.content || '');
+        return;
+      }
+    }
+
+    setStudioDraft({ x, y });
+    if (studioMode === 'info') setStudioContent('');
+  };
+
+  const handleSaveCreatorHotspot = async () => {
+    if (!studioDraft || activeStudioPageIdx === null || !studioChapterId) return;
+
+    if (studioMode === 'info' && !studioContent.trim()) {
+      return alert('Please type your Author Comment before saving.');
+    }
+    if (studioMode === 'share' && (!studioContent || !studioContent.startsWith('http'))) {
+      return alert('Please click "Crop Panel to Share" so fans get a crisp panel preview!');
+    }
+
+    if (!studioDraft.id) {
+      const pageNodes = studioHotspots.filter(h => Number(h.page_index) === activeStudioPageIdx);
+      if (
+        studioMode === 'info' &&
+        pageNodes.filter(h => h.icon_type !== 'share').length >= MAX_AUTHOR_NOTES_PER_PAGE
+      ) {
+        return alert(`Maximum of ${MAX_AUTHOR_NOTES_PER_PAGE} Author Notes per page reached.`);
+      }
+      if (
+        studioMode === 'share' &&
+        pageNodes.filter(h => h.icon_type === 'share').length >= MAX_SHARE_NODES_PER_PAGE
+      ) {
+        return alert(`Maximum of ${MAX_SHARE_NODES_PER_PAGE} Panel Share node per page reached.`);
+      }
+    }
+
+    setSavingHotspot(true);
+    try {
+      const payload = {
+        chapter_id: studioChapterId,
+        page_index: activeStudioPageIdx,
+        x_percent: studioDraft.x,
+        y_percent: studioDraft.y,
+        title: studioMode === 'share' ? 'Hype Share' : 'Author Comments',
+        content: studioContent.trim(),
+        icon_type: studioMode
+      };
+
+      if (studioDraft.id) {
+        const { data, error } = await supabase
+          .from('page_hotspots')
+          .update(payload)
+          .eq('id', studioDraft.id)
+          .select()
+          .single();
+        if (error) throw error;
+        setStudioHotspots(prev =>
+          prev.map(h => (String(h.id) === String(studioDraft.id) ? data : h))
+        );
+      } else {
+        const { data, error } = await supabase
+          .from('page_hotspots')
+          .insert([payload])
+          .select()
+          .single();
+        if (error) throw error;
+        setStudioHotspots(prev => [...prev, data]);
+      }
+      setStudioDraft(null);
+      setStudioContent('');
+    } catch (err: any) {
+      alert('Could not save node: ' + err.message);
+    } finally {
+      setSavingHotspot(false);
+    }
+  };
+
+  const handleDeleteCreatorHotspot = async (id: any) => {
+    if (!window.confirm('Delete this node from the page?')) return;
+    setSavingHotspot(true);
+    try {
+      const { error } = await supabase.from('page_hotspots').delete().eq('id', id);
+      if (error) throw error;
+      setStudioHotspots(prev => prev.filter(h => String(h.id) !== String(id)));
+      if (studioDraft && String(studioDraft.id) === String(id)) {
+        setStudioDraft(null);
+        setStudioContent('');
+      }
+    } catch (err: any) {
+      alert('Could not delete node: ' + err.message);
+    } finally {
+      setSavingHotspot(false);
+    }
+  };
 
   const isAdmin = Boolean(currentUser?.is_admin);
   const userEmail = String(currentUser?.email || '').trim().toLowerCase();
@@ -267,7 +464,6 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
     []
   );
 
-  // Check if the selected creator has already generated their 1 Gift Sub Code for the current calendar month
   const currentMonthGiftCodeRow = useMemo(() => {
     return monthlyGiftCodes.find((row: any) => {
       const rowMonthKey =
@@ -489,7 +685,6 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
       setBingoPin(latestEventPin?.code || latestEventPin?.pin || '');
       setOneTimePins(singleUseList);
 
-      // Filter promo_codes to Monthly Creator Gift Sub Codes
       const filteredGiftCodes = (giftCodeRows || []).filter(
         (r: any) =>
           Boolean(r.gift_month_key) ||
@@ -579,7 +774,6 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
             .from('chapters')
             .select('*')
             .in('series_slug', mySlugs)
-            .eq('is_published', true)
             .order('chapter_number', { ascending: true }),
           supabase
             .from('series_comments')
@@ -598,7 +792,23 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
         const verifiedChapters = (chData || []).filter((ch: any) =>
           allowedSlugSet.has(String(ch.series_slug || '').trim().toLowerCase())
         );
-        setChaptersList(verifiedChapters);
+
+        const publishedChaptersOnly = verifiedChapters.filter((ch: any) => ch.is_published);
+        setChaptersList(publishedChaptersOnly);
+        setAllCreatorChapters(verifiedChapters);
+
+        const defaultSlug = mySeries[0]?.slug || '';
+        setStudioSeriesSlug(defaultSlug);
+        const firstSeriesChaps = verifiedChapters.filter(
+          (ch: any) =>
+            String(ch.series_slug || '').trim().toLowerCase() ===
+            String(defaultSlug).trim().toLowerCase()
+        );
+        setStudioChapterId(
+          firstSeriesChaps.length > 0
+            ? String(firstSeriesChaps[firstSeriesChaps.length - 1].id)
+            : ''
+        );
 
         const chapterByIdMap = new Map<string, any>();
         verifiedChapters.forEach((ch: any) => chapterByIdMap.set(String(ch.id), ch));
@@ -875,6 +1085,9 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
         setChapterStatsMap(statsAccumulator);
       } else {
         setChaptersList([]);
+        setAllCreatorChapters([]);
+        setStudioSeriesSlug('');
+        setStudioChapterId('');
         setActivityFeed([]);
         setMyCharacters([]);
         setChapterStatsMap({});
@@ -894,7 +1107,6 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
     }
   }, [selectedCreatorName, fetchCreatorStudioData]);
 
-  // Generate 1 Monthly 1-Year Gift Sub Code (Strictly 1 Per Creator Per Calendar Month, Non-Stacking)
   const handleGenerateMonthlyGiftSub = async () => {
     if (!selectedCreatorName) return;
     if (currentMonthGiftCodeRow) {
@@ -909,7 +1121,6 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
       const searchName = parenMatch ? parenMatch[1].trim() : cleanName;
       const { monthKey, monthLabel, endOfMonth } = getCurrentMonthKeyAndExpiry();
 
-      // Database-level verification to guarantee no duplicate code exists for this creator in this month
       const { data: existingRows } = await supabase
         .from('promo_codes')
         .select('*')
@@ -980,7 +1191,6 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
         .select()
         .single();
 
-      // Fallback if gift_month_key column hasn't been added via SQL yet
       if (insertErr) {
         const { gift_month_key, ...fallbackPayload } = insertPayload;
         const retryRes = await supabase
@@ -1168,7 +1378,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
               </span>
             </div>
             <p className="text-xs text-zinc-400 font-bold mt-1">
-              Real-time series stats, live fan activity pulse, 100% pass-through fan tips, monthly gift sub & autograph PINs
+              Real-time series stats, interactive page Author Notes &amp; Panel Shares, 100% pass-through fan tips, monthly gift sub &amp; autograph PINs
             </p>
           </div>
         </div>
@@ -1436,6 +1646,524 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
           </div>
         )}
       </div>
+
+      {/* =========================================================================
+          COLLAPSIBLE CREATOR PAGE NOTES & PANEL SHARE STUDIO (3 INFO + 1 SHARE MAX)
+      ========================================================================= */}
+      <div className="bg-zinc-950 border-2 border-[#fe9a00]/50 rounded-2xl p-5 sm:p-6 mb-6 shadow-[0_0_25px_rgba(254,154,0,0.1)]">
+        <div
+          onClick={() => setIsHotspotStudioOpen(prev => !prev)}
+          className={`flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer select-none group ${
+            isHotspotStudioOpen ? 'border-b border-zinc-800 pb-4 mb-4' : ''
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#fe9a00]/15 border border-[#fe9a00]/50 flex items-center justify-center text-[#fe9a00] shrink-0 mt-0.5">
+              <MapPin className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm sm:text-base font-black italic uppercase tracking-wider text-white group-hover:text-[#fe9a00] transition-colors">
+                  Page Author Notes &amp; Panel Share Studio
+                </h3>
+                <span className="text-[9px] font-black uppercase tracking-widest bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/40 px-2.5 py-0.5 rounded-full">
+                  Max 3 Author Notes + 1 Panel Share / Page
+                </span>
+                {studioHotspots.length > 0 && (
+                  <span className="text-[9px] font-black uppercase tracking-widest bg-zinc-900 text-zinc-300 border border-zinc-700 px-2 py-0.5 rounded-full">
+                    {studioHotspots.length} Active Pin{studioHotspots.length === 1 ? '' : 's'} in Selected Ch.
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-zinc-400 font-bold mt-1">
+                Add interactive behind-the-scenes Author Notes (+1 Fandom Pt when fans read them) and viral Panel Share hotspots (+5 Fandom Pts &amp; Series Hype boost) directly onto your chapter pages!
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+            {isHotspotStudioOpen && studioPages.length > 0 && (
+              <button
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  setIsStudioReaderPreviewOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-zinc-900 hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border border-[#fe9a00]/50 text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5" /> Preview in Reader
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={e => {
+                e.stopPropagation();
+                setIsHotspotStudioOpen(prev => !prev);
+              }}
+              className="px-3 py-2 rounded-xl bg-zinc-900 group-hover:bg-[#fe9a00] text-zinc-200 group-hover:text-black border border-zinc-700 text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              {isHotspotStudioOpen ? (
+                <>
+                  <span>Collapse</span>
+                  <ChevronUp className="w-3.5 h-3.5" />
+                </>
+              ) : (
+                <>
+                  <span>Open Studio</span>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {isHotspotStudioOpen && (
+          <div className="space-y-4 animate-fade-in">
+            {seriesList.length === 0 ? (
+              <div className="py-6 text-center text-xs font-bold text-zinc-500">
+                No series linked to this creator profile yet.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+                      Select Series
+                    </label>
+                    <select
+                      value={studioSeriesSlug}
+                      onChange={e => {
+                        const nextSlug = e.target.value;
+                        setStudioSeriesSlug(nextSlug);
+                        const matchingChaps = allCreatorChapters.filter(
+                          c =>
+                            String(c.series_slug || '').trim().toLowerCase() ===
+                            nextSlug.trim().toLowerCase()
+                        );
+                        setStudioChapterId(
+                          matchingChaps.length > 0
+                            ? String(matchingChaps[matchingChaps.length - 1].id)
+                            : ''
+                        );
+                      }}
+                      className="w-full bg-black border border-zinc-700 rounded-xl px-3 py-2.5 text-xs font-bold text-white focus:border-[#fe9a00] cursor-pointer"
+                    >
+                      {seriesList.map((s: any) => (
+                        <option key={s.slug} value={s.slug}>
+                          {s.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+                      Select Chapter (Live &amp; Upcoming Queued)
+                    </label>
+                    <select
+                      value={studioChapterId}
+                      onChange={e => setStudioChapterId(e.target.value)}
+                      className="w-full bg-black border border-zinc-700 rounded-xl px-3 py-2.5 text-xs font-bold text-white focus:border-[#fe9a00] cursor-pointer"
+                    >
+                      {allCreatorChapters
+                        .filter(
+                          c =>
+                            String(c.series_slug || '').trim().toLowerCase() ===
+                            studioSeriesSlug.trim().toLowerCase()
+                        )
+                        .map((c: any) => {
+                          const isScheduled =
+                            c.publish_at && new Date(c.publish_at).getTime() > Date.now();
+                          return (
+                            <option key={c.id} value={String(c.id)}>
+                              Ch. {c.chapter_number}: {c.title || `Chapter ${c.chapter_number}`}{' '}
+                              {!c.is_published
+                                ? '(Hidden Draft)'
+                                : isScheduled
+                                ? `(Scheduled ${new Date(c.publish_at).toLocaleDateString()})`
+                                : '(Live)'}
+                            </option>
+                          );
+                        })}
+                    </select>
+                  </div>
+                </div>
+
+                {loadingStudioPages ? (
+                  <div className="py-10 text-center text-xs font-black uppercase tracking-widest text-[#fe9a00]">
+                    Loading Chapter Pages...
+                  </div>
+                ) : studioPages.length === 0 ? (
+                  <div className="py-8 text-center text-xs font-bold text-zinc-500 bg-black/50 rounded-xl border border-dashed border-zinc-800">
+                    No pages uploaded for this chapter yet.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar pt-1">
+                    {studioPages.map((pageUrl, idx) => {
+                      const pNodes = studioHotspots.filter(h => Number(h.page_index) === idx);
+                      const infoCount = pNodes.filter(h => h.icon_type !== 'share').length;
+                      const shareCount = pNodes.filter(h => h.icon_type === 'share').length;
+
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => openCreatorPageHotspotModal(idx, 'info')}
+                          className="relative aspect-[2/3] rounded-xl overflow-hidden border border-zinc-800 hover:border-[#fe9a00] bg-black group cursor-pointer transition-all"
+                        >
+                          <img
+                            src={normalizeMangaPageUrl(pageUrl, 0)}
+                            alt={`Pg ${idx + 1}`}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                          <div className="absolute top-1.5 left-1.5 bg-black/85 border border-zinc-700 px-1.5 py-0.5 rounded text-[9px] font-black text-white">
+                            PG {idx + 1}
+                          </div>
+
+                          {(infoCount > 0 || shareCount > 0) && (
+                            <div className="absolute top-1.5 right-1.5 flex flex-col gap-1 items-end">
+                              {infoCount > 0 && (
+                                <span className="bg-[#fe9a00] text-black text-[8px] font-black px-1.5 py-0.5 rounded">
+                                  {infoCount}/{MAX_AUTHOR_NOTES_PER_PAGE} Note
+                                </span>
+                              )}
+                              {shareCount > 0 && (
+                                <span className="bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded">
+                                  {shareCount}/{MAX_SHARE_NODES_PER_PAGE} Share
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/85 to-transparent p-2 flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                openCreatorPageHotspotModal(idx, 'info');
+                              }}
+                              className="flex-1 py-1 rounded bg-zinc-900/90 hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border border-[#fe9a00]/50 text-[8px] font-black uppercase flex items-center justify-center gap-0.5 cursor-pointer"
+                              title="Add or Edit Author Notes (Max 3)"
+                            >
+                              <MapPin className="w-2.5 h-2.5" /> Note
+                            </button>
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                openCreatorPageHotspotModal(idx, 'share');
+                              }}
+                              className="flex-1 py-1 rounded bg-zinc-900/90 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/50 text-[8px] font-black uppercase flex items-center justify-center gap-0.5 cursor-pointer"
+                              title="Add or Edit Panel Share Node (Max 1)"
+                            >
+                              <Share2 className="w-2.5 h-2.5" /> Share
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* CREATOR LIVE READER PREVIEW */}
+      {isStudioReaderPreviewOpen && studioPages.length > 0 && (
+        <MangaReader
+          pages={studioPages}
+          chapterId={studioChapterId}
+          series={seriesList.find(s => s.slug === studioSeriesSlug)}
+          chapter={allCreatorChapters.find(c => String(c.id) === String(studioChapterId))}
+          userId={currentUser?.id}
+          isPremium={true}
+          onClose={() => setIsStudioReaderPreviewOpen(false)}
+        />
+      )}
+
+      {/* CREATOR PANEL SHARE CROPPER MODAL (PORTALED TO BODY) */}
+      {cropPanelSourceUrl &&
+        createPortal(
+          <ThumbnailCropperModal
+            imageUrl={cropPanelSourceUrl}
+            uploadFolder="hotspot-shares"
+            aspect={1}
+            title="Crop Panel for Fan Sharing (1:1)"
+            onCropComplete={(croppedUrl: string) => {
+              setStudioContent(croppedUrl);
+              setCropPanelSourceUrl(null);
+            }}
+            onCancel={() => setCropPanelSourceUrl(null)}
+          />,
+          document.body
+        )}
+
+      {/* CREATOR HOTSPOT PLACEMENT CANVAS MODAL (PORTALED TO BODY ABOVE FLOATING NAV) */}
+      {activeStudioPageIdx !== null &&
+        studioPages[activeStudioPageIdx] &&
+        !cropPanelSourceUrl &&
+        createPortal(
+          (() => {
+            const currentPageNodes = studioHotspots.filter(
+              h => Number(h.page_index) === activeStudioPageIdx
+            );
+            const pageInfoCount = currentPageNodes.filter(h => h.icon_type !== 'share').length;
+            const pageShareCount = currentPageNodes.filter(h => h.icon_type === 'share').length;
+
+            return (
+              <div className="fixed inset-0 z-[9500] bg-black/95 p-3 sm:p-5 backdrop-blur-md flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-hidden">
+                {/* LEFT / TOP: FULL-HEIGHT MANGA PAGE CANVAS */}
+                <div className="flex-1 min-h-[62vh] md:min-h-0 md:h-full flex justify-center items-center relative bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3 sm:p-4 overflow-auto">
+                  <div className="relative inline-block">
+                    <img
+                      src={normalizeMangaPageUrl(studioPages[activeStudioPageIdx], 0)}
+                      alt={`Page ${activeStudioPageIdx + 1}`}
+                      onClick={handleCreatorCanvasClick}
+                      draggable={false}
+                      className="max-h-[72vh] md:max-h-[86vh] w-auto max-w-full object-contain cursor-crosshair border border-white/15 select-none block shadow-2xl"
+                    />
+
+                    {/* Saved Pins on This Page */}
+                    {currentPageNodes
+                      .filter(h => String(h.id) !== String(studioDraft?.id || ''))
+                      .map(h => {
+                        const isShare = h.icon_type === 'share';
+                        return (
+                          <div
+                            key={h.id}
+                            onClick={e => {
+                              e.stopPropagation();
+                              setStudioMode(isShare ? 'share' : 'info');
+                              setStudioDraft({ x: h.x_percent, y: h.y_percent, id: h.id });
+                              setStudioContent(h.content || '');
+                            }}
+                            style={{ top: `${h.y_percent}%`, left: `${h.x_percent}%` }}
+                            className={`absolute -ml-3 -mt-3 w-6 h-6 rounded-full flex items-center justify-center p-1 shadow-lg group hover:scale-110 transition-transform cursor-pointer ${
+                              isShare
+                                ? 'bg-black border-2 border-red-500'
+                                : 'bg-black border-2 border-[#fe9a00]'
+                            }`}
+                            title="Click to edit or move this pin"
+                          >
+                            {isShare ? (
+                              <Share2 className="w-3 h-3 text-red-500" />
+                            ) : (
+                              <MapPin className="w-3.5 h-3.5 text-[#fe9a00]" />
+                            )}
+                          </div>
+                        );
+                      })}
+
+                    {/* Active Draft Pin */}
+                    {studioDraft && (
+                      <div
+                        style={{ top: `${studioDraft.y}%`, left: `${studioDraft.x}%` }}
+                        className={`absolute -ml-3.5 -mt-3.5 w-7 h-7 rounded-full flex items-center justify-center p-1 animate-bounce pointer-events-none ${
+                          studioMode === 'share'
+                            ? 'bg-red-600 text-white border-2 border-white'
+                            : 'bg-[#fe9a00] text-black border-2 border-white'
+                        }`}
+                      >
+                        {studioMode === 'share' ? (
+                          <Share2 className="w-3.5 h-3.5" />
+                        ) : (
+                          <MapPin className="w-3.5 h-3.5" />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* RIGHT / BOTTOM: CONTROLS SIDEBAR */}
+                <div className="w-full md:w-80 md:h-full overflow-y-auto bg-zinc-950 border border-zinc-800 rounded-2xl p-5 flex flex-col justify-between shrink-0">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] block">
+                          Page {activeStudioPageIdx + 1} of {studioPages.length}
+                        </span>
+                        <h4 className="text-sm font-black italic uppercase text-white">
+                          Place Interactive Nodes
+                        </h4>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveStudioPageIdx(null);
+                          setStudioDraft(null);
+                        }}
+                        className="p-1.5 rounded-lg bg-zinc-900 text-zinc-400 hover:text-white cursor-pointer"
+                        title="Close"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    {/* Mode Switcher with Live Per-Page Cap Counters */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStudioMode('info');
+                          setStudioDraft(null);
+                          setStudioContent('');
+                        }}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                          studioMode === 'info'
+                            ? 'bg-[#fe9a00]/15 border-[#fe9a00] text-[#fe9a00]'
+                            : 'bg-black border-zinc-800 text-zinc-400'
+                        }`}
+                      >
+                        <div className="text-[10px] font-black uppercase flex items-center gap-1">
+                          <MapPin className="w-3 h-3" /> Author Note
+                        </div>
+                        <div className="text-[9px] font-bold text-zinc-400 mt-0.5">
+                          {pageInfoCount} / {MAX_AUTHOR_NOTES_PER_PAGE} Used
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStudioMode('share');
+                          const existingShare = currentPageNodes.find(h => h.icon_type === 'share');
+                          if (existingShare) {
+                            setStudioDraft({
+                              x: existingShare.x_percent,
+                              y: existingShare.y_percent,
+                              id: existingShare.id
+                            });
+                            setStudioContent(existingShare.content || '');
+                          } else {
+                            setStudioDraft(null);
+                            setStudioContent('');
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                          studioMode === 'share'
+                            ? 'bg-red-500/15 border-red-500 text-red-400'
+                            : 'bg-black border-zinc-800 text-zinc-400'
+                        }`}
+                      >
+                        <div className="text-[10px] font-black uppercase flex items-center gap-1">
+                          <Share2 className="w-3 h-3" /> Panel Share
+                        </div>
+                        <div className="text-[9px] font-bold text-zinc-400 mt-0.5">
+                          {pageShareCount} / {MAX_SHARE_NODES_PER_PAGE} Used
+                        </div>
+                      </button>
+                    </div>
+
+                    {studioDraft ? (
+                      <div className="space-y-3 pt-2">
+                        {studioMode === 'info' ? (
+                          <div>
+                            <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1.5">
+                              Author Commentary / Easter Egg Note
+                            </label>
+                            <textarea
+                              rows={5}
+                              value={studioContent}
+                              onChange={e => setStudioContent(e.target.value)}
+                              placeholder="Share behind-the-scenes trivia, lore, or creator commentary..."
+                              className="w-full bg-black border border-zinc-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-[#fe9a00]"
+                            />
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {studioContent && studioContent.startsWith('http') && (
+                              <img
+                                src={studioContent}
+                                alt="Cropped Share Panel"
+                                className="w-full h-36 object-contain bg-black border border-zinc-800 rounded-xl"
+                              />
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setCropPanelSourceUrl(studioPages[activeStudioPageIdx])}
+                              className="w-full py-3 rounded-xl border-2 border-dashed border-red-500/60 hover:border-red-400 bg-black text-red-400 hover:text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 cursor-pointer"
+                            >
+                              <Crop className="w-4 h-4" />
+                              {studioContent ? 'Re-Crop Panel Image' : 'Crop Panel to Share'}
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="flex gap-2 pt-2">
+                          {studioDraft.id && (
+                            <button
+                              type="button"
+                              disabled={savingHotspot}
+                              onClick={() => handleDeleteCreatorHotspot(studioDraft.id)}
+                              className="px-3 py-2.5 rounded-xl bg-red-950/60 hover:bg-red-600 text-red-300 hover:text-white border border-red-800 text-[10px] font-black uppercase cursor-pointer"
+                              title="Delete Pin"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStudioDraft(null);
+                              setStudioContent('');
+                            }}
+                            className="flex-1 py-2.5 rounded-xl bg-zinc-800 text-white text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={savingHotspot}
+                            onClick={handleSaveCreatorHotspot}
+                            className="flex-1 py-2.5 rounded-xl bg-[#fe9a00] hover:bg-white text-black text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                          >
+                            {savingHotspot ? 'Saving...' : 'Save Pin'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-5 rounded-xl border border-dashed border-zinc-800 bg-black/50 text-center text-[11px] font-bold text-zinc-400 leading-relaxed">
+                        Tap anywhere on the manga page to drop a{' '}
+                        <strong className="text-white">
+                          {studioMode === 'share' ? 'Panel Share Pin' : 'Author Note Pin'}
+                        </strong>
+                        , or tap an existing pin on the page to edit/delete it.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-4 mt-4 border-t border-zinc-800">
+                    <button
+                      type="button"
+                      disabled={activeStudioPageIdx <= 0}
+                      onClick={() => {
+                        setActiveStudioPageIdx(p => Math.max(0, (p || 0) - 1));
+                        setStudioDraft(null);
+                      }}
+                      className="px-3 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-[10px] font-black uppercase disabled:opacity-40 cursor-pointer"
+                    >
+                      ← Prev Page
+                    </button>
+                    <button
+                      type="button"
+                      disabled={activeStudioPageIdx >= studioPages.length - 1}
+                      onClick={() => {
+                        setActiveStudioPageIdx(p => Math.min(studioPages.length - 1, (p || 0) + 1));
+                        setStudioDraft(null);
+                      }}
+                      className="px-3 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-[10px] font-black uppercase disabled:opacity-40 cursor-pointer"
+                    >
+                      Next Page →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })(),
+          document.body
+        )}
 
       {/* 1-TIME FAN GIFT AUTOGRAPH PIN GENERATOR & TRACKER */}
       <div className="bg-zinc-950 border border-purple-500/40 rounded-2xl p-5 sm:p-6 mb-8 shadow-[0_0_25px_rgba(168,85,247,0.1)]">

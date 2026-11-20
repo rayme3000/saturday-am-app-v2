@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { X, Share2, Copy, CheckCircle2, Image as ImageIcon } from 'lucide-react';
+import { X, Share2, Copy, CheckCircle2, Image as ImageIcon, Smartphone } from 'lucide-react';
 import { supabase, trackTelemetry } from '../supabase';
 
 const MAX_DAILY_REWARDED_SHARES = 3;
@@ -13,6 +13,7 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
 
   const isAppShare = !series;
   const targetSlug = series?.slug || 'app';
+  const shareType: 'panel' | 'link' = targetImage ? 'panel' : 'link';
 
   // Build clean, crawlable deep-link query parameters
   const queryParams = new URLSearchParams();
@@ -56,19 +57,32 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
   const threadsLink = `https://www.threads.net/intent/post?text=${encodedText}`;
   const fbLink = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(finalShareUrl)}`;
 
-  const awardSharePoints = async () => {
-    trackTelemetry('share', {
-      series_slug: targetSlug,
-      chapter_id: chapter?.id || null,
-      share_type: targetImage ? 'panel' : 'link'
-    });
+  const canUseNativeShare =
+    typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  const awardSharePoints = async (channel: string = 'copy') => {
+    const now = new Date();
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+      now.getDate()
+    ).padStart(2, '0')}`;
+    const targetIdentifier = `${targetSlug}_${chapter?.id || chapter?.chapter_number || 'main'}_${shareType}`;
+
+    // Anti-spam telemetry guard: only log 1 algorithmic share event per browser per unique target per day
+    const anonShareGuardKey = `am_algo_share_logged_${todayKey}_${targetIdentifier}`;
+    if (!localStorage.getItem(anonShareGuardKey)) {
+      localStorage.setItem(anonShareGuardKey, '1');
+      trackTelemetry('share', {
+        series_slug: targetSlug,
+        chapter_id: chapter?.id ? String(chapter.id) : null,
+        share_type: shareType,
+        channel,
+        target_key: targetIdentifier
+      });
+    }
 
     if (!currentUser?.id || isAwardingRef.current) return;
 
-    const todayKey = new Date().toISOString().split('T')[0];
-    const targetIdentifier = `${targetSlug}_${chapter?.id || chapter?.chapter_number || 'main'}_${targetImage ? 'panel' : 'link'}`;
     const storageKey = `am_share_rewards_${currentUser.id}_${todayKey}`;
-
     let rewardedTargets: string[] = [];
     try {
       rewardedTargets = JSON.parse(localStorage.getItem(storageKey) || '[]');
@@ -76,7 +90,15 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
       rewardedTargets = [];
     }
 
-    if (rewardedTargets.includes(targetIdentifier) || rewardedTargets.length >= MAX_DAILY_REWARDED_SHARES) {
+    if (rewardedTargets.includes(targetIdentifier)) {
+      setRewardMessage('Already earned points for sharing this today!');
+      setTimeout(() => setRewardMessage(null), 2500);
+      return;
+    }
+
+    if (rewardedTargets.length >= MAX_DAILY_REWARDED_SHARES) {
+      setRewardMessage(`Daily Share Bonus Maxed (${MAX_DAILY_REWARDED_SHARES}/${MAX_DAILY_REWARDED_SHARES})!`);
+      setTimeout(() => setRewardMessage(null), 2500);
       return;
     }
 
@@ -95,8 +117,8 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
         await supabase
           .from('profiles')
           .update({
-            fandom_score: (profile.fandom_score || 0) + 5,
-            shares: (profile.shares || 0) + 1
+            fandom_score: (Number(profile.fandom_score) || 0) + 5,
+            shares: (Number(profile.shares) || 0) + 1
           })
           .eq('id', currentUser.id);
 
@@ -111,20 +133,48 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
     }
   };
 
+  const handleNativeShare = async () => {
+    try {
+      await navigator.share({
+        title: shareTitle,
+        text: shareText,
+        url: finalShareUrl
+      });
+      awardSharePoints('native_share');
+    } catch {
+      // User cancelled native share sheet — do not award points
+    }
+  };
+
   const handleCopy = () => {
     navigator.clipboard.writeText(`${shareText}\n\n${finalShareUrl}`);
     setCopied(true);
-    awardSharePoints();
+    awardSharePoints('copy_link');
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in" onClick={onClose}>
-      <div className="bg-zinc-950 border border-zinc-800 p-6 sm:p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative" onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"><X className="w-5 h-5" /></button>
+    <div
+      className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="bg-zinc-950 border border-zinc-800 p-6 sm:p-8 rounded-2xl w-full max-w-sm flex flex-col items-center text-center shadow-2xl relative"
+        onClick={e => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors cursor-pointer"
+        >
+          <X className="w-5 h-5" />
+        </button>
 
         <div className="w-16 h-16 bg-[#fe9a00]/10 border border-[#fe9a00]/30 rounded-full flex items-center justify-center mb-4 shadow-[0_0_20px_rgba(254,154,0,0.2)]">
-          {targetImage ? <ImageIcon className="w-8 h-8 text-[#fe9a00]" /> : <Share2 className="w-8 h-8 text-[#fe9a00]" />}
+          {targetImage ? (
+            <ImageIcon className="w-8 h-8 text-[#fe9a00]" />
+          ) : (
+            <Share2 className="w-8 h-8 text-[#fe9a00]" />
+          )}
         </div>
 
         <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">
@@ -132,8 +182,8 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
         </h2>
         <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed mb-4">
           {targetImage
-            ? 'This panel is too epic to keep to yourself! Share it with your followers.'
-            : `Share this ${isAppShare ? 'app' : 'series'} with your friends and fellow manga fans!`}
+            ? 'Share this panel to boost this series & earn +5 Fandom Points (up to 3x/day)!'
+            : `Share this ${isAppShare ? 'app' : 'series'} with fellow manga fans (+5 Pts, up to 3x/day)!`}
         </p>
 
         {rewardMessage && (
@@ -144,17 +194,34 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
 
         <div className="flex flex-col gap-3 w-full">
           <div className="relative w-full h-40 mb-2 rounded-xl overflow-hidden border border-zinc-800 bg-black">
-            <img src={previewImage} className="w-full h-full object-contain opacity-80" alt="Link Preview" />
+            <img
+              src={previewImage}
+              className="w-full h-full object-contain opacity-85"
+              alt="Link Preview"
+            />
             <div className="absolute inset-0 flex flex-col justify-end p-2 bg-gradient-to-t from-black to-transparent pointer-events-none">
-              <span className="text-[8px] font-black uppercase tracking-widest text-[#fe9a00]">Link Preview</span>
+              <span className="text-[8px] font-black uppercase tracking-widest text-[#fe9a00]">
+                {targetImage ? 'Panel Spotlight Preview' : 'Link Preview'}
+              </span>
             </div>
           </div>
+
+          {canUseNativeShare && (
+            <button
+              type="button"
+              onClick={handleNativeShare}
+              className="w-full flex items-center justify-center gap-2.5 bg-[#fe9a00] text-black font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white transition-colors shadow-[0_0_15px_rgba(254,154,0,0.3)] cursor-pointer"
+            >
+              <Smartphone className="w-4 h-4" />
+              Share via Apps / Messages
+            </button>
+          )}
 
           <a
             href={bskyLink}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={awardSharePoints}
+            onClick={() => awardSharePoints('bluesky')}
             className="w-full flex items-center justify-center gap-3 bg-[#0560FF] text-white font-black uppercase tracking-widest py-3 rounded-xl hover:opacity-80 transition-opacity cursor-pointer"
           >
             <svg viewBox="0 0 320 286" className="w-5 h-5 fill-current">
@@ -167,10 +234,13 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
             href={threadsLink}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={awardSharePoints}
+            onClick={() => awardSharePoints('threads')}
             className="w-full flex items-center justify-center gap-3 bg-zinc-900 border border-zinc-700 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:bg-white hover:text-black transition-all group cursor-pointer"
           >
-            <svg viewBox="0 0 192 192" className="w-5 h-5 fill-current text-white group-hover:text-black transition-colors">
+            <svg
+              viewBox="0 0 192 192"
+              className="w-5 h-5 fill-current text-white group-hover:text-black transition-colors"
+            >
               <path d="M141.537 88.9883C140.71 88.5919 139.87 88.2104 139.019 87.8451C137.537 60.5382 122.616 44.905 97.5619 44.745C97.4484 44.7443 97.3355 44.7443 97.222 44.7443C82.2364 44.7443 69.7731 51.1409 62.102 62.7807L75.881 72.2328C81.6116 63.5383 90.6052 61.6848 97.2286 61.6848C97.3051 61.6848 97.3819 61.6848 97.4576 61.6855C105.707 61.7381 111.932 64.1366 115.961 68.814C118.893 72.2193 120.854 76.925 121.825 82.8638C114.511 81.6207 106.601 81.2385 98.145 81.7233C74.3247 83.0954 59.0111 96.9879 60.0396 116.292C60.5615 126.084 65.4397 134.508 73.775 140.011C80.8224 144.663 89.899 146.938 99.3323 146.423C111.79 145.74 121.563 140.987 128.381 132.296C133.559 125.696 136.838 116.888 137.71 107.133C137.767 106.666 137.817 106.205 137.861 105.752C138.363 105.536 138.873 105.327 139.367 105.148C146.423 102.582 153.251 100.864 158.462 100.279C160.031 100.101 161.423 99.9818 162.628 99.9079C162.83 104.708 162.775 110.155 162.152 116.313C161.264 125.042 159.043 133.155 155.611 140.354C151.042 149.948 144.174 157.986 135.405 163.955C125.795 170.496 114.475 173.918 101.996 173.918C101.272 173.918 100.548 173.91 99.8251 173.896C84.3414 173.57 71.0505 168.17 60.5284 158.423C50.2319 148.887 44.597 136.314 44.208 121.666C43.8227 107.151 48.7188 94.675 58.4871 85.086C68.0418 75.7077 81.0827 71.0664 96.9743 71.0664C97.1062 71.0664 97.2378 71.0671 97.3698 71.0681C108.319 71.1648 117.857 73.9142 125.59 79.1601C131.258 83.006 136.191 88.0838 140.234 94.2464C140.669 92.5186 141.096 90.7635 141.537 88.9883ZM98.8413 130.016C104.945 129.684 110.151 127.359 114.215 123.143C118.236 118.974 120.301 113.882 120.301 108.067C120.301 103.882 119.167 100.543 116.953 98.1481C114.858 95.882 111.895 94.6192 108.204 94.4173C108.077 94.411 107.949 94.4079 107.82 94.4079C102.946 94.4079 98.6644 96.126 95.2078 99.4795C91.6881 102.894 89.8519 107.411 89.8519 112.871C89.8519 118.243 91.6421 122.686 95.0569 126.046C95.0569 126.046 95.0583 126.047 95.0594 126.049C96.0828 127.054 97.2346 127.912 98.4907 128.583C98.6083 128.647 98.7247 128.706 98.8413 130.016Z" />
             </svg>
             Threads
@@ -180,7 +250,7 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
             href={fbLink}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={awardSharePoints}
+            onClick={() => awardSharePoints('facebook')}
             className="w-full flex items-center justify-center gap-3 bg-[#1877F2] text-white font-black uppercase tracking-widest py-3 rounded-xl hover:opacity-80 transition-opacity cursor-pointer"
           >
             <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
@@ -189,7 +259,10 @@ export const ShareModal = ({ isOpen, onClose, series, chapter, currentUser, targ
             Facebook
           </a>
 
-          <button onClick={handleCopy} className="w-full mt-2 bg-black border border-[#fe9a00] text-[#fe9a00] font-black uppercase tracking-widest py-3 rounded-xl hover:bg-[#fe9a00] hover:text-black transition-all flex items-center justify-center gap-2 cursor-pointer">
+          <button
+            onClick={handleCopy}
+            className="w-full mt-1 bg-black border border-[#fe9a00] text-[#fe9a00] font-black uppercase tracking-widest py-3 rounded-xl hover:bg-[#fe9a00] hover:text-black transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
             {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             {copied ? 'Link Copied!' : 'Copy Link'}
           </button>
