@@ -20,7 +20,7 @@ import {
   RefreshCw,
   AlertTriangle
 } from 'lucide-react';
-import { supabase } from '../supabase';
+import { supabase, trackTelemetry } from '../supabase';
 import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
@@ -503,12 +503,75 @@ export const MangaReader = ({
 
   const [hotspots, setHotspots] = useState<any[]>([]);
   const [activeHotspot, setActiveHotspot] = useState<any | null>(null);
+  const [hotspotRewardNote, setHotspotRewardNote] = useState<string | null>(null);
 
   const transformRef = useRef<any>(null);
   const currentPageRef = useRef(currentPage);
   const activeUserRef = useRef(userId || currentUser?.id);
   const isComponentMounted = useRef(true);
   const hasRecordedChapterCompletion = useRef(false);
+
+  const handleOpenAuthorHotspot = useCallback(
+    async (hotspot: any) => {
+      setActiveHotspot(hotspot);
+      setHotspotRewardNote(null);
+
+      const activeUid = activeUserRef.current;
+      if (!activeUid || !hotspot?.id) return;
+
+      const hotspotIdStr = String(hotspot.id);
+      const seenNotesKey = `am_opened_author_notes_${activeUid}`;
+      const now = new Date();
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+        2,
+        '0'
+      )}-${String(now.getDate()).padStart(2, '0')}`;
+      const dailyCapKey = `am_author_note_daily_${activeUid}_${todayKey}`;
+
+      let openedIds: string[] = [];
+      try {
+        openedIds = JSON.parse(localStorage.getItem(seenNotesKey) || '[]');
+      } catch {
+        openedIds = [];
+      }
+
+      if (openedIds.includes(hotspotIdStr)) return;
+
+      const dailyCount = Number(localStorage.getItem(dailyCapKey) || '0');
+      if (dailyCount >= 15) return;
+
+      const nextOpened = [...openedIds.slice(-500), hotspotIdStr];
+      localStorage.setItem(seenNotesKey, JSON.stringify(nextOpened));
+      localStorage.setItem(dailyCapKey, String(dailyCount + 1));
+
+      trackTelemetry('author_note_open', {
+        hotspot_id: hotspotIdStr,
+        chapter_id: chapterId ? String(chapterId) : null,
+        series_slug: series?.slug || subtitle || ''
+      });
+
+      try {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('fandom_score')
+          .eq('id', activeUid)
+          .maybeSingle();
+
+        if (prof) {
+          await supabase
+            .from('profiles')
+            .update({ fandom_score: (Number(prof.fandom_score) || 0) + 1 })
+            .eq('id', activeUid);
+          setHotspotRewardNote('+1 Fandom Pt Earned!');
+          window.dispatchEvent(new Event('profileUpdated'));
+        }
+      } catch (err) {
+        console.error('Error awarding author note point:', err);
+      }
+    },
+    [chapterId, series?.slug, subtitle]
+  );
+
 
   const lastNavTime = useRef(0);
 
@@ -1187,12 +1250,12 @@ export const MangaReader = ({
           alt={`Page ${index + 1}`}
           pageIndex={index}
           pageHotspots={pageHotspots}
-          onHotspotClick={setActiveHotspot}
+          onHotspotClick={handleOpenAuthorHotspot}
           onShareZoneClick={handleShareZoneClick}
         />
       );
     },
-    [getUrl, hotspots, handleShareZoneClick]
+    [getUrl, hotspots, handleShareZoneClick, handleOpenAuthorHotspot]
   );
 
   const virtuosoFooter = useCallback(
@@ -1396,9 +1459,16 @@ export const MangaReader = ({
                   alt="Author Comments"
                 />
               </div>
-              <h3 className="text-xl sm:text-2xl font-black italic uppercase text-[#fe9a00] tracking-tighter pr-6 leading-tight">
-                Author Comments
-              </h3>
+              <div className="flex flex-col">
+                <h3 className="text-xl sm:text-2xl font-black italic uppercase text-[#fe9a00] tracking-tighter pr-6 leading-tight">
+                  Author Comments
+                </h3>
+                {hotspotRewardNote && (
+                  <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 mt-0.5 animate-fade-in">
+                    ⚡ {hotspotRewardNote}
+                  </span>
+                )}
+              </div>
             </div>
             <p className="text-zinc-300 text-sm leading-relaxed font-medium whitespace-pre-wrap select-text flex-1 overflow-y-auto max-h-[40vh]">
               {renderContentWithLinks(activeHotspot.content)}
@@ -1478,7 +1548,7 @@ export const MangaReader = ({
                       src={getUrl(pages[currentPage])}
                       alt={`Page ${currentPage + 1}`}
                       pageHotspots={currentPageHotspots}
-                      onHotspotClick={setActiveHotspot}
+                      onHotspotClick={handleOpenAuthorHotspot}
                       onShareZoneClick={handleShareZoneClick}
                     />
                   </TransformComponent>
