@@ -1,9 +1,24 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Zap, UserPlus, Sparkles, Crown, Layers, PenTool, Flame } from 'lucide-react';
+import {
+  X,
+  Zap,
+  UserPlus,
+  Sparkles,
+  Crown,
+  Layers,
+  PenTool,
+  Flame,
+  Volume2,
+  VolumeX
+} from 'lucide-react';
 import { supabase, trackTelemetry } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+import {
+  loadSavedHouseAdCampaigns,
+  normalizeHouseAdVideoUrl
+} from '../AmCommandCenter/HouseAdBuilder';
+import { syncRewardedAdsGlobalConfig } from './RewardedAdModal';
 
-// Fallback Rotating Copy Pool (Used ONLY if 0 cards exist in `upsell_popups`)
 export const DEFAULT_PLUS_UPSELL_MESSAGES = [
   {
     id: 'default_plus_vault',
@@ -73,7 +88,7 @@ export interface UpsellPopupAttribution {
   popup_title: string;
   popup_badge: string;
   popup_cta: string;
-  popup_type: 'command_center_card' | 'event_bundle_popup' | 'default_fallback';
+  popup_type: 'command_center_card' | 'event_bundle_popup' | 'house_video_popup' | 'default_fallback';
   audience_mode: 'visitor' | 'plus';
   clicked_at: string;
 }
@@ -82,7 +97,7 @@ export const saveUpsellPopupAttribution = (attr: UpsellPopupAttribution) => {
   try {
     localStorage.setItem(UPSELL_ATTRIBUTION_STORAGE_KEY, JSON.stringify(attr));
   } catch {
-    // ignore storage errors
+    // ignore
   }
 };
 
@@ -92,7 +107,6 @@ export const getPendingUpsellPopupAttribution = (): UpsellPopupAttribution | nul
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || !parsed.popup_id) return null;
-    // Attribution window: 48 hours from click
     const clickedMs = new Date(parsed.clicked_at || 0).getTime();
     if (!isNaN(clickedMs) && Date.now() - clickedMs > 48 * 60 * 60 * 1000) {
       localStorage.removeItem(UPSELL_ATTRIBUTION_STORAGE_KEY);
@@ -112,7 +126,12 @@ export const clearUpsellPopupAttribution = () => {
   }
 };
 
-// Detects generic hardcoded App.tsx / SeriesDetailPage.tsx strings so they NEVER override your Command Center card copy
+const isDirectVideoUrl = (url?: string): boolean => {
+  if (!url) return false;
+  const clean = normalizeHouseAdVideoUrl(url);
+  return /\.(mp4|webm|mov)(\?.*)?$/i.test(clean);
+};
+
 function isGenericDefaultUpsellText(text?: string): boolean {
   if (!text) return true;
   const lower = text.trim().toLowerCase();
@@ -127,7 +146,6 @@ function isGenericDefaultUpsellText(text?: string): boolean {
   );
 }
 
-// Persists a shuffled deck of card IDs in localStorage so all 5 PLUS cards cycle completely before any card repeats
 function pickNextCardFromPersistentDeck(cards: any[], deckStorageKey: string): any {
   if (!cards || cards.length === 0) return null;
   if (cards.length === 1) return cards[0];
@@ -137,7 +155,6 @@ function pickNextCardFromPersistentDeck(cards: any[], deckStorageKey: string): a
   try {
     const rawQueue = localStorage.getItem(deckStorageKey);
     let queue: string[] = rawQueue ? JSON.parse(rawQueue) : [];
-    // Keep only IDs that still exist in the active pool
     queue = queue.filter(id => validIds.includes(id));
 
     if (queue.length === 0) {
@@ -159,9 +176,7 @@ function pickNextCardFromPersistentDeck(cards: any[], deckStorageKey: string): a
     localStorage.setItem(deckStorageKey, JSON.stringify(queue));
     localStorage.setItem(`${deckStorageKey}_last`, nextId);
 
-    return (
-      cards.find((c, idx) => String(c.id || `card_${idx}`) === nextId) || cards[0]
-    );
+    return cards.find((c, idx) => String(c.id || `card_${idx}`) === nextId) || cards[0];
   } catch {
     return cards[Math.floor(Math.random() * cards.length)];
   }
@@ -175,7 +190,8 @@ export const PromoModal = ({
   onAction,
   customMessage,
   customTitle,
-  forceMode
+  forceMode,
+  triggerSource = 'navigation'
 }: any) => {
   const { seriesList = [] } = useSeriesData();
   const [showBetaInput, setShowBetaInput] = useState(false);
@@ -183,25 +199,34 @@ export const PromoModal = ({
   const [featuredBundle, setFeaturedBundle] = useState<any | null>(null);
   const [alreadyOwnsBundle, setAlreadyOwnsBundle] = useState(false);
   const [customCampaigns, setCustomCampaigns] = useState<any[]>(cachedUpsellPopups || []);
+  const [houseTimedCampaigns, setHouseTimedCampaigns] = useState<any[]>(() =>
+    loadSavedHouseAdCampaigns().filter(
+      c => c.enabled !== false && (c.placementMode === 'timed_popup' || c.placementMode === 'both')
+    )
+  );
   const [isLoaded, setIsLoaded] = useState<boolean>(Boolean(cachedUpsellPopups));
+  const [isMuted, setIsMuted] = useState<boolean>(true);
+  const [videoFailed, setVideoFailed] = useState<boolean>(false);
 
   const loggedImpressionRef = useRef<string | null>(null);
+  const loggedVideoWatchRef = useRef<string | null>(null);
   const lockedVariantRef = useRef<{
     audienceKey: string;
     variant: {
       id: string;
-      popupType: 'command_center_card' | 'default_fallback';
+      popupType: 'command_center_card' | 'house_video_popup' | 'default_fallback';
       badge: string;
       title: string;
       message: string;
       cta: string;
       imageUrl: string;
+      videoUrl: string;
+      externalClickUrl?: string;
     };
   } | null>(null);
 
   const isVisitor = forceMode ? forceMode === 'visitor' : userTier === 'visitor';
 
-  // Ignore generic hardcoded strings so your Command Center cards (#2-#6) always show their own headline & copy
   const hasSpecificContextualMessage =
     Boolean(customMessage) && !isGenericDefaultUpsellText(customMessage);
   const hasSpecificContextualTitle =
@@ -211,7 +236,7 @@ export const PromoModal = ({
     let isMounted = true;
 
     const loadPopupData = async () => {
-      const [{ data: bundles }, { data: popups }] = await Promise.all([
+      const [{ data: bundles }, { data: popups }, syncedHouse] = await Promise.all([
         supabase
           .from('themed_annual_bundles')
           .select('*')
@@ -221,7 +246,8 @@ export const PromoModal = ({
           .from('upsell_popups')
           .select('*')
           .eq('is_active', true)
-          .order('created_at', { ascending: false })
+          .order('created_at', { ascending: false }),
+        syncRewardedAdsGlobalConfig()
       ]);
 
       if (!isMounted) return;
@@ -230,6 +256,20 @@ export const PromoModal = ({
         cachedUpsellPopups = popups;
         setCustomCampaigns(popups);
       }
+
+      if (syncedHouse.enabled) {
+        const allHouse = syncedHouse.campaigns || loadSavedHouseAdCampaigns();
+        setHouseTimedCampaigns(
+          allHouse.filter(
+            c =>
+              c.enabled !== false &&
+              (c.placementMode === 'timed_popup' || c.placementMode === 'both')
+          )
+        );
+      } else {
+        setHouseTimedCampaigns([]);
+      }
+
       setIsLoaded(true);
 
       if (!bundles || bundles.length === 0 || hasSpecificContextualMessage) return;
@@ -243,8 +283,7 @@ export const PromoModal = ({
 
       if (!validBundle) return;
 
-      // Only show the Event Bundle 15% of the time when custom upsell popups are active
-      if (Array.isArray(popups) && popups.length > 0 && Math.random() > 0.15) {
+      if ((Array.isArray(popups) && popups.length > 0) && Math.random() > 0.15) {
         return;
       }
 
@@ -280,9 +319,6 @@ export const PromoModal = ({
     };
   }, [hasSpecificContextualMessage]);
 
-  // Pick ONCE per modal open after `isLoaded` is true:
-  // - Visitors (`isVisitor === true`) get the single `visitor_signup` card (#1)
-  // - Free Account holders (`isVisitor === false`) cycle through all 5 `plus_upsell` cards (#2-#6) before repeating!
   const selectedVariant = useMemo(() => {
     if (!isLoaded) return null;
 
@@ -302,38 +338,68 @@ export const PromoModal = ({
         : c.target_audience === 'plus_upsell' || c.target_audience === 'both'
     );
 
-    const activePool = audienceFiltered.length > 0 ? audienceFiltered : customCampaigns;
-
-    if (activePool.length > 0) {
-      const deckKey = isVisitor
-        ? 'am_upsell_deck_visitor_v3'
-        : 'am_upsell_deck_plus_v3';
-      const card = pickNextCardFromPersistentDeck(activePool, deckKey);
-
-      const built = {
+    const normalizedDbCards = (
+      audienceFiltered.length > 0 ? audienceFiltered : customCampaigns
+    ).map(card => {
+      const rawMedia = String(card.video_url || card.image_url || '').trim();
+      const videoUrl = isDirectVideoUrl(rawMedia) ? normalizeHouseAdVideoUrl(rawMedia) : '';
+      const fallbackVideoFromHouse =
+        !videoUrl && houseTimedCampaigns.find(hc => Boolean(hc.videoUrl))?.videoUrl;
+      return {
         id: String(card.id || 'cc_card'),
         popupType: 'command_center_card' as const,
         badge: card.badge_text || (isVisitor ? 'FREE READER PASS' : 'SATURDAY AM+ PLUS'),
         title: card.title,
         message: card.message,
         cta: card.cta_text || (isVisitor ? 'Create Free Account' : 'Upgrade to PLUS ($1.99)'),
-        imageUrl: card.image_url || ''
+        imageUrl: isDirectVideoUrl(card.image_url) ? '' : card.image_url || '',
+        videoUrl: videoUrl || normalizeHouseAdVideoUrl(fallbackVideoFromHouse || ''),
+        externalClickUrl: ''
       };
+    });
 
-      lockedVariantRef.current = { audienceKey, variant: built };
+    const normalizedHouseCards = houseTimedCampaigns
+      .filter(hc => Boolean(hc.videoUrl) || !hasSpecificContextualMessage)
+      .map(hc => ({
+        id: `house_popup_${hc.id}`,
+        popupType: 'house_video_popup' as const,
+        badge: hc.badge || (isVisitor ? 'FREE READER PASS' : 'SATURDAY AM SPOTLIGHT'),
+        title: hc.headline || 'READ WITHOUT LIMITS',
+        message:
+          hc.subheadline ||
+          (Array.isArray(hc.bullets) && hc.bullets[0]) ||
+          (isVisitor
+            ? 'Create a Free Account in 10 seconds to unlock Chapters 1–3 and claim your Virtual Hype Card!'
+            : 'Upgrade to Saturday AM+ PLUS ($1.99/mo or $20/yr) for 100% ad-free binging and 12h early access!'),
+        cta:
+          isVisitor && hc.actionType === 'in_app_plus_upgrade'
+            ? 'Create Free Account'
+            : hc.ctaLabel || (isVisitor ? 'Create Free Account' : 'Upgrade to PLUS ($1.99)'),
+        imageUrl: hc.backgroundImageUrl || hc.featureImageUrl || '',
+        videoUrl: normalizeHouseAdVideoUrl(hc.videoUrl || ''),
+        externalClickUrl: hc.actionType === 'external_url' ? hc.clickUrl || '' : ''
+      }));
+
+    const combinedPool = [...normalizedHouseCards, ...normalizedDbCards];
+
+    if (combinedPool.length > 0) {
+      const deckKey = isVisitor
+        ? 'am_upsell_deck_visitor_v4'
+        : 'am_upsell_deck_plus_v4';
+      const picked = pickNextCardFromPersistentDeck(combinedPool, deckKey);
+      lockedVariantRef.current = { audienceKey, variant: picked };
 
       return {
-        ...built,
-        title: hasSpecificContextualTitle ? customTitle : built.title,
-        message: hasSpecificContextualMessage ? customMessage : built.message
+        ...picked,
+        title: hasSpecificContextualTitle ? customTitle : picked.title,
+        message: hasSpecificContextualMessage ? customMessage : picked.message
       };
     }
 
-    // Fallback ONLY if 0 cards exist in `upsell_popups`
     const copyPool = isVisitor ? DEFAULT_VISITOR_UPSELL_MESSAGES : DEFAULT_PLUS_UPSELL_MESSAGES;
     const baseCopy = pickNextCardFromPersistentDeck(
       copyPool,
-      isVisitor ? 'am_fallback_visitor_v3' : 'am_fallback_plus_v3'
+      isVisitor ? 'am_fallback_visitor_v4' : 'am_fallback_plus_v4'
     );
 
     const seriesArtUrls = (seriesList || [])
@@ -351,7 +417,9 @@ export const PromoModal = ({
       title: baseCopy.title,
       message: baseCopy.message,
       cta: baseCopy.cta,
-      imageUrl: randomArt
+      imageUrl: randomArt,
+      videoUrl: '',
+      externalClickUrl: ''
     };
 
     lockedVariantRef.current = { audienceKey, variant: fallbackBuilt };
@@ -364,6 +432,7 @@ export const PromoModal = ({
   }, [
     isLoaded,
     customCampaigns,
+    houseTimedCampaigns,
     isVisitor,
     seriesList,
     customMessage,
@@ -376,7 +445,10 @@ export const PromoModal = ({
     featuredBundle && !alreadyOwnsBundle && !hasSpecificContextualMessage
   );
 
-  // Track Upsell Popup Impression once when the modal renders
+  const hasPlayableVideo = Boolean(
+    !isBundleActiveModal && selectedVariant?.videoUrl && !videoFailed
+  );
+
   useEffect(() => {
     if (!isLoaded || !selectedVariant) return;
     if (!featuredBundle && userTier === 'premium' && !forceMode) return;
@@ -390,16 +462,29 @@ export const PromoModal = ({
       ? featuredBundle.theme_badge || 'LIMITED EDITION DROP'
       : selectedVariant.badge;
 
-    if (loggedImpressionRef.current === activePopupId) return;
-    loggedImpressionRef.current = activePopupId;
+    if (loggedImpressionRef.current !== activePopupId) {
+      loggedImpressionRef.current = activePopupId;
+      trackTelemetry('upsell_popup_impression', {
+        popup_id: activePopupId,
+        popup_title: activePopupTitle,
+        popup_badge: activePopupBadge,
+        popup_type: isBundleActiveModal ? 'event_bundle_popup' : selectedVariant.popupType,
+        audience_mode: isVisitor ? 'visitor' : 'plus',
+        has_video: hasPlayableVideo,
+        trigger_source: triggerSource
+      });
+    }
 
-    trackTelemetry('upsell_popup_impression', {
-      popup_id: activePopupId,
-      popup_title: activePopupTitle,
-      popup_badge: activePopupBadge,
-      popup_type: isBundleActiveModal ? 'event_bundle_popup' : selectedVariant.popupType,
-      audience_mode: isVisitor ? 'visitor' : 'plus'
-    });
+    if (hasPlayableVideo && loggedVideoWatchRef.current !== activePopupId) {
+      loggedVideoWatchRef.current = activePopupId;
+      trackTelemetry('upsell_video_watched', {
+        popup_id: activePopupId,
+        popup_title: activePopupTitle,
+        video_url: selectedVariant.videoUrl,
+        audience_mode: isVisitor ? 'visitor' : 'plus',
+        trigger_source: triggerSource
+      });
+    }
   }, [
     isLoaded,
     isBundleActiveModal,
@@ -409,16 +494,15 @@ export const PromoModal = ({
     selectedVariant,
     userTier,
     forceMode,
-    isVisitor
+    isVisitor,
+    hasPlayableVideo,
+    triggerSource
   ]);
 
   if (!featuredBundle && userTier === 'premium' && !forceMode) return null;
   if (featuredBundle && alreadyOwnsBundle && !hasSpecificContextualMessage) return null;
   if (!isLoaded || !selectedVariant) return null;
 
-  // ============================================================================
-  // 1. SPECIAL EVENT BUNDLE POP-UP AD (WHEN SELECTED)
-  // ============================================================================
   if (featuredBundle && !hasSpecificContextualMessage) {
     const price = Number(featuredBundle.price_dollars || 24.99);
     const normalPrice = Number(featuredBundle.original_price_dollars || 35);
@@ -464,7 +548,7 @@ export const PromoModal = ({
 
     return (
       <div
-        className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+        className="fixed inset-0 z-[10050] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in pointer-events-auto"
         onClick={onClose}
       >
         <div
@@ -592,9 +676,6 @@ export const PromoModal = ({
     );
   }
 
-  // ============================================================================
-  // 2. VISUAL ARTWORK + MATCHED COMMAND CENTER COPY UPSELL MODAL
-  // ============================================================================
   const handlePrimaryUpsellClick = () => {
     const attribution: UpsellPopupAttribution = {
       popup_id: selectedVariant.id,
@@ -608,23 +689,63 @@ export const PromoModal = ({
     saveUpsellPopupAttribution(attribution);
     trackTelemetry('upsell_popup_cta_click', {
       ...attribution,
+      has_video: hasPlayableVideo,
+      trigger_source: triggerSource,
       entered_promo_code: betaCode || null
     });
+
+    if (!isVisitor && selectedVariant.externalClickUrl && !betaCode) {
+      if (selectedVariant.externalClickUrl.startsWith('/')) {
+        if (onClose) onClose();
+        window.location.href = selectedVariant.externalClickUrl;
+        return;
+      }
+      window.open(selectedVariant.externalClickUrl, '_blank', 'noopener,noreferrer');
+      if (onClose) onClose();
+      return;
+    }
+
     onAction(betaCode);
   };
 
   return (
     <div
-      className="fixed inset-0 z-[8000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+      className="fixed inset-0 z-[10050] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in pointer-events-auto"
       onClick={onClose}
     >
       <div
         className="bg-zinc-950 border-2 border-[#fe9a00]/80 rounded-3xl w-full max-w-md flex flex-col items-center text-center shadow-[0_0_50px_rgba(254,154,0,0.25)] relative overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        {/* TOP VISUAL ARTWORK BANNER (16:9 / 1200x675) */}
         <div className="relative w-full aspect-[16/9] bg-zinc-900 overflow-hidden">
-          {selectedVariant.imageUrl ? (
+          {hasPlayableVideo ? (
+            <>
+              <video
+                key={selectedVariant.videoUrl}
+                src={selectedVariant.videoUrl}
+                poster={selectedVariant.imageUrl || undefined}
+                autoPlay
+                loop
+                muted={isMuted}
+                playsInline
+                // @ts-expect-error referrerPolicy is supported in modern browsers
+                referrerPolicy="no-referrer"
+                onError={() => setVideoFailed(true)}
+                className="w-full h-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={e => {
+                  e.stopPropagation();
+                  setIsMuted(prev => !prev);
+                }}
+                className="absolute bottom-3 right-3.5 z-20 p-2 rounded-full bg-black/80 hover:bg-[#fe9a00] text-zinc-200 hover:text-black border border-zinc-700 transition-colors cursor-pointer"
+                title={isMuted ? 'Unmute Video' : 'Mute Video'}
+              >
+                {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              </button>
+            </>
+          ) : selectedVariant.imageUrl ? (
             <img
               src={selectedVariant.imageUrl}
               alt={selectedVariant.title}
@@ -640,10 +761,8 @@ export const PromoModal = ({
             </div>
           )}
 
-          {/* Smooth Gradient Blend into Card Body */}
           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/35 to-black/20 pointer-events-none" />
 
-          {/* Floating Top-Left Pill Badge */}
           <div className="absolute top-3.5 left-4 z-10">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/80 backdrop-blur-md border border-[#fe9a00]/60 text-[#fe9a00] text-[9px] font-black uppercase tracking-widest shadow-lg">
               <Sparkles className="w-3 h-3 fill-[#fe9a00]" />
@@ -651,7 +770,6 @@ export const PromoModal = ({
             </span>
           </div>
 
-          {/* Close Button */}
           <button
             type="button"
             onClick={onClose}
@@ -661,7 +779,6 @@ export const PromoModal = ({
           </button>
         </div>
 
-        {/* MODAL TEXT & CTA BODY */}
         <div className="px-6 sm:px-8 pb-7 pt-2 w-full flex flex-col items-center -mt-4 relative z-10">
           <h2 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tighter text-white leading-none mb-3 drop-shadow-md">
             {selectedVariant.title}
@@ -671,7 +788,6 @@ export const PromoModal = ({
             {selectedVariant.message}
           </p>
 
-          {/* Optional Promo / Gift Code Input */}
           <div className="w-full mb-4 flex flex-col items-center justify-center">
             {!showBetaInput ? (
               <button

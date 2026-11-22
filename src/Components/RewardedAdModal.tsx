@@ -28,7 +28,6 @@ export const AD_UNLOCK_DURATION_MS = 12 * 60 * 60 * 1000; // 12 Hours
 export const MAX_DAILY_AD_UNLOCKS = 3; // Max 3 ad unlocks per 24h rolling window
 const LOCAL_UNLOCK_TIMESTAMPS_KEY = 'am_temp_unlock_timestamps_v2';
 
-// Helper: Read local unlock timestamps map { [chapterId]: timestampMs }
 export const getLocalUnlockTimestamps = (): Record<string, number> => {
   try {
     const raw = localStorage.getItem(LOCAL_UNLOCK_TIMESTAMPS_KEY);
@@ -42,7 +41,6 @@ export const getLocalUnlockTimestamps = (): Record<string, number> => {
   return {};
 };
 
-// Helper: Record a new chapter unlock timestamp locally
 export const recordLocalChapterUnlock = (chapterId: string | number) => {
   try {
     const current = getLocalUnlockTimestamps();
@@ -56,12 +54,12 @@ export const recordLocalChapterUnlock = (chapterId: string | number) => {
 export const isRewardedAdsFeatureEnabled = (): boolean => {
   try {
     const raw = localStorage.getItem(STORAGE_ENABLED_KEY);
-    if (raw === 'true') return true;
     if (raw === 'false') return false;
+    if (raw === 'true') return true;
   } catch {
     // ignore
   }
-  return false;
+  return true;
 };
 
 export const setRewardedAdsFeatureEnabledLocal = (enabled: boolean) => {
@@ -80,12 +78,29 @@ export const syncRewardedAdsGlobalConfig = async (): Promise<{
   campaigns?: HouseAdCampaign[];
 }> => {
   try {
+    const { data: dbConfig, error: rpcErr } = await supabase.rpc('get_house_ad_config');
+    if (!rpcErr && dbConfig && typeof dbConfig === 'object') {
+      const hasCampaigns = Array.isArray(dbConfig.campaigns) && dbConfig.campaigns.length > 0;
+      const enabled =
+        typeof dbConfig.rewardedAdsEnabled === 'boolean' ? dbConfig.rewardedAdsEnabled : true;
+      if (hasCampaigns) {
+        localStorage.setItem(STORAGE_ENABLED_KEY, enabled ? 'true' : 'false');
+        localStorage.setItem('am_house_ad_campaigns_v2', JSON.stringify(dbConfig.campaigns));
+        return { enabled, campaigns: dbConfig.campaigns };
+      }
+    }
+  } catch {
+    // Fallback to Storage JSON
+  }
+
+  try {
     const { data } = supabase.storage.from('assets').getPublicUrl(GLOBAL_CONFIG_PATH);
     if (data?.publicUrl) {
       const res = await fetch(`${data.publicUrl}?t=${Date.now()}`, { cache: 'no-store' });
       if (res.ok) {
         const json = await res.json();
-        const enabled = Boolean(json?.rewardedAdsEnabled);
+        const enabled =
+          typeof json?.rewardedAdsEnabled === 'boolean' ? json.rewardedAdsEnabled : true;
         localStorage.setItem(STORAGE_ENABLED_KEY, enabled ? 'true' : 'false');
         if (Array.isArray(json?.campaigns) && json.campaigns.length > 0) {
           localStorage.setItem('am_house_ad_campaigns_v2', JSON.stringify(json.campaigns));
@@ -96,6 +111,7 @@ export const syncRewardedAdsGlobalConfig = async (): Promise<{
   } catch {
     // Fallback to local storage state
   }
+
   return {
     enabled: isRewardedAdsFeatureEnabled(),
     campaigns: loadSavedHouseAdCampaigns()
@@ -111,6 +127,7 @@ interface RewardedAdModalProps {
   seriesTitle?: string;
   dailyUnlocksUsed?: number;
   maxDailyUnlocks?: number;
+  userTier?: string;
 }
 
 export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
@@ -121,7 +138,8 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   chapterNumber,
   seriesTitle,
   dailyUnlocksUsed = 0,
-  maxDailyUnlocks = MAX_DAILY_AD_UNLOCKS
+  maxDailyUnlocks = MAX_DAILY_AD_UNLOCKS,
+  userTier = 'visitor'
 }) => {
   const [totalDuration, setTotalDuration] = useState<number>(15);
   const [secondsLeft, setSecondsLeft] = useState<number>(15);
@@ -136,60 +154,74 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hasLoggedCompletionRef = useRef<boolean>(false);
 
-  // Pick the next active campaign in rotation when the modal opens
   useEffect(() => {
     if (!isOpen) return;
 
-    const allCampaigns = loadSavedHouseAdCampaigns().filter(
-      c =>
-        c.enabled !== false &&
-        (c.placementMode === 'rewarded_unlock' ||
-          c.placementMode === 'both' ||
-          !c.placementMode)
-    );
-    const pool = allCampaigns.length > 0 ? allCampaigns : DEFAULT_HOUSE_AD_CAMPAIGNS;
+    let cancelled = false;
+    const initAd = async () => {
+      const synced = await syncRewardedAdsGlobalConfig();
+      if (cancelled) return;
 
-    let nextIdx = 0;
-    try {
-      const savedIdx = parseInt(localStorage.getItem(STORAGE_ROTATION_KEY) || '0', 10);
-      nextIdx = isNaN(savedIdx) ? 0 : savedIdx % pool.length;
-      localStorage.setItem(STORAGE_ROTATION_KEY, String((nextIdx + 1) % pool.length));
-    } catch {
-      nextIdx = 0;
-    }
+      const sourceList =
+        Array.isArray(synced.campaigns) && synced.campaigns.length > 0
+          ? synced.campaigns
+          : loadSavedHouseAdCampaigns();
 
-    const chosenCampaign = pool[nextIdx] || pool[0];
-    const durationSec = Math.max(5, Number(chosenCampaign?.rewardDurationSeconds) || 15);
+      const filtered = sourceList.filter(
+        c =>
+          c.enabled !== false &&
+          (c.placementMode === 'rewarded_unlock' ||
+            c.placementMode === 'both' ||
+            !c.placementMode)
+      );
+      const pool = filtered.length > 0 ? filtered : DEFAULT_HOUSE_AD_CAMPAIGNS;
 
-    setActiveCampaign(chosenCampaign);
-    setTotalDuration(durationSec);
-    setSecondsLeft(durationSec);
-    setIsCompleted(false);
-    setVideoFailed(false);
-    hasLoggedCompletionRef.current = false;
+      let nextIdx = 0;
+      try {
+        const savedIdx = parseInt(localStorage.getItem(STORAGE_ROTATION_KEY) || '0', 10);
+        nextIdx = isNaN(savedIdx) ? 0 : savedIdx % pool.length;
+        localStorage.setItem(STORAGE_ROTATION_KEY, String((nextIdx + 1) % pool.length));
+      } catch {
+        nextIdx = 0;
+      }
 
-    trackTelemetry('rewarded_ad_started', {
-      campaign_id: chosenCampaign?.id || 'default',
-      headline: chosenCampaign?.headline || '',
-      has_video: Boolean(chosenCampaign?.videoUrl),
-      series_title: seriesTitle || '',
-      chapter_number: String(chapterNumber || ''),
-      duration_seconds: durationSec
-    });
+      const chosenCampaign = pool[nextIdx] || pool[0];
+      const durationSec = Math.max(5, Number(chosenCampaign?.rewardDurationSeconds) || 15);
 
-    const win = window as any;
-    if (win.googletag && win.amGamRewardedSlotReady) {
-      setAdSourceMode('checking_gam');
-      const fallbackTimer = setTimeout(() => {
+      setActiveCampaign(chosenCampaign);
+      setTotalDuration(durationSec);
+      setSecondsLeft(durationSec);
+      setIsCompleted(false);
+      setVideoFailed(false);
+      hasLoggedCompletionRef.current = false;
+
+      trackTelemetry('rewarded_ad_started', {
+        campaign_id: chosenCampaign?.id || 'default',
+        headline: chosenCampaign?.headline || '',
+        has_video: Boolean(chosenCampaign?.videoUrl),
+        series_title: seriesTitle || '',
+        chapter_number: String(chapterNumber || ''),
+        duration_seconds: durationSec,
+        user_tier: userTier
+      });
+
+      const win = window as any;
+      if (win.googletag && win.amGamRewardedSlotReady) {
+        setAdSourceMode('checking_gam');
+        setTimeout(() => {
+          if (!cancelled) setAdSourceMode('in_house');
+        }, 2000);
+      } else {
         setAdSourceMode('in_house');
-      }, 2000);
-      return () => clearTimeout(fallbackTimer);
-    } else {
-      setAdSourceMode('in_house');
-    }
-  }, [isOpen, seriesTitle, chapterNumber]);
+      }
+    };
 
-  // Countdown Timer
+    initAd();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, seriesTitle, chapterNumber, userTier]);
+
   useEffect(() => {
     if (!isOpen || adSourceMode === 'checking_gam') return;
 
@@ -203,7 +235,8 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
           has_video: Boolean(activeCampaign?.videoUrl),
           series_title: seriesTitle || '',
           chapter_number: String(chapterNumber || ''),
-          duration_seconds: totalDuration
+          duration_seconds: totalDuration,
+          user_tier: userTier
         });
       }
       return;
@@ -220,14 +253,22 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isOpen, secondsLeft, adSourceMode, activeCampaign, seriesTitle, chapterNumber, totalDuration]);
+  }, [
+    isOpen,
+    secondsLeft,
+    adSourceMode,
+    activeCampaign,
+    seriesTitle,
+    chapterNumber,
+    totalDuration,
+    userTier
+  ]);
 
   const resolvedVideoUrl = useMemo(
     () => normalizeHouseAdVideoUrl(activeCampaign?.videoUrl),
     [activeCampaign?.videoUrl]
   );
 
-  // Ensure video plays smoothly when modal opens (falls back to muted autoplay if browser blocks unmuted autoplay)
   useEffect(() => {
     if (!isOpen || !resolvedVideoUrl || videoFailed) return;
     const vid = videoRef.current;
@@ -249,7 +290,10 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   }, [isOpen, resolvedVideoUrl, videoFailed]);
 
   const progressPercentage = useMemo(() => {
-    return Math.min(100, Math.max(0, ((totalDuration - secondsLeft) / Math.max(1, totalDuration)) * 100));
+    return Math.min(
+      100,
+      Math.max(0, ((totalDuration - secondsLeft) / Math.max(1, totalDuration)) * 100)
+    );
   }, [secondsLeft, totalDuration]);
 
   if (!isOpen) return null;
@@ -268,7 +312,8 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
       has_video: Boolean(resolvedVideoUrl),
       click_url: activeCampaign?.clickUrl || '',
       series_title: seriesTitle || '',
-      chapter_number: String(chapterNumber || '')
+      chapter_number: String(chapterNumber || ''),
+      user_tier: userTier
     });
 
     if (activeCampaign.actionType === 'in_app_plus_upgrade') {
@@ -286,18 +331,18 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
       headline: activeCampaign?.headline || '',
       has_video: Boolean(resolvedVideoUrl),
       series_title: seriesTitle || '',
-      chapter_number: String(chapterNumber || '')
+      chapter_number: String(chapterNumber || ''),
+      user_tier: userTier
     });
     onRewardEarned();
   };
 
   return (
     <div
-      className="fixed inset-0 z-[8500] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+      className="fixed inset-0 z-[10060] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-fade-in pointer-events-auto"
       onClick={e => e.stopPropagation()}
     >
       <div className="w-full max-w-2xl bg-zinc-950 border-2 border-[#fe9a00]/60 rounded-3xl overflow-hidden shadow-[0_0_60px_rgba(254,154,0,0.2)] flex flex-col relative">
-        {/* TOP STATUS HEADER BAR */}
         <div className="px-4 sm:px-6 py-3.5 bg-zinc-900/90 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <span className="px-2.5 py-1 rounded-md bg-[#fe9a00] text-black text-[9px] font-black uppercase tracking-widest flex items-center gap-1">
@@ -312,7 +357,6 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5">
-            {/* Daily Ad Unlock Counter Pill */}
             <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/80 border border-zinc-700 text-[9px] font-black uppercase tracking-widest text-zinc-300">
               <Zap className="w-3 h-3 text-[#fe9a00]" />
               Daily Unlocks: {Math.max(0, maxDailyUnlocks - dailyUnlocksUsed)}/{maxDailyUnlocks} Left
@@ -344,7 +388,6 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
           </div>
         </div>
 
-        {/* 16:9 VIDEO OR VISUAL SPOTLIGHT STAGE */}
         <div className="relative w-full aspect-video bg-black overflow-hidden">
           {hasActiveVideo ? (
             <video
@@ -355,7 +398,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
               playsInline
               muted={isMuted}
               loop
-              // @ts-expect-error referrerPolicy is supported in modern browsers for Imgur/CDN MP4s
+              // @ts-expect-error referrerPolicy is supported in modern browsers
               referrerPolicy="no-referrer"
               onError={() => setVideoFailed(true)}
               onClick={handleCtaClick}
@@ -374,7 +417,6 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
             </div>
           )}
 
-          {/* Subtle Bottom Progress Bar */}
           <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-zinc-800/90 z-30">
             <div
               className="h-full bg-gradient-to-r from-[#fe9a00] to-yellow-400 transition-all duration-1000 ease-linear"
@@ -383,7 +425,6 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
           </div>
         </div>
 
-        {/* CAMPAIGN INFO & ACTION FOOTER */}
         <div className="p-4 sm:p-6 bg-zinc-950 border-t border-zinc-800 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-800/80">
             <div className="min-w-0">
@@ -408,7 +449,6 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
             </button>
           </div>
 
-          {/* PRIMARY UNLOCK OR UPGRADE ACTIONS */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <button
               type="button"
@@ -441,7 +481,11 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
               className="py-3.5 px-4 rounded-xl bg-purple-950/50 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/40 font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
             >
               <Play className="w-3 h-3 fill-current" />
-              <span>Skip Ads • Go PLUS ($1.99)</span>
+              <span>
+                {userTier === 'visitor'
+                  ? 'Sign Up Free (Unlock Ch. 1–3)'
+                  : 'Skip Ads • Go PLUS ($1.99)'}
+              </span>
             </button>
           </div>
 

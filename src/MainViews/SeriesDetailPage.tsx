@@ -1,6 +1,21 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Bookmark, Play, ArrowUp, ArrowDown, Heart, Lock, X, MessageSquare, PenTool, Share2, Loader2, CheckCircle2, Clock } from 'lucide-react';
-import { supabase, trackTelemetry } from '../supabase';
+import {
+  ArrowLeft,
+  Bookmark,
+  Play,
+  ArrowUp,
+  ArrowDown,
+  Heart,
+  Lock,
+  X,
+  MessageSquare,
+  PenTool,
+  Share2,
+  Loader2,
+  CheckCircle2,
+  Clock
+} from 'lucide-react';
+import { supabase, trackTelemetry, getOrCreatePersistentVisitorId } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import {
   isCompletedRunSeries,
@@ -28,11 +43,11 @@ import {
   getLocalUnlockTimestamps,
   recordLocalChapterUnlock
 } from '../Components/RewardedAdModal';
-import { useTelemetry } from '../Components/useTelemetry';
 import { FeatureTutorialModal, TutorialHelpButton } from '../Components/FeatureTutorialModal';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
-const fullIconUrl = "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png";
+const fullIconUrl =
+  'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png';
 
 const iconMaskStyle = {
   WebkitMaskImage: `url('${fullIconUrl}')`,
@@ -75,29 +90,52 @@ const seriesTutorialSlide = [
   {
     id: 'series-icons',
     title: 'Series Actions',
-    description: 'Take command of your reading experience. Use these interactive features to support creators, engage with the community, and curate your personalized library.',
+    description:
+      'Take command of your reading experience. Use these interactive features to support creators, engage with the community, and curate your personalized library.',
     iconsList: [
-      { icon: <div className="w-6 h-6 bg-[#fe9a00]" style={iconMaskStyle} />, title: 'Drop a Hype', desc: "Boost the series' ranking on the leaderboards." },
-      { icon: <Heart className="w-6 h-6" />, title: 'Like', desc: 'Show some love and support for the chapter.' },
-      { icon: <MessageSquare className="w-6 h-6" />, title: 'Discuss', desc: 'Jump instantly to the community comment section.' },
-      { icon: <PenTool className="w-6 h-6" />, title: 'Creators', desc: "Scroll directly to the creator's profile and links." }
+      {
+        icon: <div className="w-6 h-6 bg-[#fe9a00]" style={iconMaskStyle} />,
+        title: 'Drop a Hype',
+        desc: "Boost the series' ranking on the leaderboards."
+      },
+      {
+        icon: <Heart className="w-6 h-6" />,
+        title: 'Like',
+        desc: 'Show some love and support for the chapter.'
+      },
+      {
+        icon: <MessageSquare className="w-6 h-6" />,
+        title: 'Discuss',
+        desc: 'Jump instantly to the community comment section.'
+      },
+      {
+        icon: <PenTool className="w-6 h-6" />,
+        title: 'Creators',
+        desc: "Scroll directly to the creator's profile and links."
+      }
     ]
   }
 ];
 
 const ContentRatingBadge = ({ rating }: { rating: string }) => {
   const config: Record<string, { label: string; color: string; desc: string }> = {
-    'E': { label: 'E', color: 'bg-green-600 text-white', desc: 'All Ages' },
-    'Y': { label: 'Y', color: 'bg-blue-500 text-white', desc: 'Youth 10+' },
-    'T': { label: 'T', color: 'bg-[#fe9a00] text-black', desc: 'Teen 13+' },
-    'OT': { label: 'OT', color: 'bg-red-600 text-white', desc: 'Older Teen 16+' },
-    'M': { label: 'M', color: 'bg-black border border-red-600 text-red-600', desc: 'Mature 18+' }
+    E: { label: 'E', color: 'bg-green-600 text-white', desc: 'All Ages' },
+    Y: { label: 'Y', color: 'bg-blue-500 text-white', desc: 'Youth 10+' },
+    T: { label: 'T', color: 'bg-[#fe9a00] text-black', desc: 'Teen 13+' },
+    OT: { label: 'OT', color: 'bg-red-600 text-white', desc: 'Older Teen 16+' },
+    M: { label: 'M', color: 'bg-black border border-red-600 text-red-600', desc: 'Mature 18+' }
   };
   const current = config[rating] || config['T'];
   return (
     <div className="flex items-center gap-2 mt-5 bg-zinc-900/80 px-3 py-1.5 rounded-full border border-zinc-800 w-max mx-auto shadow-lg">
-      <div className={`w-5 h-5 flex items-center justify-center rounded-[3px] font-black text-[10px] ${current.color} shadow-sm`}>{current.label}</div>
-      <span className="text-[9px] font-black text-zinc-300 uppercase tracking-widest">{current.desc}</span>
+      <div
+        className={`w-5 h-5 flex items-center justify-center rounded-[3px] font-black text-[10px] ${current.color} shadow-sm`}
+      >
+        {current.label}
+      </div>
+      <span className="text-[9px] font-black text-zinc-300 uppercase tracking-widest">
+        {current.desc}
+      </span>
     </div>
   );
 };
@@ -117,7 +155,6 @@ const isStrictWholeWordCreatorMatch = (nameA: string, nameB: string): boolean =>
   const bWords = cleanWords(nameB);
   if (aWords.length === 0 || bWords.length === 0) return false;
 
-  // Hard guard against "frederick" matching "erick"
   if (
     (aWords.includes('frederick') && !bWords.includes('frederick')) ||
     (bWords.includes('frederick') && !aWords.includes('frederick'))
@@ -130,7 +167,13 @@ const isStrictWholeWordCreatorMatch = (nameA: string, nameB: string): boolean =>
   return shorter.every(w => longerSet.has(w));
 };
 
-export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLoginClick, onNavigate }: any) => {
+export const SeriesDetailPage = ({
+  series,
+  onBack,
+  userTier = 'visitor',
+  onLoginClick,
+  onNavigate
+}: any) => {
   const { seriesList = [] } = useSeriesData();
   const [localSeries, setLocalSeries] = useState(series);
   const localSeriesRef = useRef(series);
@@ -157,15 +200,16 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [chapterLikesTotal, setChapterLikesTotal] = useState<number>(0);
   const [readerClosedCount, setReaderClosedCount] = useState(0);
 
-  const [upsellConfig, setUpsellConfig] = useState<{ type: 'visitor' | 'premium'; message: string } | null>(null);
+  const [upsellConfig, setUpsellConfig] = useState<{
+    type: 'visitor' | 'premium';
+    message: string;
+  } | null>(null);
   const [isFavorited, setIsFavorited] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const [seriesCharacters, setSeriesCharacters] = useState<any[]>([]);
   const [showAllChars, setShowAllChars] = useState(false);
   const [collectedSignatures, setCollectedSignatures] = useState<Record<string, string>>({});
-
-  const { trackEvent } = useTelemetry(currentUserId || undefined);
 
   const [showPromo, setShowPromo] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -185,7 +229,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const [visibleCount, setVisibleCount] = useState(10);
 
   const [showAdModal, setShowAdModal] = useState(false);
-  const [rewardedAdsEnabled, setRewardedAdsEnabled] = useState<boolean>(() => isRewardedAdsFeatureEnabled());
+  const [rewardedAdsEnabled, setRewardedAdsEnabled] = useState<boolean>(() =>
+    isRewardedAdsFeatureEnabled()
+  );
   const [targetChapter, setTargetChapter] = useState<any>(null);
   const [unlockedChapters, setUnlockedChapters] = useState<string[]>([]);
   const [dailyUnlocksUsed, setDailyUnlocksUsed] = useState<number>(0);
@@ -198,18 +244,29 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const commentsRef = useRef<HTMLDivElement>(null);
   const creatorRef = useRef<HTMLDivElement>(null);
 
-  const targetSeriesSlug = typeof series === 'string' ? series : (series?.slug || localSeries?.slug);
+  const targetSeriesSlug =
+    typeof series === 'string' ? series : series?.slug || localSeries?.slug;
 
-  const isCompletedRun = isCompletedRunSeries(localSeries, seriesList) || isCompletedRunSeries(series, seriesList);
-  const isUnlockedForOneShotWednesday = isActiveOneShotWednesday(localSeries || series, seriesList);
+  const isCompletedRun =
+    isCompletedRunSeries(localSeries, seriesList) || isCompletedRunSeries(series, seriesList);
+  const isUnlockedForOneShotWednesday = isActiveOneShotWednesday(
+    localSeries || series,
+    seriesList
+  );
   const is48hDebutActive = isInOneShotDebutWindow(localSeries || series, seriesList);
   const currentWednesdayPick = getOneShotWednesdaySeries(seriesList);
   const isPlusActive = userTier === 'premium' || isPremiumUser;
 
   useEffect(() => {
-    syncRewardedAdsGlobalConfig().then((res: { enabled: boolean }) => setRewardedAdsEnabled(res.enabled));
+    syncRewardedAdsGlobalConfig().then((res: { enabled: boolean }) =>
+      setRewardedAdsEnabled(res.enabled)
+    );
     const handleConfigChange = (e: any) => {
-      setRewardedAdsEnabled(typeof e?.detail?.enabled === 'boolean' ? e.detail.enabled : isRewardedAdsFeatureEnabled());
+      setRewardedAdsEnabled(
+        typeof e?.detail?.enabled === 'boolean'
+          ? e.detail.enabled
+          : isRewardedAdsFeatureEnabled()
+      );
     };
     window.addEventListener('rewardedAdsConfigChanged', handleConfigChange);
     return () => window.removeEventListener('rewardedAdsConfigChanged', handleConfigChange);
@@ -239,12 +296,19 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
       supabase.auth.getUser().then(async ({ data: { user } }) => {
         if (user) {
-          const { data: prof } = await supabase.from('profiles').select('creator_supports, fandom_score').eq('id', user.id).maybeSingle();
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('creator_supports, fandom_score')
+            .eq('id', user.id)
+            .maybeSingle();
           if (prof) {
-            await supabase.from('profiles').update({
-              creator_supports: (prof.creator_supports || 0) + 1,
-              fandom_score: (prof.fandom_score || 0) + Math.max(10, returnedAmount * 2)
-            }).eq('id', user.id);
+            await supabase
+              .from('profiles')
+              .update({
+                creator_supports: (prof.creator_supports || 0) + 1,
+                fandom_score: (prof.fandom_score || 0) + Math.max(10, returnedAmount * 2)
+              })
+              .eq('id', user.id);
           }
           window.dispatchEvent(new Event('profileUpdated'));
         }
@@ -262,7 +326,11 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  const scrollToSection = (e: React.MouseEvent | any, ref: React.RefObject<HTMLDivElement | null>, center: boolean = false) => {
+  const scrollToSection = (
+    e: React.MouseEvent | any,
+    ref: React.RefObject<HTMLDivElement | null>,
+    center: boolean = false
+  ) => {
     if (e && e.stopPropagation) e.stopPropagation();
     if (ref.current) {
       if (center) ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -275,11 +343,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   useEffect(() => {
     if (targetSeriesSlug) {
-      trackEvent('series_page_visit', { series_slug: targetSeriesSlug });
       trackTelemetry('series_visit', { series_slug: targetSeriesSlug });
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
-  }, [targetSeriesSlug, trackEvent]);
+  }, [targetSeriesSlug]);
 
   // Unified Signature Sync: Strictly matches whole creator names (so "Frederick" never matches "Erick")
   useEffect(() => {
@@ -291,14 +358,20 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
       const localHunts: string[] = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
       const unlockedNames = new Set<string>(
-        (Array.isArray(localHunts) ? localHunts : []).map(s => String(s || '').trim()).filter(Boolean)
+        (Array.isArray(localHunts) ? localHunts : [])
+          .map(s => String(s || '').trim())
+          .filter(Boolean)
       );
 
       if (currentUserId) {
         const [{ data: authData }, { data: logRows }, { data: profRow }] = await Promise.all([
           supabase.auth.getUser(),
           supabase.from('bingo_signatures_log').select('creator_name').eq('user_id', currentUserId),
-          supabase.from('profiles').select('email, unlocked_autographs').eq('id', currentUserId).maybeSingle()
+          supabase
+            .from('profiles')
+            .select('email, unlocked_autographs')
+            .eq('id', currentUserId)
+            .maybeSingle()
         ]);
 
         (logRows || []).forEach((r: any) => {
@@ -319,7 +392,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           unlockedNames.add('Erick Pedrucci');
         }
       } else {
-        const localSigs: Record<string, string> = JSON.parse(localStorage.getItem('am_bingo_sigs') || '{}');
+        const localSigs: Record<string, string> = JSON.parse(
+          localStorage.getItem('am_bingo_sigs') || '{}'
+        );
         Object.keys(localSigs).forEach(k => unlockedNames.add(k));
       }
 
@@ -360,10 +435,16 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   useEffect(() => {
     const checkFavoriteAndLikeStatus = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
       if (user && targetSeriesSlug) {
         setCurrentUserId(user.id);
-        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
         if (data?.favorites && data.favorites.includes(targetSeriesSlug)) setIsFavorited(true);
         if (data?.is_premium) setIsPremiumUser(true);
       }
@@ -371,8 +452,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     checkFavoriteAndLikeStatus();
   }, [targetSeriesSlug]);
 
+  // Server-verified temporary ad unlocks for BOTH Visitors (Ch. 2+) and Free Accounts (Ch. 4+)
   const syncTemporaryUnlocks = useCallback(async () => {
-    if (userTier === 'premium' || userTier === 'visitor') return;
+    if (userTier === 'premium' || isPremiumUser) return;
     const now = Date.now();
     const twelveHoursAgo = now - AD_UNLOCK_DURATION_MS;
     const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000;
@@ -388,36 +470,40 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     });
 
     try {
-      let query = supabase.from('temporary_unlocks').select('chapter_id, created_at, user_id');
-      if (currentUserId) query = query.eq('user_id', currentUserId);
-      const { data, error } = await query;
+      const visitorId = getOrCreatePersistentVisitorId();
+      const { data, error } = await supabase.rpc('get_my_temporary_unlocks', {
+        p_visitor_id: visitorId
+      });
 
       if (!error && Array.isArray(data)) {
+        const db12hIds = new Set<string>();
         const db24hTimes: number[] = [];
         data.forEach((row: any) => {
           const cid = String(row.chapter_id);
-          const createdMs = row.created_at ? new Date(row.created_at).getTime() : Number(localMap[cid] || 0);
-          if (createdMs) {
-            if (createdMs >= twelveHoursAgo) validTwelveHourChapterIds.add(cid);
-            if (createdMs >= twentyFourHoursAgo) db24hTimes.push(createdMs);
-          }
+          const createdMs = row.created_at ? new Date(row.created_at).getTime() : 0;
+          if (createdMs >= twelveHoursAgo) db12hIds.add(cid);
+          if (createdMs >= twentyFourHoursAgo) db24hTimes.push(createdMs);
         });
-        const mergedTimes = db24hTimes.length >= recent24hTimestamps.length ? db24hTimes : recent24hTimestamps;
-        mergedTimes.sort((a, b) => a - b);
-        setDailyUnlocksUsed(mergedTimes.length);
-        setOldestDailyUnlockMs(mergedTimes.length > 0 ? mergedTimes[0] : null);
-        setUnlockedChapters(Array.from(validTwelveHourChapterIds));
+        db24hTimes.sort((a, b) => a - b);
+        recent24hTimestamps.sort((a, b) => a - b);
+        setDailyUnlocksUsed(Math.max(db24hTimes.length, recent24hTimestamps.length));
+        setOldestDailyUnlockMs(db24hTimes[0] || recent24hTimestamps[0] || null);
+        setUnlockedChapters(Array.from(db12hIds));
         return;
       }
-    } catch (err) { console.error('Error fetching temporary unlocks:', err); }
+    } catch (err) {
+      console.error('Error fetching temporary unlocks:', err);
+    }
 
     recent24hTimestamps.sort((a, b) => a - b);
     setDailyUnlocksUsed(recent24hTimestamps.length);
     setOldestDailyUnlockMs(recent24hTimestamps.length > 0 ? recent24hTimestamps[0] : null);
     setUnlockedChapters(Array.from(validTwelveHourChapterIds));
-  }, [userTier, currentUserId]);
+  }, [userTier, isPremiumUser]);
 
-  useEffect(() => { syncTemporaryUnlocks(); }, [syncTemporaryUnlocks, nowTick]);
+  useEffect(() => {
+    syncTemporaryUnlocks();
+  }, [syncTemporaryUnlocks, nowTick, currentUserId]);
 
   const fetchDetails = useCallback(async () => {
     try {
@@ -434,13 +520,30 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         supabase.from('series').select('*').eq('slug', targetSeriesSlug).single(),
         supabase
           .from('chapters')
-          .select('id, series_slug, chapter_number, title, thumbnail_url, thumbnail_position, thumbnail_scale, is_published, publish_at, created_at, page_count, hype_count, react_count, reading_direction')
+          .select(
+            'id, series_slug, chapter_number, title, thumbnail_url, thumbnail_position, thumbnail_scale, is_published, publish_at, created_at, page_count, hype_count, react_count, reading_direction'
+          )
           .eq('series_slug', targetSeriesSlug)
           .order('chapter_number', { ascending: true }),
-        supabase.from('series_creators').select('*').eq('series_slug', targetSeriesSlug).order('id', { ascending: true }),
-        supabase.from('series_characters').select('*').eq('series_slug', targetSeriesSlug).order('id', { ascending: true }),
-        supabase.from('hypes').select('*', { count: 'exact', head: true }).eq('target_type', 'series').eq('target_id', targetSeriesSlug),
-        supabase.from('series_likes').select('*', { count: 'exact', head: true }).eq('series_slug', targetSeriesSlug)
+        supabase
+          .from('series_creators')
+          .select('*')
+          .eq('series_slug', targetSeriesSlug)
+          .order('id', { ascending: true }),
+        supabase
+          .from('series_characters')
+          .select('*')
+          .eq('series_slug', targetSeriesSlug)
+          .order('id', { ascending: true }),
+        supabase
+          .from('hypes')
+          .select('*', { count: 'exact', head: true })
+          .eq('target_type', 'series')
+          .eq('target_id', targetSeriesSlug),
+        supabase
+          .from('series_likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('series_slug', targetSeriesSlug)
       ]);
 
       setSeriesDirectHypes(Number(seriesHypesRes.count || 0));
@@ -467,8 +570,17 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         setChapters(liveChapters as any);
 
         const upcomingChapters = chapterData
-          .filter((ch: any) => ch.is_published && !isFreeOswOrDebut && !isChapterReleasedForUser(ch.publish_at, isPlus) && ch.publish_at)
-          .sort((a: any, b: any) => new Date(a.publish_at).getTime() - new Date(b.publish_at).getTime());
+          .filter(
+            (ch: any) =>
+              ch.is_published &&
+              !isFreeOswOrDebut &&
+              !isChapterReleasedForUser(ch.publish_at, isPlus) &&
+              ch.publish_at
+          )
+          .sort(
+            (a: any, b: any) =>
+              new Date(a.publish_at).getTime() - new Date(b.publish_at).getTime()
+          );
 
         setNextScheduledChapter(upcomingChapters.length > 0 ? upcomingChapters[0] : null);
       }
@@ -476,21 +588,25 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       if (creatorData && creatorData.length > 0) {
         setCreators(creatorData as any);
       } else if (freshSeries) {
-        setCreators([{
-          role: 'Creator',
-          name: freshSeries.creator_name || 'Saturday AM',
-          flag_code: freshSeries.flag_code || '',
-          avatar_url: freshSeries.creator_avatar || '',
-          bio: freshSeries.creator_bio || '',
-          twitter_url: freshSeries.creator_twitter || '',
-          instagram_url: freshSeries.creator_instagram || '',
-          support_url: freshSeries.creator_support_link || '',
-          stripe_account_id: freshSeries.creator_stripe_account_id || ''
-        }] as any);
+        setCreators([
+          {
+            role: 'Creator',
+            name: freshSeries.creator_name || 'Saturday AM',
+            flag_code: freshSeries.flag_code || '',
+            avatar_url: freshSeries.creator_avatar || '',
+            bio: freshSeries.creator_bio || '',
+            twitter_url: freshSeries.creator_twitter || '',
+            instagram_url: freshSeries.creator_instagram || '',
+            support_url: freshSeries.creator_support_link || '',
+            stripe_account_id: freshSeries.creator_stripe_account_id || ''
+          }
+        ] as any);
       }
 
       if (charData) setSeriesCharacters(charData as any);
-    } catch (err) { console.error("Failed to load series details:", err); }
+    } catch (err) {
+      console.error('Failed to load series details:', err);
+    }
   }, [targetSeriesSlug, series, seriesList, userTier, isPremiumUser]);
 
   useEffect(() => {
@@ -507,14 +623,19 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     if (!currentUserId || chapters.length === 0) return;
     const fetchReadingProgress = async () => {
       const chapterIds = chapters.map(c => String(c.id));
-      const { data: historyData } = await supabase.from('reading_history').select('chapter_id, page_index').eq('user_id', currentUserId).in('chapter_id', chapterIds);
+      const { data: historyData } = await supabase
+        .from('reading_history')
+        .select('chapter_id, page_index')
+        .eq('user_id', currentUserId)
+        .in('chapter_id', chapterIds);
       if (!historyData || historyData.length === 0) return;
 
       const progressMap: any = {};
       historyData.forEach((h: any) => {
         const cId = String(h.chapter_id);
         const matchedChap = chapters.find(c => String(c.id) === cId);
-        const totalPages = Number(matchedChap?.page_count) > 0 ? Number(matchedChap.page_count) : 25;
+        const totalPages =
+          Number(matchedChap?.page_count) > 0 ? Number(matchedChap.page_count) : 25;
         const maxPage = Math.max(1, totalPages - 1);
         progressMap[cId] = Math.min(100, Math.round((h.page_index / maxPage) * 100));
       });
@@ -530,21 +651,31 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         const chapterIds = chapters.map(c => String(c.id));
         const [{ data: statsData, error }, chapLikesRes] = await Promise.all([
           supabase.rpc('get_series_chapter_stats', { p_series_slug: targetSeriesSlug }),
-          supabase.from('chapter_likes').select('*', { count: 'exact', head: true }).in('chapter_id', chapterIds)
+          supabase
+            .from('chapter_likes')
+            .select('*', { count: 'exact', head: true })
+            .in('chapter_id', chapterIds)
         ]);
         setChapterLikesTotal(Number(chapLikesRes.count || 0));
         if (statsData && !error) {
           const newStats: any = {};
           statsData.forEach((stat: any) => {
-            newStats[stat.chapter_id] = { hypes: Number(stat.total_hypes), reacts: Number(stat.total_reacts) };
+            newStats[stat.chapter_id] = {
+              hypes: Number(stat.total_hypes),
+              reacts: Number(stat.total_reacts)
+            };
           });
           setChapterStats(newStats);
         }
-      } catch (err) { console.error("Failed to fetch chapter stats:", err); }
+      } catch (err) {
+        console.error('Failed to fetch chapter stats:', err);
+      }
     };
     fetchChapterStats();
   }, [chapters, readerClosedCount, targetSeriesSlug]);
 
+  // Visitor: Ch. 1 free, Ch. 2+ locked (unlockable via 15s Video Reward Ad)
+  // Free Account: Ch. 1–3 + Latest free, Ch. 4..N-1 locked (unlockable via 15s Video Reward Ad)
   const checkIsLocked = (chapterId: string) => {
     if (userTier === 'premium' || isPremiumUser) return false;
     if (isCompletedRun) {
@@ -552,13 +683,21 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       return true;
     }
     const absoluteIndex = chapters.findIndex(c => c.id === chapterId);
-    if (userTier === 'free') return !(absoluteIndex < 3 || absoluteIndex === chapters.length - 1);
+    if (userTier === 'free') {
+      return !(absoluteIndex < 3 || absoluteIndex === chapters.length - 1);
+    }
     return absoluteIndex !== 0;
   };
 
+  // Securely fetches chapter pages via server-side gatekeeper RPC (prevents DevTools scraping)
   const openChapterInReader = async (chapter: any, initialPage = 0) => {
-    const { data } = await supabase.from('pages').select('id, image_url').eq('chapter_id', chapter.id).order('page_order', { ascending: true });
-    if (data && data.length > 0) {
+    const visitorId = getOrCreatePersistentVisitorId();
+    const { data, error } = await supabase.rpc('get_authorized_chapter_pages', {
+      p_chapter_id: String(chapter.id),
+      p_visitor_id: visitorId
+    });
+
+    if (!error && Array.isArray(data) && data.length > 0) {
       window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: true } }));
       setActivePages(data as any);
       setActiveChapterId(chapter.id);
@@ -566,77 +705,106 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       setIsReaderOpen(true);
       setIsAutoLoading(false);
 
-      if (userTier !== 'premium') {
-        let reads = parseInt(sessionStorage.getItem('am_read_counter') || '0') + 1;
+      if (userTier !== 'premium' && !isPremiumUser) {
+        const reads = parseInt(sessionStorage.getItem('am_read_counter') || '0', 10) + 1;
         if (reads % 5 === 0) setShowShareModal(true);
         sessionStorage.setItem('am_read_counter', reads.toString());
       }
     } else {
       setIsAutoLoading(false);
-      alert("No pages found for this chapter yet!");
+      alert('This chapter is locked or its pages are not available yet.');
     }
   };
 
   const handleReadChapter = async (chapter: any, _absoluteIndex: number, initialPage = 0) => {
     const isInitiallyLocked = checkIsLocked(chapter.id);
-    const hasTempUnlock = !isCompletedRun && rewardedAdsEnabled && unlockedChapters.includes(String(chapter.id));
+    const hasTempUnlock =
+      !isCompletedRun && rewardedAdsEnabled && unlockedChapters.includes(String(chapter.id));
 
     if (isInitiallyLocked && !hasTempUnlock) {
       setIsAutoLoading(false);
-      if (userTier === 'visitor') {
-        setUpsellConfig({
-          type: 'visitor',
-          message: isCompletedRun
-            ? (isUnlockedForOneShotWednesday
-                ? "⚡ Free Limited-Time Unlock! Create a Free Account right now to read this One-Shot FREE before it locks into the PLUS Vault!"
-                : "Completed Runs are exclusive to Saturday AM+ PLUS members (with 1 title unlocked every One-Shot Wednesday). Create a Free Account to get started!")
-            : rewardedAdsEnabled
-            ? "Create a Free Account to unlock Chapters 1-3, read the newest release, and unlock up to 3 chapters/day with 15s spotlights!"
-            : "Create a Free Account to unlock Chapters 1-3 and read the newest chapter release!"
-        });
-        return;
-      }
 
+      // Completed Runs stay PLUS / Free-Account One-Shot Wednesday gated
       if (isCompletedRun) {
-        setUpsellConfig({
-          type: 'premium',
-          message: `This Completed Run is locked in the Saturday AM+ PLUS Vault! Upgrade to PLUS ($1.99/mo) to read it right now, or check back on One-Shot Wednesdays (Next Spotlight: ${currentWednesdayPick?.title || 'TBA'}).`
-        });
+        if (userTier === 'visitor') {
+          setUpsellConfig({
+            type: 'visitor',
+            message: isUnlockedForOneShotWednesday
+              ? '⚡ Free Limited-Time Unlock! Create a Free Account right now to read this One-Shot FREE before it locks into the PLUS Vault!'
+              : 'Completed Runs are exclusive to Saturday AM+ PLUS members (with 1 title unlocked every One-Shot Wednesday). Create a Free Account to get started!'
+          });
+        } else {
+          setUpsellConfig({
+            type: 'premium',
+            message: `This Completed Run is locked in the Saturday AM+ PLUS Vault! Upgrade to PLUS ($1.99/mo) to read it right now, or check back on One-Shot Wednesdays (Next Spotlight: ${
+              currentWednesdayPick?.title || 'TBA'
+            }).`
+          });
+        }
         return;
       }
 
       if (!rewardedAdsEnabled) {
         setUpsellConfig({
-          type: 'premium',
-          message: "Upgrade to Saturday AM+ PLUS ($1.99/mo) to unlock the entire chapter vault and read without limits!"
+          type: userTier === 'visitor' ? 'visitor' : 'premium',
+          message:
+            userTier === 'visitor'
+              ? 'Create a Free Account to unlock Chapters 1–3 and read the newest chapter release!'
+              : 'Upgrade to Saturday AM+ PLUS ($1.99/mo) to unlock the entire chapter vault and read without limits!'
         });
         return;
       }
 
+      // Enforce 3/day Video Reward Ad cap for both Visitors (Ch. 2+) and Free Accounts (Ch. 4+)
       if (dailyUnlocksUsed >= MAX_DAILY_AD_UNLOCKS) {
-        const refillTargetMs = oldestDailyUnlockMs ? oldestDailyUnlockMs + 24 * 60 * 60 * 1000 : Date.now() + 12 * 60 * 60 * 1000;
+        const refillTargetMs = oldestDailyUnlockMs
+          ? oldestDailyUnlockMs + 24 * 60 * 60 * 1000
+          : Date.now() + 12 * 60 * 60 * 1000;
         const refillCountdown = formatLiveCountdown(refillTargetMs, Date.now());
         setUpsellConfig({
-          type: 'premium',
-          message: `You've used all ${MAX_DAILY_AD_UNLOCKS}/${MAX_DAILY_AD_UNLOCKS} Free Ad Unlocks for today! Next ad unlock refills in ${refillCountdown} — OR upgrade to Saturday AM+ PLUS ($1.99/mo) right now for unlimited, ad-free binging!`
+          type: userTier === 'visitor' ? 'visitor' : 'premium',
+          message:
+            userTier === 'visitor'
+              ? `You've used all ${MAX_DAILY_AD_UNLOCKS}/${MAX_DAILY_AD_UNLOCKS} Free Video Unlocks today! Create a Free Account right now to instantly unlock Chapters 1–3 & the newest release, or wait ${refillCountdown}.`
+              : `You've used all ${MAX_DAILY_AD_UNLOCKS}/${MAX_DAILY_AD_UNLOCKS} Free Ad Unlocks for today! Next ad unlock refills in ${refillCountdown} — OR upgrade to Saturday AM+ PLUS ($1.99/mo) right now for unlimited, ad-free binging!`
         });
         return;
+      }
+
+      if (isReaderOpen) {
+        window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } }));
+        setIsReaderOpen(false);
+        setActiveChapterId(null);
       }
 
       setTargetChapter(chapter);
       setShowAdModal(true);
       return;
     }
+
     await openChapterInReader(chapter, initialPage);
   };
 
   const handleRewardEarnedUnlock = async () => {
     if (!targetChapter) return;
     const chapIdStr = String(targetChapter.id);
-    recordLocalChapterUnlock(chapIdStr);
+    const visitorId = getOrCreatePersistentVisitorId();
+
     try {
-      if (currentUserId) await supabase.from('temporary_unlocks').insert([{ user_id: currentUserId, chapter_id: targetChapter.id }]);
-    } catch (err) { console.warn('Temporary unlock record note:', err); }
+      const { error } = await supabase.rpc('record_temporary_chapter_unlock', {
+        p_chapter_id: chapIdStr,
+        p_visitor_id: visitorId
+      });
+      if (error) {
+        alert(error.message || 'Daily free video unlock limit reached.');
+        setShowAdModal(false);
+        return;
+      }
+    } catch (err) {
+      console.warn('Temporary unlock RPC note:', err);
+    }
+
+    recordLocalChapterUnlock(chapIdStr);
     setUnlockedChapters(prev => (prev.includes(chapIdStr) ? prev : [...prev, chapIdStr]));
     setDailyUnlocksUsed(prev => prev + 1);
     if (!oldestDailyUnlockMs) setOldestDailyUnlockMs(Date.now());
@@ -646,23 +814,45 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   useEffect(() => {
     if (chapters.length > 0 && series?.autoOpenChapterId && !hasAutoOpened) {
-      const absoluteIndex = chapters.findIndex(c => String(c.id) === String(series.autoOpenChapterId));
+      const absoluteIndex = chapters.findIndex(
+        c => String(c.id) === String(series.autoOpenChapterId)
+      );
       if (absoluteIndex !== -1) {
         const chapter = chapters[absoluteIndex];
-        if (chapter && chapter.id) setTimeout(() => { handleReadChapter(chapter, absoluteIndex, series.autoOpenPage || 0); }, 100);
-        else setIsAutoLoading(false);
-      } else setIsAutoLoading(false);
+        if (chapter && chapter.id) {
+          setTimeout(() => {
+            handleReadChapter(chapter, absoluteIndex, series.autoOpenPage || 0);
+          }, 100);
+        } else {
+          setIsAutoLoading(false);
+        }
+      } else {
+        setIsAutoLoading(false);
+      }
       setHasAutoOpened(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapters, series, hasAutoOpened]);
 
-  const sortedChapters = [...chapters].sort((a, b) => sortOrder === 'asc' ? a.chapter_number - b.chapter_number : b.chapter_number - a.chapter_number);
+  const sortedChapters = [...chapters].sort((a, b) =>
+    sortOrder === 'asc' ? a.chapter_number - b.chapter_number : b.chapter_number - a.chapter_number
+  );
   const displayedChapters = sortedChapters.slice(0, visibleCount);
 
-  const aggregatedSubHypes = chapters.reduce((sum: number, ch: any) => sum + (ch.hype_count || 0) + (chapterStats[String(ch.id)]?.hypes || 0), 0);
-  const aggregatedSeriesReacts = chapters.reduce((sum: number, ch: any) => sum + (ch.react_count || 0) + (chapterStats[String(ch.id)]?.reacts || 0), 0);
-  const verifiedSeriesInitialHypes = Math.max(seriesDirectHypes, Number(localSeries?.hype_count || 0));
+  const aggregatedSubHypes = chapters.reduce(
+    (sum: number, ch: any) =>
+      sum + (ch.hype_count || 0) + (chapterStats[String(ch.id)]?.hypes || 0),
+    0
+  );
+  const aggregatedSeriesReacts = chapters.reduce(
+    (sum: number, ch: any) =>
+      sum + (ch.react_count || 0) + (chapterStats[String(ch.id)]?.reacts || 0),
+    0
+  );
+  const verifiedSeriesInitialHypes = Math.max(
+    seriesDirectHypes,
+    Number(localSeries?.hype_count || 0)
+  );
 
   const triggerAwards = () => {
     setShowAwards(true);
@@ -672,26 +862,47 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   const handleToggleFavorite = async () => {
     if (!currentUserId || userTier === 'visitor') {
-      setUpsellConfig({ type: 'visitor', message: "Create a Free Account to save series to your favorites and get notified of new chapters!" });
+      setUpsellConfig({
+        type: 'visitor',
+        message:
+          'Create a Free Account to save series to your favorites and get notified of new chapters!'
+      });
       return;
     }
     const previousState = isFavorited;
     setIsFavorited(!previousState);
     try {
-      const { data } = await supabase.from('profiles').select('*').eq('id', currentUserId).maybeSingle();
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', currentUserId)
+        .maybeSingle();
       let currentFaves = Array.isArray(data?.favorites) ? data.favorites : [];
-      if (!previousState) { if (!currentFaves.includes(localSeries.slug)) currentFaves.push(localSeries.slug); }
-      else { currentFaves = currentFaves.filter((slug: string) => slug !== localSeries.slug); }
-      const { error } = await supabase.from('profiles').update({ favorites: currentFaves }).eq('id', currentUserId);
+      if (!previousState) {
+        if (!currentFaves.includes(localSeries.slug)) currentFaves.push(localSeries.slug);
+      } else {
+        currentFaves = currentFaves.filter((slug: string) => slug !== localSeries.slug);
+      }
+      const { error } = await supabase
+        .from('profiles')
+        .update({ favorites: currentFaves })
+        .eq('id', currentUserId);
       if (error) throw error;
-    } catch { setIsFavorited(previousState); }
+    } catch {
+      setIsFavorited(previousState);
+    }
   };
 
   const handleProcessDonation = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
     const activeUserId = currentUserId || user?.id;
     if (!activeUserId) {
-      setUpsellConfig({ type: 'visitor', message: "Create a Free Account to support creators and send fanmail!" });
+      setUpsellConfig({
+        type: 'visitor',
+        message: 'Create a Free Account to support creators and send fanmail!'
+      });
       setDonationCreator(null);
       return;
     }
@@ -719,9 +930,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       if (data?.url) window.location.href = data.url;
-      else throw new Error("No checkout URL returned from Stripe.");
+      else throw new Error('No checkout URL returned from Stripe.');
     } catch (err: any) {
-      alert("Unable to start Stripe Tip Checkout: " + err.message);
+      alert('Unable to start Stripe Tip Checkout: ' + err.message);
       setDonationStep('input');
     }
   };
@@ -729,8 +940,12 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   if (!localSeries) return null;
 
   const safeSynopsis = localSeries.synopsis || '';
-  const activeBannerPos = isMobile ? (localSeries.banner_position_mobile || localSeries.banner_position_desktop || '50% 50%') : (localSeries.banner_position_desktop || '50% 50%');
-  const activeBannerScale = isMobile ? (localSeries.banner_scale_mobile || localSeries.banner_scale_desktop || 100) : (localSeries.banner_scale_desktop || 100);
+  const activeBannerPos = isMobile
+    ? localSeries.banner_position_mobile || localSeries.banner_position_desktop || '50% 50%'
+    : localSeries.banner_position_desktop || '50% 50%';
+  const activeBannerScale = isMobile
+    ? localSeries.banner_scale_mobile || localSeries.banner_scale_desktop || 100
+    : localSeries.banner_scale_desktop || 100;
   const logoScale = Math.min(180, Math.max(50, Number(localSeries.logo_scale ?? 100)));
   const logoOffset = Math.max(16, Number(localSeries.logo_offset ?? 16));
 
@@ -738,36 +953,59 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
   const computedLogoWidthPx = Math.round((baseLogoMaxWidth * logoScale) / 100);
 
   const scheduledTargetMs = nextScheduledChapter?.publish_at
-    ? new Date(nextScheduledChapter.publish_at).getTime() - (isPlusActive ? PLUS_EARLY_ACCESS_MS : 0)
+    ? new Date(nextScheduledChapter.publish_at).getTime() -
+      (isPlusActive ? PLUS_EARLY_ACCESS_MS : 0)
     : null;
 
-  const freeWindowCountdownText = !isPlusActive && isUnlockedForOneShotWednesday
-    ? getOneShotFreeCountdown(localSeries || series, seriesList)
-    : null;
+  const freeWindowCountdownText =
+    !isPlusActive && isUnlockedForOneShotWednesday
+      ? getOneShotFreeCountdown(localSeries || series, seriesList)
+      : null;
 
   return (
     <div className="relative min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-transparent text-white pb-28">
-      <FeatureTutorialModal tutorialId="series_page_icons" slides={seriesTutorialSlide} forceOpen={forceTutorial} onClose={() => setForceTutorial(false)} />
+      <FeatureTutorialModal
+        tutorialId="series_page_icons"
+        slides={seriesTutorialSlide}
+        forceOpen={forceTutorial}
+        onClose={() => setForceTutorial(false)}
+      />
 
       {isAutoLoading && (
         <div className="fixed inset-0 z-[6000] bg-black flex flex-col items-center justify-center">
           <div className="w-12 h-12 border-4 border-zinc-800 border-t-[#fe9a00] rounded-full animate-spin mb-4"></div>
-          <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px] animate-pulse">Loading Chapter...</span>
+          <span className="text-[#fe9a00] font-black uppercase tracking-widest text-[10px] animate-pulse">
+            Loading Chapter...
+          </span>
         </div>
       )}
 
-      <ShareModal isOpen={showShareModal} onClose={() => setShowShareModal(false)} series={localSeries} chapter={chapters.find(c => c.id === activeChapterId) || targetChapter} currentUser={{ id: currentUserId }} />
+      <ShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        series={localSeries}
+        chapter={chapters.find(c => c.id === activeChapterId) || targetChapter}
+        currentUser={{ id: currentUserId }}
+      />
 
       {rewardedAdsEnabled && (
         <RewardedAdModal
           isOpen={showAdModal}
           onClose={() => setShowAdModal(false)}
           onRewardEarned={handleRewardEarnedUnlock}
-          onUpgradeClick={() => { setShowAdModal(false); if (onNavigate) onNavigate({ action: 'sub' }); }}
+          onUpgradeClick={() => {
+            setShowAdModal(false);
+            if (userTier === 'visitor') {
+              if (onLoginClick) onLoginClick();
+            } else if (onNavigate) {
+              onNavigate({ action: 'sub' });
+            }
+          }}
           chapterNumber={targetChapter?.chapter_number}
           seriesTitle={localSeries?.title}
           dailyUnlocksUsed={dailyUnlocksUsed}
           maxDailyUnlocks={MAX_DAILY_AD_UNLOCKS}
+          userTier={userTier}
         />
       )}
 
@@ -775,7 +1013,14 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
         <PromoModal
           userTier={userTier}
           onClose={() => setShowPromo(false)}
-          onAction={() => { setShowPromo(false); if (userTier === 'visitor') { if (onLoginClick) onLoginClick(); } else { if (onNavigate) onNavigate({ action: 'sub' }); } }}
+          onAction={() => {
+            setShowPromo(false);
+            if (userTier === 'visitor') {
+              if (onLoginClick) onLoginClick();
+            } else {
+              if (onNavigate) onNavigate({ action: 'sub' });
+            }
+          }}
         />
       )}
 
@@ -798,123 +1043,250 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
       )}
 
       {donationCreator && (
-        <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in" onClick={() => { if (donationStep === 'input') setDonationCreator(null); }}>
-          <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative" onClick={e => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+          onClick={() => {
+            if (donationStep === 'input') setDonationCreator(null);
+          }}
+        >
+          <div
+            className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative"
+            onClick={e => e.stopPropagation()}
+          >
             {donationStep === 'input' && (
               <>
-                <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer"><X className="w-6 h-6" /></button>
+                <button
+                  onClick={() => setDonationCreator(null)}
+                  className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer"
+                >
+                  <X className="w-6 h-6" />
+                </button>
                 <div className="p-6 sm:p-8 animate-fade-in">
                   <div className="flex flex-col items-center mb-5 text-center mt-2">
-                    <img src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]" alt={donationCreator.name} onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }} />
-                    <h3 className="text-xl font-black italic uppercase text-white leading-tight">Support {donationCreator.name}</h3>
-                    <p className="text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1">Saturday AM takes 0% platform commission on fan tips</p>
+                    <img
+                      src={
+                        donationCreator.avatar_url ||
+                        `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`
+                      }
+                      className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]"
+                      alt={donationCreator.name}
+                      onError={e => {
+                        e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`;
+                      }}
+                    />
+                    <h3 className="text-xl font-black italic uppercase text-white leading-tight">
+                      Support {donationCreator.name}
+                    </h3>
+                    <p className="text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1">
+                      Saturday AM takes 0% platform commission on fan tips
+                    </p>
                   </div>
                   <div className="grid grid-cols-4 gap-2 mb-4">
-                    {[5, 10, 15, 20].map((amount) => (
-                      <button key={amount} onClick={() => setDonationAmount(amount)} className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all cursor-pointer ${donationAmount === amount ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]' : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}>${amount}</button>
+                    {[5, 10, 15, 20].map(amount => (
+                      <button
+                        key={amount}
+                        onClick={() => setDonationAmount(amount)}
+                        className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all cursor-pointer ${
+                          donationAmount === amount
+                            ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]'
+                            : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'
+                        }`}
+                      >
+                        ${amount}
+                      </button>
                     ))}
                   </div>
                   <label className="flex items-start gap-3 p-3.5 mb-4 rounded-xl bg-black border border-zinc-800 hover:border-[#fe9a00]/60 cursor-pointer select-none transition-colors">
                     <input
                       type="checkbox"
                       checked={coverTipFee}
-                      onChange={(e) => setCoverTipFee(e.target.checked)}
+                      onChange={e => setCoverTipFee(e.target.checked)}
                       className="mt-0.5 w-4 h-4 accent-[#fe9a00] rounded cursor-pointer shrink-0"
                     />
                     <div className="flex-1 text-left">
                       <span className="text-[11px] font-bold text-white block leading-snug">
-                        Cover the <span className="text-[#fe9a00]">${tipBreakdown.processingFeeDollars.toFixed(2)}</span> card processing fee so{' '}
-                        <span className="text-[#fe9a00]">{donationCreator.name}</span> gets 100% (${donationAmount.toFixed(2)})
+                        Cover the{' '}
+                        <span className="text-[#fe9a00]">
+                          ${tipBreakdown.processingFeeDollars.toFixed(2)}
+                        </span>{' '}
+                        card processing fee so{' '}
+                        <span className="text-[#fe9a00]">{donationCreator.name}</span> gets 100% ($
+                        {donationAmount.toFixed(2)})
                       </span>
                       <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block mt-1">
-                        Creator receives: <strong className="text-emerald-400">${tipBreakdown.creatorNetDollars.toFixed(2)}</strong> • Total charged: ${tipBreakdown.fanPaysDollars.toFixed(2)}
+                        Creator receives:{' '}
+                        <strong className="text-emerald-400">
+                          ${tipBreakdown.creatorNetDollars.toFixed(2)}
+                        </strong>{' '}
+                        • Total charged: ${tipBreakdown.fanPaysDollars.toFixed(2)}
                       </span>
                     </div>
                   </label>
                   <div className="relative mb-5">
-                    <textarea value={fanmailText} onChange={(e) => setFanmailText(e.target.value)} placeholder="Write a private message to the creator..." maxLength={250} className="w-full bg-black border border-zinc-800 text-white text-xs px-4 py-3 pb-8 rounded-xl focus:outline-none focus:border-[#fe9a00] transition-colors resize-none h-24 font-medium" />
-                    <span className="absolute bottom-3 right-3 text-[9px] font-black uppercase tracking-widest text-zinc-600">{fanmailText.length}/250</span>
+                    <textarea
+                      value={fanmailText}
+                      onChange={e => setFanmailText(e.target.value)}
+                      placeholder="Write a private message to the creator..."
+                      maxLength={250}
+                      className="w-full bg-black border border-zinc-800 text-white text-xs px-4 py-3 pb-8 rounded-xl focus:outline-none focus:border-[#fe9a00] transition-colors resize-none h-24 font-medium"
+                    />
+                    <span className="absolute bottom-3 right-3 text-[9px] font-black uppercase tracking-widest text-zinc-600">
+                      {fanmailText.length}/250
+                    </span>
                   </div>
-                  <button onClick={handleProcessDonation} className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer text-xs sm:text-sm">Tip ${tipBreakdown.fanPaysDollars.toFixed(2)} via Stripe</button>
-                  <p className="text-center text-[8px] text-zinc-500 font-bold uppercase tracking-widest mt-4">Secure Stripe Checkout • Supporting creators boosts your Fandom Score!</p>
+                  <button
+                    onClick={handleProcessDonation}
+                    className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer text-xs sm:text-sm"
+                  >
+                    Tip ${tipBreakdown.fanPaysDollars.toFixed(2)} via Stripe
+                  </button>
+                  <p className="text-center text-[8px] text-zinc-500 font-bold uppercase tracking-widest mt-4">
+                    Secure Stripe Checkout • Supporting creators boosts your Fandom Score!
+                  </p>
                 </div>
               </>
             )}
             {donationStep === 'processing' && (
               <div className="py-16 flex flex-col items-center justify-center animate-fade-in text-center">
                 <Loader2 className="w-12 h-12 text-[#fe9a00] animate-spin mb-4" />
-                <h3 className="text-lg font-black uppercase tracking-widest text-white mb-2">Connecting to Stripe</h3>
-                <p className="text-xs text-zinc-400 font-bold">Preparing secure creator tip checkout...</p>
+                <h3 className="text-lg font-black uppercase tracking-widest text-white mb-2">
+                  Connecting to Stripe
+                </h3>
+                <p className="text-xs text-zinc-400 font-bold">
+                  Preparing secure creator tip checkout...
+                </p>
               </div>
             )}
             {donationStep === 'success' && (
               <div className="py-12 px-6 flex flex-col items-center justify-center animate-fade-in text-center">
-                <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center border-2 border-emerald-500 mb-6 shadow-[0_0_30px_rgba(16,185,247,0.3)]"><CheckCircle2 className="w-10 h-10 text-emerald-400" /></div>
-                <h3 className="text-2xl font-black italic uppercase text-white mb-2">Thank You!</h3>
-                <p className="text-xs sm:text-sm text-zinc-400 font-bold mb-8 leading-relaxed max-w-xs">Your ${donationAmount} tip and fanmail have been sent directly to {donationCreator.name}. <span className="text-[#fe9a00]">Your Fandom Score has been boosted!</span></p>
-                <button onClick={() => { setDonationCreator(null); setDonationStep('input'); }} className="w-full py-4 bg-zinc-800 text-white font-black uppercase tracking-widest rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer">Return to Series</button>
+                <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center border-2 border-emerald-500 mb-6 shadow-[0_0_30px_rgba(16,185,247,0.3)]">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-400" />
+                </div>
+                <h3 className="text-2xl font-black italic uppercase text-white mb-2">
+                  Thank You!
+                </h3>
+                <p className="text-xs sm:text-sm text-zinc-400 font-bold mb-8 leading-relaxed max-w-xs">
+                  Your ${donationAmount} tip and fanmail have been sent directly to{' '}
+                  {donationCreator.name}.{' '}
+                  <span className="text-[#fe9a00]">Your Fandom Score has been boosted!</span>
+                </p>
+                <button
+                  onClick={() => {
+                    setDonationCreator(null);
+                    setDonationStep('input');
+                  }}
+                  className="w-full py-4 bg-zinc-800 text-white font-black uppercase tracking-widest rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer"
+                >
+                  Return to Series
+                </button>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {isReaderOpen && (() => {
-        const activeChapterData = chapters.find(c => c.id === activeChapterId);
-        const currentIndex = chapters.findIndex(c => c.id === activeChapterId);
-        const hasNext = currentIndex > -1 && currentIndex < chapters.length - 1;
-        const hasPrev = currentIndex > 0;
-        const resolvedReadingDirection: 'ltr' | 'rtl' =
-          activeChapterData?.reading_direction === 'rtl' ||
-          (!activeChapterData?.reading_direction &&
-            String(localSeries?.slug || '').toLowerCase().includes('redskin'))
-            ? 'rtl'
-            : 'ltr';
+      {isReaderOpen &&
+        (() => {
+          const activeChapterData = chapters.find(c => c.id === activeChapterId);
+          const currentIndex = chapters.findIndex(c => c.id === activeChapterId);
+          const hasNext = currentIndex > -1 && currentIndex < chapters.length - 1;
+          const hasPrev = currentIndex > 0;
+          const resolvedReadingDirection: 'ltr' | 'rtl' =
+            activeChapterData?.reading_direction === 'rtl' ||
+            (!activeChapterData?.reading_direction &&
+              String(localSeries?.slug || '').toLowerCase().includes('redskin'))
+              ? 'rtl'
+              : 'ltr';
 
-        return (
-          <MangaReader
-            pages={activePages}
-            readingDirection={resolvedReadingDirection}
-            chapterId={activeChapterId}
-            series={localSeries}
-            chapter={activeChapterData}
-            userId={currentUserId}
-            isPremium={isPlusActive}
-            title={activeChapterData ? `Chapter ${activeChapterData.chapter_number} - ${activeChapterData.title || ''}` : ''}
-            subtitle={localSeries.title}
-            initialPage={startPage}
-            onClose={() => { window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } })); setIsReaderOpen(false); setActiveChapterId(null); setStartPage(0); setReaderClosedCount(c => c + 1); }}
-            onHome={() => { window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } })); setIsReaderOpen(false); setActiveChapterId(null); setStartPage(0); setReaderClosedCount(c => c + 1); onBack(); }}
-            onNext={() => { if (hasNext) handleReadChapter(chapters[currentIndex + 1], currentIndex + 1); }}
-            onPrev={() => { if (hasPrev) handleReadChapter(chapters[currentIndex - 1], currentIndex - 1); }}
-            hasNext={hasNext}
-            hasPrev={hasPrev}
-            onNavigate={onNavigate}
-            onHypeUpdate={null}
-            onSupportCreator={(e: any) => {
-              window.dispatchEvent(new CustomEvent('readerToggled', { detail: { isOpen: false } }));
-              setIsReaderOpen(false); setActiveChapterId(null); setStartPage(0); setReaderClosedCount(c => c + 1);
-              setTimeout(() => { scrollToSection(e || { stopPropagation: () => {} }, creatorRef); }, 100);
-            }}
-          />
-        );
-      })()}
+          return (
+            <MangaReader
+              pages={activePages}
+              readingDirection={resolvedReadingDirection}
+              chapterId={activeChapterId}
+              series={localSeries}
+              chapter={activeChapterData}
+              userId={currentUserId}
+              isPremium={isPlusActive}
+              title={
+                activeChapterData
+                  ? `Chapter ${activeChapterData.chapter_number} - ${activeChapterData.title || ''}`
+                  : ''
+              }
+              subtitle={localSeries.title}
+              initialPage={startPage}
+              onClose={() => {
+                window.dispatchEvent(
+                  new CustomEvent('readerToggled', { detail: { isOpen: false } })
+                );
+                setIsReaderOpen(false);
+                setActiveChapterId(null);
+                setStartPage(0);
+                setReaderClosedCount(c => c + 1);
+              }}
+              onHome={() => {
+                window.dispatchEvent(
+                  new CustomEvent('readerToggled', { detail: { isOpen: false } })
+                );
+                setIsReaderOpen(false);
+                setActiveChapterId(null);
+                setStartPage(0);
+                setReaderClosedCount(c => c + 1);
+                onBack();
+              }}
+              onNext={() => {
+                if (hasNext) handleReadChapter(chapters[currentIndex + 1], currentIndex + 1);
+              }}
+              onPrev={() => {
+                if (hasPrev) handleReadChapter(chapters[currentIndex - 1], currentIndex - 1);
+              }}
+              hasNext={hasNext}
+              hasPrev={hasPrev}
+              onNavigate={onNavigate}
+              onHypeUpdate={null}
+              onSupportCreator={(e: any) => {
+                window.dispatchEvent(
+                  new CustomEvent('readerToggled', { detail: { isOpen: false } })
+                );
+                setIsReaderOpen(false);
+                setActiveChapterId(null);
+                setStartPage(0);
+                setReaderClosedCount(c => c + 1);
+                setTimeout(() => {
+                  scrollToSection(e || { stopPropagation: () => {} }, creatorRef);
+                }, 100);
+              }}
+            />
+          );
+        })()}
 
       <div className="relative w-full h-[46vh] sm:h-[55vh] z-0 overflow-hidden bg-black">
         <img
           src={localSeries.cover_url}
           className="w-full h-full object-cover opacity-65 pointer-events-none"
           alt="Hero Banner"
-          style={{ objectPosition: activeBannerPos, transform: `scale(${activeBannerScale / 100})`, transformOrigin: activeBannerPos }}
+          style={{
+            objectPosition: activeBannerPos,
+            transform: `scale(${activeBannerScale / 100})`,
+            transformOrigin: activeBannerPos
+          }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-transparent pointer-events-none" />
         <div className="absolute top-4 sm:top-6 left-4 sm:left-6 z-20 flex items-center gap-2">
-          <button onClick={() => { if (window.history.length > 1) window.history.back(); else onBack(); }} className="p-3 bg-black/75 border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg cursor-pointer">
+          <button
+            onClick={() => {
+              if (window.history.length > 1) window.history.back();
+              else onBack();
+            }}
+            className="p-3 bg-black/75 border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] transition-all shadow-lg cursor-pointer"
+          >
             <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
           <TutorialHelpButton onClick={() => setForceTutorial(true)} />
         </div>
-        <button onClick={() => setShowShareModal(true)} className="absolute top-4 sm:top-6 right-[4.5rem] sm:right-24 z-20 p-3 bg-black/75 border border-zinc-800 rounded-full text-white hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-all shadow-lg group cursor-pointer">
+        <button
+          onClick={() => setShowShareModal(true)}
+          className="absolute top-4 sm:top-6 right-[4.5rem] sm:right-24 z-20 p-3 bg-black/75 border border-zinc-800 rounded-full text-white hover:bg-[#fe9a00] hover:text-black hover:border-[#fe9a00] transition-all shadow-lg group cursor-pointer"
+        >
           <Share2 className="w-5 h-5 sm:w-6 sm:h-6 group-hover:scale-110 transition-transform" />
         </button>
       </div>
@@ -938,23 +1310,57 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               </div>
             )}
             {localSeries.has_awards && localSeries.awards && (
-              <div className="relative flex items-center cursor-pointer shrink-0" onMouseEnter={() => setShowAwards(true)} onMouseLeave={() => setShowAwards(false)} onClick={triggerAwards}>
-                <img src={`${CLOUDFLARE_BASE_URL}/series-page-graphics/award-icon.png`} alt="Award" className={`w-10 h-10 object-contain transition-all duration-200 drop-shadow-lg ${showAwards ? 'opacity-80 scale-110' : 'opacity-100'}`} />
-                <div className={`absolute left-full ml-4 top-1/2 -translate-y-1/2 w-max min-w-[120px] bg-zinc-800 border border-zinc-700 p-3 rounded shadow-2xl transition-all duration-300 pointer-events-none z-50 ${showAwards ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-3'}`}>
-                  {String(localSeries.awards || '').split(',').map((award, i) => (<p key={i} className="text-[10px] text-zinc-300 font-bold uppercase tracking-widest whitespace-nowrap mb-1 last:mb-0">{award.trim()}</p>))}
+              <div
+                className="relative flex items-center cursor-pointer shrink-0"
+                onMouseEnter={() => setShowAwards(true)}
+                onMouseLeave={() => setShowAwards(false)}
+                onClick={triggerAwards}
+              >
+                <img
+                  src={`${CLOUDFLARE_BASE_URL}/series-page-graphics/award-icon.png`}
+                  alt="Award"
+                  className={`w-10 h-10 object-contain transition-all duration-200 drop-shadow-lg ${
+                    showAwards ? 'opacity-80 scale-110' : 'opacity-100'
+                  }`}
+                />
+                <div
+                  className={`absolute left-full ml-4 top-1/2 -translate-y-1/2 w-max min-w-[120px] bg-zinc-800 border border-zinc-700 p-3 rounded shadow-2xl transition-all duration-300 pointer-events-none z-50 ${
+                    showAwards ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-3'
+                  }`}
+                >
+                  {String(localSeries.awards || '')
+                    .split(',')
+                    .map((award, i) => (
+                      <p
+                        key={i}
+                        className="text-[10px] text-zinc-300 font-bold uppercase tracking-widest whitespace-nowrap mb-1 last:mb-0"
+                      >
+                        {award.trim()}
+                      </p>
+                    ))}
                 </div>
               </div>
             )}
           </div>
 
           <div className="flex flex-col items-center gap-1.5 mt-2 relative z-20">
-            {creators.filter((c: any) => c.is_visible !== false).map((c: any, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <span className="text-zinc-500 text-[9px] uppercase tracking-widest font-black">{c.role || 'Creator'}:</span>
-                <p className="text-[#fe9a00] font-bold text-sm">{c.name || 'Unknown'}</p>
-                {c.flag_code && <img src={`https://flagcdn.com/${String(c.flag_code).toLowerCase()}.svg`} alt="Flag" className="w-5 h-3.5 rounded-[2px] shadow-sm opacity-90" />}
-              </div>
-            ))}
+            {creators
+              .filter((c: any) => c.is_visible !== false)
+              .map((c: any, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="text-zinc-500 text-[9px] uppercase tracking-widest font-black">
+                    {c.role || 'Creator'}:
+                  </span>
+                  <p className="text-[#fe9a00] font-bold text-sm">{c.name || 'Unknown'}</p>
+                  {c.flag_code && (
+                    <img
+                      src={`https://flagcdn.com/${String(c.flag_code).toLowerCase()}.svg`}
+                      alt="Flag"
+                      className="w-5 h-3.5 rounded-[2px] shadow-sm opacity-90"
+                    />
+                  )}
+                </div>
+              ))}
           </div>
 
           {isPlusActive && Object.keys(collectedSignatures).length > 0 && (
@@ -974,7 +1380,6 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
                   if (sigWords.length === 0) return false;
 
-                  // Hard guardrail: on gun-bone, ONLY Erick Pedrucci's signature is allowed
                   if (slugLower === 'gun-bone') {
                     return sigWords.includes('erick') && !sigWords.includes('frederick');
                   }
@@ -985,9 +1390,25 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                   );
                 })
                 .map(([sigName, sigUrl], i) => (
-                  <div key={`sig-${i}`} className="flex flex-col items-center w-full max-w-[260px] sm:max-w-[340px] animate-fade-in-up">
+                  <div
+                    key={`sig-${i}`}
+                    className="flex flex-col items-center w-full max-w-[260px] sm:max-w-[340px] animate-fade-in-up"
+                  >
                     <div className="w-full aspect-[2/1] flex items-center justify-center p-2 relative group cursor-pointer">
-                      <div className="w-full h-full bg-gradient-to-tr from-yellow-300 via-[#fe9a00] to-yellow-600" style={{ WebkitMaskImage: `url(${sigUrl})`, WebkitMaskSize: 'contain', WebkitMaskRepeat: 'no-repeat', WebkitMaskPosition: 'center', maskImage: `url(${sigUrl})`, maskSize: 'contain', maskRepeat: 'no-repeat', maskPosition: 'center' }} title={`${sigName} Signature`} />
+                      <div
+                        className="w-full h-full bg-gradient-to-tr from-yellow-300 via-[#fe9a00] to-yellow-600"
+                        style={{
+                          WebkitMaskImage: `url(${sigUrl})`,
+                          WebkitMaskSize: 'contain',
+                          WebkitMaskRepeat: 'no-repeat',
+                          WebkitMaskPosition: 'center',
+                          maskImage: `url(${sigUrl})`,
+                          maskSize: 'contain',
+                          maskRepeat: 'no-repeat',
+                          maskPosition: 'center'
+                        }}
+                        title={`${sigName} Signature`}
+                      />
                     </div>
                   </div>
                 ))}
@@ -997,13 +1418,21 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           <ContentRatingBadge rating={localSeries.content_rating || 'T'} />
 
           {isCompletedRun && !isPlusActive && (
-            <div className={`mt-4 px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg ${
-              isUnlockedForOneShotWednesday ? 'bg-[#fe9a00]/20 border-[#fe9a00] text-[#fe9a00] animate-pulse' : 'bg-purple-950/40 border-purple-500/50 text-purple-300'
-            }`}>
+            <div
+              className={`mt-4 px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg ${
+                isUnlockedForOneShotWednesday
+                  ? 'bg-[#fe9a00]/20 border-[#fe9a00] text-[#fe9a00] animate-pulse'
+                  : 'bg-purple-950/40 border-purple-500/50 text-purple-300'
+              }`}
+            >
               {isUnlockedForOneShotWednesday ? (
                 <>
                   <Clock className="w-3.5 h-3.5 shrink-0" />
-                  <span>{is48hDebutActive ? `⚡ FREE DEBUT UNLOCK: ${freeWindowCountdownText} LEFT BEFORE VAULT!` : `⚡ ONE-SHOT WEDNESDAY: FREE FOR ${freeWindowCountdownText}!`}</span>
+                  <span>
+                    {is48hDebutActive
+                      ? `⚡ FREE DEBUT UNLOCK: ${freeWindowCountdownText} LEFT BEFORE VAULT!`
+                      : `⚡ ONE-SHOT WEDNESDAY: FREE FOR ${freeWindowCountdownText}!`}
+                  </span>
                 </>
               ) : (
                 <>
@@ -1015,42 +1444,124 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
           )}
 
           <div className="mt-6 px-2 text-center max-w-2xl">
-            <p className={`text-sm text-zinc-300 leading-relaxed ${!isExpanded ? 'line-clamp-3' : ''}`}>{safeSynopsis}</p>
-            {safeSynopsis.length > 150 && (<button onClick={() => setIsExpanded(!isExpanded)} className="text-[#fe9a00] font-black tracking-widest text-[10px] mt-2 uppercase hover:text-white transition-colors cursor-pointer">{isExpanded ? '- READ LESS' : '+ READ MORE'}</button>)}
+            <p className={`text-sm text-zinc-300 leading-relaxed ${!isExpanded ? 'line-clamp-3' : ''}`}>
+              {safeSynopsis}
+            </p>
+            {safeSynopsis.length > 150 && (
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="text-[#fe9a00] font-black tracking-widest text-[10px] mt-2 uppercase hover:text-white transition-colors cursor-pointer"
+              >
+                {isExpanded ? '- READ LESS' : '+ READ MORE'}
+              </button>
+            )}
           </div>
 
-          <div ref={actionsRef} className="flex flex-col items-center gap-4 mt-8 mb-6 w-full max-w-sm mx-auto scroll-mt-32">
+          <div
+            ref={actionsRef}
+            className="flex flex-col items-center gap-4 mt-8 mb-6 w-full max-w-sm mx-auto scroll-mt-32"
+          >
             <div className="w-full flex flex-col gap-3 [&>button]:w-full [&>button]:justify-center">
               <HypeButton
-                variant="series-main" targetType="series" targetId={localSeries.slug} seriesSlug={localSeries.slug} userId={currentUserId} isPremium={isPremiumUser}
-                onRequirePremium={() => setUpsellConfig({ type: 'premium', message: "Hypes are a PLUS feature! Upgrade to support creators with ultra-visible hype." })}
-                onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create an account and upgrade to PLUS to drop Hypes!" })}
+                variant="series-main"
+                targetType="series"
+                targetId={localSeries.slug}
+                seriesSlug={localSeries.slug}
+                userId={currentUserId}
+                isPremium={isPremiumUser}
+                onRequirePremium={() =>
+                  setUpsellConfig({
+                    type: 'premium',
+                    message:
+                      'Hypes are a PLUS feature! Upgrade to support creators with ultra-visible hype.'
+                  })
+                }
+                onRequireAuth={() =>
+                  setUpsellConfig({
+                    type: 'visitor',
+                    message: 'Create an account and upgrade to PLUS to drop Hypes!'
+                  })
+                }
               />
-              <button onClick={(e) => scrollToSection(e, creatorRef)} className="flex items-center justify-center gap-3 w-full px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all bg-zinc-900 text-white border border-zinc-700 hover:bg-[#fe9a00] hover:border-[#fe9a00] hover:text-black shadow-lg cursor-pointer">
-                <PenTool className="w-5 h-5" /><span>HYPE CREATOR(S)</span>
+              <button
+                onClick={e => scrollToSection(e, creatorRef)}
+                className="flex items-center justify-center gap-3 w-full px-8 py-3 rounded-full font-black uppercase tracking-widest transition-all bg-zinc-900 text-white border border-zinc-700 hover:bg-[#fe9a00] hover:border-[#fe9a00] hover:text-black shadow-lg cursor-pointer"
+              >
+                <PenTool className="w-5 h-5" />
+                <span>HYPE CREATOR(S)</span>
               </button>
             </div>
 
             <div className="flex items-start justify-center gap-5 sm:gap-8 w-full mt-4 px-2 sm:px-6 flex-nowrap shrink-0">
               <div className="flex flex-col items-center gap-2">
-                <HypeButton targetType="series" targetId={localSeries.slug} userId={currentUserId} initialCount={verifiedSeriesInitialHypes} bonusCount={aggregatedSubHypes} variant="icon" onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype this series!" })} />
-                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Hypes</span>
+                <HypeButton
+                  targetType="series"
+                  targetId={localSeries.slug}
+                  userId={currentUserId}
+                  initialCount={verifiedSeriesInitialHypes}
+                  bonusCount={aggregatedSubHypes}
+                  variant="icon"
+                  onRequireAuth={() =>
+                    setUpsellConfig({
+                      type: 'visitor',
+                      message: 'Create a Free Account to hype this series!'
+                    })
+                  }
+                />
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">
+                  Hypes
+                </span>
               </div>
               <div className="flex flex-col items-center gap-2">
-                <LikeButton targetType="series" targetId={localSeries.slug} userId={currentUserId} initialCount={seriesDirectLikes} bonusCount={chapterLikesTotal + aggregatedSeriesReacts} variant="icon" onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like this series!" })} />
-                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Likes</span>
+                <LikeButton
+                  targetType="series"
+                  targetId={localSeries.slug}
+                  userId={currentUserId}
+                  initialCount={seriesDirectLikes}
+                  bonusCount={chapterLikesTotal + aggregatedSeriesReacts}
+                  variant="icon"
+                  onRequireAuth={() =>
+                    setUpsellConfig({
+                      type: 'visitor',
+                      message: 'Create a Free Account to like this series!'
+                    })
+                  }
+                />
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">
+                  Likes
+                </span>
               </div>
               <div className="flex flex-col items-center gap-2">
-                <button onClick={handleToggleFavorite} className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 border shadow-xl flex items-center justify-center cursor-pointer ${isFavorited ? 'bg-[#fe9a00]/20 border-[#fe9a00]/30 text-[#fe9a00]' : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-700 text-white/80 hover:text-white'}`} title={isFavorited ? "Saved to Faves" : "Add to Faves"}>
+                <button
+                  onClick={handleToggleFavorite}
+                  className={`relative p-2.5 sm:p-3 rounded-full transition-all duration-300 border shadow-xl flex items-center justify-center cursor-pointer ${
+                    isFavorited
+                      ? 'bg-[#fe9a00]/20 border-[#fe9a00]/30 text-[#fe9a00]'
+                      : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-700 text-white/80 hover:text-white'
+                  }`}
+                  title={isFavorited ? 'Saved to Faves' : 'Add to Faves'}
+                >
                   <Bookmark className={`w-5 h-5 sm:w-6 sm:h-6 ${isFavorited ? 'fill-[#fe9a00]' : ''}`} />
                 </button>
-                <span className={`text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${isFavorited ? 'text-[#fe9a00]' : 'text-zinc-500'}`}>Save</span>
+                <span
+                  className={`text-[9px] font-black uppercase tracking-widest whitespace-nowrap ${
+                    isFavorited ? 'text-[#fe9a00]' : 'text-zinc-500'
+                  }`}
+                >
+                  Save
+                </span>
               </div>
               <div className="flex flex-col items-center gap-2">
-                <button onClick={(e) => scrollToSection(e, commentsRef)} className="relative p-2.5 sm:p-3 rounded-full transition-all duration-300 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer text-white/80 hover:text-white" title="Discuss">
+                <button
+                  onClick={e => scrollToSection(e, commentsRef)}
+                  className="relative p-2.5 sm:p-3 rounded-full transition-all duration-300 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 shadow-xl flex items-center justify-center cursor-pointer text-white/80 hover:text-white"
+                  title="Discuss"
+                >
                   <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6" />
                 </button>
-                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">Discuss</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 whitespace-nowrap">
+                  Discuss
+                </span>
               </div>
             </div>
           </div>
@@ -1058,12 +1569,28 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
         <div className="mt-10 w-full border-b border-zinc-800 flex justify-center">
           <div className="w-full max-w-3xl flex justify-center gap-12 px-6">
-            <button onClick={() => setActiveTab('chapters')} className={`pb-4 font-black uppercase tracking-widest text-xs transition-colors relative cursor-pointer ${activeTab === 'chapters' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
-              CHAPTERS{activeTab === 'chapters' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#fe9a00] rounded-t-sm" />}
+            <button
+              onClick={() => setActiveTab('chapters')}
+              className={`pb-4 font-black uppercase tracking-widest text-xs transition-colors relative cursor-pointer ${
+                activeTab === 'chapters' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              CHAPTERS
+              {activeTab === 'chapters' && (
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#fe9a00] rounded-t-sm" />
+              )}
             </button>
             {seriesCharacters.length > 0 && (
-              <button onClick={() => setActiveTab('characters')} className={`pb-4 font-black uppercase tracking-widest text-xs transition-colors relative cursor-pointer ${activeTab === 'characters' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
-                CHARACTERS{activeTab === 'characters' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#fe9a00] rounded-t-sm" />}
+              <button
+                onClick={() => setActiveTab('characters')}
+                className={`pb-4 font-black uppercase tracking-widest text-xs transition-colors relative cursor-pointer ${
+                  activeTab === 'characters' ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                CHARACTERS
+                {activeTab === 'characters' && (
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#fe9a00] rounded-t-sm" />
+                )}
               </button>
             )}
           </div>
@@ -1080,7 +1607,9 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     </div>
                     <div>
                       <p className="text-[10px] sm:text-xs font-black uppercase tracking-widest text-white">
-                        {`⏳ Next Chapter (Ch. ${nextScheduledChapter.chapter_number}) Available In ${formatLiveCountdown(scheduledTargetMs, nowTick)}`}
+                        {`⏳ Next Chapter (Ch. ${
+                          nextScheduledChapter.chapter_number
+                        }) Available In ${formatLiveCountdown(scheduledTargetMs, nowTick)}`}
                       </p>
                       {!isPlusActive && (
                         <p className="text-[9px] sm:text-[10px] font-bold text-zinc-400 mt-0.5">
@@ -1099,9 +1628,21 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
               {chapters.length > 0 && (
                 <div className="flex justify-between items-center w-full mb-6 px-2">
-                  <span className="text-zinc-500 font-bold text-[10px] sm:text-xs uppercase tracking-widest">{chapters.length} Chapters</span>
-                  <button onClick={() => { setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc'); setVisibleCount(10); }} className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors text-[10px] sm:text-xs font-black uppercase tracking-widest bg-zinc-900 px-4 py-2 rounded-full border border-zinc-800 cursor-pointer">
-                    {sortOrder === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
+                  <span className="text-zinc-500 font-bold text-[10px] sm:text-xs uppercase tracking-widest">
+                    {chapters.length} Chapters
+                  </span>
+                  <button
+                    onClick={() => {
+                      setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
+                      setVisibleCount(10);
+                    }}
+                    className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors text-[10px] sm:text-xs font-black uppercase tracking-widest bg-zinc-900 px-4 py-2 rounded-full border border-zinc-800 cursor-pointer"
+                  >
+                    {sortOrder === 'asc' ? (
+                      <ArrowUp className="w-3 h-3" />
+                    ) : (
+                      <ArrowDown className="w-3 h-3" />
+                    )}
                     Sort: {sortOrder === 'asc' ? 'Oldest' : 'Newest'}
                   </button>
                 </div>
@@ -1110,16 +1651,36 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               {displayedChapters.map((ch: any) => {
                 const absoluteIndex = chapters.findIndex(c => c.id === ch.id);
                 const actualProgress = readProgresses[String(ch.id)] || 0;
-                const hasTempUnlock = !isCompletedRun && rewardedAdsEnabled && unlockedChapters.includes(String(ch.id));
+                const hasTempUnlock =
+                  !isCompletedRun && rewardedAdsEnabled && unlockedChapters.includes(String(ch.id));
                 const isLocked = checkIsLocked(ch.id) && !hasTempUnlock;
                 const isLatestChapterOfSeries = absoluteIndex === chapters.length - 1;
-                const showNewBadge = isLatestChapterOfSeries && isNewRelease(ch.publish_at, ch.created_at);
-                const displayReacts = (ch.react_count || 0) + (chapterStats[String(ch.id)]?.reacts || 0);
+                const showNewBadge =
+                  isLatestChapterOfSeries && isNewRelease(ch.publish_at, ch.created_at);
+                const displayReacts =
+                  (ch.react_count || 0) + (chapterStats[String(ch.id)]?.reacts || 0);
 
                 return (
-                  <div key={ch.id} onClick={() => handleReadChapter(ch, absoluteIndex)} className="flex items-start sm:items-center gap-3 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group">
+                  <div
+                    key={ch.id}
+                    onClick={() => handleReadChapter(ch, absoluteIndex)}
+                    className="flex items-start sm:items-center gap-3 sm:gap-6 mb-4 hover:bg-zinc-900/80 p-3 sm:p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-zinc-800 group"
+                  >
                     <div className="relative overflow-hidden rounded-lg min-w-[80px] w-20 h-20 sm:min-w-[128px] sm:w-32 sm:h-32 flex-shrink-0">
-                      <img src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} loading="lazy" className={`w-full h-full object-cover bg-zinc-800 transition-transform duration-500 ${isLocked ? 'opacity-40 grayscale group-hover:scale-105' : 'group-hover:scale-110'}`} style={{ objectPosition: ch.thumbnail_position || '50% 50%', transform: `scale(${(ch.thumbnail_scale || 100) / 100})` }} alt="Thumbnail" />
+                      <img
+                        src={ch.thumbnail_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`}
+                        loading="lazy"
+                        className={`w-full h-full object-cover bg-zinc-800 transition-transform duration-500 ${
+                          isLocked
+                            ? 'opacity-40 grayscale group-hover:scale-105'
+                            : 'group-hover:scale-110'
+                        }`}
+                        style={{
+                          objectPosition: ch.thumbnail_position || '50% 50%',
+                          transform: `scale(${(ch.thumbnail_scale || 100) / 100})`
+                        }}
+                        alt="Thumbnail"
+                      />
                       <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
                       {isLocked && (
                         <div className="absolute top-1 left-1 sm:top-2 sm:left-2 bg-black/80 border border-zinc-700 p-1 sm:p-1.5 rounded-md">
@@ -1127,41 +1688,75 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                         </div>
                       )}
                       {freeWindowCountdownText ? (
-                        <div className="absolute top-1 right-1 z-20 bg-[#fe9a00] text-black text-[7px] sm:text-[8px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(254,154,0,0.8)] pointer-events-none">⏳ {freeWindowCountdownText}</div>
-                      ) : showNewBadge && (
-                        <div className="absolute top-1 right-1 z-20 bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">NEW!</div>
+                        <div className="absolute top-1 right-1 z-20 bg-[#fe9a00] text-black text-[7px] sm:text-[8px] font-black uppercase tracking-tight px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(254,154,0,0.8)] pointer-events-none">
+                          ⏳ {freeWindowCountdownText}
+                        </div>
+                      ) : (
+                        showNewBadge && (
+                          <div className="absolute top-1 right-1 z-20 bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shadow-[0_0_10px_rgba(220,38,38,0.8)] animate-pulse pointer-events-none">
+                            NEW!
+                          </div>
+                        )
                       )}
                     </div>
 
                     <div className="flex flex-col sm:flex-row sm:items-center flex-1 min-w-0 gap-3 sm:gap-4 w-full">
                       <div className="flex-1 min-w-0 w-full">
                         <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1">
-                          <p className={`text-[9px] sm:text-[10px] font-black tracking-widest uppercase ${isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'}`}>CHAPTER {ch.chapter_number}</p>
+                          <p
+                            className={`text-[9px] sm:text-[10px] font-black tracking-widest uppercase ${
+                              isLocked ? 'text-zinc-500' : 'text-[#fe9a00]'
+                            }`}
+                          >
+                            CHAPTER {ch.chapter_number}
+                          </p>
                           {freeWindowCountdownText ? (
                             <span className="bg-[#fe9a00]/20 border border-[#fe9a00] text-[#fe9a00] text-[7px] sm:text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1 animate-pulse">
-                              <Clock className="w-2.5 h-2.5 shrink-0" />FREE FOR {freeWindowCountdownText}
+                              <Clock className="w-2.5 h-2.5 shrink-0" />
+                              FREE FOR {freeWindowCountdownText}
                             </span>
-                          ) : showNewBadge && (
-                            <span className="bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">NEW!</span>
+                          ) : (
+                            showNewBadge && (
+                              <span className="bg-red-600 text-white text-[7px] sm:text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
+                                NEW!
+                              </span>
+                            )
                           )}
                           <div className="flex items-center gap-1.5 sm:gap-2">
                             <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-900/80 border border-zinc-800 px-1.5 sm:px-2 py-0.5 rounded-full cursor-default">
                               <Heart className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-500 fill-red-500" />
-                              <span className="text-[8px] sm:text-[9px] text-zinc-300 font-bold">{displayReacts}</span>
+                              <span className="text-[8px] sm:text-[9px] text-zinc-300 font-bold">
+                                {displayReacts}
+                              </span>
                             </div>
                           </div>
                         </div>
 
-                        <h3 className={`font-bold text-sm sm:text-lg mb-1.5 sm:mb-2 leading-snug break-words pr-2 ${isLocked ? 'text-zinc-400' : 'text-white'}`}>{ch.title || `Chapter ${ch.chapter_number}`}</h3>
-                        {hasTempUnlock && <span className="text-green-500 text-[9px] font-black uppercase tracking-widest mt-1 block">Unlocked (12h)</span>}
+                        <h3
+                          className={`font-bold text-sm sm:text-lg mb-1.5 sm:mb-2 leading-snug break-words pr-2 ${
+                            isLocked ? 'text-zinc-400' : 'text-white'
+                          }`}
+                        >
+                          {ch.title || `Chapter ${ch.chapter_number}`}
+                        </h3>
+                        {hasTempUnlock && (
+                          <span className="text-green-500 text-[9px] font-black uppercase tracking-widest mt-1 block">
+                            Unlocked (12h)
+                          </span>
+                        )}
 
                         {userTier !== 'visitor' && (
                           <div className="flex flex-col gap-1 w-full max-w-[150px] sm:max-w-[200px] mt-1">
                             <div className="flex items-center gap-2">
                               <div className="flex-1 h-1 sm:h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-[#fe9a00] rounded-full transition-all duration-500" style={{ width: `${isLocked ? 0 : actualProgress}%` }} />
+                                <div
+                                  className="h-full bg-[#fe9a00] rounded-full transition-all duration-500"
+                                  style={{ width: `${isLocked ? 0 : actualProgress}%` }}
+                                />
                               </div>
-                              <span className="text-[8px] sm:text-[10px] font-black text-zinc-500">{isLocked ? 0 : actualProgress}%</span>
+                              <span className="text-[8px] sm:text-[10px] font-black text-zinc-500">
+                                {isLocked ? 0 : actualProgress}%
+                              </span>
                             </div>
                           </div>
                         )}
@@ -1169,17 +1764,62 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
                       <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto mt-1 sm:mt-0 border-t border-zinc-800/50 sm:border-0 pt-2 sm:pt-0">
                         <div className="flex items-center gap-1 sm:gap-2">
-                          <div onClick={(e) => e.stopPropagation()}>
-                            <HypeButton targetType="chapter" targetId={ch.id} seriesSlug={localSeries.slug} userId={currentUserId} variant="chapter-hype-icon" onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype chapters!" })} />
+                          <div onClick={e => e.stopPropagation()}>
+                            <HypeButton
+                              targetType="chapter"
+                              targetId={ch.id}
+                              seriesSlug={localSeries.slug}
+                              userId={currentUserId}
+                              variant="chapter-hype-icon"
+                              onRequireAuth={() =>
+                                setUpsellConfig({
+                                  type: 'visitor',
+                                  message: 'Create a Free Account to hype chapters!'
+                                })
+                              }
+                            />
                           </div>
-                          <div onClick={(e) => e.stopPropagation()}>
-                            <LikeButton targetType="chapter" targetId={ch.id} userId={currentUserId} variant="chapter-action-icon" onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to like chapters!" })} />
+                          <div onClick={e => e.stopPropagation()}>
+                            <LikeButton
+                              targetType="chapter"
+                              targetId={ch.id}
+                              userId={currentUserId}
+                              variant="chapter-action-icon"
+                              onRequireAuth={() =>
+                                setUpsellConfig({
+                                  type: 'visitor',
+                                  message: 'Create a Free Account to like chapters!'
+                                })
+                              }
+                            />
                           </div>
-                          <button onClick={(e) => scrollToSection(e, commentsRef)} className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer" title="Jump to Comments"><MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" /></button>
-                          <button onClick={(e) => scrollToSection(e, creatorRef)} className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer" title="Jump to Creator"><PenTool className="w-4 h-4 sm:w-5 sm:h-5" /></button>
+                          <button
+                            onClick={e => scrollToSection(e, commentsRef)}
+                            className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer"
+                            title="Jump to Comments"
+                          >
+                            <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+                          </button>
+                          <button
+                            onClick={e => scrollToSection(e, creatorRef)}
+                            className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all shrink-0 cursor-pointer"
+                            title="Jump to Creator"
+                          >
+                            <PenTool className="w-4 h-4 sm:w-5 sm:h-5" />
+                          </button>
                         </div>
-                        <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full transition-colors flex-shrink-0 ml-auto sm:ml-0 ${isLocked ? 'bg-zinc-900 border border-zinc-800' : 'bg-zinc-800 group-hover:bg-[#fe9a00]'}`}>
-                          {isLocked ? <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-zinc-600" /> : <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white group-hover:text-black transition-colors ml-0.5 sm:ml-1" />}
+                        <div
+                          className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full transition-colors flex-shrink-0 ml-auto sm:ml-0 ${
+                            isLocked
+                              ? 'bg-zinc-900 border border-zinc-800'
+                              : 'bg-zinc-800 group-hover:bg-[#fe9a00]'
+                          }`}
+                        >
+                          {isLocked ? (
+                            <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-zinc-600" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white group-hover:text-black transition-colors ml-0.5 sm:ml-1" />
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1187,12 +1827,26 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                 );
               })}
 
-              {chapters.length === 0 && <div className="text-center py-16 text-zinc-500 font-bold tracking-widest text-xs uppercase">No chapters uploaded yet.</div>}
+              {chapters.length === 0 && (
+                <div className="text-center py-16 text-zinc-500 font-bold tracking-widest text-xs uppercase">
+                  No chapters uploaded yet.
+                </div>
+              )}
 
               {visibleCount < chapters.length && (
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
-                  <button onClick={() => setVisibleCount(prev => prev + 25)} className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-900 border border-zinc-700 text-white text-[10px] font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors cursor-pointer">Load Next 25 Chapters</button>
-                  <button onClick={() => setVisibleCount(chapters.length)} className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-950 border border-zinc-800 text-zinc-500 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors cursor-pointer">Load All Chapters</button>
+                  <button
+                    onClick={() => setVisibleCount(prev => prev + 25)}
+                    className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-900 border border-zinc-700 text-white text-[10px] font-black uppercase tracking-widest hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors cursor-pointer"
+                  >
+                    Load Next 25 Chapters
+                  </button>
+                  <button
+                    onClick={() => setVisibleCount(chapters.length)}
+                    className="w-full sm:w-auto px-8 py-4 rounded-full bg-zinc-950 border border-zinc-800 text-zinc-500 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors cursor-pointer"
+                  >
+                    Load All Chapters
+                  </button>
                 </div>
               )}
             </div>
@@ -1202,24 +1856,53 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             <div className="animate-fade-in pt-4">
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-4 mb-4">
                 {seriesCharacters.slice(0, showAllChars ? undefined : 8).map((char, i) => (
-                  <div key={i} className="flex flex-col items-center bg-zinc-900/50 rounded-xl overflow-hidden border border-zinc-800">
+                  <div
+                    key={i}
+                    className="flex flex-col items-center bg-zinc-900/50 rounded-xl overflow-hidden border border-zinc-800"
+                  >
                     <div className="w-full aspect-square bg-zinc-800 relative">
-                      <img src={char.headshot_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`} loading="lazy" alt={char.name} onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`; }} className="w-full h-full object-cover" />
-                      {char.is_mc && <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-10 uppercase">MC</div>}
+                      <img
+                        src={
+                          char.headshot_url || `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`
+                        }
+                        loading="lazy"
+                        alt={char.name}
+                        onError={e => {
+                          e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/placeholder-thumb.jpg`;
+                        }}
+                        className="w-full h-full object-cover"
+                      />
+                      {char.is_mc && (
+                        <div className="absolute top-0 right-0 bg-[#fe9a00] text-black text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-10 uppercase">
+                          MC
+                        </div>
+                      )}
                     </div>
                     <div className="p-2 w-full text-center">
-                      <span className="text-[10px] sm:text-xs font-black text-white uppercase truncate block w-full px-1">{char.name}</span>
-                      <span className="text-[8px] sm:text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest block mt-0.5">{char.role_type}</span>
+                      <span className="text-[10px] sm:text-xs font-black text-white uppercase truncate block w-full px-1">
+                        {char.name}
+                      </span>
+                      <span className="text-[8px] sm:text-[9px] font-bold text-[#fe9a00] uppercase tracking-widest block mt-0.5">
+                        {char.role_type}
+                      </span>
                     </div>
                   </div>
                 ))}
               </div>
               {seriesCharacters.length > 8 && (
-                <button onClick={() => setShowAllChars(!showAllChars)} className="w-full py-2 mb-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors cursor-pointer">
+                <button
+                  onClick={() => setShowAllChars(!showAllChars)}
+                  className="w-full py-2 mb-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                >
                   {showAllChars ? '- Show Less' : '+ See More Characters'}
                 </button>
               )}
-              <button onClick={() => onNavigate({ action: 'characters' })} className="w-full bg-zinc-900 border border-zinc-700 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors mt-4 cursor-pointer">Hype these Characters</button>
+              <button
+                onClick={() => onNavigate({ action: 'characters' })}
+                className="w-full bg-zinc-900 border border-zinc-700 text-white font-black uppercase tracking-widest py-3 rounded-xl hover:border-[#fe9a00] hover:text-[#fe9a00] transition-colors mt-4 cursor-pointer"
+              >
+                Hype these Characters
+              </button>
             </div>
           )}
         </div>
@@ -1229,49 +1912,120 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
             {...({
               seriesSlug: localSeries?.slug,
               currentUser: currentUserId ? { id: currentUserId, tier: userTier } : null,
-              onRequireAuth: () => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to join the community discussion and share your thoughts!" })
+              onRequireAuth: () =>
+                setUpsellConfig({
+                  type: 'visitor',
+                  message:
+                    'Create a Free Account to join the community discussion and share your thoughts!'
+                })
             } as any)}
           />
         </div>
 
         <div ref={creatorRef} className="pb-24 px-6 w-full max-w-3xl mx-auto scroll-mt-24">
           <div className="border-t border-zinc-800 pt-12 flex flex-col items-center gap-16">
-            {creators.filter((c: any) => c.is_visible !== false).map((c: any, index) => {
-              const safeName = c.name || 'Creator';
-              const creatorId = c.id || c.name;
-              return (
-                <div key={index} className="flex flex-col items-center text-center w-full max-w-lg bg-zinc-900/30 p-8 rounded-2xl border border-zinc-800/50 shadow-xl">
-                  <div className="flex flex-col items-center gap-4 mb-6">
-                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-zinc-700 overflow-hidden border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.3)]">
-                      <img src={(c.avatar_url && c.avatar_url !== 'null') ? c.avatar_url : `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} loading="lazy" alt={safeName} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }} />
+            {creators
+              .filter((c: any) => c.is_visible !== false)
+              .map((c: any, index) => {
+                const safeName = c.name || 'Creator';
+                const creatorId = c.id || c.name;
+                return (
+                  <div
+                    key={index}
+                    className="flex flex-col items-center text-center w-full max-w-lg bg-zinc-900/30 p-8 rounded-2xl border border-zinc-800/50 shadow-xl"
+                  >
+                    <div className="flex flex-col items-center gap-4 mb-6">
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-zinc-700 overflow-hidden border-2 border-[#fe9a00] shadow-[0_0_15px_rgba(254,154,0,0.3)]">
+                        <img
+                          src={
+                            c.avatar_url && c.avatar_url !== 'null'
+                              ? c.avatar_url
+                              : `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`
+                          }
+                          loading="lazy"
+                          alt={safeName}
+                          className="w-full h-full object-cover"
+                          onError={e => {
+                            e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`;
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-xl sm:text-2xl tracking-tight">
+                          {safeName}
+                        </h4>
+                        <p className="text-[10px] text-[#fe9a00] uppercase font-black tracking-widest mt-1">
+                          {c.role || 'Creator'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-black text-xl sm:text-2xl tracking-tight">{safeName}</h4>
-                      <p className="text-[10px] text-[#fe9a00] uppercase font-black tracking-widest mt-1">{c.role || 'Creator'}</p>
+                    <p className="text-sm sm:text-base text-zinc-300 leading-relaxed mb-8">
+                      {c.bio || '...'}
+                    </p>
+                    <button
+                      onClick={() => {
+                        setDonationCreator(c);
+                        setDonationStep('input');
+                        setDonationAmount(5);
+                        setCoverTipFee(true);
+                        setFanmailText('');
+                      }}
+                      className="flex items-center justify-center gap-2 w-full max-w-xs mx-auto mb-3 bg-[#fe9a00] text-black px-8 py-3.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-widest hover:bg-white transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
+                    >
+                      <Heart className="w-4 h-4 fill-black" /> Support {safeName.split(' ')[0]}
+                    </button>
+                    <div className="w-full max-w-xs mx-auto mb-8 [&_button]:w-full [&_button]:justify-center">
+                      <HypeButton
+                        targetType="creator"
+                        targetId={creatorId}
+                        userId={currentUserId}
+                        variant="default"
+                        onRequireAuth={() =>
+                          setUpsellConfig({
+                            type: 'visitor',
+                            message: 'Create a Free Account to hype creators!'
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex flex-wrap justify-center gap-3 w-full">
+                      {c.twitter_url && (
+                        <a
+                          href={c.twitter_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex-1 max-w-[140px] text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-4 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]"
+                        >
+                          Twitter
+                        </a>
+                      )}
+                      {c.instagram_url && (
+                        <a
+                          href={c.instagram_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex-1 max-w-[140px] text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-4 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]"
+                        >
+                          Instagram
+                        </a>
+                      )}
                     </div>
                   </div>
-                  <p className="text-sm sm:text-base text-zinc-300 leading-relaxed mb-8">{c.bio || '...'}</p>
-                  <button onClick={() => { setDonationCreator(c); setDonationStep('input'); setDonationAmount(5); setCoverTipFee(true); setFanmailText(''); }} className="flex items-center justify-center gap-2 w-full max-w-xs mx-auto mb-3 bg-[#fe9a00] text-black px-8 py-3.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-widest hover:bg-white transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer">
-                    <Heart className="w-4 h-4 fill-black" /> Support {safeName.split(' ')[0]}
-                  </button>
-                  <div className="w-full max-w-xs mx-auto mb-8 [&_button]:w-full [&_button]:justify-center">
-                    <HypeButton targetType="creator" targetId={creatorId} userId={currentUserId} variant="default" onRequireAuth={() => setUpsellConfig({ type: 'visitor', message: "Create a Free Account to hype creators!" })} />
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-3 w-full">
-                    {c.twitter_url && <a href={c.twitter_url} target="_blank" rel="noreferrer" className="flex-1 max-w-[140px] text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-4 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]">Twitter</a>}
-                    {c.instagram_url && <a href={c.instagram_url} target="_blank" rel="noreferrer" className="flex-1 max-w-[140px] text-zinc-400 hover:text-[#fe9a00] transition-colors text-[10px] font-black tracking-widest uppercase bg-black px-4 py-2.5 rounded-full border border-zinc-700 hover:border-[#fe9a00]">Instagram</a>}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
 
           <div className="flex justify-center mt-24 border-t border-zinc-800/50 pt-12">
-            <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex flex-col items-center gap-2 group cursor-pointer">
+            <button
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              className="flex flex-col items-center gap-2 group cursor-pointer"
+            >
               <div className="p-3 bg-zinc-900 border border-zinc-700 rounded-full group-hover:bg-[#fe9a00] group-hover:border-[#fe9a00] transition-colors shadow-lg">
                 <ArrowUp className="w-5 h-5 text-zinc-400 group-hover:text-black transition-colors" />
               </div>
-              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest group-hover:text-white transition-colors">Back to Top</span>
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest group-hover:text-white transition-colors">
+                Back to Top
+              </span>
             </button>
           </div>
         </div>

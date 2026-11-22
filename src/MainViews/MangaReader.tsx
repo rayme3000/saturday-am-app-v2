@@ -25,6 +25,7 @@ import { Virtuoso } from 'react-virtuoso';
 import { HypeButton } from '../Components/HypeButton';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import { ShareModal } from '../Components/ShareModal';
+import { PromoModal } from '../Components/PromoModal';
 import {
   useQuickReacts,
   QuickReactDrawer,
@@ -482,6 +483,8 @@ export const MangaReader = ({
 
   const [showEndPrompt, setShowEndPrompt] = useState(false);
   const showEndPromptRef = useRef(showEndPrompt);
+  const [showEndChapterUpsell, setShowEndChapterUpsell] = useState(false);
+  const shownEndUpsellForChapRef = useRef<string | null>(null);
 
   const isRTL = Boolean(
     readingDirection === 'rtl' ||
@@ -572,7 +575,6 @@ export const MangaReader = ({
     [chapterId, series?.slug, subtitle]
   );
 
-
   const lastNavTime = useRef(0);
 
   const touchStartPos = useRef({ x: 0, y: 0 });
@@ -621,6 +623,20 @@ export const MangaReader = ({
   useEffect(() => {
     hasRecordedChapterCompletion.current = false;
   }, [chapterId]);
+
+  const triggerEndOfChapterUpsell = useCallback(() => {
+    if (internalIsPremium || isPremium) return;
+    const chapKey = String(chapterId || 'current');
+    if (shownEndUpsellForChapRef.current === chapKey) return;
+    shownEndUpsellForChapRef.current = chapKey;
+    setShowEndChapterUpsell(true);
+  }, [internalIsPremium, isPremium, chapterId]);
+
+  useEffect(() => {
+    if (showEndPrompt) {
+      triggerEndOfChapterUpsell();
+    }
+  }, [showEndPrompt, triggerEndOfChapterUpsell]);
 
   const recordCompletedChapterRead = useCallback(async () => {
     const activeUserId = activeUserRef.current;
@@ -804,6 +820,7 @@ export const MangaReader = ({
     setCurrentPage(0);
     currentPageRef.current = 0;
     setShowEndPrompt(false);
+    setShowEndChapterUpsell(false);
     qr.setIsReactInputOpen(false);
     setIsUIVisible(true);
 
@@ -831,7 +848,6 @@ export const MangaReader = ({
           .eq('chapter_id', chapterId)
           .maybeSingle();
         if (data && typeof data.page_index === 'number') {
-          // If the user previously finished this chapter (on the last page), start fresh at Page 0 when they re-read or advance into it
           const isAtVeryEnd = pages.length > 1 && data.page_index >= pages.length - 1;
           const safePage = isAtVeryEnd
             ? 0
@@ -933,6 +949,7 @@ export const MangaReader = ({
       if (hasPrev && onPrev) {
         const pageToSave = currentPageRef.current;
         setShowEndPrompt(false);
+        setShowEndChapterUpsell(false);
         onPrev();
         saveProgressToDB(pageToSave);
       }
@@ -949,6 +966,15 @@ export const MangaReader = ({
 
       const activeUserId = userId || currentUser?.id;
       const isUserPremium = Boolean(internalIsPremium || isPremium);
+
+      if (hasNext && onNext) {
+        const pageToSave = currentPageRef.current;
+        setShowEndPrompt(false);
+        setShowEndChapterUpsell(false);
+        onNext();
+        saveProgressToDB(pageToSave);
+        return;
+      }
 
       if (!activeUserId) {
         triggerAuthUpsell(
@@ -968,20 +994,13 @@ export const MangaReader = ({
         return;
       }
 
-      if (hasNext && onNext) {
-        const pageToSave = currentPageRef.current;
-        setShowEndPrompt(false);
-        onNext();
-        saveProgressToDB(pageToSave);
-      } else {
-        setUpsellModal({
-          title: 'All Caught Up!',
-          message:
-            "You've reached the latest available chapter for this series. Check back soon for new releases!",
-          target: 'close',
-          buttonText: 'Back to Series'
-        });
-      }
+      setUpsellModal({
+        title: 'All Caught Up!',
+        message:
+          "You've reached the latest available chapter for this series. Check back soon for new releases!",
+        target: 'close',
+        buttonText: 'Back to Series'
+      });
     },
     [
       hasNext,
@@ -1092,7 +1111,6 @@ export const MangaReader = ({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      // If a second finger touches down (pinch-to-zoom on iOS/Android), cancel horizontal page drag immediately
       if (!e.isPrimary) {
         setIsDragging(false);
         setDragOffset(0);
@@ -1258,6 +1276,13 @@ export const MangaReader = ({
     [getUrl, hotspots, handleShareZoneClick, handleOpenAuthorHotspot]
   );
 
+  const handleVerticalEndMount = useCallback(() => {
+    recordCompletedChapterRead();
+    if (pages.length <= 2 || currentPageRef.current >= Math.max(0, pages.length - 3)) {
+      triggerEndOfChapterUpsell();
+    }
+  }, [recordCompletedChapterRead, pages.length, triggerEndOfChapterUpsell]);
+
   const virtuosoFooter = useCallback(
     () => (
       <div
@@ -1284,7 +1309,7 @@ export const MangaReader = ({
           onPrevChapter={handlePrevChapter}
           onSupportCreator={handleSupportCreatorClick}
           onCloseReader={handleClose}
-          onMountRecordCompletion={recordCompletedChapterRead}
+          onMountRecordCompletion={handleVerticalEndMount}
         />
       </div>
     ),
@@ -1307,7 +1332,7 @@ export const MangaReader = ({
       handlePrevChapter,
       handleSupportCreatorClick,
       handleClose,
-      recordCompletedChapterRead
+      handleVerticalEndMount
     ]
   );
 
@@ -1385,6 +1410,24 @@ export const MangaReader = ({
             <X className="w-4 h-4" />
           </button>
         </div>
+      )}
+
+      {showEndChapterUpsell && !internalIsPremium && !isPremium && (
+        <PromoModal
+          userTier={currentUser?.id || userId ? 'free' : 'visitor'}
+          forceMode={currentUser?.id || userId ? 'premium' : 'visitor'}
+          triggerSource="end_of_chapter"
+          onClose={() => setShowEndChapterUpsell(false)}
+          onAction={(code?: string) => {
+            if (code) localStorage.setItem('auto_fill_premium_code', code);
+            const isVisitorReader = !(currentUser?.id || userId);
+            setShowEndChapterUpsell(false);
+            onClose();
+            if (onNavigate) {
+              onNavigate({ action: isVisitorReader ? 'signup' : 'sub' });
+            }
+          }}
+        />
       )}
 
       {upsellModal && (

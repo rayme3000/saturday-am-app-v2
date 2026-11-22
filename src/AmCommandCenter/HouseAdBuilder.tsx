@@ -579,17 +579,20 @@ export const HouseAdBuilder: React.FC<{
     nextEnabled: boolean,
     nextCampaigns: HouseAdCampaign[]
   ) => {
+    const configObj = {
+      rewardedAdsEnabled: nextEnabled,
+      campaigns: nextCampaigns,
+      updatedAt: new Date().toISOString()
+    };
+
     try {
-      const payload = JSON.stringify(
-        {
-          rewardedAdsEnabled: nextEnabled,
-          campaigns: nextCampaigns,
-          updatedAt: new Date().toISOString()
-        },
-        null,
-        2
-      );
-      const blob = new Blob([payload], { type: 'application/json' });
+      await supabase.rpc('save_house_ad_config', { p_config: configObj });
+    } catch (e) {
+      console.warn('RPC house ad config sync note:', e);
+    }
+
+    try {
+      const blob = new Blob([JSON.stringify(configObj, null, 2)], { type: 'application/json' });
       await supabase.storage
         .from('assets')
         .upload(GLOBAL_CONFIG_PATH, blob, { upsert: true, contentType: 'application/json' });
@@ -1012,7 +1015,7 @@ export const HouseAdBuilder: React.FC<{
       {savedToast && (
         <div className="bg-emerald-950/80 border border-emerald-500/50 text-emerald-200 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          Saved! Global Video Reward Ad &amp; Timed Popup campaigns have been synced.
+          Saved! Global Video Reward Ad &amp; Timed Popup campaigns have been synced to Postgres.
         </div>
       )}
 
@@ -1090,19 +1093,19 @@ export const HouseAdBuilder: React.FC<{
                 {
                   id: 'rewarded_unlock',
                   title: 'Video Reward Ad',
-                  desc: '15s countdown to unlock Ch. 4+',
+                  desc: '15s countdown to unlock locked chapters',
                   icon: PlayCircle
                 },
                 {
                   id: 'timed_popup',
                   title: 'Timed Promo Popup',
-                  desc: 'Normal popup modal w/ Close X',
+                  desc: 'End-of-chapter & page-visit popup modal',
                   icon: BellRing
                 },
                 {
                   id: 'both',
                   title: 'Use for Both',
-                  desc: 'Runs in Reward Ads & Popups',
+                  desc: 'Runs in Reward Ads & Upsell Popups',
                   icon: Zap
                 }
               ].map(opt => {
@@ -1830,7 +1833,7 @@ export const HouseAdBuilder: React.FC<{
                       window.open(activeCampaign.clickUrl, '_blank');
                     }
                   }}
-                  className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#fe9a00] via-amber-400 to-[#fe9a00] hover:from-white hover:to-white text-black font-black uppercase tracking-widest text-xs flex items-center gap-1.5 shadow-[0_0_20px_rgba(254,154,0,0.4)] cursor-pointer"
+                  className="px-5 py-3 rounded-xl bg-gradient-to-r from-[#fe9a00] via-amber-400 to-[#fe9a00] hover:from-white hover:to-white text-black font-black uppercase tracking-widest text-xs flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(254,154,0,0.4)] cursor-pointer"
                 >
                   {activeCampaign.ctaLabel} <ExternalLink className="w-3.5 h-3.5" />
                 </button>

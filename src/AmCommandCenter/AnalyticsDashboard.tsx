@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+import { loadSavedHouseAdCampaigns } from './HouseAdBuilder';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
@@ -273,6 +274,32 @@ const SqlTrendBadge = ({ pct }: { pct: number }) => {
       {Math.abs(Number(pct)).toFixed(1)}%
     </span>
   );
+};
+
+// Paginates past Supabase PostgREST's 1,000-row single-request ceiling in newest-first order
+const fetchRecentRowsPaginated = async (
+  table: string,
+  maxTotal = 15000,
+  orderCol = 'created_at',
+  neqFilter?: { col: string; val: string }
+): Promise<any[]> => {
+  const pageSize = 1000;
+  const all: any[] = [];
+  for (let offset = 0; offset < maxTotal; offset += pageSize) {
+    let q = supabase
+      .from(table)
+      .select('*')
+      .order(orderCol, { ascending: false })
+      .range(offset, offset + pageSize - 1);
+    if (neqFilter) {
+      q = q.neq(neqFilter.col, neqFilter.val);
+    }
+    const { data, error } = await q;
+    if (error || !data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < pageSize) break;
+  }
+  return all;
 };
 
 export const AdminLeaderboardHistory = () => {
@@ -611,6 +638,7 @@ export interface UpsellPopupFunnelRow {
   targetAudience: string;
   popupType: string;
   impressions: number;
+  videoWatches: number;
   clicks: number;
   checkoutsStarted: number;
   paidConversions: number;
@@ -668,32 +696,33 @@ export const AnalyticsDashboard = () => {
     setDbError(null);
     try {
       const [
-        profilesRes,
+        profilesRows,
         adminDirRes,
         promoCodesRes,
         storeProductsRes,
         storeLedgerRes,
         upsellPopupsRes,
         themedBundlesRes,
+        houseAdConfigRes,
         seriesTableRes,
         chaptersTableRes,
         charactersTableRes,
         creatorsTableRes,
         bingoCodesRes,
-        readingHistoryRes,
-        completedReadsRes,
-        hypesRes,
-        superHypesRes,
-        pageReactsRes,
-        seriesCommentsRes,
-        seriesLikesRes,
-        chapterLikesRes,
-        characterLikesRes,
-        creatorLikesRes,
-        creatorTipsRes,
-        telemetryEventsRes
+        readingHistoryRows,
+        completedReadsRows,
+        hypesRows,
+        superHypesRows,
+        pageReactsRows,
+        seriesCommentsRows,
+        seriesLikesRows,
+        chapterLikesRows,
+        characterLikesRows,
+        creatorLikesRows,
+        creatorTipsRows,
+        telemetryEventsRows
       ] = await Promise.all([
-        supabase.from('profiles').select('*').limit(10000),
+        fetchRecentRowsPaginated('profiles', 10000, 'created_at'),
         supabase.rpc('get_admin_user_directory', { p_search: '', p_limit: 5000, p_offset: 0 }),
         supabase
           .from('promo_codes')
@@ -712,23 +741,27 @@ export const AnalyticsDashboard = () => {
           .from('themed_annual_bundles')
           .select('*')
           .order('created_at', { ascending: false }),
+        supabase.rpc('get_house_ad_config').then(r => r, () => ({ data: null })),
         supabase.from('series').select('*'),
         supabase.from('chapters').select('id, series_slug, chapter_number, title'),
         supabase.from('series_characters').select('id, name, series_slug'),
         supabase.from('series_creators').select('id, name, series_slug'),
         supabase.from('bingo_codes').select('*'),
-        supabase.from('reading_history').select('*').limit(25000),
-        supabase.from('completed_reads').select('*').limit(25000),
-        supabase.from('hypes').select('*').neq('target_type', 'comment').limit(25000),
-        supabase.from('super_hypes').select('*').limit(25000),
-        supabase.from('page_reacts').select('*').limit(25000),
-        supabase.from('series_comments').select('*').limit(25000),
-        supabase.from('series_likes').select('*').limit(25000),
-        supabase.from('chapter_likes').select('*').limit(25000),
-        supabase.from('character_likes').select('*').limit(25000),
-        supabase.from('creator_likes').select('*').limit(25000),
-        supabase.from('creator_tips').select('*').limit(10000),
-        supabase.from('telemetry_events').select('*').limit(30000)
+        fetchRecentRowsPaginated('reading_history', 15000, 'updated_at'),
+        fetchRecentRowsPaginated('completed_reads', 15000, 'created_at'),
+        fetchRecentRowsPaginated('hypes', 10000, 'created_at', {
+          col: 'target_type',
+          val: 'comment'
+        }),
+        fetchRecentRowsPaginated('super_hypes', 10000, 'created_at'),
+        fetchRecentRowsPaginated('page_reacts', 10000, 'created_at'),
+        fetchRecentRowsPaginated('series_comments', 10000, 'created_at'),
+        fetchRecentRowsPaginated('series_likes', 10000, 'created_at'),
+        fetchRecentRowsPaginated('chapter_likes', 10000, 'created_at'),
+        fetchRecentRowsPaginated('character_likes', 10000, 'created_at'),
+        fetchRecentRowsPaginated('creator_likes', 10000, 'created_at'),
+        fetchRecentRowsPaginated('creator_tips', 5000, 'created_at'),
+        fetchRecentRowsPaginated('telemetry_events', 25000, 'created_at')
       ]);
 
       const authDirMap = new Map<string, any>();
@@ -746,7 +779,7 @@ export const AnalyticsDashboard = () => {
         }
       });
 
-      const rawProfiles = (profilesRes.data || []).map((p: any) => {
+      const rawProfiles = (profilesRows || []).map((p: any) => {
         const authUser = authDirMap.get(String(p.id)) || {};
         const cleanEm = String(p.email || authUser.email || '').trim();
         const promoPurchaseAt = cleanEm
@@ -778,6 +811,12 @@ export const AnalyticsDashboard = () => {
         };
       });
 
+      const dbHouseCampaigns = Array.isArray((houseAdConfigRes as any)?.data?.campaigns)
+        ? (houseAdConfigRes as any).data.campaigns
+        : [];
+      const effectiveHouseCampaigns =
+        dbHouseCampaigns.length > 0 ? dbHouseCampaigns : loadSavedHouseAdCampaigns();
+
       setRawTables({
         profiles: rawProfiles,
         promoCodes: promoCodesRes.data || [],
@@ -785,23 +824,24 @@ export const AnalyticsDashboard = () => {
         storeLedger: storeLedgerRes.data || [],
         upsellPopups: upsellPopupsRes.data || [],
         themedBundles: themedBundlesRes.data || [],
+        houseCampaigns: effectiveHouseCampaigns,
         series: seriesTableRes.data || [],
         chapters: chaptersTableRes.data || [],
         characters: charactersTableRes.data || [],
         creators: creatorsTableRes.data || [],
         bingoCodes: bingoCodesRes.data || [],
-        readingHistory: readingHistoryRes.data || [],
-        completedReads: completedReadsRes.data || [],
-        hypes: hypesRes.data || [],
-        superHypes: superHypesRes.data || [],
-        pageReacts: pageReactsRes.data || [],
-        seriesComments: seriesCommentsRes.data || [],
-        seriesLikes: seriesLikesRes.data || [],
-        chapterLikes: chapterLikesRes.data || [],
-        characterLikes: characterLikesRes.data || [],
-        creatorLikes: creatorLikesRes.data || [],
-        creatorTips: creatorTipsRes.data || [],
-        telemetryEvents: telemetryEventsRes.data || []
+        readingHistory: readingHistoryRows || [],
+        completedReads: completedReadsRows || [],
+        hypes: hypesRows || [],
+        superHypes: superHypesRows || [],
+        pageReacts: pageReactsRows || [],
+        seriesComments: seriesCommentsRows || [],
+        seriesLikes: seriesLikesRows || [],
+        chapterLikes: chapterLikesRows || [],
+        characterLikes: characterLikesRows || [],
+        creatorLikes: creatorLikesRows || [],
+        creatorTips: creatorTipsRows || [],
+        telemetryEvents: telemetryEventsRows || []
       });
 
       setLastRefreshed(new Date());
@@ -1034,7 +1074,6 @@ export const AnalyticsDashboard = () => {
     });
 
     // --- DE-DUPLICATED UNIQUE VISITORS (PREFERS USER_ID OR PERSISTENT VIS_ID OVER RANDOM TAB SESSION_ID) ---
-    // Map any visitor_id / session_id associated with a known user_id back to that user_id so 1 user on 5 tabs = 1 visitor
     const sessionOrVisToUserMap = new Map<string, string>();
     telemetryRows.forEach((t: any) => {
       if (t.user_id) {
@@ -1079,7 +1118,6 @@ export const AnalyticsDashboard = () => {
       }
     };
 
-    // Only count persistent visitor pings (`user_id` or `vis_...` visitor_id), not random per-tab UUIDs for every button click
     telemetryRows.forEach((t: any) => {
       const meta = t.metadata || t.event_data || {};
       const persistentActor =
@@ -1127,7 +1165,7 @@ export const AnalyticsDashboard = () => {
       convLifetimePct: calcConvPct(totalUsers, vLifetime)
     };
 
-    // --- STRICT REGISTERED ACTIVE USERS & PEAK ACTIVE USERS (NEVER COUNTS RANDOM TAB SESSION_IDS) ---
+    // --- STRICT REGISTERED ACTIVE USERS & PEAK ACTIVE USERS ---
     const activeTodaySet = new Set<string>();
     const active7dSet = new Set<string>();
     const active30dSet = new Set<string>();
@@ -1147,7 +1185,6 @@ export const AnalyticsDashboard = () => {
     const registerActiveEvent = (userId?: string, rawDt?: string) => {
       if (!userId || !rawDt) return;
       const cleanUid = String(userId).trim();
-      // Strictly require a valid registered account in the selected audience (Pure Fans / Creators / All)
       if (!activeProfileIdsSet.has(cleanUid)) return;
 
       const dt = new Date(rawDt);
@@ -1255,7 +1292,6 @@ export const AnalyticsDashboard = () => {
       0
     );
 
-    // Count chapters that were opened in reading_history but not yet in completed_reads
     const completedPairsSet = new Set<string>(
       completedRows.map((r: any) => `${r.user_id}_${r.chapter_id}`)
     );
@@ -1369,11 +1405,12 @@ export const AnalyticsDashboard = () => {
     let bingoTelemetryEvents = 0;
     let leaderboardTelemetryEvents = 0;
 
-    // --- REWARDED VIDEO AD TELEMETRY COUNTERS ---
+    // --- REWARDED VIDEO AD & UPSELL VIDEO TELEMETRY COUNTERS ---
     let rewardedAdStarted = 0;
     let rewardedAdCompleted = 0;
     let rewardedAdUnlockClaimed = 0;
     let rewardedAdClicks = 0;
+    let upsellVideosWatchedCount = 0;
 
     // --- UPSELL POPUP TELEMETRY AGGREGATION (DEDUPLICATED BY NORMALIZED TITLE) ---
     const normalizePopupKey = (title?: string, fallbackId?: string): string => {
@@ -1392,6 +1429,7 @@ export const AnalyticsDashboard = () => {
         targetAudience: string;
         popupType: string;
         impressions: number;
+        videoWatches: number;
         clicks: number;
         checkoutsStarted: number;
         paidConversions: number;
@@ -1412,6 +1450,30 @@ export const AnalyticsDashboard = () => {
           targetAudience: up.target_audience || 'plus_upsell',
           popupType: 'Command Center Card',
           impressions: 0,
+          videoWatches: 0,
+          clicks: 0,
+          checkoutsStarted: 0,
+          paidConversions: 0,
+          revenueDollars: 0
+        });
+      }
+    });
+
+    (rawTables.houseCampaigns || []).forEach((hc: any) => {
+      if (hc.enabled === false) return;
+      if (hc.placementMode !== 'timed_popup' && hc.placementMode !== 'both') return;
+      const rawId = `house_popup_${hc.id}`;
+      const canonKey = normalizePopupKey(hc.headline, rawId);
+      popupIdToCanonicalKey.set(rawId, canonKey);
+      if (!upsellStatsByPopupId.has(canonKey)) {
+        upsellStatsByPopupId.set(canonKey, {
+          id: canonKey,
+          title: hc.headline || 'House Video Upsell',
+          badge: hc.badge || 'SATURDAY AM SPOTLIGHT',
+          targetAudience: 'both',
+          popupType: hc.videoUrl ? 'House Video Popup' : 'House Spotlight Popup',
+          impressions: 0,
+          videoWatches: 0,
           clicks: 0,
           checkoutsStarted: 0,
           paidConversions: 0,
@@ -1433,6 +1495,7 @@ export const AnalyticsDashboard = () => {
           targetAudience: 'both',
           popupType: 'Event Bundle Popup',
           impressions: 0,
+          videoWatches: 0,
           clicks: 0,
           checkoutsStarted: 0,
           paidConversions: 0,
@@ -1454,12 +1517,15 @@ export const AnalyticsDashboard = () => {
           badge: meta?.popup_badge || 'SATURDAY AM+ PLUS',
           targetAudience: meta?.audience_mode === 'visitor' ? 'visitor_signup' : 'plus_upsell',
           popupType:
-            meta?.popup_type === 'event_bundle_popup'
+            meta?.popup_type === 'house_video_popup'
+              ? 'House Video Popup'
+              : meta?.popup_type === 'event_bundle_popup'
               ? 'Event Bundle Popup'
               : meta?.popup_type === 'command_center_card'
               ? 'Command Center Card'
               : 'Default Fallback Card',
           impressions: 0,
+          videoWatches: 0,
           clicks: 0,
           checkoutsStarted: 0,
           paidConversions: 0,
@@ -1481,6 +1547,10 @@ export const AnalyticsDashboard = () => {
       if (evType === 'upsell_popup_impression') {
         const b = ensureUpsellBucket(meta);
         b.impressions += 1;
+      } else if (evType === 'upsell_video_watched') {
+        upsellVideosWatchedCount += 1;
+        const b = ensureUpsellBucket(meta);
+        b.videoWatches += 1;
       } else if (evType === 'upsell_popup_cta_click') {
         const b = ensureUpsellBucket(meta);
         b.clicks += 1;
@@ -1526,7 +1596,7 @@ export const AnalyticsDashboard = () => {
       upsellStatsByPopupId.values()
     )
       .map(item => {
-        const effImpressions = Math.max(item.impressions, item.clicks);
+        const effImpressions = Math.max(item.impressions, item.videoWatches, item.clicks);
         const ctrPct = effImpressions > 0 ? (item.clicks / effImpressions) * 100 : 0;
         const conversionRatePct =
           effImpressions > 0 ? (item.paidConversions / effImpressions) * 100 : 0;
@@ -1550,13 +1620,21 @@ export const AnalyticsDashboard = () => {
     const upsellTotals = upsellPopupFunnelRows.reduce(
       (acc, r) => {
         acc.impressions += r.impressions;
+        acc.videoWatches += r.videoWatches;
         acc.clicks += r.clicks;
         acc.checkoutsStarted += r.checkoutsStarted;
         acc.paidConversions += r.paidConversions;
         acc.revenueDollars += r.revenueDollars;
         return acc;
       },
-      { impressions: 0, clicks: 0, checkoutsStarted: 0, paidConversions: 0, revenueDollars: 0 }
+      {
+        impressions: 0,
+        videoWatches: 0,
+        clicks: 0,
+        checkoutsStarted: 0,
+        paidConversions: 0,
+        revenueDollars: 0
+      }
     );
 
     const totalRewardedAdWatches = Math.max(
@@ -1573,7 +1651,8 @@ export const AnalyticsDashboard = () => {
       banner_clicks: bannerClicks,
       rewarded_ad_watches: totalRewardedAdWatches,
       rewarded_ad_unlocks: totalRewardedAdUnlocks,
-      rewarded_ad_clicks: rewardedAdClicks
+      rewarded_ad_clicks: rewardedAdClicks,
+      upsell_videos_watched: Math.max(upsellVideosWatchedCount, upsellTotals.videoWatches)
     };
 
     let profilesWithTopFive = 0;
@@ -1780,7 +1859,10 @@ export const AnalyticsDashboard = () => {
     const netALaCarteCashYr = aLaCarteSkinsSoldCount * 5.0;
 
     const monthlyAdImpressions =
-      globalStats.reads_month + totalRewardedAdWatches * 2 + bannerClicks;
+      globalStats.reads_month +
+      totalRewardedAdWatches * 2 +
+      telemetryStats.upsell_videos_watched +
+      bannerClicks;
     const annualizedAdImpressions = monthlyAdImpressions * 12;
     const grossAdCashYr = (annualizedAdImpressions / 1000) * 3.5;
     const netAdCashYr = grossAdCashYr * 0.85;
@@ -1907,15 +1989,16 @@ export const AnalyticsDashboard = () => {
       return rawId || 'a Series';
     };
 
+    // Note: rows are sorted newest-first (`DESC`) from fetchRecentRowsPaginated, so `.slice(0, 8)` grabs the latest events
     const feedItems: any[] = [];
-    allUnifiedHypes.slice(-8).forEach((h: any) => {
+    allUnifiedHypes.slice(0, 8).forEach((h: any) => {
       feedItems.push({
         type: 'hype',
         label: `Hype dropped on ${resolveHypeTargetLabel(h)}`,
         timestamp: h.created_at || now.toISOString()
       });
     });
-    commentsData.slice(-8).forEach((cm: any) => {
+    commentsData.slice(0, 8).forEach((cm: any) => {
       feedItems.push({
         type: 'comment',
         label: `${cm.user_name || 'A fan'} commented on ${
@@ -1925,7 +2008,7 @@ export const AnalyticsDashboard = () => {
         timestamp: cm.created_at || now.toISOString()
       });
     });
-    tipsData.slice(-8).forEach((tp: any) => {
+    tipsData.slice(0, 8).forEach((tp: any) => {
       feedItems.push({
         type: 'tip',
         label: `${tp.donor_name || 'A supporter'} tipped $${tp.amount_dollars || 5} to ${
@@ -1944,10 +2027,11 @@ export const AnalyticsDashboard = () => {
           et.includes('bingo') ||
           et.includes('leaderboard') ||
           et.includes('rewarded_ad') ||
+          et.includes('upsell_video_watched') ||
           et.includes('upsell_popup_converted_paid')
         );
       })
-      .slice(-10)
+      .slice(0, 10)
       .forEach((t: any) => {
         const et = String(t.event_type || t.event_name || '').toLowerCase();
         const meta = t.metadata || t.event_data || {};
@@ -1955,14 +2039,16 @@ export const AnalyticsDashboard = () => {
           ? `Upsell Popup "${meta?.popup_title || 'PLUS Offer'}" converted to Paid Sub ($${
               meta?.revenue_dollars || 20
             })`
+          : et.includes('upsell_video_watched')
+          ? `Reader watched Upsell Video Popup (${meta?.popup_title || 'Spotlight'})`
           : et.includes('rewarded_ad_completed') || et.includes('rewarded_ad_unlock')
-          ? `Fan watched Rewarded Video Ad to unlock ${meta?.series_title || 'a chapter'}${
+          ? `Reader watched Rewarded Video Ad to unlock ${meta?.series_title || 'a chapter'}${
               meta?.chapter_number ? ` Ch. ${meta.chapter_number}` : ''
             }`
           : et.includes('rewarded_ad_clicked')
-          ? `Fan clicked Rewarded Ad CTA (${meta?.headline || 'Spotlight'})`
+          ? `Reader clicked Rewarded Ad CTA (${meta?.headline || 'Spotlight'})`
           : et.includes('rewarded_ad_started')
-          ? `Fan started watching Rewarded Video Ad (${meta?.headline || 'Spotlight'})`
+          ? `Reader started watching Rewarded Video Ad (${meta?.headline || 'Spotlight'})`
           : et.includes('hype_card')
           ? 'Fan flexed their Virtual Hype Card'
           : et.includes('loadout')
@@ -1976,7 +2062,7 @@ export const AnalyticsDashboard = () => {
           timestamp: t.created_at || now.toISOString()
         });
       });
-    historyRows.slice(-10).forEach((rh: any) => {
+    historyRows.slice(0, 10).forEach((rh: any) => {
       const sSlug = chapToSeries.get(String(rh.chapter_id));
       const chNum = chapToNumber.get(String(rh.chapter_id));
       if (sSlug) {
@@ -3680,16 +3766,22 @@ export const AnalyticsDashboard = () => {
                   <Sparkles className="w-3.5 h-3.5" /> Live Upsell Attribution Funnel
                 </div>
                 <h3 className="text-sm font-black uppercase tracking-widest text-white">
-                  Upsell Pop-Up Conversion Performance (Impressions → CTA Clicks → Paid Subscriptions)
+                  Upsell Pop-Up Conversion Performance (Impressions → Video Plays → CTA Clicks → Paid)
                 </h3>
                 <p className="text-[10px] text-zinc-400 font-bold mt-0.5">
-                  Tracks every Command Center Upsell Card, Event Bundle Popup, and Fallback Card from impression to completed paid subscription
+                  Tracks every Command Center Upsell Card, House Video Popup, Event Bundle Popup, and End-of-Chapter Trigger
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest shrink-0">
                 <span className="bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg text-zinc-300">
                   Shown: <strong className="text-white">{upsellTotals.impressions.toLocaleString()}</strong>
+                </span>
+                <span className="bg-zinc-900 border border-cyan-500/30 px-3 py-1.5 rounded-lg text-cyan-300">
+                  Video Plays:{' '}
+                  <strong className="text-white">
+                    {telemetryStats.upsell_videos_watched.toLocaleString()}
+                  </strong>
                 </span>
                 <span className="bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg text-[#fe9a00]">
                   Clicks: <strong className="text-white">{upsellTotals.clicks.toLocaleString()}</strong>
@@ -3702,12 +3794,13 @@ export const AnalyticsDashboard = () => {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[880px]">
+              <table className="w-full text-left border-collapse min-w-[940px]">
                 <thead>
                   <tr className="bg-zinc-900/90 border-b border-zinc-800 text-[9px] font-black uppercase tracking-widest text-zinc-400">
                     <th className="p-4">Upsell Pop-Up Title & Badge</th>
                     <th className="p-4">Type / Target</th>
                     <th className="p-4 text-right">Impressions</th>
+                    <th className="p-4 text-right text-cyan-300">Video Plays</th>
                     <th className="p-4 text-right text-[#fe9a00]">CTA Clicks</th>
                     <th className="p-4 text-right">Click CTR %</th>
                     <th className="p-4 text-right text-purple-300">Checkouts Started</th>
@@ -3720,7 +3813,7 @@ export const AnalyticsDashboard = () => {
                   {upsellPopupFunnelRows.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={10}
                         className="p-8 text-center text-zinc-500 font-bold uppercase tracking-widest text-xs"
                       >
                         No upsell pop-ups configured yet. Add upsell cards in the Command Center or trigger a popup in-app to begin tracking conversions.
@@ -3749,6 +3842,9 @@ export const AnalyticsDashboard = () => {
                         </td>
                         <td className="p-4 text-right font-black text-zinc-200">
                           {row.impressions.toLocaleString()}
+                        </td>
+                        <td className="p-4 text-right font-black text-cyan-300">
+                          {row.videoWatches.toLocaleString()}
                         </td>
                         <td className="p-4 text-right font-black text-[#fe9a00]">
                           {row.clicks.toLocaleString()}
@@ -3909,11 +4005,14 @@ export const AnalyticsDashboard = () => {
                       <div className="flex items-center gap-1.5 mb-1">
                         <PlayCircle className="w-3.5 h-3.5 text-emerald-400" />
                         <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest">
-                          Rewarded Video Ad Watches
+                          Rewarded Ad & Upsell Video Plays
                         </span>
                       </div>
                       <span className="text-xl font-black text-white">
-                        {(telemetryStats?.rewarded_ad_watches || 0).toLocaleString()}
+                        {(telemetryStats?.rewarded_ad_watches || 0).toLocaleString()}{' '}
+                        <span className="text-xs text-zinc-400 font-bold">
+                          Ads • {(telemetryStats?.upsell_videos_watched || 0).toLocaleString()} Upsell Videos
+                        </span>
                       </span>
                     </div>
                     <div className="text-right text-[9px] font-bold text-zinc-400">

@@ -2,6 +2,7 @@
 
 export const REFERRAL_CODE_KEY = 'am_referral_code';
 export const REFERRAL_CLICKED_AT_KEY = 'am_referral_clicked_at';
+export const REFERRAL_INVITE_DISMISSED_KEY = 'am_referral_invite_dismissed';
 export const REFERRAL_WINDOW_MS = 365 * 24 * 60 * 60 * 1000; // 1 Full Year (365 Days)
 
 export const DEV_CUT_PERCENT = 7.5;
@@ -63,6 +64,12 @@ export const recordReferralClick = (rawCode?: string | null): string => {
     const nowIso = new Date().toISOString();
     localStorage.setItem(REFERRAL_CODE_KEY, clean);
     localStorage.setItem(REFERRAL_CLICKED_AT_KEY, nowIso);
+    sessionStorage.removeItem(REFERRAL_INVITE_DISMISSED_KEY);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('referralAttributionUpdated', { detail: { code: clean } })
+      );
+    }
   } catch {
     // Ignore storage errors
   }
