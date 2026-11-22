@@ -3,10 +3,11 @@ import { supabase } from '../supabase';
 import { HypeButton } from '../Components/HypeButton';
 import { Search, Heart, PenTool, X, CheckCircle2, ArrowUpDown } from 'lucide-react';
 import { HypeLoader } from '../Components/HypeLoader';
+import { calculateTipFeeBreakdown } from '../referralAttribution';
 
 const CLOUDFLARE_BASE_URL = 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev';
 
-// Built-in Stripe Connect account map + fallback resolver
+// Built-in Stripe Connect account map + fallback resolver (NO short "eric" key!)
 export const CREATOR_STRIPE_CONNECT_MAP: Record<string, string> = {
   'raymond brown': 'acct_1US3pv2d62PnIfST',
   'rayme3000': 'acct_1US3pv2d62PnIfST',
@@ -49,17 +50,14 @@ export const normalizeCreatorKey = (rawName?: string): string => {
 export const resolveCreatorStripeAccountId = (creatorName?: string, dbStripeId?: string): string => {
   const cleanDb = String(dbStripeId || '').trim();
 
-  // 1. If the Command Center explicitly reverted this creator to Saturday AM house routing, honor that first!
   if (cleanDb.toUpperCase() === 'SATURDAY_AM' || cleanDb.toUpperCase() === 'NONE') {
     return '';
   }
 
-  // 2. If the Command Center saved a valid Stripe Connect ID in Supabase, it ALWAYS wins over hardcoded defaults!
   if (cleanDb.startsWith('acct_')) {
     return cleanDb;
   }
 
-  // 3. Fallback to built-in map if no database value is set yet
   const lower = normalizeCreatorKey(creatorName);
   if (!lower) return '';
 
@@ -68,7 +66,7 @@ export const resolveCreatorStripeAccountId = (creatorName?: string, dbStripeId?:
   }
 
   for (const [key, acctId] of Object.entries(CREATOR_STRIPE_CONNECT_MAP)) {
-    if (acctId && key.length > 4 && (lower.includes(key) || key.includes(lower))) {
+    if (acctId && key.length >= 6 && (lower.includes(key) || key.includes(lower))) {
       return acctId;
     }
   }
@@ -95,17 +93,21 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name-asc' | 'name-desc' | 'works-desc' | 'role-asc'>('name-asc');
 
-  // Deep-link highlight state when arriving from a "Meet the Creator" notification
   const [highlightedCreator, setHighlightedCreator] = useState<string | null>(null);
 
-  // Donation State
+  // Donation State (Includes Opt-In Processing Fee Checkbox — Checked by Default)
   const [donationCreator, setDonationCreator] = useState<CreatorProfile | null>(null);
   const [donationAmount, setDonationAmount] = useState<number>(5);
+  const [coverTipFee, setCoverTipFee] = useState<boolean>(true);
   const [fanmailText, setFanmailText] = useState('');
   const [donationStep, setDonationStep] = useState<'input' | 'processing' | 'success'>('input');
   const [expandedBios, setExpandedBios] = useState<Record<string, boolean>>({});
 
-  // Check if returning from a successful Stripe Donation Checkout
+  const tipBreakdown = useMemo(
+    () => calculateTipFeeBreakdown(donationAmount, coverTipFee),
+    [donationAmount, coverTipFee]
+  );
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('donation_status') === 'success') {
@@ -220,7 +222,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
         setCreators(Array.from(creatorMap.values()));
       } catch (err) {
-        console.error("Failed to load creators:", err);
+        console.error('Failed to load creators:', err);
       } finally {
         setLoading(false);
       }
@@ -229,7 +231,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
     fetchCatalog();
   }, []);
 
-  // Auto-jump to creator when arriving from a "Meet the Creator" notification
   useEffect(() => {
     if (loading || creators.length === 0) return;
     const targetName = sessionStorage.getItem('am_target_creator');
@@ -258,11 +259,12 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
 
   const processedCreators = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    const result = creators.filter(c =>
-      !q ||
-      c.name.toLowerCase().includes(q) ||
-      c.role.toLowerCase().includes(q) ||
-      c.works.some(w => w.title?.toLowerCase().includes(q))
+    const result = creators.filter(
+      c =>
+        !q ||
+        c.name.toLowerCase().includes(q) ||
+        c.role.toLowerCase().includes(q) ||
+        c.works.some(w => w.title?.toLowerCase().includes(q))
     );
 
     return result.sort((a, b) => {
@@ -275,7 +277,9 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
   }, [creators, searchQuery, sortBy]);
 
   const handleProcessDonation = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
     const activeUserId = currentUser?.id || user?.id;
 
     if (!activeUserId) {
@@ -303,6 +307,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
           creatorName: donationCreator.name,
           stripeAccountId: targetStripeAccountId,
           amountDollars: donationAmount,
+          coverStripeFee: coverTipFee,
           fanmail: fanmailText.trim(),
           seriesSlug: donationCreator.works?.[0]?.slug || ''
         }
@@ -314,17 +319,16 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
       if (data?.url) {
         window.location.href = data.url;
       } else {
-        throw new Error("No checkout URL returned from Stripe.");
+        throw new Error('No checkout URL returned from Stripe.');
       }
     } catch (err: any) {
-      alert("Unable to start Stripe Tip Checkout: " + err.message);
+      alert('Unable to start Stripe Tip Checkout: ' + err.message);
       setDonationStep('input');
     }
   };
 
   return (
     <div className="min-h-screen bg-transparent text-white pb-32 pt-6 px-4 max-w-5xl mx-auto">
-      
       {/* Sticky Header with Title, Search, and Sort */}
       <div className="sticky top-0 z-40 bg-black/85 backdrop-blur-xl pb-4 pt-2 mb-6 border-b border-zinc-800 rounded-b-2xl px-2">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-4 pr-16 sm:pr-20">
@@ -349,7 +353,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
               type="text"
               placeholder="Search by creator name or manga..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={e => setSearchQuery(e.target.value)}
               className="w-full bg-zinc-900/90 backdrop-blur-sm border border-zinc-800 text-white pl-10 pr-4 py-2.5 rounded-xl text-sm focus:outline-none focus:border-[#fe9a00] transition-colors"
             />
           </div>
@@ -358,7 +362,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
             <ArrowUpDown className="w-4 h-4 text-[#fe9a00] shrink-0" />
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={e => setSortBy(e.target.value as any)}
               aria-label="Sort creators"
               className="bg-transparent text-white text-xs font-black uppercase tracking-wider py-1.5 focus:outline-none cursor-pointer"
             >
@@ -371,7 +375,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
         </div>
       </div>
 
-      {/* Unified Large Hype Flame Loader */}
       {loading ? (
         <HypeLoader text="Loading Talent..." />
       ) : processedCreators.length === 0 ? (
@@ -380,13 +383,13 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          {processedCreators.map((creator) => {
+          {processedCreators.map(creator => {
             const isBioExpanded = !!expandedBios[creator.name];
             const isHighlighted = highlightedCreator === creator.name;
             const bioText = creator.bio || 'Official creator for Saturday AM titles.';
 
             return (
-              <div 
+              <div
                 key={creator.name}
                 id={`creator-card-${normalizeCreatorKey(creator.name)}`}
                 onClick={() => {
@@ -398,14 +401,15 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                     : 'border-zinc-800/80 hover:border-zinc-700'
                 }`}
               >
-                {/* Left Section: Avatar & Creator Details */}
                 <div className="flex items-start gap-4 flex-1 min-w-0 md:max-w-[400px] lg:max-w-[440px]">
                   <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-[#fe9a00] overflow-hidden flex-shrink-0 bg-zinc-900 shadow-[0_0_12px_rgba(254,154,0,0.25)]">
                     <img
                       src={creator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`}
                       alt={creator.name}
                       className="w-full h-full object-cover"
-                      onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }}
+                      onError={e => {
+                        e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`;
+                      }}
                     />
                   </div>
 
@@ -414,7 +418,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                       <h2 className="text-base sm:text-lg font-black italic uppercase tracking-tight text-white truncate">
                         {creator.name}
                       </h2>
-                      {creator.flag_codes.map((flag) => (
+                      {creator.flag_codes.map(flag => (
                         <img
                           key={flag}
                           src={`https://flagcdn.com/${flag.toLowerCase()}.svg`}
@@ -464,13 +468,12 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                   </div>
                 </div>
 
-                {/* Center / Right Section: Expanded Works Strip */}
                 {creator.works.length > 0 && (
                   <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-1 shrink-0 max-w-full md:max-w-[320px] lg:max-w-[420px]">
                     <span className="text-[8px] font-black uppercase tracking-widest text-zinc-500 hidden xl:block shrink-0">
                       Works
                     </span>
-                    {creator.works.map((work) => (
+                    {creator.works.map(work => (
                       <div
                         key={work.slug || work.id}
                         onClick={() => onNavigate(work)}
@@ -495,7 +498,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                   </div>
                 )}
 
-                {/* Right Action Buttons */}
                 <div className="flex flex-row md:flex-col items-center gap-2.5 shrink-0 w-full md:w-36 border-t md:border-t-0 border-zinc-800/80 pt-3 md:pt-0">
                   <div className="flex-1 md:flex-initial w-full [&_button]:w-full [&_button]:justify-center [&_button]:py-2.5 [&_button]:px-3 [&_button]:gap-1.5 [&_button]:text-[10px]">
                     <HypeButton
@@ -513,6 +515,7 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                       setDonationCreator(creator);
                       setDonationStep('input');
                       setDonationAmount(5);
+                      setCoverTipFee(true);
                       setFanmailText('');
                     }}
                     className="flex-1 md:flex-initial w-full py-2.5 px-3 bg-[#fe9a00] hover:bg-white text-black font-black uppercase text-[10px] tracking-widest rounded-full transition-all flex items-center justify-center gap-1.5 shadow-[0_0_12px_rgba(254,154,0,0.25)] hover:scale-105 cursor-pointer whitespace-nowrap"
@@ -527,55 +530,101 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
         </div>
       )}
 
-      {/* Donation / Fanmail Modal */}
+      {/* Donation / Fanmail Modal with Optional Processing Fee Coverage */}
       {donationCreator && (
-        <div className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in" onClick={() => { if (donationStep === 'input') setDonationCreator(null); }}>
-          <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative" onClick={e => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-[7000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+          onClick={() => {
+            if (donationStep === 'input') setDonationCreator(null);
+          }}
+        >
+          <div
+            className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col relative"
+            onClick={e => e.stopPropagation()}
+          >
             {donationStep === 'input' && (
               <>
-                <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer">
+                <button
+                  onClick={() => setDonationCreator(null)}
+                  className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer"
+                >
                   <X className="w-6 h-6" />
                 </button>
                 <div className="p-6 sm:p-8 animate-fade-in">
-                  <div className="flex flex-col items-center mb-6 text-center mt-2">
-                    <img 
-                      src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} 
-                      className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]" 
+                  <div className="flex flex-col items-center mb-5 text-center mt-2">
+                    <img
+                      src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`}
+                      className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]"
                       alt={donationCreator.name}
-                      onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }}
+                      onError={e => {
+                        e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`;
+                      }}
                     />
-                    <h3 className="text-xl font-black italic uppercase text-white leading-tight">Support {donationCreator.name}</h3>
-                    <p className="text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1">100% of your tip goes directly to the creator</p>
+                    <h3 className="text-xl font-black italic uppercase text-white leading-tight">
+                      Support {donationCreator.name}
+                    </h3>
+                    <p className="text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1">
+                      Saturday AM takes 0% platform commission on fan tips
+                    </p>
                   </div>
 
-                  <div className="grid grid-cols-4 gap-2 mb-6">
-                    {[5, 10, 15, 20].map((amount) => (
-                      <button 
+                  <div className="grid grid-cols-4 gap-2 mb-4">
+                    {[5, 10, 15, 20].map(amount => (
+                      <button
                         key={amount}
                         onClick={() => setDonationAmount(amount)}
-                        className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all cursor-pointer ${donationAmount === amount ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]' : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
+                        className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all cursor-pointer ${
+                          donationAmount === amount
+                            ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]'
+                            : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'
+                        }`}
                       >
                         ${amount}
                       </button>
                     ))}
                   </div>
 
-                  <div className="relative mb-6">
-                    <textarea 
+                  {/* Optional Processing Fee Coverage Toggle */}
+                  <label className="flex items-start gap-3 p-3.5 mb-4 rounded-xl bg-black border border-zinc-800 hover:border-[#fe9a00]/60 cursor-pointer select-none transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={coverTipFee}
+                      onChange={e => setCoverTipFee(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 accent-[#fe9a00] rounded cursor-pointer shrink-0"
+                    />
+                    <div className="flex-1 text-left">
+                      <span className="text-[11px] font-bold text-white block leading-snug">
+                        Cover the <span className="text-[#fe9a00]">${tipBreakdown.processingFeeDollars.toFixed(2)}</span> card processing fee so{' '}
+                        <span className="text-[#fe9a00]">{donationCreator.name}</span> gets 100% (${donationAmount.toFixed(2)})
+                      </span>
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block mt-1">
+                        Creator receives:{' '}
+                        <strong className="text-emerald-400">
+                          ${tipBreakdown.creatorNetDollars.toFixed(2)}
+                        </strong>{' '}
+                        • Total charged: ${tipBreakdown.fanPaysDollars.toFixed(2)}
+                      </span>
+                    </div>
+                  </label>
+
+                  <div className="relative mb-5">
+                    <textarea
                       value={fanmailText}
-                      onChange={(e) => setFanmailText(e.target.value)}
+                      onChange={e => setFanmailText(e.target.value)}
                       placeholder="Write private fanmail to the creator..."
                       maxLength={250}
                       className="w-full bg-black border border-zinc-800 text-white text-xs px-4 py-3 pb-8 rounded-xl focus:outline-none focus:border-[#fe9a00] transition-colors resize-none h-24 font-medium"
                     />
-                    <span className="absolute bottom-3 right-3 text-[9px] font-black uppercase tracking-widest text-zinc-600">{fanmailText.length}/250</span>
+                    <span className="absolute bottom-3 right-3 text-[9px] font-black uppercase tracking-widest text-zinc-600">
+                      {fanmailText.length}/250
+                    </span>
                   </div>
 
-                  <button 
+                  <button
                     onClick={handleProcessDonation}
-                    className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer"
+                    className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer text-xs sm:text-sm"
                   >
-                    Donate ${donationAmount} via Stripe
+                    Tip ${tipBreakdown.fanPaysDollars.toFixed(2)} via Stripe
                   </button>
                 </div>
               </>
@@ -594,10 +643,14 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
                 </div>
                 <h3 className="text-2xl font-black italic uppercase text-white mb-2">Thank You!</h3>
                 <p className="text-xs sm:text-sm text-zinc-400 font-bold mb-8 leading-relaxed max-w-xs">
-                  Your ${donationAmount} tip and fanmail have been delivered to {donationCreator.name}. <span className="text-[#fe9a00]">Your Fandom Score has been boosted!</span>
+                  Your ${donationAmount} tip and fanmail have been delivered to {donationCreator.name}.{' '}
+                  <span className="text-[#fe9a00]">Your Fandom Score has been boosted!</span>
                 </p>
-                <button 
-                  onClick={() => { setDonationCreator(null); setDonationStep('input'); }}
+                <button
+                  onClick={() => {
+                    setDonationCreator(null);
+                    setDonationStep('input');
+                  }}
                   className="w-full py-4 bg-zinc-800 text-white font-black uppercase tracking-widest rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer"
                 >
                   Back to Creators
@@ -607,7 +660,6 @@ export const CreatorsPage = ({ currentUser, onNavigate, onLoginClick }: any) => 
           </div>
         </div>
       )}
-
     </div>
   );
 };

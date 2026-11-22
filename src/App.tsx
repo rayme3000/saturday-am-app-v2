@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, Suspense, lazy, useRef } from 
 import { ArrowUp, X, Share, Menu, Download, Info, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { supabase } from './supabase';
 import { Dropzone, ThumbnailCropperModal } from './Components/UploadTools';
+import { recordReferralClick, getActiveReferralAttribution } from './referralAttribution';
 
 // --- IMPORT OUR COMPONENTS ---
 import { FloatingPillNav } from './Components/FloatingPillNav';
@@ -16,6 +17,7 @@ import { useIntegrations } from "./Components/useIntegrations";
 // 1. Keep core UI and Modals loaded instantly
 import LoginModal from './Auth/LoginModal.tsx';
 import { GlobalFlexCard } from './Components/GlobalFlexCard';
+import { ReferralTrialBanner } from './Components/ReferralTrialBanner';
 import { CreatorOnboardingModal, hasAcceptedCreatorTerms } from './Components/CreatorOnboardingModal';
 
 const resolveLazyModule = (mod: any, preferredName?: string) => {
@@ -514,7 +516,7 @@ export default function App() {
     }
   }, [userTier, currentUser?.is_premium]);
 
-  // --- AUTO-CAPTURE DEEP LINKS ---
+  // --- AUTO-CAPTURE DEEP LINKS (INCLUDING 365-DAY LAST-CLICK REFERRAL ATTRIBUTION) ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const creatorInviteParam = params.get('creator_invite');
@@ -524,7 +526,26 @@ export default function App() {
 
     const refParam = params.get('ref') || params.get('referral') || params.get('vip');
     if (refParam && refParam.trim().toUpperCase().startsWith('VIP-')) {
-      localStorage.setItem('am_referral_code', refParam.trim().toUpperCase());
+      const freshRefCode = recordReferralClick(refParam);
+      // If a logged-in non-PLUS user clicks a newer creator link, overwrite their active referral code & reset the 365-day clock!
+      supabase.auth.getSession().then(async ({ data: { session } }) => {
+        if (session?.user && freshRefCode) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('is_premium, referral_commission_paid_at')
+            .eq('id', session.user.id)
+            .maybeSingle();
+          if (prof && !prof.is_premium && !prof.referral_commission_paid_at) {
+            await supabase
+              .from('profiles')
+              .update({
+                referred_by_code: freshRefCode,
+                referred_at: new Date().toISOString()
+              })
+              .eq('id', session.user.id);
+          }
+        }
+      });
     }
 
     const pathMatch = window.location.pathname.match(/^\/series\/([^/?#]+)/i);
@@ -763,12 +784,30 @@ export default function App() {
             is_admin: verifiedAdmin
           };
           setCurrentUser(resolvedUserObj);
+
+          // Sync Last-Click Referral Attribution (365-day window) between browser and DB for non-PLUS users
+          if (!resolvedUserObj.is_premium && !resolvedUserObj.referral_commission_paid_at) {
+            const activeRef = getActiveReferralAttribution(resolvedUserObj);
+            if (activeRef && activeRef.code !== resolvedUserObj.referred_by_code) {
+              supabase
+                .from('profiles')
+                .update({
+                  referred_by_code: activeRef.code,
+                  referred_at: activeRef.clickedAt || new Date().toISOString(),
+                  ...(resolvedUserObj.signup_referred_by ? {} : { signup_referred_by: activeRef.code })
+                })
+                .eq('id', sessionUser.id)
+                .then(() => {});
+            }
+          }
+
           const isPro = Boolean(data.is_premium);
           setUserTier(isPro ? 'premium' : 'free');
           if (isPro) setUpsellConfig(null);
         } else {
           setUserTier(fallbackPremium ? 'premium' : 'free');
           if (fallbackPremium) setUpsellConfig(null);
+          const pendingRef = getActiveReferralAttribution();
           await supabase.from('profiles').upsert([
             {
               id: sessionUser.id,
@@ -776,7 +815,14 @@ export default function App() {
               username: fallbackName,
               is_premium: fallbackPremium,
               is_admin: fallbackAdmin,
-              super_hypes_left: fallbackPremium ? 3 : 1
+              super_hypes_left: fallbackPremium ? 3 : 1,
+              ...(pendingRef
+                ? {
+                    signup_referred_by: pendingRef.code,
+                    referred_by_code: pendingRef.code,
+                    referred_at: pendingRef.clickedAt
+                  }
+                : {})
             }
           ], { onConflict: 'id' });
           resolvedUserObj = {
@@ -1157,7 +1203,7 @@ export default function App() {
                   Stripe Connected!
                 </h2>
                 <p className="text-zinc-300 text-xs sm:text-sm font-bold leading-relaxed mb-4">
-                  Your creator payout account is now linked to Saturday AM Manga Hype! You are ready to receive <span className="text-[#fe9a00]">100% Creator Tips & Fan Mail</span> directly from fans.
+                  Your creator payout account is now linked to Saturday AM Manga Hype! You are ready to receive <span className="text-[#fe9a00]">Creator Tips & Fan Mail</span> directly from fans.
                 </p>
                 {stripeConnectNotice.accountId && (
                   <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2 mb-6 text-[11px] font-mono text-[#fe9a00]">
@@ -1237,6 +1283,11 @@ export default function App() {
       {isFlexCardOpen && <GlobalFlexCard isOpen={isFlexCardOpen} onClose={() => setIsFlexCardOpen(false)} onNavigate={handleNavigate} />}
 
       <AppErrorBoundary>
+        <ReferralTrialBanner
+          currentUser={currentUser}
+          currentView={currentView}
+          onManageClick={() => setCurrentView('settings')}
+        />
         <Suspense fallback={
           <div className="min-h-[100dvh] bg-transparent flex flex-col items-center justify-center gap-4 pb-20">
             <div className="relative flex items-center justify-center animate-hype-glow">

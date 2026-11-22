@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabase';
 import { Search, Users, ChevronLeft, ChevronRight, Crown, Loader2, Calendar, Clock, Mail, Flame, BookOpen, MessageSquare, Trash2, RefreshCw, MapPin, Phone, Globe, Cake, Download, ArrowUpDown, Sparkles } from 'lucide-react';
 
@@ -612,8 +612,8 @@ export const UserManager = () => {
                         >
                           <option value="reader" className="bg-zinc-950 text-zinc-300">Reader</option>
                           <option value="creator" className="bg-zinc-950 text-emerald-400">Creator ($5/Sub)</option>
-                          <option value="core_creator" className="bg-zinc-950 text-[#fe9a00]">Core Creator ($10/Sub)</option>
-                          <option value="staff" className="bg-zinc-950 text-[#fe9a00]">Staff ($10/Sub)</option>
+                          <option value="core_creator" className="bg-zinc-950 text-[#fe9a00]">Core Creator ($5/Sub)</option>
+                          <option value="staff" className="bg-zinc-950 text-[#fe9a00]">Staff ($5/Sub)</option>
                         </select>
 
                         {isElevatedRole && (

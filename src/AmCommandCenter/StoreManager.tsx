@@ -26,10 +26,16 @@ import {
   Search,
   User,
   ShieldCheck,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Percent
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+import {
+  DEV_CUT_PERCENT,
+  SAT_AM_MIN_PERCENT,
+  MAX_CREATOR_POOL_PERCENT
+} from '../referralAttribution';
 
 export interface CardSignatureStamp {
   id: string;
@@ -39,6 +45,13 @@ export interface CardSignatureStamp {
   y: number;
   scale: number;
   color_mode: 'gold' | 'white' | 'black';
+}
+
+export interface CreatorSplitRow {
+  id: string;
+  creator_name: string;
+  percent: number;
+  dollars: number;
 }
 
 export interface SavedStoreTemplate {
@@ -65,6 +78,49 @@ const makeSlug = (title: string): string =>
   '-' +
   Math.random().toString(36).slice(2, 6);
 
+const makeSplitRowId = () => `cs_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+const rebalanceEvenSplits = (
+  rows: CreatorSplitRow[],
+  mode: 'flat' | 'percent',
+  poolTotal: number,
+  listedPrice: number
+): CreatorSplitRow[] => {
+  if (rows.length === 0) return [];
+  const safePrice = Math.max(0.01, listedPrice);
+  const maxDollars = Number(((safePrice * MAX_CREATOR_POOL_PERCENT) / 100).toFixed(2));
+
+  if (mode === 'percent') {
+    const clampedPct = Math.max(0, Math.min(MAX_CREATOR_POOL_PERCENT, poolTotal));
+    const eachPct = Number((clampedPct / rows.length).toFixed(2));
+    return rows.map((r, idx) => {
+      const pct =
+        idx === 0
+          ? Number((clampedPct - eachPct * (rows.length - 1)).toFixed(2))
+          : eachPct;
+      return {
+        ...r,
+        percent: Math.max(0, pct),
+        dollars: Number(((safePrice * Math.max(0, pct)) / 100).toFixed(2))
+      };
+    });
+  }
+
+  const clampedDollars = Math.max(0, Math.min(maxDollars, poolTotal));
+  const eachDollars = Number((clampedDollars / rows.length).toFixed(2));
+  return rows.map((r, idx) => {
+    const dlrs =
+      idx === 0
+        ? Number((clampedDollars - eachDollars * (rows.length - 1)).toFixed(2))
+        : eachDollars;
+    return {
+      ...r,
+      dollars: Math.max(0, dlrs),
+      percent: Number(((Math.max(0, dlrs) / safePrice) * 100).toFixed(2))
+    };
+  });
+};
+
 const EMPTY_PRODUCT_FORM = {
   id: '' as string,
   slug: '' as string,
@@ -87,9 +143,10 @@ const EMPTY_PRODUCT_FORM = {
   autograph_1: '',
   autograph_2: '',
   bonus_vaulted_hypes: 10,
-  commission_creator_1: '',
-  commission_creator_2: '',
-  commission_bounty_dollars: 5.0,
+  commission_mode: 'flat' as 'flat' | 'percent',
+  split_evenly: true,
+  pool_value: 5.0, // Total $ pool (if flat) or Total % pool (if percent, max 42.5%)
+  creator_splits: [] as CreatorSplitRow[],
   available_from: '',
   available_until: '',
   is_active: true
@@ -109,9 +166,13 @@ const BUILT_IN_SUBSCRIPTION_BUNDLE_TEMPLATE: typeof EMPTY_PRODUCT_FORM = {
   autograph_1: 'Oscar Fong',
   autograph_2: 'Frederick L. Jones',
   bonus_vaulted_hypes: 10,
-  commission_creator_1: 'Oscar Fong',
-  commission_creator_2: 'Frederick L. Jones',
-  commission_bounty_dollars: 5.0,
+  commission_mode: 'flat',
+  split_evenly: true,
+  pool_value: 5.0,
+  creator_splits: [
+    { id: 'tpl_c1', creator_name: 'Oscar Fong', dollars: 2.5, percent: 10.0 },
+    { id: 'tpl_c2', creator_name: 'Frederick L. Jones', dollars: 2.5, percent: 10.0 }
+  ],
   is_active: true
 };
 
@@ -129,15 +190,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [statusToast, setStatusToast] = useState<string | null>(null);
 
-  // Shopify-style Product Composer Modal State
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_PRODUCT_FORM });
 
-  // Visual Avatar Picker Modal State
   const [activeAvatarSlotKey, setActiveAvatarSlotKey] = useState<string | null>(null);
   const [avatarSearchQuery, setAvatarSearchQuery] = useState('');
 
-  // Interactive Hype Card Signature Studio Modal State
   const [editingStampSkin, setEditingStampSkin] = useState<any | null>(null);
   const [activeStamps, setActiveStamps] = useState<CardSignatureStamp[]>([]);
   const [selectedStampId, setSelectedStampId] = useState<string | null>(null);
@@ -259,53 +317,258 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     return 0;
   }, [form.normal_price_dollars, form.listed_price_dollars]);
 
-  // Live Net Retained Cash Breakdown
+  // Live Economics Breakdown (50% Sat AM Min • 7.5% Dev Cut Locked • Max 42.5% Creator Pool)
   const netBreakdownPreview = useMemo(() => {
     const gross = Math.max(0, Number(form.listed_price_dollars || 0));
     if (gross <= 0) {
-      return { stripeFee: 0, creatorBounty: 0, devAlloc: 0, netRetained: 0 };
+      return {
+        stripeFee: 0,
+        maxCreatorPoolDollars: 0,
+        creatorBounty: 0,
+        creatorPctOfGross: 0,
+        devAlloc: 0,
+        satAmGrossSharePct: 100,
+        netRetainedAfterStripe: 0
+      };
     }
+
     const stripeFee = Number((gross * 0.029 + 0.3).toFixed(2));
-    const hasCreators = Boolean(form.commission_creator_1 || form.commission_creator_2);
-    const creatorBounty =
-      form.product_type === 'bundle' && hasCreators
-        ? Math.max(0, Number(form.commission_bounty_dollars ?? 5.0))
-        : 0;
-    const devAlloc =
-      form.product_type === 'bundle' && form.include_1yr_sub
-        ? 1.5
-        : Number((gross * 0.1).toFixed(2));
-    const netRetained = Math.max(
-      0,
-      Number((gross - stripeFee - creatorBounty - devAlloc).toFixed(2))
+    const maxCreatorPoolDollars = Number(((gross * MAX_CREATOR_POOL_PERCENT) / 100).toFixed(2));
+    const devAlloc = Number(((gross * DEV_CUT_PERCENT) / 100).toFixed(2));
+
+    const validSplits = (form.creator_splits || []).filter(r => r.creator_name.trim());
+    const rawCreatorDollars = validSplits.reduce(
+      (sum, r) => sum + Math.max(0, Number(r.dollars || 0)),
+      0
     );
-    return { stripeFee, creatorBounty, devAlloc, netRetained };
-  }, [
-    form.listed_price_dollars,
-    form.product_type,
-    form.commission_creator_1,
-    form.commission_creator_2,
-    form.commission_bounty_dollars,
-    form.include_1yr_sub
-  ]);
+    const creatorBounty = Math.min(maxCreatorPoolDollars, Number(rawCreatorDollars.toFixed(2)));
+    const creatorPctOfGross = Number(((creatorBounty / gross) * 100).toFixed(2));
+    const satAmGrossSharePct = Number(
+      Math.max(SAT_AM_MIN_PERCENT, 100 - DEV_CUT_PERCENT - creatorPctOfGross).toFixed(2)
+    );
+    const netRetainedAfterStripe = Math.max(
+      0,
+      Number((gross - devAlloc - creatorBounty - stripeFee).toFixed(2))
+    );
+
+    return {
+      stripeFee,
+      maxCreatorPoolDollars,
+      creatorBounty,
+      creatorPctOfGross,
+      devAlloc,
+      satAmGrossSharePct,
+      netRetainedAfterStripe
+    };
+  }, [form.listed_price_dollars, form.creator_splits]);
+
+  // Multi-Creator Slot Handlers
+  const handleAddCreatorSlot = () => {
+    setForm(prev => {
+      const gross = Math.max(0.01, Number(prev.listed_price_dollars || 24.99));
+      const nextRows = [
+        ...prev.creator_splits,
+        { id: makeSplitRowId(), creator_name: '', percent: 0, dollars: 0 }
+      ];
+      if (prev.split_evenly) {
+        return {
+          ...prev,
+          creator_splits: rebalanceEvenSplits(
+            nextRows,
+            prev.commission_mode,
+            prev.pool_value,
+            gross
+          )
+        };
+      }
+      return { ...prev, creator_splits: nextRows };
+    });
+  };
+
+  const handleRemoveCreatorSlot = (id: string) => {
+    setForm(prev => {
+      const gross = Math.max(0.01, Number(prev.listed_price_dollars || 24.99));
+      const nextRows = prev.creator_splits.filter(r => r.id !== id);
+      if (prev.split_evenly) {
+        return {
+          ...prev,
+          creator_splits: rebalanceEvenSplits(
+            nextRows,
+            prev.commission_mode,
+            prev.pool_value,
+            gross
+          )
+        };
+      }
+      return { ...prev, creator_splits: nextRows };
+    });
+  };
+
+  const handleCreatorSlotNameChange = (id: string, name: string) => {
+    setForm(prev => ({
+      ...prev,
+      creator_splits: prev.creator_splits.map(r =>
+        r.id === id ? { ...r, creator_name: name } : r
+      )
+    }));
+  };
+
+  // Auto-adjusting custom input when "Split Evenly" is unchecked (enforces 42.5% ceiling across all slots!)
+  const handleCustomSlotValueChange = (
+    id: string,
+    field: 'percent' | 'dollars',
+    rawVal: number
+  ) => {
+    setForm(prev => {
+      const gross = Math.max(0.01, Number(prev.listed_price_dollars || 24.99));
+      const maxPoolDollars = Number(((gross * MAX_CREATOR_POOL_PERCENT) / 100).toFixed(2));
+      const cleanVal = Math.max(0, isNaN(rawVal) ? 0 : rawVal);
+
+      const otherRows = prev.creator_splits.filter(r => r.id !== id);
+      let updatedRows = [...prev.creator_splits];
+
+      if (field === 'percent') {
+        const clampedTargetPct = Math.min(MAX_CREATOR_POOL_PERCENT, cleanVal);
+        const remainingAllowedPct = Math.max(0, MAX_CREATOR_POOL_PERCENT - clampedTargetPct);
+        const othersSumPct = otherRows.reduce((s, r) => s + Number(r.percent || 0), 0);
+        const scaleOthers =
+          othersSumPct > remainingAllowedPct && othersSumPct > 0
+            ? remainingAllowedPct / othersSumPct
+            : 1;
+
+        updatedRows = prev.creator_splits.map(r => {
+          if (r.id === id) {
+            return {
+              ...r,
+              percent: Number(clampedTargetPct.toFixed(2)),
+              dollars: Number(((gross * clampedTargetPct) / 100).toFixed(2))
+            };
+          }
+          const newPct = Number((Number(r.percent || 0) * scaleOthers).toFixed(2));
+          return {
+            ...r,
+            percent: newPct,
+            dollars: Number(((gross * newPct) / 100).toFixed(2))
+          };
+        });
+      } else {
+        const clampedTargetDollars = Math.min(maxPoolDollars, cleanVal);
+        const remainingAllowedDollars = Math.max(0, maxPoolDollars - clampedTargetDollars);
+        const othersSumDollars = otherRows.reduce((s, r) => s + Number(r.dollars || 0), 0);
+        const scaleOthers =
+          othersSumDollars > remainingAllowedDollars && othersSumDollars > 0
+            ? remainingAllowedDollars / othersSumDollars
+            : 1;
+
+        updatedRows = prev.creator_splits.map(r => {
+          if (r.id === id) {
+            return {
+              ...r,
+              dollars: Number(clampedTargetDollars.toFixed(2)),
+              percent: Number(((clampedTargetDollars / gross) * 100).toFixed(2))
+            };
+          }
+          const newDlrs = Number((Number(r.dollars || 0) * scaleOthers).toFixed(2));
+          return {
+            ...r,
+            dollars: newDlrs,
+            percent: Number(((newDlrs / gross) * 100).toFixed(2))
+          };
+        });
+      }
+
+      const newTotal =
+        prev.commission_mode === 'percent'
+          ? updatedRows.reduce((s, r) => s + r.percent, 0)
+          : updatedRows.reduce((s, r) => s + r.dollars, 0);
+
+      return {
+        ...prev,
+        pool_value: Number(newTotal.toFixed(2)),
+        creator_splits: updatedRows
+      };
+    });
+  };
+
+  // Quick 1-click "Give 100% of Pool to This Creator" helper when Split Evenly is unchecked
+  const handleMakePrimaryEarner = (id: string) => {
+    setForm(prev => {
+      const gross = Math.max(0.01, Number(prev.listed_price_dollars || 24.99));
+      const maxPoolDollars = Number(((gross * MAX_CREATOR_POOL_PERCENT) / 100).toFixed(2));
+      const poolDlrs =
+        prev.commission_mode === 'percent'
+          ? Math.min(maxPoolDollars, (gross * Math.min(MAX_CREATOR_POOL_PERCENT, prev.pool_value || 20)) / 100)
+          : Math.min(maxPoolDollars, prev.pool_value || 5.0);
+      const poolPct = Number(((poolDlrs / gross) * 100).toFixed(2));
+
+      return {
+        ...prev,
+        split_evenly: false,
+        creator_splits: prev.creator_splits.map(r =>
+          r.id === id
+            ? { ...r, dollars: Number(poolDlrs.toFixed(2)), percent: poolPct }
+            : { ...r, dollars: 0, percent: 0 }
+        )
+      };
+    });
+  };
+
+  const handleListedPriceChange = (newPriceStr: string) => {
+    setForm(prev => {
+      const gross = Math.max(0.01, Number(newPriceStr || 0));
+      const maxPoolDollars = Number(((gross * MAX_CREATOR_POOL_PERCENT) / 100).toFixed(2));
+      let nextSplits = [...prev.creator_splits];
+
+      if (prev.split_evenly && nextSplits.length > 0) {
+        const clampedPool =
+          prev.commission_mode === 'flat'
+            ? Math.min(maxPoolDollars, prev.pool_value)
+            : Math.min(MAX_CREATOR_POOL_PERCENT, prev.pool_value);
+        nextSplits = rebalanceEvenSplits(nextSplits, prev.commission_mode, clampedPool, gross);
+      } else if (nextSplits.length > 0) {
+        if (prev.commission_mode === 'percent') {
+          nextSplits = nextSplits.map(r => ({
+            ...r,
+            dollars: Number(((gross * r.percent) / 100).toFixed(2))
+          }));
+        } else {
+          const sumDlrs = nextSplits.reduce((s, r) => s + r.dollars, 0);
+          const scale = sumDlrs > maxPoolDollars && sumDlrs > 0 ? maxPoolDollars / sumDlrs : 1;
+          nextSplits = nextSplits.map(r => {
+            const d = Number((r.dollars * scale).toFixed(2));
+            return { ...r, dollars: d, percent: Number(((d / gross) * 100).toFixed(2)) };
+          });
+        }
+      }
+
+      return {
+        ...prev,
+        listed_price_dollars: newPriceStr,
+        creator_splits: nextSplits
+      };
+    });
+  };
 
   const handleSelectProductType = (nextType: 'bundle' | 'single_skin' | 'avatar_pack') => {
     setForm(prev => {
       const currentListed = Number(prev.listed_price_dollars || 0);
       let nextListed = prev.listed_price_dollars;
       let nextNormal = prev.normal_price_dollars;
+      let nextSplits = prev.creator_splits;
 
       if (nextType === 'single_skin') {
         if (currentListed > 0 && currentListed < 10) nextListed = '10.00';
         if (!prev.id) {
           nextListed = '10.00';
           nextNormal = '';
+          nextSplits = [];
         }
       } else if (nextType === 'avatar_pack') {
         if (currentListed > 0 && currentListed < 5) nextListed = '5.00';
         if (!prev.id) {
           nextListed = '5.00';
           nextNormal = '';
+          nextSplits = [];
         }
       } else if (nextType === 'bundle' && !prev.id) {
         nextListed = '24.99';
@@ -317,6 +580,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         product_type: nextType,
         listed_price_dollars: nextListed,
         normal_price_dollars: nextNormal,
+        creator_splits: nextSplits,
         include_1yr_sub: nextType === 'bundle' ? prev.include_1yr_sub : false
       };
     });
@@ -327,7 +591,11 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       setForm({
         ...BUILT_IN_SUBSCRIPTION_BUNDLE_TEMPLATE,
         id: '',
-        slug: ''
+        slug: '',
+        creator_splits: BUILT_IN_SUBSCRIPTION_BUNDLE_TEMPLATE.creator_splits.map(r => ({
+          ...r,
+          id: makeSplitRowId()
+        }))
       });
     } else if (preset === 'single_skin') {
       setForm({
@@ -336,13 +604,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         title: '',
         description:
           'Unlock this exclusive Hype Card skin for your profile & permanent art collection.',
-        promo_badge: '',
         listed_price_dollars: '10.00',
         normal_price_dollars: '',
-        promo_code: '',
         include_1yr_sub: false,
         bonus_vaulted_hypes: 0,
-        commission_bounty_dollars: 0,
+        pool_value: 0,
+        creator_splits: [],
         is_active: true
       });
     } else if (preset === 'avatar_pack') {
@@ -354,10 +621,10 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         promo_badge: 'AVATAR PACK',
         listed_price_dollars: '5.00',
         normal_price_dollars: '',
-        promo_code: '',
         include_1yr_sub: false,
         bonus_vaulted_hypes: 0,
-        commission_bounty_dollars: 0,
+        pool_value: 0,
+        creator_splits: [],
         is_active: true
       });
     } else {
@@ -366,12 +633,15 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     setIsComposerOpen(true);
   };
 
-  const applySavedTemplate = (tplPayload: typeof EMPTY_PRODUCT_FORM) => {
+  const applySavedTemplate = (tplPayload: any) => {
     setForm({
       ...EMPTY_PRODUCT_FORM,
       ...tplPayload,
       id: form.id,
-      slug: form.id ? form.slug : ''
+      slug: form.id ? form.slug : '',
+      creator_splits: Array.isArray(tplPayload.creator_splits)
+        ? tplPayload.creator_splits
+        : []
     });
     if (setIsDirty) setIsDirty(true);
     showToast('Loaded template into product builder!');
@@ -390,12 +660,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     setSavingTemplate(true);
     try {
       const cleanName = tplName.trim();
-      const payloadToSave = {
-        ...form,
-        id: '',
-        slug: ''
-      };
-
+      const payloadToSave = { ...form, id: '', slug: '' };
       const newEntry: SavedStoreTemplate = {
         id: `tpl_${Date.now()}`,
         template_name: cleanName,
@@ -416,10 +681,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       setCustomTemplates(nextLocal);
 
       await supabase.from('in_app_store_templates').insert([
-        {
-          template_name: cleanName,
-          template_payload: payloadToSave
-        }
+        { template_name: cleanName, template_payload: payloadToSave }
       ]);
 
       showToast(`Saved "${cleanName}" to your Store Templates!`);
@@ -431,7 +693,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
   const handleDeleteCustomTemplate = async (tpl: SavedStoreTemplate, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm(`Delete saved template "${tpl.template_name}"?`)) return;
-
     const next = customTemplates.filter(t => t.id !== tpl.id);
     setCustomTemplates(next);
     try {
@@ -452,8 +713,43 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       ? prod.autograph_creators
       : [];
     const commList: string[] = Array.isArray(prod.commission_creators)
-      ? prod.commission_creators
+      ? prod.commission_creators.filter(Boolean)
       : [];
+
+    const listedPriceNum = Math.max(0.01, Number(prod.listed_price_dollars ?? 24.99));
+    const savedMode: 'flat' | 'percent' =
+      prod.commission_mode === 'percent' ? 'percent' : 'flat';
+    const savedEven = prod.split_evenly !== false;
+
+    let loadedSplits: CreatorSplitRow[] = [];
+    if (Array.isArray(prod.creator_splits) && prod.creator_splits.length > 0) {
+      loadedSplits = prod.creator_splits.map((s: any) => ({
+        id: makeSplitRowId(),
+        creator_name: String(s.creator_name || s.name || ''),
+        dollars: Number(s.dollars ?? s.amount_dollars ?? 0),
+        percent: Number(s.percent ?? 0)
+      }));
+    } else if (commList.length > 0) {
+      const legacyBounty = Number(prod.commission_bounty_dollars ?? 5.0);
+      loadedSplits = rebalanceEvenSplits(
+        commList.map(cName => ({
+          id: makeSplitRowId(),
+          creator_name: cName,
+          dollars: 0,
+          percent: 0
+        })),
+        'flat',
+        legacyBounty,
+        listedPriceNum
+      );
+    }
+
+    const totalPoolVal =
+      savedMode === 'percent'
+        ? Number(loadedSplits.reduce((s, r) => s + r.percent, 0).toFixed(2)) ||
+          Number(prod.commission_percent || 20)
+        : Number(loadedSplits.reduce((s, r) => s + r.dollars, 0).toFixed(2)) ||
+          Number(prod.commission_bounty_dollars ?? 5.0);
 
     const normalizedType =
       prod.product_type === 'single_avatar' ? 'avatar_pack' : prod.product_type || 'bundle';
@@ -483,9 +779,10 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       autograph_1: autoList[0] || '',
       autograph_2: autoList[1] || '',
       bonus_vaulted_hypes: Number(prod.bonus_vaulted_hypes || 0),
-      commission_creator_1: commList[0] || '',
-      commission_creator_2: commList[1] || '',
-      commission_bounty_dollars: Number(prod.commission_bounty_dollars ?? 5.0),
+      commission_mode: savedMode,
+      split_evenly: savedEven,
+      pool_value: totalPoolVal,
+      creator_splits: loadedSplits,
       available_from: toDateTimeLocalInput(prod.available_from),
       available_until: toDateTimeLocalInput(prod.available_until),
       is_active: prod.is_active !== false
@@ -533,14 +830,28 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
           ? [form.autograph_1, form.autograph_2].filter(Boolean)
           : [];
 
-      const commissionCreators =
-        form.product_type === 'bundle'
-          ? [form.commission_creator_1, form.commission_creator_2].filter(Boolean)
-          : [];
-      const flatBounty =
-        form.product_type === 'bundle' && commissionCreators.length > 0
-          ? Math.max(0, Number(form.commission_bounty_dollars ?? 5.0))
-          : 0;
+      // Validate & Clamp Creator Splits against 42.5% Max Pool
+      const maxPoolDollars = Number(((listedPrice * MAX_CREATOR_POOL_PERCENT) / 100).toFixed(2));
+      const validRawSplits = (form.creator_splits || []).filter(r => r.creator_name.trim());
+      const rawSumDollars = validRawSplits.reduce((s, r) => s + Math.max(0, Number(r.dollars || 0)), 0);
+      const scale = rawSumDollars > maxPoolDollars && rawSumDollars > 0 ? maxPoolDollars / rawSumDollars : 1;
+
+      const cleanedCreatorSplits = validRawSplits.map(r => {
+        const dlrs = Number((Math.max(0, Number(r.dollars || 0)) * scale).toFixed(2));
+        const pct = listedPrice > 0 ? Number(((dlrs / listedPrice) * 100).toFixed(2)) : 0;
+        return {
+          creator_name: r.creator_name.trim(),
+          dollars: dlrs,
+          percent: pct
+        };
+      });
+
+      const totalCreatorDollars = Number(
+        cleanedCreatorSplits.reduce((s, r) => s + r.dollars, 0).toFixed(2)
+      );
+      const totalCreatorPct = Number(
+        cleanedCreatorSplits.reduce((s, r) => s + r.percent, 0).toFixed(2)
+      );
 
       const cleanSlug = form.slug.trim() || makeSlug(form.title.trim());
       const cleanPromoCode = form.promo_code.trim().toUpperCase().replace(/\s+/g, '-');
@@ -550,7 +861,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
           ? Number(form.normal_price_dollars)
           : null;
 
-      // Resolve selected frosted background avatar (defaults to first attached avatar)
       const chosenBgAvatar =
         form.background_avatar_url && avatarUrls.includes(form.background_avatar_url)
           ? form.background_avatar_url
@@ -572,9 +882,13 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         autograph_creators: autographCreators,
         bonus_vaulted_hypes:
           form.product_type === 'bundle' ? Math.max(0, Number(form.bonus_vaulted_hypes || 0)) : 0,
-        commission_creators: commissionCreators,
-        commission_bounty_dollars: flatBounty,
-        commission_percentage: 0,
+        commission_creators: cleanedCreatorSplits.map(s => s.creator_name),
+        commission_bounty_dollars: totalCreatorDollars,
+        commission_percentage: totalCreatorPct,
+        commission_mode: form.commission_mode,
+        commission_percent: totalCreatorPct,
+        split_evenly: form.split_evenly,
+        creator_splits: cleanedCreatorSplits,
         available_from: form.available_from ? new Date(form.available_from).toISOString() : null,
         available_until: form.available_until ? new Date(form.available_until).toISOString() : null,
         is_active: publishActiveStatus
@@ -589,9 +903,15 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       };
 
       let { error } = await executeUpsert(payload);
-      // Graceful fallback if background_avatar_url column hasn't been added via SQL yet
-      if (error && String(error.message || '').includes('background_avatar_url')) {
-        const { background_avatar_url, ...fallbackPayload } = payload;
+      if (error) {
+        const {
+          background_avatar_url,
+          commission_mode,
+          commission_percent,
+          split_evenly,
+          creator_splits,
+          ...fallbackPayload
+        } = payload;
         const retryRes = await executeUpsert(fallbackPayload);
         error = retryRes.error;
       }
@@ -679,9 +999,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // ============================================================================
-  // INTERACTIVE SIGNATURE STUDIO HANDLERS
-  // ============================================================================
   const openSignatureStudioById = (skinId: string) => {
     const found = skins.find(s => String(s.id) === String(skinId));
     if (!found) return alert('Select a Card Skin from the dropdown first.');
@@ -779,7 +1096,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               In-App Store <span className="text-[#fe9a00]">Products</span>
             </h2>
             <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-              Subscription Bundles ($5 Creator Bounty) • Card Skins ($10+ / 100% Platform) • Avatar Packs ($5+ / 100% Platform)
+              50% Sat AM Min • 7.5% Dev Cut Locked • Up to 42.5% Multi-Creator Pool (Flat $ or %)
             </p>
           </div>
         </div>
@@ -802,7 +1119,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         </div>
       </div>
 
-      {/* EMPTY STATE OR SHOPIFY-STYLE PRODUCT CATALOG */}
+      {/* CATALOG */}
       {loading ? (
         <div className="py-20 flex items-center justify-center text-zinc-400 font-black uppercase tracking-widest text-xs gap-2">
           <Loader2 className="w-5 h-5 animate-spin text-[#fe9a00]" /> Loading Store Products...
@@ -816,7 +1133,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
             Your In-App Store Is Empty
           </h3>
           <p className="text-xs text-zinc-400 font-bold max-w-md mb-6 leading-relaxed">
-            Items created in your Avatar, Card Skin, Frame, and Signature makers stay safely in your private Vault until you list them here. Click below to add a Subscription Bundle, a $10+ Hype Card Skin, or a $5+ Avatar Pack!
+            Click below to publish a Multi-Creator Subscription Bundle, a $10+ Hype Card Skin, or a $5+ Avatar Pack!
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button
@@ -847,10 +1164,17 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
             const firstSkin = skins.find(s => String(s.id) === String(skinIds[0]));
             const avUrls: string[] = Array.isArray(prod.avatar_urls) ? prod.avatar_urls : [];
             const thumbUrl = firstSkin?.image_url || avUrls[0] || '';
-            const commCreators: string[] = Array.isArray(prod.commission_creators)
-              ? prod.commission_creators.filter(Boolean)
+
+            const prodSplits: any[] = Array.isArray(prod.creator_splits)
+              ? prod.creator_splits
               : [];
-            const bountyAmt = Number(prod.commission_bounty_dollars ?? 5.0);
+            const commCreators: string[] =
+              prodSplits.length > 0
+                ? prodSplits.map(s => `${s.creator_name} ($${Number(s.dollars || 0).toFixed(2)})`)
+                : Array.isArray(prod.commission_creators)
+                ? prod.commission_creators.filter(Boolean)
+                : [];
+            const bountyAmt = Number(prod.commission_bounty_dollars ?? 0);
 
             return (
               <div
@@ -939,21 +1263,22 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                           </span>
                         )}
                       </span>
-                      {prod.product_type === 'bundle' && commCreators.length > 0 ? (
+                      <span>
+                        • Dev (7.5%):{' '}
+                        <strong className="text-[#fe9a00]">
+                          ${((listed * DEV_CUT_PERCENT) / 100).toFixed(2)}
+                        </strong>
+                      </span>
+                      {bountyAmt > 0 && commCreators.length > 0 ? (
                         <span>
-                          • Creator Bounty:{' '}
+                          • Creator Pool:{' '}
                           <strong className="text-emerald-400">
-                            ${bountyAmt.toFixed(2)} Flat ({commCreators.join(' & ')})
+                            ${bountyAmt.toFixed(2)} ({commCreators.join(', ')})
                           </strong>
                         </span>
                       ) : (
                         <span>
-                          • <strong className="text-zinc-300">100% Platform Revenue</strong>
-                        </span>
-                      )}
-                      {prod.available_until && (
-                        <span className="text-amber-400">
-                          • Ends {new Date(prod.available_until).toLocaleDateString()}
+                          • <strong className="text-zinc-300">92.5% Platform + 7.5% Dev</strong>
                         </span>
                       )}
                     </div>
@@ -965,7 +1290,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                     type="button"
                     onClick={() => copyProductLink(prod)}
                     className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-pointer"
-                    title="Copy Direct Product Link"
                   >
                     {copiedId === prod.id ? (
                       <>
@@ -1022,7 +1346,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
       )}
 
       {/* =====================================================================
-          SHOPIFY-STYLE UNIFIED ADD / EDIT PRODUCT MODAL
+          UNIFIED ADD / EDIT PRODUCT MODAL (WITH UNLIMITED MULTI-CREATOR POOL)
       ===================================================================== */}
       {isComposerOpen && (
         <div
@@ -1040,7 +1364,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                   {form.id ? `Edit Store Product: ${form.title}` : 'Add New Store Item / Bundle'}
                 </h3>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mt-0.5">
-                  Subscription Bundles ($5 Creator Bounty) • Individual Card Skins ($10+ Min) • Avatar Packs ($5+ Min)
+                  Sat AM Locked ≥50% • Dev Cut Locked 7.5% • Creator Pool Up to 42.5% (Unlimited Slots)
                 </p>
               </div>
               <button
@@ -1078,7 +1402,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                       type="button"
                       onClick={e => handleDeleteCustomTemplate(tpl, e)}
                       className="text-zinc-500 hover:text-red-400 ml-1"
-                      title="Delete Template"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -1103,17 +1426,17 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                 {
                   id: 'bundle',
                   label: 'Subscription Bundle',
-                  desc: '1-Yr Pass + Up to 2 Cards, 5 Avatars, 2 Autographs & +Hypes ($5 Creator Bounty)'
+                  desc: '1-Yr Pass + Up to 2 Cards, 5 Avatars, Autographs & Multi-Creator Splits'
                 },
                 {
                   id: 'single_skin',
                   label: 'Individual Hype Card Skin',
-                  desc: '1 Hype Card Skin ($10.00+ Min • 100% Platform Revenue)'
+                  desc: '1 Hype Card Skin ($10.00+ Min • Optional Creator Split)'
                 },
                 {
                   id: 'avatar_pack',
                   label: 'Character Avatar Pack',
-                  desc: 'Up to 5 Character Avatars Sold as a Pack ($5.00+ Min • 100% Platform Revenue)'
+                  desc: 'Up to 5 Character Avatars Sold as a Pack ($5.00+ Min)'
                 }
               ].map(t => (
                 <button
@@ -1188,13 +1511,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               </div>
             </div>
 
-            {/* 3. VAULT ITEMS SELECTION WITH LIVE ART PREVIEWS */}
+            {/* 3. VAULT ITEMS SELECTION */}
             <div className="bg-black border border-zinc-800 rounded-2xl p-5 space-y-5">
               <h4 className="text-xs font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-2">
                 <Layers className="w-4 h-4" /> Attach Vault Items to This Product
               </h4>
 
-              {/* HYPE CARD SKINS WITH VISUAL THUMBNAIL PREVIEW */}
               {form.product_type !== 'avatar_pack' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3.5 space-y-2.5">
@@ -1286,11 +1608,8 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                               {selectedSkin2Obj.name}
                             </span>
                             <span className="text-[9px] font-bold text-emerald-400">
-                              {Array.isArray(selectedSkin2Obj.signature_stamps) &&
-                              selectedSkin2Obj.signature_stamps.length > 0
-                                ? `✓ ${selectedSkin2Obj.signature_stamps.length} Signature(s) Stamped`
-                                : '✓ Card Art Attached'}
-                          </span>
+                              ✓ Card Art Attached
+                            </span>
                           </div>
                         </div>
                       )}
@@ -1299,20 +1618,11 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                 </div>
               )}
 
-              {/* VISUAL 5-SLOT AVATAR PACK / BUNDLE PICKER + 1-CLICK FROSTED BG SELECTOR */}
               {form.product_type !== 'single_skin' && (
                 <div className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400">
-                      Up to 5 Character Avatars in Pack/Bundle — Click Any Slot to Select Art, or Set as Frosted Store BG
-                    </label>
-                    {activeFormAvatars.length > 0 && (
-                      <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
-                        ✨ Click &ldquo;Set Frosted BG&rdquo; on any avatar below to use it as the blurred card backdrop!
-                      </span>
-                    )}
-                  </div>
-
+                  <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                    Up to 5 Character Avatars — Click Any Slot to Select Art, or Set as Frosted Store BG
+                  </label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
                     {[
                       { label: 'Avatar #1', key: 'avatar_1' },
@@ -1338,9 +1648,9 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                           }}
                           className={`relative rounded-2xl p-3 flex flex-col items-center justify-between text-center cursor-pointer border transition-all group ${
                             isFrostedBg
-                              ? 'bg-zinc-950 border-2 border-[#fe9a00] ring-2 ring-[#fe9a00]/40 shadow-[0_0_20px_rgba(254,154,0,0.3)]'
+                              ? 'bg-zinc-950 border-2 border-[#fe9a00] ring-2 ring-[#fe9a00]/40'
                               : currentUrl
-                              ? 'bg-zinc-950 border-[#fe9a00]/70 shadow-[0_0_15px_rgba(254,154,0,0.15)]'
+                              ? 'bg-zinc-950 border-[#fe9a00]/70'
                               : 'bg-zinc-950/60 border-dashed border-zinc-700 hover:border-[#fe9a00]'
                           }`}
                         >
@@ -1359,7 +1669,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                                 }));
                               }}
                               className="absolute top-1.5 right-1.5 p-1 rounded-full bg-black/80 text-zinc-400 hover:text-red-400 border border-zinc-700 z-10 cursor-pointer"
-                              title="Clear Slot"
                             >
                               <X className="w-3 h-3" />
                             </button>
@@ -1371,17 +1680,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                                 <img
                                   src={currentUrl}
                                   alt={matchedAvatar?.name || slot.label}
-                                  className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-2 shadow-md group-hover:scale-105 transition-transform"
+                                  className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-2 shadow-md"
                                 />
                                 <span className="text-[10px] font-black text-white leading-tight line-clamp-1">
                                   {matchedAvatar?.name || slot.label}
                                 </span>
-                                <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-400 mt-0.5">
-                                  Click to Change
-                                </span>
                               </div>
-
-                              {/* 1-Click Toggle to Set This Avatar as the Frosted Store Card Backdrop */}
                               <button
                                 type="button"
                                 onClick={e => {
@@ -1391,9 +1695,9 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                                     background_avatar_url: currentUrl
                                   }));
                                 }}
-                                className={`mt-2 w-full py-1 px-2 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                className={`mt-2 w-full py-1 px-2 rounded-lg text-[8px] font-black uppercase tracking-wider cursor-pointer ${
                                   isFrostedBg
-                                    ? 'bg-emerald-400 text-black shadow'
+                                    ? 'bg-emerald-400 text-black'
                                     : 'bg-zinc-900 hover:bg-[#fe9a00] text-zinc-300 hover:text-black border border-zinc-700'
                                 }`}
                               >
@@ -1402,14 +1706,11 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                             </>
                           ) : (
                             <div className="py-2 flex flex-col items-center">
-                              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-700 group-hover:border-[#fe9a00] flex items-center justify-center mb-2 transition-colors">
-                                <Plus className="w-5 h-5 text-zinc-500 group-hover:text-[#fe9a00]" />
+                              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center mb-2">
+                                <Plus className="w-5 h-5 text-zinc-500" />
                               </div>
-                              <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400 group-hover:text-white">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
                                 {slot.label}
-                              </span>
-                              <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-500 mt-0.5">
-                                Browse Art
                               </span>
                             </div>
                           )}
@@ -1418,29 +1719,21 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                     })}
                   </div>
 
-                  {/* LIVE STORE THUMBNAIL PREVIEW FOR AVATAR PACKS */}
                   {form.product_type === 'avatar_pack' && activeFormAvatars.length > 0 && (
                     <div className="pt-3 border-t border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-zinc-950/90 border border-zinc-800 rounded-2xl p-4">
                       <div className="space-y-1">
                         <span className="text-[10px] font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
                           <ImageIcon className="w-3.5 h-3.5" /> Live Store Card Frosted Preview
                         </span>
-                        <p className="text-[10px] text-zinc-400 font-bold leading-relaxed max-w-md">
-                          Your selected avatar is frosted and blurred in the background so the crisp circular avatars on display pop out on the storefront!
-                        </p>
                       </div>
-
-                      <div className="w-60 bg-black border border-zinc-800 rounded-2xl overflow-hidden shadow-xl shrink-0 mx-auto sm:mx-0">
+                      <div className="w-56 bg-black border border-zinc-800 rounded-2xl overflow-hidden shadow-xl shrink-0">
                         <div className="relative aspect-[1.58] bg-zinc-950 overflow-hidden flex items-center justify-center">
                           {activeFrostedBgUrl && (
-                            <>
-                              <img
-                                src={activeFrostedBgUrl}
-                                alt=""
-                                className="absolute inset-0 w-full h-full object-cover scale-125 blur-md opacity-50 pointer-events-none"
-                              />
-                              <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px] pointer-events-none" />
-                            </>
+                            <img
+                              src={activeFrostedBgUrl}
+                              alt=""
+                              className="absolute inset-0 w-full h-full object-cover scale-125 blur-md opacity-50 pointer-events-none"
+                            />
                           )}
                           <div className="relative z-10 flex items-center justify-center -space-x-2.5 p-2">
                             {activeFormAvatars.map((u, i) => (
@@ -1448,25 +1741,10 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                                 key={i}
                                 src={u}
                                 alt=""
-                                className="w-10 h-10 rounded-full object-cover border-2 border-[#fe9a00] bg-zinc-950 shadow-lg"
+                                className="w-10 h-10 rounded-full object-cover border-2 border-[#fe9a00] bg-zinc-950"
                               />
                             ))}
                           </div>
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/30 pointer-events-none z-10" />
-                          <span className="absolute top-2 left-2 z-20 bg-[#fe9a00] text-black text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded">
-                            {activeFormAvatars.length}-PACK
-                          </span>
-                          <span className="absolute top-2 right-2 z-20 bg-black/85 border border-[#fe9a00] text-[#fe9a00] text-[8px] font-black uppercase px-2 py-0.5 rounded-full">
-                            ${Number(form.listed_price_dollars || 5).toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="p-2.5 bg-zinc-950 border-t border-zinc-900 flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-black italic uppercase text-white leading-tight line-clamp-2 flex-1">
-                            {form.title || 'MMWOG DIWALI AVATAR PACK'}
-                          </span>
-                          <span className="px-2 py-1 rounded bg-[#fe9a00] text-black text-[8px] font-black uppercase shrink-0">
-                            Get
-                          </span>
                         </div>
                       </div>
                     </div>
@@ -1474,7 +1752,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                 </div>
               )}
 
-              {/* Bundle Extras: 2 Autographs, 1-Yr Sub Toggle & +10 Vaulted Gold Hypes */}
               {form.product_type === 'bundle' && (
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-3 border-t border-zinc-800/80 items-end">
                   <div>
@@ -1547,176 +1824,354 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
               )}
             </div>
 
-            {/* 4. PRICING FLOORS & FLAT $5 CREATOR BOUNTY / 100% PLATFORM REVENUE */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="bg-black border border-zinc-800 rounded-2xl p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black uppercase tracking-widest text-[#fe9a00]">
-                    Pricing & Promo Code
-                  </span>
+            {/* 4. PRICING + UNLIMITED MULTI-CREATOR COMMISSION POOL ENGINE */}
+            <div className="bg-black border-2 border-[#fe9a00]/50 rounded-2xl p-5 space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-zinc-800 pb-4">
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-widest text-emerald-400 mb-1">
+                    {form.product_type === 'single_skin'
+                      ? 'Skin Price ($10+ Min) *'
+                      : form.product_type === 'avatar_pack'
+                      ? 'Pack Price ($5+ Min) *'
+                      : 'Listed Price ($) *'}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={form.listed_price_dollars}
+                    onChange={e => handleListedPriceChange(e.target.value)}
+                    className="w-full bg-zinc-900 border border-emerald-500 rounded-xl px-3 py-2 text-sm font-black text-emerald-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+                    Normal Strikethrough Price ($)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    placeholder="e.g. 35.00"
+                    value={form.normal_price_dollars}
+                    onChange={e =>
+                      setForm(prev => ({ ...prev, normal_price_dollars: e.target.value }))
+                    }
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-sm font-bold text-zinc-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+                    Promo Code (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="DIWALI-2026"
+                    value={form.promo_code}
+                    onChange={e =>
+                      setForm(prev => ({ ...prev, promo_code: e.target.value.toUpperCase() }))
+                    }
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-mono font-black text-[#fe9a00]"
+                  />
                   {discountPercentPreview > 0 && (
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-400 text-black text-[9px] font-black uppercase tracking-widest">
-                      Auto Badge: SAVE {discountPercentPreview}% OFF
+                    <span className="inline-block mt-1 px-2 py-0.5 rounded bg-emerald-400 text-black text-[8px] font-black uppercase">
+                      SAVE {discountPercentPreview}% OFF
                     </span>
                   )}
                 </div>
+              </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[9px] font-black uppercase tracking-widest text-emerald-400 mb-1">
-                      {form.product_type === 'single_skin'
-                        ? 'Skin Price ($10+ Min) *'
-                        : form.product_type === 'avatar_pack'
-                        ? 'Pack Price ($5+ Min) *'
-                        : 'Listed Price ($) *'}
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min={0}
-                      value={form.listed_price_dollars}
-                      onChange={e =>
-                        setForm(prev => ({ ...prev, listed_price_dollars: e.target.value }))
-                      }
-                      className="w-full bg-zinc-900 border border-emerald-500 rounded-xl px-3 py-2 text-sm font-black text-emerald-400"
-                    />
+              {/* MULTI-CREATOR POOL HEADER & CONTROLS */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
+                      <DollarSign className="w-4 h-4" /> Multi-Creator Revenue Split Pool
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-[9px] font-black uppercase text-zinc-300">
+                      Sat AM Floor: ≥50% • Dev Cut: 7.5% • Max Creator Pool: 42.5% (${netBreakdownPreview.maxCreatorPoolDollars.toFixed(2)})
+                    </span>
                   </div>
-
-                  <div>
-                    <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                      Normal Price ($)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min={0}
-                      placeholder="e.g. 35.00"
-                      value={form.normal_price_dollars}
-                      onChange={e =>
-                        setForm(prev => ({ ...prev, normal_price_dollars: e.target.value }))
-                      }
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-sm font-bold text-zinc-300"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                      Promo Code (Opt)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="DIWALI-2026"
-                      value={form.promo_code}
-                      onChange={e =>
-                        setForm(prev => ({ ...prev, promo_code: e.target.value.toUpperCase() }))
-                      }
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-mono font-black text-[#fe9a00]"
-                    />
-                  </div>
+                  <p className="text-[10px] text-zinc-400 font-bold mt-1">
+                    Add unlimited creator slots below. Choose Flat ($) or Percentage (%), split evenly across all creators, or uncheck &ldquo;Split Evenly&rdquo; to assign custom weights or 1 primary earner!
+                  </p>
                 </div>
 
-                {/* Live Net Retained Cash Summary */}
-                <div className="pt-2 border-t border-zinc-800/80 flex flex-wrap items-center justify-between text-[10px] font-bold text-zinc-400">
-                  <span>
-                    Stripe: ~${netBreakdownPreview.stripeFee.toFixed(2)}
-                    {netBreakdownPreview.creatorBounty > 0
-                      ? ` • Creator Bounty: $${netBreakdownPreview.creatorBounty.toFixed(2)}`
-                      : ''}
-                    {netBreakdownPreview.devAlloc > 0
-                      ? ` • Dev: $${netBreakdownPreview.devAlloc.toFixed(2)}`
-                      : ''}
-                  </span>
-                  <span className="text-emerald-400 font-black">
-                    Sat AM Net Retained: ${netBreakdownPreview.netRetained.toFixed(2)}
-                  </span>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="flex bg-zinc-900 p-1 rounded-xl border border-zinc-700">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const gross = Math.max(0.01, Number(form.listed_price_dollars || 24.99));
+                        const nextPool = Number(
+                          form.creator_splits.reduce((s, r) => s + r.dollars, 0).toFixed(2)
+                        ) || 5.0;
+                        setForm(prev => ({
+                          ...prev,
+                          commission_mode: 'flat',
+                          pool_value: nextPool,
+                          creator_splits: prev.split_evenly
+                            ? rebalanceEvenSplits(prev.creator_splits, 'flat', nextPool, gross)
+                            : prev.creator_splits
+                        }));
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 cursor-pointer ${
+                        form.commission_mode === 'flat'
+                          ? 'bg-[#fe9a00] text-black'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      <DollarSign className="w-3 h-3" /> Flat ($)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const gross = Math.max(0.01, Number(form.listed_price_dollars || 24.99));
+                        const nextPct = Math.min(
+                          MAX_CREATOR_POOL_PERCENT,
+                          Number(
+                            form.creator_splits.reduce((s, r) => s + r.percent, 0).toFixed(2)
+                          ) || 20.0
+                        );
+                        setForm(prev => ({
+                          ...prev,
+                          commission_mode: 'percent',
+                          pool_value: nextPct,
+                          creator_splits: prev.split_evenly
+                            ? rebalanceEvenSplits(prev.creator_splits, 'percent', nextPct, gross)
+                            : prev.creator_splits
+                        }));
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 cursor-pointer ${
+                        form.commission_mode === 'percent'
+                          ? 'bg-[#fe9a00] text-black'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      <Percent className="w-3 h-3" /> Percent (%)
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAddCreatorSlot}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-white text-black text-[10px] font-black uppercase tracking-widest flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 stroke-[3]" /> Add Creator Slot
+                  </button>
                 </div>
               </div>
 
-              {/* Creator Bounty (Bundles Only) OR 100% Platform Revenue Badge */}
-              <div className="bg-black border border-zinc-800 rounded-2xl p-5 flex flex-col justify-between space-y-3">
-                {form.product_type === 'bundle' ? (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase tracking-widest text-[#fe9a00] flex items-center gap-1.5">
-                        <DollarSign className="w-3.5 h-3.5" /> Annual Bundle Creator Bounty
+              {/* EVEN SPLIT POOL INPUT + CHECKBOX */}
+              {form.creator_splits.length > 0 && (
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-800">
+                    <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={form.split_evenly}
+                        onChange={e => {
+                          const checked = e.target.checked;
+                          const gross = Math.max(0.01, Number(form.listed_price_dollars || 24.99));
+                          setForm(prev => ({
+                            ...prev,
+                            split_evenly: checked,
+                            creator_splits: checked
+                              ? rebalanceEvenSplits(
+                                  prev.creator_splits,
+                                  prev.commission_mode,
+                                  prev.pool_value,
+                                  gross
+                                )
+                              : prev.creator_splits
+                          }));
+                        }}
+                        className="w-4 h-4 accent-[#fe9a00] rounded cursor-pointer"
+                      />
+                      <span className="text-xs font-black uppercase tracking-wider text-white">
+                        Split Commission Evenly Across All {form.creator_splits.length} Creator Slot
+                        {form.creator_splits.length === 1 ? '' : 's'}
                       </span>
-                      <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                        Flat $5.00 Bounty Model
-                      </span>
-                    </div>
+                    </label>
 
-                    <div className="grid grid-cols-3 gap-2.5">
-                      <div>
-                        <label className="block text-[8px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                          Creator #1
-                        </label>
-                        <select
-                          value={form.commission_creator_1}
-                          onChange={e =>
-                            setForm(prev => ({ ...prev, commission_creator_1: e.target.value }))
-                          }
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-2 text-xs font-bold text-white cursor-pointer"
-                        >
-                          <option value="">-- None --</option>
-                          {creatorOptions.map(c => (
-                            <option key={c} value={c}>
-                              {c}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[8px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                          Creator #2 (Opt)
-                        </label>
-                        <select
-                          value={form.commission_creator_2}
-                          onChange={e =>
-                            setForm(prev => ({ ...prev, commission_creator_2: e.target.value }))
-                          }
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-2.5 py-2 text-xs font-bold text-white cursor-pointer"
-                        >
-                          <option value="">-- None --</option>
-                          {creatorOptions.map(c => (
-                            <option key={c} value={c}>
-                              {c}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[8px] font-black uppercase tracking-widest text-emerald-400 mb-1">
-                          Flat Bounty ($)
-                        </label>
+                    {form.split_evenly && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                          {form.commission_mode === 'percent'
+                            ? 'Total Creator Pool % (Max 42.5%):'
+                            : `Total Creator Pool $ (Max $${netBreakdownPreview.maxCreatorPoolDollars.toFixed(2)}):`}
+                        </span>
                         <input
                           type="number"
-                          step="0.50"
+                          step="0.25"
                           min={0}
-                          max={50}
-                          value={form.commission_bounty_dollars}
-                          onChange={e =>
+                          max={
+                            form.commission_mode === 'percent'
+                              ? MAX_CREATOR_POOL_PERCENT
+                              : netBreakdownPreview.maxCreatorPoolDollars
+                          }
+                          value={form.pool_value}
+                          onChange={e => {
+                            const raw = Number(e.target.value);
+                            const gross = Math.max(0.01, Number(form.listed_price_dollars || 24.99));
+                            const maxAllowed =
+                              form.commission_mode === 'percent'
+                                ? MAX_CREATOR_POOL_PERCENT
+                                : Number(((gross * MAX_CREATOR_POOL_PERCENT) / 100).toFixed(2));
+                            const clamped = Math.max(0, Math.min(maxAllowed, isNaN(raw) ? 0 : raw));
                             setForm(prev => ({
                               ...prev,
-                              commission_bounty_dollars: Number(e.target.value)
-                            }))
-                          }
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 text-xs font-black text-emerald-400"
+                              pool_value: clamped,
+                              creator_splits: rebalanceEvenSplits(
+                                prev.creator_splits,
+                                prev.commission_mode,
+                                clamped,
+                                gross
+                              )
+                            }));
+                          }}
+                          className="w-24 bg-black border border-[#fe9a00] rounded-lg px-2.5 py-1.5 text-xs font-black text-[#fe9a00] text-right"
                         />
                       </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="h-full flex flex-col justify-center bg-zinc-950 border border-emerald-500/30 rounded-xl p-4">
-                    <div className="flex items-center gap-2 text-emerald-400 text-xs font-black uppercase tracking-widest mb-1">
-                      <ShieldCheck className="w-4 h-4" /> 100% Platform Revenue
-                    </div>
-                    <p className="text-[11px] text-zinc-300 font-bold leading-relaxed">
-                      Individual Hype Card Skins ($10+ min) and Character Avatar Packs ($5+ min) carry zero creator commissions—100% of net proceeds stay with Saturday AM.
-                    </p>
+                    )}
                   </div>
-                )}
+
+                  {/* UNLIMITED CREATOR SLOTS LIST */}
+                  <div className="space-y-2.5">
+                    {form.creator_splits.map((slot, idx) => (
+                      <div
+                        key={slot.id}
+                        className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center bg-black border border-zinc-800 rounded-xl p-2.5"
+                      >
+                        <div className="sm:col-span-5">
+                          <label className="block text-[8px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">
+                            Creator #{idx + 1}
+                          </label>
+                          <select
+                            value={slot.creator_name}
+                            onChange={e => handleCreatorSlotNameChange(slot.id, e.target.value)}
+                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-2 text-xs font-bold text-white cursor-pointer"
+                          >
+                            <option value="">-- Select Creator --</option>
+                            {creatorOptions.map(c => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="sm:col-span-3">
+                          <label className="block text-[8px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">
+                            Share % (Auto-Synced)
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="0.25"
+                              min={0}
+                              max={MAX_CREATOR_POOL_PERCENT}
+                              disabled={form.split_evenly}
+                              value={slot.percent}
+                              onChange={e =>
+                                handleCustomSlotValueChange(
+                                  slot.id,
+                                  'percent',
+                                  Number(e.target.value)
+                                )
+                              }
+                              className="w-full bg-zinc-900 border border-zinc-700 disabled:opacity-70 rounded-lg px-2.5 py-2 text-xs font-black text-[#fe9a00]"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="sm:col-span-3">
+                          <label className="block text-[8px] font-black uppercase tracking-widest text-zinc-500 mb-0.5">
+                            Payout $ (Auto-Synced)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.10"
+                            min={0}
+                            max={netBreakdownPreview.maxCreatorPoolDollars}
+                            disabled={form.split_evenly}
+                            value={slot.dollars}
+                            onChange={e =>
+                              handleCustomSlotValueChange(
+                                slot.id,
+                                'dollars',
+                                Number(e.target.value)
+                              )
+                            }
+                            className="w-full bg-zinc-900 border border-zinc-700 disabled:opacity-70 rounded-lg px-2.5 py-2 text-xs font-black text-emerald-400"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-1 flex items-center justify-end gap-1 pt-3 sm:pt-4">
+                          {!form.split_evenly && form.creator_splits.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleMakePrimaryEarner(slot.id)}
+                              title="Give 100% of Creator Pool to this Creator"
+                              className="px-2 py-1.5 rounded bg-zinc-900 hover:bg-[#fe9a00] text-[8px] font-black uppercase text-zinc-300 hover:text-black border border-zinc-700 cursor-pointer"
+                            >
+                              100%
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCreatorSlot(slot.id)}
+                            className="p-1.5 text-zinc-500 hover:text-red-400 cursor-pointer"
+                            title="Remove Creator Slot"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* LIVE SPLIT RECONCILIATION BAR */}
+              <div className="bg-zinc-950 border border-emerald-500/30 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-[10px] font-bold">
+                <div className="flex flex-wrap items-center gap-3 text-zinc-300">
+                  <span>
+                    Sat AM Gross Share:{' '}
+                    <strong className="text-white">
+                      {netBreakdownPreview.satAmGrossSharePct.toFixed(1)}%
+                    </strong>{' '}
+                    (Floor: 50%)
+                  </span>
+                  <span>•</span>
+                  <span>
+                    Dev Cut (Locked 7.5%):{' '}
+                    <strong className="text-[#fe9a00]">
+                      ${netBreakdownPreview.devAlloc.toFixed(2)}
+                    </strong>
+                  </span>
+                  <span>•</span>
+                  <span>
+                    Creators ({netBreakdownPreview.creatorPctOfGross.toFixed(1)}%):{' '}
+                    <strong className="text-emerald-400">
+                      ${netBreakdownPreview.creatorBounty.toFixed(2)}
+                    </strong>
+                  </span>
+                  <span>•</span>
+                  <span>
+                    Est. Stripe Fee (Company Covers):{' '}
+                    <strong className="text-zinc-400">
+                      -${netBreakdownPreview.stripeFee.toFixed(2)}
+                    </strong>
+                  </span>
+                </div>
+
+                <div className="text-emerald-400 font-black uppercase tracking-wider flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5" /> Sat AM Net Cash: $
+                  {netBreakdownPreview.netRetainedAfterStripe.toFixed(2)}
+                </div>
               </div>
             </div>
 
@@ -1797,9 +2252,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
         </div>
       )}
 
-      {/* =====================================================================
-          VISUAL AVATAR VAULT PICKER MODAL
-      ===================================================================== */}
+      {/* AVATAR VAULT PICKER MODAL */}
       {activeAvatarSlotKey && (
         <div
           className="fixed inset-0 z-[8600] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in"
@@ -1817,9 +2270,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                     {activeAvatarSlotKey.replace('_', ' #').toUpperCase()}
                   </span>
                 </h3>
-                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">
-                  Click any character avatar below to attach it to this slot
-                </p>
               </div>
               <button
                 type="button"
@@ -1836,7 +2286,7 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                 <input
                   type="text"
                   autoFocus
-                  placeholder="Search avatar name (e.g. Dia, Anil, Nilay, Tricia, Durga)..."
+                  placeholder="Search avatar name..."
                   value={avatarSearchQuery}
                   onChange={e => setAvatarSearchQuery(e.target.value)}
                   className="w-full bg-black border border-zinc-700 rounded-xl pl-10 pr-4 py-2.5 text-xs font-bold text-white focus:outline-none focus:border-[#fe9a00]"
@@ -1879,22 +2329,17 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                     }}
                     className={`relative rounded-2xl p-3 flex flex-col items-center text-center cursor-pointer border transition-all group ${
                       isSelectedInThisSlot
-                        ? 'bg-[#fe9a00]/20 border-[#fe9a00] scale-105 shadow-[0_0_20px_rgba(254,154,0,0.3)]'
+                        ? 'bg-[#fe9a00]/20 border-[#fe9a00] scale-105'
                         : isSelectedInAnySlot
                         ? 'bg-zinc-900/90 border-emerald-500/60'
                         : 'bg-black border-zinc-800 hover:border-[#fe9a00]'
                     }`}
                   >
-                    {isSelectedInAnySlot && (
-                      <span className="absolute top-1.5 right-1.5 bg-[#fe9a00] text-black text-[7px] font-black uppercase px-1.5 py-0.5 rounded">
-                        Selected
-                      </span>
-                    )}
                     <img
                       src={av.image_url}
                       alt={av.name}
                       loading="lazy"
-                      className="w-16 h-16 rounded-full object-cover border-2 border-zinc-700 group-hover:border-[#fe9a00] mb-2 transition-transform group-hover:scale-105"
+                      className="w-16 h-16 rounded-full object-cover border-2 border-zinc-700 group-hover:border-[#fe9a00] mb-2"
                     />
                     <span className="text-[10px] font-bold text-white leading-tight line-clamp-2">
                       {av.name || 'Avatar'}
@@ -1902,20 +2347,12 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                   </div>
                 );
               })}
-
-              {filteredModalAvatars.length === 0 && (
-                <div className="col-span-full py-12 text-center text-xs font-bold uppercase tracking-widest text-zinc-500">
-                  No matching avatars found in Vault.
-                </div>
-              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* =====================================================================
-          INTERACTIVE HYPE CARD SIGNATURE PLACEMENT & RESIZE STUDIO MODAL
-      ===================================================================== */}
+      {/* SIGNATURE STAMP STUDIO MODAL */}
       {editingStampSkin && (
         <div
           className="fixed inset-0 z-[8500] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in"
@@ -1931,9 +2368,6 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
                   <PenTool className="w-5 h-5 text-[#fe9a00]" /> Stamp & Resize Signatures —{' '}
                   <span className="text-[#fe9a00]">{editingStampSkin.name}</span>
                 </h3>
-                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">
-                  Drop creator signatures onto the card, drag them into position, and use the slider to resize!
-                </p>
               </div>
               <button
                 type="button"

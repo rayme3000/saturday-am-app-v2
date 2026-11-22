@@ -12,6 +12,8 @@ import {
   PLUS_EARLY_ACCESS_MS
 } from '../oneshotWednesday';
 import { MangaReader } from './MangaReader';
+import { resolveCreatorStripeAccountId } from './CreatorsPage';
+import { calculateTipFeeBreakdown } from '../referralAttribution';
 import { HypeButton } from '../Components/HypeButton';
 import { LikeButton } from '../Components/LikeButton';
 import { SeriesCommentsSection } from '../Components/SeriesCommentsSection';
@@ -170,6 +172,8 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
 
   const [donationCreator, setDonationCreator] = useState<any>(null);
   const [donationAmount, setDonationAmount] = useState<number>(5);
+  const [coverTipFee, setCoverTipFee] = useState<boolean>(true);
+  const tipBreakdown = calculateTipFeeBreakdown(donationAmount, coverTipFee);
   const [fanmailText, setFanmailText] = useState('');
   const [donationStep, setDonationStep] = useState<'input' | 'processing' | 'success'>('input');
 
@@ -228,17 +232,10 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     if (params.get('donation_status') === 'success') {
       const returnedCreator = params.get('creator') || 'the Creator';
       const returnedAmount = Number(params.get('amount') || 5);
-      const returnedSessionId = params.get('session_id') || '';
 
       setDonationCreator({ name: returnedCreator, avatar_url: '' });
       setDonationAmount(returnedAmount);
       setDonationStep('success');
-
-      if (returnedSessionId) {
-        supabase.functions.invoke('create-checkout-session', {
-          body: { type: 'confirm_donation', sessionId: returnedSessionId, creatorName: returnedCreator, amountDollars: returnedAmount }
-        });
-      }
 
       supabase.auth.getUser().then(async ({ data: { user } }) => {
         if (user) {
@@ -700,13 +697,23 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
     }
     if (!donationCreator) return;
     setDonationStep('processing');
+    const resolvedStripeId = resolveCreatorStripeAccountId(
+      donationCreator.name,
+      donationCreator.stripe_account_id || localSeries?.creator_stripe_account_id || ''
+    );
     try {
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
         body: {
-          type: 'donation', userId: activeUserId, userEmail: user?.email, returnUrl: window.location.origin,
+          type: 'donation',
+          userId: activeUserId,
+          userEmail: user?.email,
+          returnUrl: window.location.origin,
           creatorName: donationCreator.name || 'Creator',
-          stripeAccountId: donationCreator.stripe_account_id || localSeries?.creator_stripe_account_id || '',
-          amountDollars: donationAmount, fanmail: fanmailText.trim(), seriesSlug: localSeries?.slug || ''
+          stripeAccountId: resolvedStripeId,
+          amountDollars: donationAmount,
+          coverStripeFee: coverTipFee,
+          fanmail: fanmailText.trim(),
+          seriesSlug: localSeries?.slug || ''
         }
       });
       if (error) throw error;
@@ -797,21 +804,38 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
               <>
                 <button onClick={() => setDonationCreator(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors z-20 cursor-pointer"><X className="w-6 h-6" /></button>
                 <div className="p-6 sm:p-8 animate-fade-in">
-                  <div className="flex flex-col items-center mb-6 text-center mt-2">
+                  <div className="flex flex-col items-center mb-5 text-center mt-2">
                     <img src={donationCreator.avatar_url || `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`} className="w-16 h-16 rounded-full object-cover border-2 border-[#fe9a00] mb-3 shadow-[0_0_15px_rgba(254,154,0,0.3)]" alt={donationCreator.name} onError={(e) => { e.currentTarget.src = `${CLOUDFLARE_BASE_URL}/assets/creator-avatar.jpg`; }} />
                     <h3 className="text-xl font-black italic uppercase text-white leading-tight">Support {donationCreator.name}</h3>
-                    <p className="text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1">100% of your tip goes directly to the creator!</p>
+                    <p className="text-[10px] font-bold text-[#fe9a00] uppercase tracking-widest mt-1">Saturday AM takes 0% platform commission on fan tips</p>
                   </div>
-                  <div className="grid grid-cols-4 gap-2 mb-6">
+                  <div className="grid grid-cols-4 gap-2 mb-4">
                     {[5, 10, 15, 20].map((amount) => (
                       <button key={amount} onClick={() => setDonationAmount(amount)} className={`py-3 rounded-xl font-black text-sm sm:text-base border-2 transition-all cursor-pointer ${donationAmount === amount ? 'bg-[#fe9a00]/10 border-[#fe9a00] text-[#fe9a00]' : 'bg-black border-zinc-800 text-zinc-400 hover:border-zinc-600'}`}>${amount}</button>
                     ))}
                   </div>
-                  <div className="relative mb-6">
+                  <label className="flex items-start gap-3 p-3.5 mb-4 rounded-xl bg-black border border-zinc-800 hover:border-[#fe9a00]/60 cursor-pointer select-none transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={coverTipFee}
+                      onChange={(e) => setCoverTipFee(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 accent-[#fe9a00] rounded cursor-pointer shrink-0"
+                    />
+                    <div className="flex-1 text-left">
+                      <span className="text-[11px] font-bold text-white block leading-snug">
+                        Cover the <span className="text-[#fe9a00]">${tipBreakdown.processingFeeDollars.toFixed(2)}</span> card processing fee so{' '}
+                        <span className="text-[#fe9a00]">{donationCreator.name}</span> gets 100% (${donationAmount.toFixed(2)})
+                      </span>
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block mt-1">
+                        Creator receives: <strong className="text-emerald-400">${tipBreakdown.creatorNetDollars.toFixed(2)}</strong> • Total charged: ${tipBreakdown.fanPaysDollars.toFixed(2)}
+                      </span>
+                    </div>
+                  </label>
+                  <div className="relative mb-5">
                     <textarea value={fanmailText} onChange={(e) => setFanmailText(e.target.value)} placeholder="Write a private message to the creator..." maxLength={250} className="w-full bg-black border border-zinc-800 text-white text-xs px-4 py-3 pb-8 rounded-xl focus:outline-none focus:border-[#fe9a00] transition-colors resize-none h-24 font-medium" />
                     <span className="absolute bottom-3 right-3 text-[9px] font-black uppercase tracking-widest text-zinc-600">{fanmailText.length}/250</span>
                   </div>
-                  <button onClick={handleProcessDonation} className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer">Donate ${donationAmount} via Stripe</button>
+                  <button onClick={handleProcessDonation} className="w-full py-4 bg-[#fe9a00] text-black font-black uppercase tracking-widest rounded-xl hover:bg-white transition-colors flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer text-xs sm:text-sm">Tip ${tipBreakdown.fanPaysDollars.toFixed(2)} via Stripe</button>
                   <p className="text-center text-[8px] text-zinc-500 font-bold uppercase tracking-widest mt-4">Secure Stripe Checkout • Supporting creators boosts your Fandom Score!</p>
                 </div>
               </>
@@ -1227,7 +1251,7 @@ export const SeriesDetailPage = ({ series, onBack, userTier = 'visitor', onLogin
                     </div>
                   </div>
                   <p className="text-sm sm:text-base text-zinc-300 leading-relaxed mb-8">{c.bio || '...'}</p>
-                  <button onClick={() => { setDonationCreator(c); setDonationStep('input'); setDonationAmount(5); setFanmailText(''); }} className="flex items-center justify-center gap-2 w-full max-w-xs mx-auto mb-3 bg-[#fe9a00] text-black px-8 py-3.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-widest hover:bg-white transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer">
+                  <button onClick={() => { setDonationCreator(c); setDonationStep('input'); setDonationAmount(5); setCoverTipFee(true); setFanmailText(''); }} className="flex items-center justify-center gap-2 w-full max-w-xs mx-auto mb-3 bg-[#fe9a00] text-black px-8 py-3.5 rounded-full text-[11px] sm:text-xs font-black uppercase tracking-widest hover:bg-white transition-all shadow-[0_0_20px_rgba(254,154,0,0.3)] cursor-pointer">
                     <Heart className="w-4 h-4 fill-black" /> Support {safeName.split(' ')[0]}
                   </button>
                   <div className="w-full max-w-xs mx-auto mb-8 [&_button]:w-full [&_button]:justify-center">

@@ -20,6 +20,7 @@ import {
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
 import { doCreatorNamesMatch } from '../VirtualProfile/BingoBook';
+import { DEV_CUT_PERCENT, MAX_CREATOR_POOL_PERCENT } from '../referralAttribution';
 
 // Capture URL params immediately at module load BEFORE App.tsx router strips window.location.search
 const captureInitialUrlParams = () => {
@@ -106,10 +107,8 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
   const [loadingActionId, setLoadingActionId] = useState<string | null>(null);
   const [storeToast, setStoreToast] = useState<string | null>(null);
 
-  // Duplicate Purchase Safety Modal State
   const [alreadyOwnedProduct, setAlreadyOwnedProduct] = useState<any | null>(null);
 
-  // Filter, Search, Carousel & Modal Inspection State
   const [activeCategory, setActiveCategory] = useState<
     'all' | 'bundles' | 'skins' | 'avatars' | 'free'
   >('all');
@@ -125,7 +124,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
     captureInitialUrlParams();
   }, []);
 
-  // Hide the floating Hype pill when the Tap-to-Inspect or Already-Owned modal is open
   useEffect(() => {
     if (!inspectedProduct && !alreadyOwnedProduct) return;
     window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
@@ -239,7 +237,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
     };
   }, [fetchStoreData]);
 
-  // Unified helper: checks if a user already owns a bundle or store product
   const isProductOwnedByUser = useCallback(
     (prod: any): boolean => {
       if (!prod || !currentUser) return false;
@@ -284,7 +281,7 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
     [currentUser, purchasedProductIds, cardSkins, unlockedSkins, unlockedAvatars, equippedSkinUrl]
   );
 
-  // Grant unlocked items & record Creator Bounty + Dev Allocation in store_payout_ledger
+  // Grant unlocked items & ensure store_payout_ledger row exists (syncs cleanly with stripe-webhook!)
   const grantStoreProductToUser = useCallback(
     async (prod: any, userId: string, prof: any, recordLedger = true) => {
       const { data: existingPurchase } = await supabase
@@ -294,12 +291,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
         .eq('product_id', String(prod.id))
         .limit(1)
         .maybeSingle();
-
-      if (existingPurchase) {
-        setPurchasedProductIds(prev => Array.from(new Set([...prev, String(prod.id)])));
-        setAlreadyOwnedProduct(prod);
-        return;
-      }
 
       const skinIds: string[] = Array.isArray(prod.card_skin_ids) ? prod.card_skin_ids : [];
       const resolvedSkins = skinIds
@@ -314,8 +305,10 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
         new Set([...existingSkins, ...skinIds.map(String), ...skinUrls].filter(Boolean))
       );
 
-      const existingAvatars: string[] = Array.isArray(prof.unlocked_avatars)
-        ? prof.unlocked_avatars.map(String)
+      const existingAvatars: string[] = Array.isArray(prod.avatar_urls)
+        ? Array.isArray(prof.unlocked_avatars)
+          ? prof.unlocked_avatars.map(String)
+          : []
         : [];
       const prodAvatars: string[] = Array.isArray(prod.avatar_urls)
         ? prod.avatar_urls.filter(Boolean)
@@ -344,6 +337,21 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
       }
 
       const bonusVaulted = Number(prod.bonus_vaulted_hypes || 0);
+
+      // If stripe-webhook already recorded & granted this purchase milliseconds earlier, show success toast without double-adding bonus hypes!
+      if (existingPurchase) {
+        setPurchasedProductIds(prev => Array.from(new Set([...prev, String(prod.id)])));
+        setUnlockedSkins(nextSkins);
+        setUnlockedAvatars(nextAvatars);
+        setStoreToast(
+          `🎉 Unlocked "${prod.title}"! ${
+            bonusVaulted > 0 ? `+${bonusVaulted} Gold Hypes & ` : ''
+          }Your new items are ready in your Profile Loadout!`
+        );
+        window.dispatchEvent(new Event('profileUpdated'));
+        return;
+      }
+
       const currentVaulted = Number(prof.vaulted_hypes || 0);
       const nextVaulted = currentVaulted + bonusVaulted;
 
@@ -390,27 +398,26 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
         await supabase.from('profiles').update(fallbackPatch).eq('id', userId);
       }
 
-      // Record Creator Commission & Dev Allocation on ALL paid store products (Bundles, Skins & Avatar Packs)
+      // Fallback client-side ledger insert ONLY if stripe-webhook hasn't inserted yet (7.5% Dev Cut locked)
       const gross = Math.max(0, Number(prod.listed_price_dollars || 0));
       if (recordLedger && gross > 0) {
-        const stripeFee = Number((gross * 0.029 + 0.30).toFixed(2));
-        const commCreators: string[] = Array.isArray(prod.commission_creators)
-          ? prod.commission_creators.filter(Boolean)
+        const stripeFee = Number((gross * 0.029 + 0.3).toFixed(2));
+        const maxPoolDollars = Number(((gross * MAX_CREATOR_POOL_PERCENT) / 100).toFixed(2));
+        const savedSplits: any[] = Array.isArray(prod.creator_splits)
+          ? prod.creator_splits
           : [];
-        const isBundle = prod.product_type === 'bundle';
-        const creatorBounty =
-          isBundle && commCreators.length > 0
-            ? Number(prod.commission_bounty_dollars ?? 5.0)
-            : 0;
+        const commCreators: string[] =
+          savedSplits.length > 0
+            ? savedSplits.map(s => s.creator_name).filter(Boolean)
+            : Array.isArray(prod.commission_creators)
+            ? prod.commission_creators.filter(Boolean)
+            : [];
 
-        // Dev Cut is factored in on both Bundles ($1.50) and Avatar Packs / Single Skins (custom dev_allocation_dollars or 10% of gross)
-        const devAllocation =
-          prod.dev_allocation_dollars !== undefined && prod.dev_allocation_dollars !== null
-            ? Number(prod.dev_allocation_dollars)
-            : isBundle && prod.include_1yr_sub
-            ? 1.50
-            : Number((gross * 0.10).toFixed(2));
-
+        const creatorBounty = Math.min(
+          maxPoolDollars,
+          commCreators.length > 0 ? Number(prod.commission_bounty_dollars ?? 0) : 0
+        );
+        const devAllocation = Number(((gross * DEV_CUT_PERCENT) / 100).toFixed(2));
         const netSatAm = Math.max(
           0,
           Number((gross - stripeFee - creatorBounty - devAllocation).toFixed(2))
@@ -423,10 +430,12 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
             product_id: String(prod.id),
             product_title: prod.title,
             product_type: prod.product_type || 'bundle',
+            commission_mode: prod.commission_mode || 'flat',
             gross_amount_dollars: gross,
             stripe_fee_dollars: stripeFee,
             creator_bounty_dollars: creatorBounty,
             creator_names: commCreators,
+            creator_splits: savedSplits,
             dev_allocation_dollars: devAllocation,
             net_saturday_am_dollars: netSatAm,
             status: 'completed'
@@ -447,7 +456,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
     [cardSkins]
   );
 
-  // Process Stripe return URL OR sessionStorage-captured store_product_success
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const successProdId =
@@ -624,10 +632,11 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
       const commCreators: string[] = Array.isArray(prod.commission_creators)
         ? prod.commission_creators.filter(Boolean)
         : [];
+      const savedSplits: any[] = Array.isArray(prod.creator_splits)
+        ? prod.creator_splits
+        : [];
       const creatorBountyDollars =
-        prod.product_type === 'bundle' && commCreators.length > 0
-          ? Number(prod.commission_bounty_dollars ?? 5.0)
-          : 0;
+        commCreators.length > 0 ? Number(prod.commission_bounty_dollars ?? 0) : 0;
 
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {
         body: {
@@ -640,6 +649,10 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
           amountDollars: listedPrice,
           amountCents: Math.round(listedPrice * 100),
           creatorNames: commCreators,
+          creatorSplits: savedSplits,
+          commissionMode: prod.commission_mode || 'flat',
+          commissionPercent: Number(prod.commission_percent || 0),
+          splitEvenly: prod.split_evenly !== false,
           creatorBountyDollars,
           userId: activeUserId,
           userEmail: user?.email || currentUser?.email,
@@ -942,7 +955,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
                     </div>
                   </div>
 
-                  {/* Visual Stage: Side-by-Side Hype Cards */}
                   {bundleSkins.length > 0 && (
                     <div
                       className={`grid gap-2.5 sm:gap-4 mb-4 ${
@@ -955,7 +967,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
                     </div>
                   )}
 
-                  {/* Bottom Bar: Avatars + Autographs + Price & CTA */}
                   <div className="bg-black/85 border border-zinc-800/90 rounded-2xl p-3 sm:p-4 flex flex-col md:flex-row items-center justify-between gap-4">
                     <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
                       {avatars.length > 0 && (
@@ -1050,27 +1061,10 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
               );
             })}
           </div>
-
-          {bundlesList.length > 1 && (
-            <div className="flex items-center justify-center gap-1.5 pt-1">
-              {bundlesList.map((_, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => scrollBundleCarouselTo(idx)}
-                  className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                    activeBundleIdx === idx ? 'w-6 bg-[#fe9a00]' : 'w-1.5 bg-zinc-700'
-                  }`}
-                />
-              ))}
-            </div>
-          )}
         </div>
       )}
 
-      {/* =====================================================================
-          2. DIGITAL LOADOUT DROPS (FROSTED AVATAR BG + FULL MULTI-LINE TITLE)
-      ===================================================================== */}
+      {/* 2. DIGITAL LOADOUT DROPS */}
       {singleItemsList.length > 0 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between px-1">
@@ -1132,7 +1126,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
                     className="relative aspect-[1.58] bg-zinc-950 overflow-hidden flex items-center justify-center"
                     style={{ containerType: 'inline-size' }}
                   >
-                    {/* FROSTED / BLURRED AVATAR BACKDROP FOR AVATAR PACKS & SINGLE AVATARS */}
                     {isAvatarItem && frostedBgAvatarUrl && (
                       <>
                         <img
@@ -1227,7 +1220,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
                     </span>
                   </div>
 
-                  {/* Full 2-Line Title Support so "MMWOG DIWALI AVATAR PACK" is Never Cut Off */}
                   <div className="p-2.5 sm:p-3 flex items-center justify-between gap-2 bg-zinc-950 border-t border-zinc-900 min-h-[52px]">
                     <h3 className="text-[10px] sm:text-xs font-black italic uppercase tracking-wider text-white leading-tight line-clamp-2 break-words flex-1">
                       {item.title}
@@ -1285,9 +1277,7 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
         </div>
       )}
 
-      {/* =====================================================================
-          3. TAP-TO-INSPECT FULL VISUAL SHOWCASE MODAL (WITH TOP & BOTTOM SPACERS)
-      ===================================================================== */}
+      {/* 3. TAP-TO-INSPECT MODAL */}
       {inspectedProduct && (
         <div
           className="fixed inset-0 z-[9000] bg-black/92 backdrop-blur-xl flex items-start justify-center p-4 pt-24 sm:pt-28 pb-36 sm:pb-40 overflow-y-auto animate-fade-in"
@@ -1330,7 +1320,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
 
               return (
                 <>
-                  {/* Top Cushion so Headline & Description Never Clip Under Sticky Header */}
                   <div className="pt-1 pr-10">
                     <div className="flex flex-wrap items-center gap-2 mb-2">
                       {prod.promo_badge && (
@@ -1370,7 +1359,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
                     )}
                   </div>
 
-                  {/* Full-Size Hype Cards Showcase */}
                   {prodSkins.length > 0 && (
                     <div
                       className={`grid gap-4 ${
@@ -1383,7 +1371,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
                     </div>
                   )}
 
-                  {/* Full-Size Character Avatars Showcase (with Frosted Avatar Backdrop) */}
                   {avatars.length > 0 && (
                     <div className="relative overflow-hidden bg-black/80 border border-zinc-800 rounded-2xl p-5">
                       {prodSkins.length === 0 && avatars[0] && (
@@ -1424,7 +1411,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
                     </div>
                   )}
 
-                  {/* Full-Size Creator Autographs Showcase */}
                   {autographs.length > 0 && (
                     <div className="bg-black/70 border border-zinc-800 rounded-2xl p-4 flex flex-wrap items-center justify-center gap-4">
                       {autographs.map((cName, idx) => {
@@ -1462,7 +1448,6 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
                     </div>
                   )}
 
-                  {/* Bottom Checkout Bar */}
                   <div className="bg-black border border-zinc-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
                     <div>
                       <div className="flex items-baseline gap-2">
@@ -1517,7 +1502,7 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
         </div>
       )}
 
-      {/* 4. DUPLICATE PURCHASE SAFETY MODAL ("ALREADY IN YOUR COLLECTION") */}
+      {/* 4. DUPLICATE PURCHASE SAFETY MODAL */}
       {alreadyOwnedProduct && (
         <div
           className="fixed inset-0 z-[9500] bg-black/90 backdrop-blur-xl flex items-center justify-center p-6 animate-fade-in"
@@ -1540,7 +1525,7 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
             </h3>
 
             <p className="text-xs sm:text-sm text-zinc-300 font-bold leading-relaxed mb-6">
-              You already unlocked <span className="text-[#fe9a00] font-black">&ldquo;{alreadyOwnedProduct.title}&rdquo;</span>! To protect your wallet, we prevented a duplicate purchase. All included Card Skins, Avatars, and Autographs are ready to equip in your Profile.
+              You already unlocked <span className="text-[#fe9a00] font-black">&ldquo;{alreadyOwnedProduct.title}&rdquo;</span>! All included Card Skins, Avatars, and Autographs are ready to equip in your Profile.
             </p>
 
             <button

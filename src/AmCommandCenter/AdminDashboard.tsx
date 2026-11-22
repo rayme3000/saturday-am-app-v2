@@ -1018,8 +1018,8 @@ const CreatorManagerHub = () => {
                 className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-3 text-xs font-bold text-white focus:outline-none focus:border-[#fe9a00] cursor-pointer"
               >
                 <option value="creator">Creator ($5 Annual Ref)</option>
-                <option value="core_creator">Core Creator ($10 Ref)</option>
-                <option value="staff">Staff ($10 Ref)</option>
+                <option value="core_creator">Core Creator ($5 Ref)</option>
+                <option value="staff">Staff ($5 Ref)</option>
               </select>
             </div>
 

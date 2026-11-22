@@ -26,6 +26,13 @@ import {
   getPendingUpsellPopupAttribution,
   clearUpsellPopupAttribution
 } from '../Components/PromoModal';
+import {
+  recordReferralClick,
+  getActiveReferralAttribution,
+  clearLocalReferralAttribution,
+  DEV_CUT_PERCENT
+} from '../referralAttribution';
+import { getCreatorReferralCodeVariants } from './CreatorStudio';
 
 export interface BundlePayload {
   include_1yr_sub?: boolean;
@@ -54,7 +61,6 @@ export interface UniversalRedeemResult {
   activatedPlus?: boolean;
 }
 
-// SHARED MASTER HELPER: Unlocks a creator's Bingo Book autograph across DB + Profile + LocalStorage
 export const unlockCreatorAutographMaster = async (
   userId: string,
   creatorNameRaw?: string,
@@ -120,7 +126,6 @@ export const unlockCreatorAutographMaster = async (
   }
 };
 
-// SHARED MASTER HELPER: Grants 1-Yr PLUS, Card Skins, Avatars, Autographs & Bonus Hypes
 export const grantMasterBundleRewardsToUser = async (
   userId: string,
   bundle: BundlePayload,
@@ -173,7 +178,6 @@ export const grantMasterBundleRewardsToUser = async (
     unlockedParts.push(`+${extraVaultedHypes} Vaulted Gold Hypes`);
   }
 
-  // If card_skin_id was saved on the promo code without card_skin_url, look up the image_url from card_skins
   let resolvedSkin1Url = bundle.card_skin_url || '';
   let resolvedSkin1Name = bundle.card_skin_name || '';
   if (bundle.card_skin_id && !resolvedSkin1Url) {
@@ -297,7 +301,6 @@ export const grantMasterBundleRewardsToUser = async (
   return { unlockedParts, unlockedCreators, activatedPlus: includeSub };
 };
 
-// SHARED MASTER CODE REDEEMER: Used by both HomePage Quick-Redeem AND Subscription Page
 export const redeemUniversalCode = async (
   rawCodeInput: string,
   activeUserId: string,
@@ -319,14 +322,34 @@ export const redeemUniversalCode = async (
     };
   }
 
-  // 2. Partner / Creator Referral Code (VIP-...)
+  // 2. Partner / Creator Referral Code (VIP-...) — Last-click overwrites & resets 365-day window!
   if (cleanCode.startsWith('VIP-')) {
-    localStorage.setItem('am_referral_code', cleanCode);
+    recordReferralClick(cleanCode);
+    let alreadyUsedTrial = false;
+    if (activeUserId) {
+      const { data: pCheck } = await supabase
+        .from('profiles')
+        .select('is_premium, referral_commission_paid_at, has_used_referral_trial')
+        .eq('id', activeUserId)
+        .maybeSingle();
+      alreadyUsedTrial = Boolean(pCheck?.has_used_referral_trial);
+      if (pCheck && !pCheck.is_premium && !pCheck.referral_commission_paid_at) {
+        await supabase
+          .from('profiles')
+          .update({
+            referred_by_code: cleanCode,
+            referred_at: new Date().toISOString()
+          })
+          .eq('id', activeUserId);
+      }
+    }
     return {
       status: 'referral_code',
       code: cleanCode,
-      title: '3-Day Free Trial Unlocked!',
-      message: `Partner Referral Code "${cleanCode}" applied! Your 3-Day Free Trial on the $20/yr Annual Pass is now unlocked.`
+      title: alreadyUsedTrial ? 'Partner Code Applied!' : '3-Day Free Trial Unlocked!',
+      message: alreadyUsedTrial
+        ? `Partner Referral Code "${cleanCode}" applied to your $20/yr Annual Pass!`
+        : `Partner Referral Code "${cleanCode}" applied! Your 3-Day Free Trial on the $20/yr Annual Pass is now unlocked.`
     };
   }
 
@@ -338,7 +361,7 @@ export const redeemUniversalCode = async (
 
   const alreadyPremium = Boolean(isAlreadyPremiumHint || currentProf?.is_premium);
 
-  // 3. 5-Digit Creator Autograph PIN (e.g. 12345)
+  // 3. 5-Digit Creator Autograph PIN
   if (/^\d{5}$/.test(cleanCode)) {
     const { data: pinData } = await supabase
       .from('bingo_codes')
@@ -507,7 +530,7 @@ export const redeemUniversalCode = async (
     };
   }
 
-  // 5. Standard 1-Year Store Batch Access Key (`redeem_premium_code` RPC)
+  // 5. Standard 1-Year Store Batch Access Key
   if (alreadyPremium) {
     throw new Error(
       'You already have an active Saturday AM+ PLUS membership! Your store code was not used so you can save it or gift it to a friend.'
@@ -557,14 +580,12 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
   const [isLoadingCheckout, setIsLoadingCheckout] = useState(false);
   const [loadingBundleId, setLoadingBundleId] = useState<string | null>(null);
 
-  // Synced Bundles from both in_app_store_products (Live Store Manager) & themed_annual_bundles
   const [storeBundles, setStoreBundles] = useState<any[]>([]);
   const [legacyThemedBundles, setLegacyThemedBundles] = useState<any[]>([]);
   const [masterSignatures, setMasterSignatures] = useState<Record<string, string>>({});
   const [purchasedProductIds, setPurchasedProductIds] = useState<string[]>([]);
   const [unlockedSkins, setUnlockedSkins] = useState<string[]>([]);
 
-  // Pre-Checkout Upsell Modal State
   const [showBundleUpsellModal, setShowBundleUpsellModal] = useState(false);
   const collectorBundlesRef = useRef<HTMLDivElement | null>(null);
   const mainPricingCardRef = useRef<HTMLDivElement | null>(null);
@@ -576,7 +597,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
 
   const [referralCode, setReferralCode] = useState('');
 
-  // Record Upsell Popup -> Paid Subscription conversion if the user arrived via an Upsell Popup
   const logUpsellConversionIfPresent = useCallback(
     async (
       conversionSource: 'stripe_subscription' | 'stripe_bundle' | 'promo_code',
@@ -599,7 +619,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     []
   );
 
-  // Hide floating Hype pill when the Upsell Modal is open
   useEffect(() => {
     if (!showBundleUpsellModal) return;
     window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
@@ -615,242 +634,23 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }, 80);
   };
 
-  // Shared helper to unlock a creator's Bingo Book autograph
-  const unlockFlashContestAutograph = useCallback(async (userId: string, creatorNameRaw?: string) => {
-    const targetCreator = String(creatorNameRaw || '').trim();
-    if (!targetCreator) return null;
-
-    try {
-      const { data: existingLogs } = await supabase
-        .from('bingo_signatures_log')
-        .select('creator_name')
-        .eq('user_id', userId);
-
-      const alreadyHas = (existingLogs || []).some((row: any) =>
-        doCreatorNamesMatch(row.creator_name, targetCreator)
-      );
-
-      if (!alreadyHas) {
-        await supabase.from('bingo_signatures_log').insert([
-          {
-            user_id: userId,
-            creator_name: targetCreator,
-            event_name: 'Themed Annual Bundle',
-            signature_type: 'Standard'
-          }
-        ]);
-      }
-
-      const { data: allSigs } = await supabase
-        .from('creator_signatures')
-        .select('creator_name, signature_url');
-
-      const matchedSig = (allSigs || []).find((r: any) =>
-        doCreatorNamesMatch(r.creator_name, targetCreator)
-      );
-
-      const localHunts: string[] = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
-      if (!localHunts.some(h => doCreatorNamesMatch(h, targetCreator))) {
-        localHunts.push(targetCreator);
-      }
-      if (matchedSig?.creator_name && !localHunts.includes(matchedSig.creator_name)) {
-        localHunts.push(matchedSig.creator_name);
-      }
-      localStorage.setItem('am_bingo_hunts', JSON.stringify(localHunts));
-
-      if (matchedSig?.signature_url) {
-        const localSigs: Record<string, string> = JSON.parse(
-          localStorage.getItem('am_bingo_sigs') || '{}'
-        );
-        localSigs[targetCreator] = matchedSig.signature_url;
-        localSigs[matchedSig.creator_name] = matchedSig.signature_url;
-        localStorage.setItem('am_bingo_sigs', JSON.stringify(localSigs));
-      }
-
-      window.dispatchEvent(new Event('bingoUpdated'));
-      return matchedSig?.creator_name || targetCreator;
-    } catch (err) {
-      console.error('Error unlocking bundle autograph:', err);
-      return targetCreator;
-    }
-  }, []);
-
-  // Unified reward granter for Custom Bundle Codes & Legacy Themed Bundles
-  const grantBundleRewardsToUser = useCallback(
-    async (userId: string, bundle: BundlePayload, alreadyPremium: boolean) => {
-      const { data: currentProf } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-
-      const now = new Date();
-      const includeSub = bundle.include_1yr_sub !== false;
-      const baseDate =
-        currentProf?.premium_until && new Date(currentProf.premium_until) > now
-          ? new Date(currentProf.premium_until)
-          : now;
-      const nextYearDate = new Date(baseDate.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
-
-      const currentActiveHypes = Math.max(
-        0,
-        Number(currentProf?.hypes_remaining ?? currentProf?.super_hypes_left ?? 1)
-      );
-      const nextActiveHypes = includeSub
-        ? Math.min(10, Math.max(3, alreadyPremium ? currentActiveHypes : currentActiveHypes + 2))
-        : currentActiveHypes;
-
-      const currentVaultedHypes = Math.max(0, Number(currentProf?.vaulted_hypes || 0));
-      const extraVaultedHypes = Math.max(0, Number(bundle.bonus_hypes || 0));
-      const nextVaultedHypes = currentVaultedHypes + extraVaultedHypes;
-
-      const unlockedParts: string[] = [];
-      let bonusFandomPts = includeSub ? (alreadyPremium ? 30 : 15) : 0;
-
-      const profilePatch: Record<string, any> = {
-        hypes_remaining: nextActiveHypes,
-        super_hypes_left: nextActiveHypes,
-        vaulted_hypes: nextVaultedHypes
-      };
-
-      if (includeSub) {
-        profilePatch.is_premium = true;
-        profilePatch.premium_until = nextYearDate;
-        unlockedParts.push(alreadyPremium ? '+1 Year PLUS Extended' : '1-Year PLUS Pass');
-      }
-
-      if (extraVaultedHypes > 0) {
-        unlockedParts.push(`+${extraVaultedHypes} Vaulted Gold Hypes`);
-      }
-
-      const skinItemsToUnlock = [
-        bundle.card_skin_id ? String(bundle.card_skin_id) : '',
-        bundle.card_skin_url ? String(bundle.card_skin_url) : '',
-        bundle.card_skin_2_id ? String(bundle.card_skin_2_id) : '',
-        bundle.card_skin_2_url ? String(bundle.card_skin_2_url) : ''
-      ].filter(Boolean);
-
-      if (skinItemsToUnlock.length > 0) {
-        const existingSkins: string[] = Array.isArray(currentProf?.unlocked_skins)
-          ? currentProf.unlocked_skins.map(String)
-          : [];
-        const mergedSkins = Array.from(new Set([...existingSkins, ...skinItemsToUnlock]));
-        profilePatch.unlocked_skins = mergedSkins;
-
-        if (bundle.card_skin_url) {
-          profilePatch.card_skin = bundle.card_skin_url;
-        }
-        if (bundle.card_skin_id) {
-          profilePatch.card_skin_id = bundle.card_skin_id;
-        }
-
-        try {
-          const localSkins: string[] = JSON.parse(
-            localStorage.getItem('am_unlocked_skins') || '[]'
-          );
-          localStorage.setItem(
-            'am_unlocked_skins',
-            JSON.stringify(Array.from(new Set([...localSkins, ...skinItemsToUnlock])))
-          );
-        } catch {
-          // ignore
-        }
-
-        const skinNames = [bundle.card_skin_name, bundle.card_skin_2_name].filter(Boolean);
-        unlockedParts.push(
-          skinNames.length > 0 ? `${skinNames.join(' & ')} Card Skin(s)` : 'Exclusive Hype Card Skin(s)'
-        );
-        bonusFandomPts += 15;
-      }
-
-      const validAvatars = (bundle.avatar_urls || []).filter(Boolean);
-      if (validAvatars.length > 0) {
-        const existingAvatars: string[] = Array.isArray(currentProf?.unlocked_avatars)
-          ? currentProf.unlocked_avatars
-          : [];
-        const mergedAvatars = Array.from(new Set([...existingAvatars, ...validAvatars]));
-        profilePatch.unlocked_avatars = mergedAvatars;
-        profilePatch.avatar_url = validAvatars[0];
-
-        try {
-          const localAvs: string[] = JSON.parse(
-            localStorage.getItem('am_unlocked_avatars') || '[]'
-          );
-          const mergedLocal = Array.from(new Set([...localAvs, ...validAvatars]));
-          localStorage.setItem('am_unlocked_avatars', JSON.stringify(mergedLocal));
-        } catch {
-          // ignore
-        }
-        unlockedParts.push(
-          `${validAvatars.length} Character Avatar${validAvatars.length === 1 ? '' : 's'}`
-        );
-        bonusFandomPts += validAvatars.length * 10;
-      }
-
-      const creatorsToUnlock = [bundle.creator_autograph, bundle.creator_autograph_2].filter(
-        Boolean
-      ) as string[];
-      if (creatorsToUnlock.length > 0) {
-        const existingAutographs: string[] = Array.isArray(currentProf?.unlocked_autographs)
-          ? currentProf.unlocked_autographs.map(String)
-          : [];
-        profilePatch.unlocked_autographs = Array.from(
-          new Set([...existingAutographs, ...creatorsToUnlock])
-        );
-
-        for (const cName of creatorsToUnlock) {
-          const unlockedCreator = await unlockFlashContestAutograph(userId, cName);
-          if (unlockedCreator) {
-            unlockedParts.push(`${unlockedCreator} Gold Autograph`);
-            bonusFandomPts += 25;
-          }
-        }
-      }
-
-      profilePatch.fandom_score = (Number(currentProf?.fandom_score) || 0) + bonusFandomPts;
-
-      const { error: profErr } = await supabase
-        .from('profiles')
-        .update(profilePatch)
-        .eq('id', userId);
-
-      if (profErr) {
-        const fallbackPatch: Record<string, any> = {
-          is_premium: includeSub ? true : Boolean(currentProf?.is_premium),
-          hypes_remaining: nextActiveHypes,
-          super_hypes_left: nextActiveHypes,
-          vaulted_hypes: nextVaultedHypes,
-          fandom_score: profilePatch.fandom_score
-        };
-        if (profilePatch.avatar_url) fallbackPatch.avatar_url = profilePatch.avatar_url;
-        if (profilePatch.card_skin) fallbackPatch.card_skin = profilePatch.card_skin;
-        await supabase.from('profiles').update(fallbackPatch).eq('id', userId);
-      }
-
-      if (includeSub) setIsPremium(true);
-      window.dispatchEvent(new Event('profileUpdated'));
-      return unlockedParts;
-    },
-    [unlockFlashContestAutograph]
-  );
-
   useEffect(() => {
     const savedPromo = localStorage.getItem('auto_fill_premium_code');
     if (savedPromo) {
       const cleanSaved = savedPromo.trim().toUpperCase();
       localStorage.removeItem('auto_fill_premium_code');
       if (cleanSaved.startsWith('VIP-')) {
+        recordReferralClick(cleanSaved);
         setReferralCode(cleanSaved);
-        localStorage.setItem('am_referral_code', cleanSaved);
         setBillingCycle('annual');
       } else {
         setPromoCode(cleanSaved);
       }
     }
 
-    const savedRef = localStorage.getItem('am_referral_code');
-    if (savedRef) {
-      setReferralCode(savedRef.trim().toUpperCase());
+    const initialRef = getActiveReferralAttribution();
+    if (initialRef) {
+      setReferralCode(initialRef.code);
     }
 
     Promise.all([
@@ -901,6 +701,15 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         if (profile) {
           setCurrentUser(profile);
           if (profile.is_premium) setIsPremium(true);
+
+          const verifiedRef = getActiveReferralAttribution(profile);
+          if (verifiedRef) {
+            setReferralCode(verifiedRef.code);
+          } else if (profile.referral_commission_paid_at) {
+            setReferralCode('');
+            clearLocalReferralAttribution();
+          }
+
           const dbSkins: string[] = Array.isArray(profile.unlocked_skins)
             ? profile.unlocked_skins.map(String)
             : [];
@@ -926,7 +735,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             .maybeSingle();
 
           if (purchasedBundle) {
-            const parts = await grantBundleRewardsToUser(
+            const { unlockedParts } = await grantMasterBundleRewardsToUser(
               user.id,
               {
                 include_1yr_sub: true,
@@ -945,13 +754,50 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               },
               Boolean(profile?.is_premium)
             );
+
+            const { data: exLeg } = await supabase
+              .from('store_payout_ledger')
+              .select('id')
+              .eq('user_id', user.id)
+              .eq('product_id', String(purchasedBundle.id))
+              .limit(1)
+              .maybeSingle();
+
+            if (!exLeg) {
+              const gross = Number(purchasedBundle.price_dollars || 24.99);
+              const fee = Number((gross * 0.029 + 0.3).toFixed(2));
+              const dev = Number(((gross * DEV_CUT_PERCENT) / 100).toFixed(2));
+              const cList = [
+                purchasedBundle.creator_autograph,
+                purchasedBundle.creator_autograph_2
+              ].filter(Boolean);
+              const bounty = cList.length > 0 ? 5.0 : 0;
+              await supabase.from('store_payout_ledger').insert([
+                {
+                  user_id: user.id,
+                  user_email: profile?.email || user.email || null,
+                  product_id: String(purchasedBundle.id),
+                  product_title: purchasedBundle.title,
+                  product_type: 'bundle',
+                  gross_amount_dollars: gross,
+                  stripe_fee_dollars: fee,
+                  creator_bounty_dollars: bounty,
+                  creator_names: cList,
+                  dev_allocation_dollars: dev,
+                  net_saturday_am_dollars: Math.max(0, Number((gross - fee - bounty - dev).toFixed(2))),
+                  status: 'completed'
+                }
+              ]);
+            }
+
             await logUpsellConversionIfPresent(
               'stripe_bundle',
               'bundle',
               Number(purchasedBundle.price_dollars || 24.99)
             );
+            setIsPremium(true);
             setRedeemSuccess(
-              `${purchasedBundle.title} Activated! Unlocked: ${parts.join(' • ')}!`
+              `${purchasedBundle.title} Activated! Unlocked: ${unlockedParts.join(' • ')}!`
             );
           }
           window.history.replaceState({}, '', window.location.pathname);
@@ -974,6 +820,9 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
             })
             .eq('id', user.id);
 
+          clearLocalReferralAttribution();
+          setReferralCode('');
+
           const savedPlan =
             (sessionStorage.getItem('am_last_checkout_plan') as 'monthly' | 'annual') || 'annual';
           await logUpsellConversionIfPresent(
@@ -991,9 +840,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         }
       }
     });
-  }, [userTier, grantBundleRewardsToUser, logUpsellConversionIfPresent]);
+  }, [userTier, logUpsellConversionIfPresent]);
 
-  // Unified list of available Collector's Bundles
   const unifiedBundles = useMemo(() => {
     const normalizedStore = storeBundles.map((b: any) => ({
       id: b.id,
@@ -1014,6 +862,10 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
       commission_creators: Array.isArray(b.commission_creators)
         ? b.commission_creators.filter(Boolean)
         : [],
+      commission_mode: b.commission_mode || 'flat',
+      commission_percent: Number(b.commission_percent || 0),
+      split_evenly: b.split_evenly !== false,
+      creator_splits: Array.isArray(b.creator_splits) ? b.creator_splits : [],
       commission_bounty_dollars: Number(b.commission_bounty_dollars ?? 5.0)
     }));
 
@@ -1040,6 +892,10 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         avatar_urls: Array.isArray(lb.avatar_urls) ? lb.avatar_urls.filter(Boolean) : [],
         autograph_creators: [lb.creator_autograph, lb.creator_autograph_2].filter(Boolean),
         commission_creators: [lb.creator_autograph, lb.creator_autograph_2].filter(Boolean),
+        commission_mode: 'flat',
+        commission_percent: 0,
+        split_evenly: true,
+        creator_splits: [],
         commission_bounty_dollars: 5.0
       }));
 
@@ -1061,14 +917,53 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     [currentUser, purchasedProductIds, unlockedSkins]
   );
 
-  // Unowned bundles eligible for the Pre-Checkout Upsell Modal
   const unownedUpsellBundles = useMemo(() => {
     return unifiedBundles.filter(b => b.include_1yr_sub && !isBundleOwnedByUser(b));
   }, [unifiedBundles, isBundleOwnedByUser]);
 
   const activeUpsellBundle = unownedUpsellBundles[0] || null;
 
-  // Execute Basic Monthly ($1.99) or Annual ($20) Stripe Checkout
+  const resolvePartnerMetaFromReferralCode = async (code: string) => {
+    if (!code) return { partnerName: '', role: '' };
+    const clean = code.trim().toUpperCase();
+    try {
+      const [{ data: scRows }, { data: pRows }] = await Promise.all([
+        supabase.from('series_creators').select('name'),
+        supabase
+          .from('profiles')
+          .select('username, first_name, last_name, role, linked_creator_name, referral_code')
+      ]);
+
+      for (const p of pRows || []) {
+        const pCode = String(p.referral_code || '').trim().toUpperCase();
+        const pLinked = String(p.linked_creator_name || '').trim();
+        const pFull = `${p.first_name || ''} ${p.last_name || ''}`.trim();
+        const pUser = String(p.username || '').trim();
+        const variants = new Set([
+          pCode,
+          ...getCreatorReferralCodeVariants(pLinked),
+          ...getCreatorReferralCodeVariants(pFull),
+          ...getCreatorReferralCodeVariants(pUser)
+        ]);
+        if (variants.has(clean)) {
+          return {
+            partnerName: pLinked || pFull || pUser,
+            role: String(p.role || 'creator').toLowerCase()
+          };
+        }
+      }
+
+      for (const sc of scRows || []) {
+        if (getCreatorReferralCodeVariants(sc.name).includes(clean)) {
+          return { partnerName: sc.name, role: 'creator' };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return { partnerName: '', role: 'creator' };
+  };
+
   const executeBasicSubscriptionCheckout = async (plan: 'monthly' | 'annual') => {
     const {
       data: { user }
@@ -1083,9 +978,14 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     setShowBundleUpsellModal(false);
     setIsLoadingCheckout(true);
     try {
-      const cleanRef = referralCode.trim().toUpperCase();
+      const alreadyPaidOnce = Boolean(currentUser?.referral_commission_paid_at);
+      const cleanRef =
+        plan === 'annual' && !alreadyPaidOnce ? referralCode.trim().toUpperCase() : '';
+
+      let partnerMeta = { partnerName: '', role: '' };
       if (cleanRef) {
-        localStorage.setItem('am_referral_code', cleanRef);
+        recordReferralClick(cleanRef);
+        partnerMeta = await resolvePartnerMetaFromReferralCode(cleanRef);
       }
 
       sessionStorage.setItem('am_last_checkout_plan', plan);
@@ -1107,6 +1007,8 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           userId: activeUserId,
           userEmail: user?.email || currentUser?.email,
           referralCode: cleanRef || undefined,
+          referralPartnerName: partnerMeta.partnerName || undefined,
+          referralRole: partnerMeta.role || undefined,
           returnUrl: window.location.origin
         }
       });
@@ -1126,7 +1028,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
   };
 
-  // Intercept Annual ($20) Click to Show the Simple Collector Subscription Prompt First
   const handleStartSubscriptionClick = async (plan: 'monthly' | 'annual') => {
     const {
       data: { user }
@@ -1146,7 +1047,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     await executeBasicSubscriptionCheckout(plan);
   };
 
-  // Start Checkout for a Collector's Annual Bundle
   const handleBuyThemedBundle = async (bundle: any) => {
     const {
       data: { user }
@@ -1235,6 +1135,10 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
           amountDollars: listedPrice,
           amountCents: Math.round(listedPrice * 100),
           creatorNames: commCreators,
+          creatorSplits: Array.isArray(bundle.creator_splits) ? bundle.creator_splits : [],
+          commissionMode: bundle.commission_mode || 'flat',
+          commissionPercent: Number(bundle.commission_percent || 0),
+          splitEvenly: bundle.split_evenly !== false,
           creatorBountyDollars,
           userId: activeUserId,
           userEmail: user?.email || currentUser?.email,
@@ -1257,9 +1161,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
   };
 
-  // ============================================================================
-  // UNIFIED "REDEEM A CODE" HANDLER (ACCEPTS EVERY CODE TYPE IN ONE BOX)
-  // ============================================================================
   const handleRedeemCode = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanCode = promoCode.trim().toUpperCase();
@@ -1268,21 +1169,31 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     setRedeemError(null);
     setRedeemSuccess(null);
 
-    // 1. Creator Onboarding Invite Code (SAM-CR-...)
     if (cleanCode.startsWith('SAM-CR-')) {
       localStorage.setItem('am_pending_creator_invite', cleanCode);
       window.location.href = `/?creator_invite=${encodeURIComponent(cleanCode)}`;
       return;
     }
 
-    // 2. Creator / Partner Referral Code (VIP-...) -> Unlocks 3-Day Free Trial on Annual Plan
     if (cleanCode.startsWith('VIP-')) {
+      recordReferralClick(cleanCode);
       setReferralCode(cleanCode);
-      localStorage.setItem('am_referral_code', cleanCode);
       setBillingCycle('annual');
       setPromoCode('');
+      if (currentUser?.id && !currentUser?.is_premium && !currentUser?.referral_commission_paid_at) {
+        supabase
+          .from('profiles')
+          .update({
+            referred_by_code: cleanCode,
+            referred_at: new Date().toISOString()
+          })
+          .eq('id', currentUser.id)
+          .then(() => {});
+      }
       setRedeemSuccess(
-        `Partner Referral Code "${cleanCode}" applied! Your 3-Day Free Trial on the $20/yr Annual Pass is now unlocked above.`
+        currentUser?.has_used_referral_trial
+          ? `Partner Referral Code "${cleanCode}" applied to your $20/yr Annual Pass!`
+          : `Partner Referral Code "${cleanCode}" applied! Your 3-Day Free Trial on the $20/yr Annual Pass is now unlocked above.`
       );
       mainPricingCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
@@ -1300,190 +1211,14 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     }
 
     setIsRedeeming(true);
-
     try {
-      const { data: currentProf } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', activeUserId)
-        .maybeSingle();
-
-      const alreadyPremium = Boolean(isPremium || currentProf?.is_premium);
-
-      // 3. 5-Digit Creator Autograph PIN (e.g. 12345)
-      if (/^\d{5}$/.test(cleanCode)) {
-        const { data: pinData } = await supabase
-          .from('bingo_codes')
-          .select('*')
-          .eq('code', cleanCode)
-          .maybeSingle();
-
-        if (!pinData) {
-          throw new Error('Invalid 5-digit Autograph PIN. Please check the number and try again.');
-        }
-        if (pinData.expires_at && new Date() > new Date(pinData.expires_at)) {
-          throw new Error('This 5-digit Autograph PIN has expired.');
-        }
-        const pinUsed = Number(pinData.times_used || 0);
-        const pinMax = Number(pinData.max_uses || 999999);
-        if (pinMax > 0 && pinUsed >= pinMax) {
-          throw new Error(
-            pinMax === 1
-              ? 'This 1-Time Fan Gift PIN has already been redeemed!'
-              : 'This PIN has reached its maximum redemptions.'
-          );
-        }
-
-        await supabase
-          .from('bingo_codes')
-          .update({ times_used: pinUsed + 1 })
-          .eq('id', pinData.id);
-
-        const unlockedCreator = await unlockFlashContestAutograph(
-          activeUserId,
-          pinData.creator_name
-        );
-
-        await supabase
-          .from('profiles')
-          .update({ fandom_score: (Number(currentProf?.fandom_score) || 0) + 25 })
-          .eq('id', activeUserId);
-
-        window.dispatchEvent(new Event('profileUpdated'));
-        setPromoCode('');
-        setRedeemSuccess(
-          `Autograph Unlocked! You received ${
-            unlockedCreator || pinData.creator_name
-          }'s Gold Autograph (+25 Fandom Pts)!`
-        );
-        setIsRedeeming(false);
-        return;
-      }
-
-      // 4. Custom Promo / Bundle / Gift Sub Code from `promo_codes`
-      const { data: promoRow } = await supabase
-        .from('promo_codes')
-        .select('*')
-        .ilike('code', cleanCode)
-        .maybeSingle();
-
-      if (promoRow) {
-        const now = new Date();
-        if (promoRow.expires_at && new Date(promoRow.expires_at) < now) {
-          throw new Error('This bundle or access code has expired.');
-        }
-        const timesUsed = Number(promoRow.times_used || 0);
-        const maxUses = Number(promoRow.max_uses || 1);
-        if (timesUsed >= maxUses) {
-          throw new Error('All available claims for this code have already been redeemed!');
-        }
-
-        const rawBundle: any =
-          typeof promoRow.bundle_config === 'object' && promoRow.bundle_config !== null
-            ? promoRow.bundle_config
-            : {};
-
-        const isCreatorMonthlyGift = Boolean(
-          rawBundle.is_creator_monthly_gift ||
-            rawBundle.non_stackable ||
-            promoRow.gift_month_key ||
-            cleanCode.startsWith('GIFT-')
-        );
-
-        const hasCustomRewards =
-          !isCreatorMonthlyGift &&
-          Boolean(
-            promoRow.creator_name ||
-              rawBundle.creator_autograph ||
-              rawBundle.creator_autograph_2 ||
-              rawBundle.card_skin_id ||
-              rawBundle.card_skin_2_id ||
-              (rawBundle.avatar_urls && rawBundle.avatar_urls.length > 0) ||
-              Number(rawBundle.bonus_hypes || 0) > 0
-          );
-
-        if (alreadyPremium && (isCreatorMonthlyGift || !hasCustomRewards)) {
-          throw new Error(
-            'Gift Sub codes cannot be stacked on an active Saturday AM+ PLUS membership! Your code was not used so you can gift it to a friend.'
-          );
-        }
-
-        const { error: updatePromoErr } = await supabase
-          .from('promo_codes')
-          .update({ times_used: timesUsed + 1 })
-          .eq('id', promoRow.id);
-        if (updatePromoErr) throw updatePromoErr;
-
-        const unlockedParts = await grantBundleRewardsToUser(
-          activeUserId,
-          {
-            include_1yr_sub: isCreatorMonthlyGift ? true : rawBundle.include_1yr_sub !== false,
-            card_skin_id: rawBundle.card_skin_id,
-            card_skin_name: rawBundle.card_skin_name,
-            card_skin_url: rawBundle.card_skin_url,
-            card_skin_2_id: rawBundle.card_skin_2_id,
-            card_skin_2_name: rawBundle.card_skin_2_name,
-            card_skin_2_url: rawBundle.card_skin_2_url,
-            avatar_urls: rawBundle.avatar_urls || [],
-            creator_autograph: rawBundle.creator_autograph || promoRow.creator_name,
-            creator_autograph_2: rawBundle.creator_autograph_2,
-            bonus_hypes: rawBundle.bonus_hypes || 0,
-            bundle_title:
-              rawBundle.bundle_title ||
-              (isCreatorMonthlyGift
-                ? `${promoRow.creator_name || 'Creator'} 1-Year PLUS Gift Sub`
-                : undefined)
-          },
-          alreadyPremium
-        );
-
+      const res = await redeemUniversalCode(cleanCode, activeUserId, isPremium);
+      if (res.activatedPlus) {
+        setIsPremium(true);
         await logUpsellConversionIfPresent('promo_code', 'annual', 20.0);
-
-        setPromoCode('');
-        setRedeemSuccess(
-          `${rawBundle.bundle_title ? `${rawBundle.bundle_title} Unlocked!` : 'Code Activated!'} You received: ${unlockedParts.join(' + ')}!`
-        );
-        setIsRedeeming(false);
-        return;
       }
-
-      // 5. Standard 1-Year Store Batch Access Key (`redeem_premium_code` RPC)
-      if (alreadyPremium) {
-        throw new Error(
-          'You already have an active Saturday AM+ PLUS membership! Your store code was not used so you can save it or gift it to a friend.'
-        );
-      }
-
-      const { data: rpcSuccess, error: rpcErr } = await supabase.rpc('redeem_premium_code', {
-        input_code: cleanCode,
-        user_uuid: activeUserId
-      });
-
-      if (rpcErr || !rpcSuccess) {
-        throw new Error('Invalid or already redeemed code.');
-      }
-
-      const curActive = Math.max(
-        0,
-        Number(currentProf?.hypes_remaining ?? currentProf?.super_hypes_left ?? 1)
-      );
-      const nextActive = Math.min(10, Math.max(3, curActive + 2));
-
-      await supabase
-        .from('profiles')
-        .update({
-          is_premium: true,
-          hypes_remaining: nextActive,
-          super_hypes_left: nextActive
-        })
-        .eq('id', activeUserId);
-
-      await logUpsellConversionIfPresent('promo_code', 'annual', 20.0);
-
-      setIsPremium(true);
       setPromoCode('');
-      setRedeemSuccess('Success! Your Saturday AM+ PLUS membership is now active!');
-      window.dispatchEvent(new Event('profileUpdated'));
+      setRedeemSuccess(res.message);
     } catch (err: any) {
       setRedeemError(err.message || 'Failed to redeem code.');
     } finally {
@@ -1500,7 +1235,13 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
     '100% Ad-Free Reading Experience Across All Devices'
   ];
 
-  const hasReferralCode = Boolean(referralCode.trim());
+  // 1-Trial-Per-Account Guard: Only unlock the 3-day free trial UI if the user hasn't already used one
+  const hasReferralAttribute = Boolean(
+    referralCode.trim() && !currentUser?.referral_commission_paid_at
+  );
+  const hasReferralCode = Boolean(
+    hasReferralAttribute && !currentUser?.has_used_referral_trial
+  );
 
   const getSignatureUrlForCreator = (creatorName?: string) => {
     if (!creatorName) return '';
@@ -1633,9 +1374,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         </div>
       )}
 
-      {/* =====================================================================
-          1. STANDARD MONTHLY / BASIC ANNUAL SUBSCRIPTION CARD (AT THE TOP)
-      ===================================================================== */}
+      {/* 1. STANDARD MONTHLY / BASIC ANNUAL SUBSCRIPTION CARD */}
       <div className="flex justify-center mb-8">
         <div className="bg-zinc-900 border border-zinc-800 p-1.5 rounded-2xl inline-flex flex-wrap justify-center items-center gap-1">
           <button
@@ -1724,18 +1463,19 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                 : 'Special Monthly Rate ($1.99/mo instead of $2.99/mo). Cancel anytime.'}
             </p>
 
-            {/* Active Partner Referral Badge (When a VIP-... code has been redeemed below) */}
-            {billingCycle === 'annual' && hasReferralCode && (
+            {billingCycle === 'annual' && hasReferralAttribute && (
               <div className="w-full mb-4 px-3 py-2 rounded-xl bg-emerald-950/70 border border-emerald-500/60 flex items-center justify-between gap-2 text-[10px] font-black uppercase tracking-wider text-emerald-300">
                 <span className="flex items-center gap-1.5 truncate">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  3-Day Trial Active ({referralCode})
+                  {hasReferralCode
+                    ? `3-Day Trial Active (${referralCode})`
+                    : `Partner Code Active (${referralCode})`}
                 </span>
                 <button
                   type="button"
                   onClick={() => {
                     setReferralCode('');
-                    localStorage.removeItem('am_referral_code');
+                    clearLocalReferralAttribution();
                   }}
                   className="text-zinc-400 hover:text-white cursor-pointer shrink-0"
                   title="Remove referral code"
@@ -1745,7 +1485,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
               </div>
             )}
 
-            {/* Simple Inline Collector Subscription Callout (Scrolls Down to Bundles) */}
             {billingCycle === 'annual' && unifiedBundles.length > 0 && (
               <div
                 onClick={scrollToCollectorBundles}
@@ -1811,9 +1550,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         </div>
       </div>
 
-      {/* =====================================================================
-          2. SINGLE UNIFIED "REDEEM A CODE" BOX (HANDLES ALL PROMO & VIP CODES)
-      ===================================================================== */}
+      {/* 2. SINGLE UNIFIED "REDEEM A CODE" BOX */}
       <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 max-w-2xl mx-auto mb-12">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-9 h-9 rounded-xl bg-[#fe9a00]/15 border border-[#fe9a00]/40 flex items-center justify-center text-[#fe9a00] shrink-0">
@@ -1860,9 +1597,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         )}
       </div>
 
-      {/* =====================================================================
-          3. COLLECTOR SUBSCRIPTIONS / ANNUAL BUNDLES (AT THE BOTTOM)
-      ===================================================================== */}
+      {/* 3. COLLECTOR SUBSCRIPTIONS / ANNUAL BUNDLES */}
       {unifiedBundles.length > 0 && (
         <div
           id="collector-bundles-section"
@@ -1933,7 +1668,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                         )}
                       </div>
 
-                      {/* Included Perks Pills */}
                       <div className="flex flex-wrap gap-2">
                         <span className="px-3 py-1.5 rounded-xl bg-black/80 border border-zinc-800 text-[10px] font-black uppercase tracking-wider text-white flex items-center gap-1.5">
                           <Crown className="w-3.5 h-3.5 text-[#fe9a00]" /> 1-Year Full App Pass
@@ -1960,7 +1694,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                         )}
                       </div>
 
-                      {/* Stamped Hype Cards Preview */}
                       {bundleSkins.length > 0 && (
                         <div
                           className={`grid gap-3 pt-1 ${
@@ -1971,7 +1704,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                         </div>
                       )}
 
-                      {/* Avatars & Gold Autographs Strip */}
                       <div className="flex flex-wrap items-center gap-4 pt-1">
                         {avatars.length > 0 && (
                           <div className="flex items-center gap-2.5 bg-black/70 border border-zinc-800 rounded-2xl p-2 pr-3">
@@ -2033,7 +1765,6 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
                       </div>
                     </div>
 
-                    {/* Right Column: Price & CTA */}
                     <div className="lg:w-64 bg-black/90 border border-zinc-800 rounded-2xl p-5 flex flex-col items-center justify-center text-center shrink-0">
                       <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
                         Collector Subscription
@@ -2089,9 +1820,7 @@ export const Subscription = ({ userTier, onBack, onLoginClick, onNavigate }: any
         </div>
       )}
 
-      {/* =====================================================================
-          SIMPLE PRE-CHECKOUT COLLECTOR SUBSCRIPTION UPSELL MODAL
-      ===================================================================== */}
+      {/* PRE-CHECKOUT COLLECTOR SUBSCRIPTION UPSELL MODAL */}
       {showBundleUpsellModal && activeUpsellBundle && (
         <div
           className="fixed inset-0 z-[9500] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in"

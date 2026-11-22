@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
 import { X, Eye, EyeOff, CheckCircle, Key } from 'lucide-react';
 import { containsProfanity } from '../profanityFilter';
+import { getActiveReferralAttribution } from '../referralAttribution';
 
 const isPoBoxAddress = (address: string): boolean => {
   const poBoxRegex = /\b(?:p\.?\s*o\.?\s*box|post\s*office\s*box|postal\s*box|pobox)\b/i;
@@ -101,6 +102,15 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
         const submittedReferral = (formData.get('referral') as string) || referral;
         const cleanCode = (((formData.get('accessCode') as string) ?? accessCode) || '').trim().toUpperCase();
 
+        // Check if user has a pending Creator Onboarding Invite (from URL/localStorage or typed into the code box)
+        const storedCreatorInvite = (localStorage.getItem('am_pending_creator_invite') || '').trim().toUpperCase();
+        const isTypedCreatorInvite = cleanCode.startsWith('SAM-CR-');
+        const effectiveCreatorInvite = isTypedCreatorInvite ? cleanCode : storedCreatorInvite;
+
+        if (isTypedCreatorInvite) {
+          localStorage.setItem('am_pending_creator_invite', cleanCode);
+        }
+
         // COPPA 13+ Check
         if (submittedDob && isUnderThirteen(submittedDob)) {
           setError('You must be at least 13 years old to create a Saturday AM account.');
@@ -152,87 +162,115 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
         }
 
         // --- VALIDATE PROMO / 1-YEAR PREMIUM CODE BEFORE SIGNUP ---
-        let codeType: 'none' | 'annual_premium' | 'standard_rpc' | 'standard_table' = 'none';
+        let codeType: 'none' | 'creator_invite' | 'annual_premium' | 'standard_rpc' | 'standard_table' = 'none';
         let grantsPremium = false;
         let standardPromoRow: any = null;
 
         if (cleanCode) {
-          let isAlreadyUsed = false;
-
-          // 1. Check check_premium_code_status RPC
-          const { data: batchStatus, error: batchCheckErr } = await supabase.rpc('check_premium_code_status', {
-            code_to_test: cleanCode
-          });
-
-          if (!batchCheckErr && (batchStatus === 'VALID' || batchStatus === 'UNUSED' || batchStatus === true)) {
-            codeType = 'annual_premium';
-            grantsPremium = true;
-          } else if (!batchCheckErr && batchStatus === 'USED') {
-            isAlreadyUsed = true;
-          }
-
-          // 2. Fallback: Check fetch_premium_ledger (same RPC used in AdminDashboard)
-          if (codeType === 'none' && !isAlreadyUsed) {
-            const { data: ledgerData } = await supabase.rpc('fetch_premium_ledger');
-            if (Array.isArray(ledgerData)) {
-              const foundInLedger = ledgerData.find(
-                (item: any) => String(item.code || '').trim().toUpperCase() === cleanCode
-              );
-              if (foundInLedger) {
-                if (foundInLedger.is_used) {
-                  isAlreadyUsed = true;
-                } else {
-                  codeType = 'annual_premium';
-                  grantsPremium = true;
-                }
-              }
-            }
-          }
-
-          // 3. Fallback: Check validate_access_code RPC
-          if (codeType === 'none' && !isAlreadyUsed) {
-            const { data: valRes, error: valErr } = await supabase.rpc('validate_access_code', {
-              p_code: cleanCode
-            });
-            if (!valErr && valRes?.valid) {
-              codeType = 'standard_rpc';
-              if (valRes.tier === 'premium') grantsPremium = true;
-            }
-          }
-
-          // 4. Fallback: Check standard promo_codes table
-          if (codeType === 'none' && !isAlreadyUsed) {
-            const { data: promoRow } = await supabase
+          if (isTypedCreatorInvite) {
+            const { data: crRow } = await supabase
               .from('promo_codes')
               .select('*')
               .ilike('code', cleanCode)
               .maybeSingle();
 
-            if (promoRow) {
-              const isExpired = promoRow.expires_at && new Date() > new Date(promoRow.expires_at);
-              const isDepleted = promoRow.max_uses && promoRow.times_used >= promoRow.max_uses;
-              if (isExpired || isDepleted) {
-                isAlreadyUsed = true;
-              } else {
-                codeType = 'standard_table';
-                standardPromoRow = promoRow;
-                if (promoRow.tier === 'premium') grantsPremium = true;
+            if (!crRow) {
+              setError('Invalid Creator Onboarding Invite Code.');
+              setLoading(false);
+              return;
+            }
+            const isExpired = crRow.expires_at && new Date() > new Date(crRow.expires_at);
+            const isDepleted = crRow.max_uses && Number(crRow.times_used || 0) >= Number(crRow.max_uses);
+            if (isExpired || isDepleted) {
+              setError('This one-time Creator Invite Code has already been redeemed or has expired.');
+              setLoading(false);
+              return;
+            }
+            codeType = 'creator_invite';
+          } else {
+            let isAlreadyUsed = false;
+
+            // 1. Check check_premium_code_status RPC
+            const { data: batchStatus, error: batchCheckErr } = await supabase.rpc('check_premium_code_status', {
+              code_to_test: cleanCode
+            });
+
+            if (!batchCheckErr && (batchStatus === 'VALID' || batchStatus === 'UNUSED' || batchStatus === true)) {
+              codeType = 'annual_premium';
+              grantsPremium = true;
+            } else if (!batchCheckErr && batchStatus === 'USED') {
+              isAlreadyUsed = true;
+            }
+
+            // 2. Fallback: Check fetch_premium_ledger
+            if (codeType === 'none' && !isAlreadyUsed) {
+              const { data: ledgerData } = await supabase.rpc('fetch_premium_ledger');
+              if (Array.isArray(ledgerData)) {
+                const foundInLedger = ledgerData.find(
+                  (item: any) => String(item.code || '').trim().toUpperCase() === cleanCode
+                );
+                if (foundInLedger) {
+                  if (foundInLedger.is_used) {
+                    isAlreadyUsed = true;
+                  } else {
+                    codeType = 'annual_premium';
+                    grantsPremium = true;
+                  }
+                }
               }
             }
-          }
 
-          if (isAlreadyUsed) {
-            setError('This promo code has already been redeemed or has expired.');
-            setLoading(false);
-            return;
-          }
+            // 3. Fallback: Check validate_access_code RPC
+            if (codeType === 'none' && !isAlreadyUsed) {
+              const { data: valRes, error: valErr } = await supabase.rpc('validate_access_code', {
+                p_code: cleanCode
+              });
+              if (!valErr && valRes?.valid) {
+                codeType = 'standard_rpc';
+                if (valRes.tier === 'premium') grantsPremium = true;
+              }
+            }
 
-          if (codeType === 'none') {
-            setError('Invalid Promo or Access Code. Please check the code and try again.');
-            setLoading(false);
-            return;
+            // 4. Fallback: Check standard promo_codes table
+            if (codeType === 'none' && !isAlreadyUsed) {
+              const { data: promoRow } = await supabase
+                .from('promo_codes')
+                .select('*')
+                .ilike('code', cleanCode)
+                .maybeSingle();
+
+              if (promoRow) {
+                const isExpired = promoRow.expires_at && new Date() > new Date(promoRow.expires_at);
+                const isDepleted = promoRow.max_uses && promoRow.times_used >= promoRow.max_uses;
+                if (isExpired || isDepleted) {
+                  isAlreadyUsed = true;
+                } else {
+                  codeType = 'standard_table';
+                  standardPromoRow = promoRow;
+                  if (promoRow.tier === 'premium') grantsPremium = true;
+                }
+              }
+            }
+
+            if (isAlreadyUsed) {
+              setError('This promo code has already been redeemed or has expired.');
+              setLoading(false);
+              return;
+            }
+
+            if (codeType === 'none') {
+              setError('Invalid Promo or Access Code. Please check the code and try again.');
+              setLoading(false);
+              return;
+            }
           }
         }
+
+        const redirectUrl = effectiveCreatorInvite
+          ? `${window.location.origin}/?creator_invite=${encodeURIComponent(effectiveCreatorInvite)}`
+          : `${window.location.origin}/?action=login`;
+
+        const activeRef = getActiveReferralAttribution();
 
         // --- CREATE SUPABASE AUTH ACCOUNT ---
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -249,9 +287,11 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
               date_of_birth: submittedDob,
               phone_number: submittedPhone,
               referral_source: submittedReferral,
-              is_premium: grantsPremium
+              is_premium: grantsPremium,
+              pending_creator_invite: effectiveCreatorInvite || null,
+              ...(activeRef ? { referred_by_code: activeRef.code } : {})
             },
-            emailRedirectTo: `${window.location.origin}/?action=login`
+            emailRedirectTo: redirectUrl
           }
         });
 
@@ -275,13 +315,20 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
             date_of_birth: submittedDob || null,
             phone_number: submittedPhone || null,
             referral_source: submittedReferral,
+            ...(activeRef
+              ? {
+                  signup_referred_by: activeRef.code,
+                  referred_by_code: activeRef.code,
+                  referred_at: activeRef.clickedAt
+                }
+              : {}),
             is_premium: grantsPremium,
             super_hypes_left: grantsPremium ? 3 : 1,
             tos_accepted: true,
             tos_accepted_at: new Date().toISOString()
           }, { onConflict: 'id' });
 
-          if (cleanCode) {
+          if (cleanCode && codeType !== 'creator_invite') {
             try {
               if (codeType === 'annual_premium') {
                 await supabase.rpc('redeem_premium_code', { promo_code: cleanCode });
@@ -308,7 +355,9 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
           handleAuthSuccess();
         } else {
           setSuccessMsg(
-            grantsPremium
+            effectiveCreatorInvite
+              ? 'Creator account created! Please check your email inbox and tap Confirm — you will be taken straight to the Creator Studio Terms!'
+              : grantsPremium
               ? 'Pro Account created with your Promo Code! Please check your email inbox to confirm your registration.'
               : 'Account created! Please check your email inbox to confirm your registration.'
           );
@@ -530,8 +579,8 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
                     />
                   </div>
 
-                  {/* IF SIGNING UP WITH A PRO CODE, COLLECT SHIPPING / DOB / PHONE */}
-                  {accessCode.trim().length > 0 && (
+                  {/* IF SIGNING UP WITH A PRO CODE (NOT A CREATOR INVITE), COLLECT SHIPPING / DOB / PHONE */}
+                  {accessCode.trim().length > 0 && !accessCode.trim().toUpperCase().startsWith('SAM-CR-') && (
                     <div className="p-3 bg-zinc-950 border border-[#fe9a00]/40 rounded-xl space-y-2.5 animate-fade-in">
                       <p className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00]">
                         Pro Subscriber Prize Shipping Info (No P.O. Boxes)
