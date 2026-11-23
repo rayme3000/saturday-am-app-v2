@@ -650,6 +650,11 @@ export interface UpsellPopupFunnelRow {
 
 type AudienceFilterMode = 'fans_only' | 'staff_creators_only' | 'all_combined';
 
+const COUNTRY_NAMES: Record<string, string> = { US: 'United States', GB: 'United Kingdom', CA: 'Canada', NG: 'Nigeria', GH: 'Ghana', ZA: 'South Africa', KE: 'Kenya', EG: 'Egypt', FR: 'France', DE: 'Germany', BR: 'Brazil', MX: 'Mexico', AU: 'Australia', NZ: 'New Zealand', JP: 'Japan', KR: 'South Korea', PH: 'Philippines', IN: 'India', SG: 'Singapore', ES: 'Spain', IT: 'Italy', NL: 'Netherlands', SE: 'Sweden', IE: 'Ireland', JM: 'Jamaica', TT: 'Trinidad and Tobago' };
+const countryCodeToFlag = (code?: string): string => { const clean = String(code || '').trim().toUpperCase(); if (!/^[A-Z]{2}$/.test(clean) || clean === 'EU' || clean === 'AS') return '🌍'; return String.fromCodePoint(...[...clean].map(ch => 127397 + ch.charCodeAt(0))); };
+const getCountryDisplayName = (code?: string): string => { const clean = String(code || '').trim().toUpperCase(); if (!clean) return 'Unattributed'; if (COUNTRY_NAMES[clean]) return COUNTRY_NAMES[clean]; try { return new Intl.DisplayNames(['en'], { type: 'region' }).of(clean) || clean; } catch { return clean; } };
+const inferRegionBucket = (country?: string, continent?: string): string => { const cc = String(country || '').toUpperCase(); const ct = String(continent || '').toUpperCase(); if (cc === 'US' || cc === 'CA' || ct === 'NA') return (cc && cc !== 'US' && cc !== 'CA') ? 'LATAM & Caribbean' : 'North America'; if (ct === 'SA') return 'LATAM & Caribbean'; if (ct === 'EU' || ['GB','FR','DE','ES','IT','NL','IE','SE'].includes(cc)) return 'UK & Europe'; if (ct === 'AF' || ['NG','GH','ZA','KE','EG'].includes(cc)) return 'Africa'; if (ct === 'AS' || ct === 'OC' || ['JP','KR','PH','IN','SG','AU','NZ'].includes(cc)) return 'Asia-Pacific'; return 'Other International'; };
+
 export const AnalyticsDashboard = () => {
   const { seriesList = [] } = useSeriesData();
   const [activeTab, setActiveTab] = useState<
@@ -1164,6 +1169,36 @@ export const AnalyticsDashboard = () => {
       visitorsLifetime: vLifetime,
       convLifetimePct: calcConvPct(totalUsers, vLifetime)
     };
+
+    const actorGeoMap = new Map<string, { country: string; continent: string }>();
+    const signupActors30d = new Set<string>();
+    activeProfiles.forEach((p: any) => { if (p.created_at) { const dt = new Date(p.created_at); if (!isNaN(dt.getTime()) && dt >= startOfMonth) signupActors30d.add(String(p.id).trim()); } });
+    telemetryRows.forEach((t: any) => {
+      const meta = t.metadata || t.event_data || {};
+      const country = String(meta?.country || '').trim().toUpperCase();
+      const continent = String(meta?.continent || '').trim().toUpperCase();
+      const rawActor = t.user_id || meta?.visitor_id || (String(t.session_id || '').startsWith('vis_') ? t.session_id : null);
+      if (!rawActor) return;
+      const canonicalActor = sessionOrVisToUserMap.get(String(rawActor).trim()) || String(rawActor).trim();
+      if (country && !actorGeoMap.has(canonicalActor)) actorGeoMap.set(canonicalActor, { country, continent });
+      if (String(t.event_type || '').toLowerCase() === 'visitor_converted_signup' && t.created_at) { const dt = new Date(t.created_at); if (!isNaN(dt.getTime()) && dt >= startOfMonth) signupActors30d.add(canonicalActor); }
+    });
+    const countryBuckets = new Map<string, any>();
+    const regionCounts30d: Record<string, number> = { 'North America': 0, 'UK & Europe': 0, Africa: 0, 'LATAM & Caribbean': 0, 'Asia-Pacific': 0 };
+    let geoTaggedVisitors30d = 0; let internationalVisitors30d = 0;
+    visitorsMonthSet.forEach(actorKey => {
+      const geo = actorGeoMap.get(actorKey); if (!geo?.country) return;
+      geoTaggedVisitors30d += 1; if (geo.country !== 'US') internationalVisitors30d += 1;
+      const regionLabel = inferRegionBucket(geo.country, geo.continent);
+      regionCounts30d[regionLabel] = (regionCounts30d[regionLabel] || 0) + 1;
+      if (!countryBuckets.has(geo.country)) countryBuckets.set(geo.country, { code: geo.country, name: getCountryDisplayName(geo.country), flag: countryCodeToFlag(geo.country), regionLabel, todaySet: new Set(), weekSet: new Set(), monthSet: new Set(), signups30dSet: new Set() });
+      const b = countryBuckets.get(geo.country); b.monthSet.add(actorKey);
+      if (visitorsWeekSet.has(actorKey)) b.weekSet.add(actorKey);
+      if (visitorsTodaySet.has(actorKey)) b.todaySet.add(actorKey);
+      if (signupActors30d.has(actorKey)) b.signups30dSet.add(actorKey);
+    });
+    const topCountries = Array.from(countryBuckets.values()).map((b: any) => ({ code: b.code, name: b.name, flag: b.flag, regionLabel: b.regionLabel, visitorsToday: b.todaySet.size, visitors7d: b.weekSet.size, visitors30d: b.monthSet.size, signups30d: b.signups30dSet.size, sharePct: geoTaggedVisitors30d > 0 ? (b.monthSet.size / geoTaggedVisitors30d) * 100 : 0, convPct: b.monthSet.size > 0 ? Math.min(100, (b.signups30dSet.size / b.monthSet.size) * 100) : 0 })).sort((a: any, b: any) => b.visitors30d - a.visitors30d || b.visitorsToday - a.visitorsToday);
+    const geoStats = { geoTaggedVisitors30d, internationalVisitors30d, internationalSharePct: geoTaggedVisitors30d > 0 ? ((internationalVisitors30d / geoTaggedVisitors30d) * 100).toFixed(1) : '0.0', countriesCount: topCountries.length, regionCounts30d, topCountries: topCountries.slice(0, 10) };
 
     // --- STRICT REGISTERED ACTIVE USERS & PEAK ACTIVE USERS ---
     const activeTodaySet = new Set<string>();
@@ -2195,6 +2230,7 @@ export const AnalyticsDashboard = () => {
       globalStats,
       growthStats,
       visitorFunnelStats,
+      geoStats,
       peakActiveStats,
       dailyTimeline: buckets,
       recentUsers,
@@ -2223,13 +2259,17 @@ export const AnalyticsDashboard = () => {
     const freeFansOnline = filtered.filter(u => u.tier === 'free').length;
     const plusMembersOnline = filtered.filter(u => u.tier === 'premium').length;
     const readingSeriesNow = filtered.filter(u => u.view === 'series').length;
+    const liveCountryCounts = new Map<string, number>();
+    filtered.forEach(u => { const cc = String(u.country || '').trim().toUpperCase(); if (cc) liveCountryCounts.set(cc, (liveCountryCounts.get(cc) || 0) + 1); });
+    const liveCountries = Array.from(liveCountryCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([code, count]) => ({ code, flag: countryCodeToFlag(code), count }));
 
     return {
       totalOnline,
       visitorsOnline,
       freeFansOnline,
       plusMembersOnline,
-      readingSeriesNow
+      readingSeriesNow,
+      liveCountries
     };
   }, [liveOnlineUsers, audienceMode]);
 
@@ -2287,6 +2327,7 @@ export const AnalyticsDashboard = () => {
     globalStats,
     growthStats,
     visitorFunnelStats,
+    geoStats,
     peakActiveStats,
     dailyTimeline,
     recentUsers,
@@ -2441,6 +2482,13 @@ export const AnalyticsDashboard = () => {
           <span className="bg-zinc-900 border border-[#fe9a00]/40 px-3 py-1.5 rounded-lg text-[#fe9a00]">
             In Series/Reader: <strong className="text-white">{livePresenceSummary.readingSeriesNow}</strong>
           </span>
+          {livePresenceSummary.liveCountries?.length > 0 && (
+            <span className="bg-emerald-950/60 border border-emerald-500/40 px-3 py-1.5 rounded-lg text-emerald-300 flex items-center gap-1.5">
+              {livePresenceSummary.liveCountries.map((lc: any) => (
+                <span key={lc.code} title={getCountryDisplayName(lc.code)}>{lc.flag} <strong className="text-white">{lc.count}</strong></span>
+              ))}
+            </span>
+          )}
         </div>
       </div>
 
@@ -3275,6 +3323,31 @@ export const AnalyticsDashboard = () => {
                 />
               </div>
             </div>
+          </div>
+
+          {/* GLOBAL READERSHIP & INTERNATIONAL TRAFFIC BREAKDOWN */}
+          <div className="bg-gradient-to-r from-indigo-950/30 via-black to-zinc-950 border border-indigo-500/40 rounded-2xl p-5 shadow-lg space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-2"><Globe className="w-4 h-4 text-indigo-400" /><h3 className="text-xs font-black uppercase tracking-widest text-white">Global Readership & International Audience Breakdown (Cloudflare Edge Geo)</h3></div>
+                <p className="text-[10px] text-zinc-400 font-bold mt-0.5">Tracks country & region from Cloudflare Edge headers on human visits ({geoStats.geoTaggedVisitors30d.toLocaleString()} geo-tagged visitors in last 30d)</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest">
+                <span className="bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 px-2.5 py-1 rounded-full">🌍 {geoStats.internationalSharePct}% International</span>
+                <span className="bg-zinc-900 border border-zinc-800 text-zinc-300 px-2.5 py-1 rounded-full">{geoStats.countriesCount} {geoStats.countriesCount === 1 ? "Country" : "Countries"} Active</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+              {Object.entries(geoStats.regionCounts30d).map(([regionName, count]) => {
+                const pct = geoStats.geoTaggedVisitors30d > 0 ? Math.round((Number(count) / geoStats.geoTaggedVisitors30d) * 100) : 0;
+                return (<div key={regionName} className="bg-zinc-950/90 border border-zinc-800/90 rounded-xl p-3 flex flex-col justify-between"><span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 truncate">{regionName}</span><div className="flex items-baseline justify-between mt-1"><span className="text-lg font-black text-white">{Number(count).toLocaleString()}</span><span className="text-[10px] font-black text-indigo-400">{pct}%</span></div></div>);
+              })}
+            </div>
+            {geoStats.topCountries.length === 0 ? (
+              <div className="bg-zinc-950/80 border border-dashed border-zinc-800 rounded-xl p-5 text-center"><p className="text-xs font-black uppercase tracking-widest text-indigo-300">Cloudflare Edge Geo Tracking Active — Collecting Live Country Data</p><p className="text-[10px] text-zinc-400 font-bold mt-1">New human visits on mangahype.com automatically populate country flags, regional share, and signup conversion rates here.</p></div>
+            ) : (
+              <div className="overflow-x-auto bg-zinc-950/90 border border-zinc-800 rounded-xl"><table className="w-full text-left border-collapse min-w-[640px]"><thead><tr className="border-b border-zinc-800 text-[9px] font-black uppercase tracking-widest text-zinc-400 bg-zinc-900/60"><th className="p-3">Country</th><th className="p-3">Region</th><th className="p-3 text-right">Today</th><th className="p-3 text-right">Last 7d</th><th className="p-3 text-right text-white">Last 30d</th><th className="p-3 w-36">Traffic Share</th><th className="p-3 text-right text-emerald-400">30d Signups (Conv %)</th></tr></thead><tbody className="divide-y divide-zinc-800/60 text-xs font-bold">{geoStats.topCountries.map((row: any) => (<tr key={row.code} className="hover:bg-zinc-900/50 transition-colors"><td className="p-3 font-black text-white flex items-center gap-2"><span className="text-base leading-none">{row.flag}</span><span>{row.name}</span><span className="text-[9px] text-zinc-500 font-mono">{row.code}</span></td><td className="p-3 text-[10px] text-zinc-400 uppercase tracking-wider">{row.regionLabel}</td><td className="p-3 text-right text-cyan-300">{row.visitorsToday.toLocaleString()}</td><td className="p-3 text-right text-zinc-300">{row.visitors7d.toLocaleString()}</td><td className="p-3 text-right font-black text-white">{row.visitors30d.toLocaleString()}</td><td className="p-3"><div className="flex items-center gap-2"><div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden"><div className="h-full bg-indigo-400 rounded-full" style={{ width: Math.max(4, Math.round(row.sharePct)) + "%" }} /></div><span className="text-[10px] font-black text-indigo-300 w-10 text-right">{row.sharePct.toFixed(1)}%</span></div></td><td className="p-3 text-right font-black text-emerald-400">{row.signups30d} ({row.convPct.toFixed(1)}%)</td></tr>))}</tbody></table></div>
+            )}
           </div>
 
           {/* PLUS SUBSCRIBER SIGNUPS & UPGRADES VELOCITY */}
