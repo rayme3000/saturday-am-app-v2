@@ -82,6 +82,141 @@ export const getOrCreateVisitorId = (): string => {
   }
 };
 
+const TZ_TO_COUNTRY_FALLBACK: Record<string, { country: string; continent: string }> = {
+  'America/New_York': { country: 'US', continent: 'NA' },
+  'America/Chicago': { country: 'US', continent: 'NA' },
+  'America/Denver': { country: 'US', continent: 'NA' },
+  'America/Los_Angeles': { country: 'US', continent: 'NA' },
+  'America/Phoenix': { country: 'US', continent: 'NA' },
+  'America/Anchorage': { country: 'US', continent: 'NA' },
+  'Pacific/Honolulu': { country: 'US', continent: 'NA' },
+  'America/Toronto': { country: 'CA', continent: 'NA' },
+  'America/Vancouver': { country: 'CA', continent: 'NA' },
+  'America/Mexico_City': { country: 'MX', continent: 'NA' },
+  'America/Sao_Paulo': { country: 'BR', continent: 'SA' },
+  'Europe/London': { country: 'GB', continent: 'EU' },
+  'Europe/Paris': { country: 'FR', continent: 'EU' },
+  'Europe/Berlin': { country: 'DE', continent: 'EU' },
+  'Europe/Madrid': { country: 'ES', continent: 'EU' },
+  'Europe/Rome': { country: 'IT', continent: 'EU' },
+  'Europe/Amsterdam': { country: 'NL', continent: 'EU' },
+  'Africa/Lagos': { country: 'NG', continent: 'AF' },
+  'Africa/Accra': { country: 'GH', continent: 'AF' },
+  'Africa/Johannesburg': { country: 'ZA', continent: 'AF' },
+  'Africa/Nairobi': { country: 'KE', continent: 'AF' },
+  'Africa/Cairo': { country: 'EG', continent: 'AF' },
+  'Asia/Tokyo': { country: 'JP', continent: 'AS' },
+  'Asia/Seoul': { country: 'KR', continent: 'AS' },
+  'Asia/Manila': { country: 'PH', continent: 'AS' },
+  'Asia/Singapore': { country: 'SG', continent: 'AS' },
+  'Asia/Kolkata': { country: 'IN', continent: 'AS' },
+  'Australia/Sydney': { country: 'AU', continent: 'OC' },
+  'Pacific/Auckland': { country: 'NZ', continent: 'OC' }
+};
+
+export interface VisitorGeoInfo {
+  country: string;
+  continent: string;
+  region: string;
+  timezone: string;
+}
+
+let cachedGeoPromise: Promise<VisitorGeoInfo> | null = null;
+
+export const resolveVisitorGeo = (): Promise<VisitorGeoInfo> => {
+  if (cachedGeoPromise) return cachedGeoPromise;
+
+  cachedGeoPromise = (async () => {
+    const browserTz = (() => {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      } catch {
+        return '';
+      }
+    })();
+
+    try {
+      const saved = sessionStorage.getItem('am_visitor_geo_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.country) return parsed;
+      }
+    } catch {
+      // ignore storage read errors
+    }
+
+    try {
+      if (
+        window.location.hostname !== 'localhost' &&
+        window.location.hostname !== '127.0.0.1'
+      ) {
+        const res = await fetch('/api/geo', { method: 'GET', credentials: 'same-origin' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.country) {
+            const resolved: VisitorGeoInfo = {
+              country: String(data.country).toUpperCase(),
+              continent: String(data.continent || '').toUpperCase(),
+              region: String(data.region || ''),
+              timezone: String(data.timezone || browserTz)
+            };
+            try {
+              sessionStorage.setItem('am_visitor_geo_v1', JSON.stringify(resolved));
+            } catch {
+              // ignore
+            }
+            return resolved;
+          }
+        }
+      }
+    } catch {
+      // fall through to timezone inference
+    }
+
+    const tzGuess = TZ_TO_COUNTRY_FALLBACK[browserTz] || {
+      country: browserTz.startsWith('Europe/')
+        ? 'EU'
+        : browserTz.startsWith('Africa/')
+        ? 'NG'
+        : browserTz.startsWith('Asia/')
+        ? 'AS'
+        : browserTz.startsWith('Australia/')
+        ? 'AU'
+        : browserTz.startsWith('America/')
+        ? 'US'
+        : '',
+      continent: browserTz.startsWith('Europe/')
+        ? 'EU'
+        : browserTz.startsWith('Africa/')
+        ? 'AF'
+        : browserTz.startsWith('Asia/')
+        ? 'AS'
+        : browserTz.startsWith('Australia/') || browserTz.startsWith('Pacific/')
+        ? 'OC'
+        : browserTz.startsWith('America/')
+        ? 'NA'
+        : ''
+    };
+
+    const fallback: VisitorGeoInfo = {
+      country: tzGuess.country,
+      continent: tzGuess.continent,
+      region: '',
+      timezone: browserTz
+    };
+    try {
+      if (fallback.country) {
+        sessionStorage.setItem('am_visitor_geo_v1', JSON.stringify(fallback));
+      }
+    } catch {
+      // ignore
+    }
+    return fallback;
+  })();
+
+  return cachedGeoPromise;
+};
+
 const CLEAN_VIEW_ROUTES = [
   'browse',
   'creators',
@@ -483,7 +618,7 @@ export default function App() {
     }
   }, [currentView, selectedSeries]);
 
-  // --- 1. SINGLE UNIFIED REALTIME ONLINE PRESENCE CHANNEL ---
+  // --- 1. SINGLE UNIFIED REALTIME ONLINE PRESENCE CHANNEL (WITH LIVE COUNTRY GEO) ---
   useEffect(() => {
     const visitorId = getOrCreateVisitorId();
     const channel = supabase.channel('am_live_presence_v2', {
@@ -514,6 +649,7 @@ export default function App() {
       .on('presence', { event: 'leave' }, broadcastPresenceToWindow)
       .subscribe(async (status: string) => {
         if (status === 'SUBSCRIBED') {
+          const geo = await resolveVisitorGeo();
           await channel.track({
             visitor_id: visitorId,
             user_id: currentUser?.id || null,
@@ -522,6 +658,8 @@ export default function App() {
             is_admin: Boolean(currentUser?.is_admin),
             role: currentUser?.role || 'visitor',
             view: currentView,
+            country: geo.country || '',
+            continent: geo.continent || '',
             online_at: new Date().toISOString()
           });
         }
@@ -537,45 +675,69 @@ export default function App() {
   useEffect(() => {
     if (!presenceChannelRef.current) return;
     const visitorId = getOrCreateVisitorId();
-    presenceChannelRef.current
-      .track({
-        visitor_id: visitorId,
-        user_id: currentUser?.id || null,
-        username: currentUser?.username || 'Visitor',
-        tier: currentUser?.is_premium ? 'premium' : currentUser?.id ? 'free' : 'visitor',
-        is_admin: Boolean(currentUser?.is_admin),
-        role: currentUser?.role || 'visitor',
-        view: currentView,
-        online_at: new Date().toISOString()
-      })
-      .catch(() => {});
+    resolveVisitorGeo().then(geo => {
+      presenceChannelRef.current
+        ?.track({
+          visitor_id: visitorId,
+          user_id: currentUser?.id || null,
+          username: currentUser?.username || 'Visitor',
+          tier: currentUser?.is_premium ? 'premium' : currentUser?.id ? 'free' : 'visitor',
+          is_admin: Boolean(currentUser?.is_admin),
+          role: currentUser?.role || 'visitor',
+          view: currentView,
+          country: geo.country || '',
+          continent: geo.continent || '',
+          online_at: new Date().toISOString()
+        })
+        .catch(() => {});
+    });
   }, [currentView, currentUser]);
 
-  // --- 2. LIGHTWEIGHT DAILY UNIQUE VISITOR PING ---
+  // --- 2. LIGHTWEIGHT DAILY UNIQUE VISITOR PING (HUMAN-ONLY + CLOUDFLARE GEO) ---
   useEffect(() => {
     if (!authResolved) return;
     try {
+      const ua = navigator.userAgent || '';
+      const isAutomatedCrawler =
+        Boolean(navigator.webdriver) ||
+        /bot|googlebot|bingbot|yandex|duckduckbot|baiduspider|slurp|crawler|spider|robot|crawling|headlesschrome|lighthouse|pagespeed|gtmetrix|discordbot|twitterbot|facebookexternalhit|bluesky|whatsapp|telegrambot|applebot|semrush|ahrefs|mj12bot|bytespider|gptbot|claudebot|perplexitybot/i.test(
+          ua
+        );
+
+      // Skip search crawlers, link-preview bots, headless browsers, and local dev servers
+      const host = window.location.hostname;
+      if (isAutomatedCrawler || host === 'localhost' || host === '127.0.0.1') {
+        return;
+      }
+
       const todayKey = new Date().toISOString().split('T')[0];
       const lastPingDate = localStorage.getItem('am_last_visit_ping_date');
       const visitorId = getOrCreateVisitorId();
 
       if (lastPingDate !== todayKey) {
         localStorage.setItem('am_last_visit_ping_date', todayKey);
-        supabase
-          .from('telemetry_events')
-          .insert([
-            {
-              user_id: currentUser?.id || null,
-              session_id: visitorId,
-              event_type: 'app_visit',
-              metadata: {
-                visitor_id: visitorId,
-                tier: userTier,
-                landing_view: currentView
+        resolveVisitorGeo().then(geo => {
+          supabase
+            .from('telemetry_events')
+            .insert([
+              {
+                user_id: currentUser?.id || null,
+                session_id: visitorId,
+                event_type: 'app_visit',
+                metadata: {
+                  visitor_id: visitorId,
+                  tier: userTier,
+                  landing_view: currentView,
+                  landing_path: window.location.pathname,
+                  country: geo.country || null,
+                  continent: geo.continent || null,
+                  region: geo.region || null,
+                  timezone: geo.timezone || null
+                }
               }
-            }
-          ])
-          .then(() => {});
+            ])
+            .then(() => {});
+        });
       }
     } catch {
       // Non-blocking visitor ping
@@ -933,17 +1095,25 @@ export default function App() {
         const convKey = `am_conv_logged_${sessionUser.id}`;
         if (!localStorage.getItem(convKey)) {
           localStorage.setItem(convKey, 'true');
-          supabase
-            .from('telemetry_events')
-            .insert([
-              {
-                user_id: sessionUser.id,
-                session_id: visitorId,
-                event_type: 'visitor_converted_signup',
-                metadata: { visitor_id: visitorId, email: sessionUser.email }
-              }
-            ])
-            .then(() => {});
+          resolveVisitorGeo().then(geo => {
+            supabase
+              .from('telemetry_events')
+              .insert([
+                {
+                  user_id: sessionUser.id,
+                  session_id: visitorId,
+                  event_type: 'visitor_converted_signup',
+                  metadata: {
+                    visitor_id: visitorId,
+                    email: sessionUser.email,
+                    country: geo.country || null,
+                    continent: geo.continent || null,
+                    timezone: geo.timezone || null
+                  }
+                }
+              ])
+              .then(() => {});
+          });
         }
       } catch (err) {
         console.error("Error fetching user profile:", err);
