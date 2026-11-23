@@ -39,6 +39,19 @@ const formatDurationShort = (diffMs: number): string => {
   return `${mins}M`;
 };
 
+const buildSeriesHref = (slug?: string): string => {
+  if (!slug) return '/';
+  const base = `/series/${encodeURIComponent(slug)}`;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref') || params.get('referral') || params.get('vip');
+    if (ref) return `${base}?ref=${encodeURIComponent(ref)}`;
+  } catch {
+    // ignore
+  }
+  return base;
+};
+
 // Role-aware badge builder: PLUS users only see when their next chapter is available; Free/Visitors see Early Access cues
 const buildRoleAwareNextChapterBadge = (
   publishAtIso: string | null | undefined,
@@ -252,6 +265,15 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
     syncWithDatabase();
   };
 
+  const handleSeriesAnchorClick = (e: React.MouseEvent<HTMLAnchorElement>, item: any) => {
+    // Allow Ctrl/Cmd-click, Shift-click, or middle-click to open natively in a new browser tab
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) {
+      return;
+    }
+    e.preventDefault();
+    onSeriesClick(item);
+  };
+
   if (!series || series.length === 0) return null;
 
   return (
@@ -329,8 +351,15 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
             ? buildRoleAwareNextChapterBadge(nextDropIso, isPlusSubscriber)
             : null;
 
+          const href = buildSeriesHref(s.slug);
+
           return (
-            <div key={s.id || s.slug} className="w-1/3 sm:w-1/4 md:w-1/5 flex-shrink-0 snap-start cursor-pointer group/card" onClick={() => onSeriesClick(s)}>
+            <a
+              key={s.id || s.slug}
+              href={href}
+              onClick={(e) => handleSeriesAnchorClick(e, s)}
+              className="w-1/3 sm:w-1/4 md:w-1/5 flex-shrink-0 snap-start cursor-pointer group/card block no-underline text-inherit"
+            >
               <div 
                 className={`relative overflow-hidden rounded-lg cursor-pointer aspect-[2/3] transition-all duration-300 mb-3 bg-black ${
                   shouldGlowCard
@@ -347,7 +376,9 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                 
                 <img 
                   src={s.character_url || s.cover_url} 
-                  alt={`${s.title} Character`} 
+                  alt={`${s.title} Manga by ${s.creator_name || 'Saturday AM'}`}
+                  loading="lazy"
+                  decoding="async"
                   className={`absolute left-1/2 -translate-x-1/2 max-w-none object-contain transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 ${
                     s.character_align === 'top' ? 'top-0' : 
                     s.character_align === 'center' ? 'top-1/2 -translate-y-1/2' : 
@@ -364,7 +395,9 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                 >
                   <img 
                     src={s.logo_url || (s.title === 'Apple Black' ? `${CLOUDFLARE_BASE_URL}/series-logos/apple-black-logo.png` : '')} 
-                    alt={`${s.title} Logo`} 
+                    alt={`${s.title} Logo`}
+                    loading="lazy"
+                    decoding="async"
                     className="max-h-24 object-contain transform transition-transform duration-300 group-hover/card:-translate-y-1 drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]" 
                     style={{ width: `${s.logo_scale ?? 100}%` }}
                   />
@@ -420,8 +453,10 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                 )}
 
                 <button 
+                  type="button"
                   onClick={(e) => handleToggleLike(e, s.slug)}
-                  className="absolute top-1 right-1 z-40 p-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/10 hover:bg-zinc-800 transition-all shadow-md"
+                  aria-label={`Like ${s.title}`}
+                  className="absolute top-1 right-1 z-40 p-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/10 hover:bg-zinc-800 transition-all shadow-md cursor-pointer"
                 >
                   <Heart className={`w-3.5 h-3.5 transition-colors ${localLikes[s.slug] ? 'fill-red-500 text-red-500' : 'text-zinc-400 hover:text-red-400'}`} />
                 </button>
@@ -462,7 +497,7 @@ export const SeriesSection = ({ title, series, onSeriesClick, currentUser, userT
                     : (s.creator_name || 'Saturday AM')}
                 </p>
               </div>
-            </div>
+            </a>
           );
         })}
       </div>
