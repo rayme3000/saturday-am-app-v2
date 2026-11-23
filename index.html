@@ -19,19 +19,20 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Saturday AM" />
 
-    <!-- Canonical URL -->
+    <!-- Canonical URL & Crawler Directives -->
     <link rel="canonical" href="https://www.mangahype.com/" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>Saturday AM App - Read Diverse Manga Online</title>
     
     <!-- Comprehensive Meta Description for Search Engine Indexing -->
-    <meta name="description" content="Read original diverse manga online with Saturday AM. Explore Apple Black, Clock Striker, Hammer, Underground, Gun+Bone, Orisha, Oblivion Rouge, and more by global creators." />
+    <meta name="description" content="Read original diverse manga online with Saturday AM. Explore Apple Black, Clock Striker, Bully Eater, Hammer, Underground, Gun+Bone, Orisha, Oblivion Rouge, and more by global creators." />
     
     <!-- Early Preconnects to Cloudflare R2 CDN, Supabase, and Google Fonts -->
     <link rel="preconnect" href="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev" crossorigin />
-    <link rel="preconnect" href="https://zcadkovymnjpjaxvnao.supabase.co" crossorigin />
+    <link rel="preconnect" href="https://zcadkovymrnjpjaxvnao.supabase.co" crossorigin />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=Unbounded:ital,wght@0,700;0,800;0,900;1,700;1,800;1,900&display=swap" rel="stylesheet" />
@@ -40,14 +41,17 @@
     <link rel="preload" as="image" href="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/Hype%20flame.png" />
 
     <!-- OpenGraph & Social Preview Meta Tags -->
+    <meta property="og:site_name" content="Saturday AM - Manga Hype" />
     <meta property="og:title" content="Saturday AM - Manga Hype" />
-    <meta property="og:description" content="Read original diverse manga online with Saturday AM. Discover Apple Black, Clock Striker, Hammer, Underground, and over 20+ flagship series from global creators." />
+    <meta property="og:description" content="Read original diverse manga online with Saturday AM. Discover Apple Black, Clock Striker, Bully Eater, Hammer, Underground, and 30+ flagship series from global creators." />
     <meta property="og:image" content="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20load%20screen.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:url" content="https://www.mangahype.com/" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Saturday AM - Manga Hype" />
+    <meta name="twitter:description" content="Read original diverse manga online with Saturday AM. Discover Apple Black, Clock Striker, Bully Eater, Hammer, Underground, and 30+ flagship series from global creators." />
     <meta name="twitter:image" content="https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20load%20screen.jpg" />
 
     <!-- Early Global Event Listener for PWA Installation -->
@@ -67,300 +71,175 @@
       });
     </script>
 
-    <!-- Schema.org JSON-LD Structured Data for Full Catalog & Creators -->
+    <!-- Schema.org JSON-LD Structured Data for Brand, Sitelinks & Full Manga Catalog -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "WebApplication",
-      "name": "Saturday AM - Manga Hype",
-      "url": "https://www.mangahype.com/",
-      "applicationCategory": "EntertainmentApplication",
-      "operatingSystem": "All",
-      "description": "Digital manga reader featuring original diverse manga from creators worldwide.",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      },
-      "hasPart": [
+      "@graph": [
         {
-          "@type": "CreativeWorkSeries",
-          "name": "Apple Black",
-          "author": {
-            "@type": "Person",
-            "name": "Odunze Oguguo",
-            "alternateName": "Whyt Manga"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Apple Black: Annual One-Shot",
-          "author": [
-            {
-              "@type": "Person",
-              "name": "Odunze Oguguo",
-              "alternateName": "Whyt Manga"
-            },
-            {
-              "@type": "Person",
-              "name": "Kiba Fabio Augusto"
-            }
+          "@type": "Organization",
+          "@id": "https://www.mangahype.com/#organization",
+          "name": "Saturday AM",
+          "alternateName": "Saturday AM Manga Hype",
+          "url": "https://www.mangahype.com/",
+          "logo": "https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/pwa-512x512-v4.png?v=4",
+          "sameAs": [
+            "https://www.saturday-am.com",
+            "https://shopsaturdayam.com"
           ]
         },
         {
-          "@type": "CreativeWorkSeries",
-          "name": "Apple Black: Origins",
-          "author": [
+          "@type": "WebSite",
+          "@id": "https://www.mangahype.com/#website",
+          "url": "https://www.mangahype.com/",
+          "name": "Saturday AM - Manga Hype",
+          "publisher": { "@id": "https://www.mangahype.com/#organization" },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://www.mangahype.com/browse?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        },
+        {
+          "@type": "WebApplication",
+          "name": "Saturday AM - Manga Hype",
+          "url": "https://www.mangahype.com/",
+          "applicationCategory": "EntertainmentApplication",
+          "operatingSystem": "All",
+          "description": "Digital manga reader featuring original diverse shonen manga from creators worldwide.",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          },
+          "hasPart": [
             {
-              "@type": "Person",
-              "name": "Stephanie Williams"
+              "@type": "CreativeWorkSeries",
+              "name": "Apple Black",
+              "url": "https://www.mangahype.com/series/apple-black",
+              "author": { "@type": "Person", "name": "Odunze Oguguo", "alternateName": "Whyt Manga" }
             },
             {
-              "@type": "Person",
-              "name": "Odunze Oguguo",
-              "alternateName": "Whyt Manga"
-            }
-          ]
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Bully Eater: Annual One-Shot",
-          "author": {
-            "@type": "Person",
-            "name": "Raymond Brown"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Clock Striker",
-          "author": [
-            {
-              "@type": "Person",
-              "name": "Frederick L. Jones"
+              "@type": "CreativeWorkSeries",
+              "name": "Clock Striker",
+              "url": "https://www.mangahype.com/series/clock-striker",
+              "author": [
+                { "@type": "Person", "name": "Frederick L. Jones" },
+                { "@type": "Person", "name": "Issaka Galadima" }
+              ]
             },
             {
-              "@type": "Person",
-              "name": "Issaka Galadima"
-            }
-          ]
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Clock Striker: Annual One-Shot",
-          "author": [
-            {
-              "@type": "Person",
-              "name": "Frederick L. Jones"
+              "@type": "CreativeWorkSeries",
+              "name": "Bully Eater",
+              "url": "https://www.mangahype.com/series/bully-eater",
+              "author": { "@type": "Person", "name": "Raymond Brown" }
             },
             {
-              "@type": "Person",
-              "name": "Mike Saharat Srimuang"
-            }
-          ]
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Fan-X-Boy",
-          "author": [
-            {
-              "@type": "Person",
-              "name": "Frank Simmonds"
+              "@type": "CreativeWorkSeries",
+              "name": "Hammer",
+              "url": "https://www.mangahype.com/series/hammer",
+              "author": { "@type": "Person", "name": "JeyOdin" }
             },
             {
-              "@type": "Person",
-              "name": "Frederick L. Jones"
-            }
-          ]
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Grimmheim",
-          "author": {
-            "@type": "Person",
-            "name": "Kristina Andabak"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Gun+Bone",
-          "author": {
-            "@type": "Person",
-            "name": "Erick Pedrucci"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Gunhild",
-          "author": {
-            "@type": "Person",
-            "name": "Fred Tornager"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Hammer",
-          "author": {
-            "@type": "Person",
-            "name": "JeyOdin"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Hammer: Annual One-Shot",
-          "author": [
-            {
-              "@type": "Person",
-              "name": "JeyOdin"
+              "@type": "CreativeWorkSeries",
+              "name": "Underground",
+              "url": "https://www.mangahype.com/series/underground",
+              "author": { "@type": "Person", "name": "JR De Bard" }
             },
             {
-              "@type": "Person",
-              "name": "Erick Pedrucci"
-            }
-          ]
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Henshin!",
-          "author": {
-            "@type": "Person",
-            "name": "Bon Idle"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Maximo: World Warrior",
-          "author": {
-            "@type": "Person",
-            "name": "Stefano Romano"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Oblivion Rouge",
-          "author": {
-            "@type": "Person",
-            "name": "Pap Souleye Fall"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Orisha",
-          "author": {
-            "@type": "Person",
-            "name": "Huzayfa Umar",
-            "alternateName": "Zayf"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Redskin",
-          "author": {
-            "@type": "Person",
-            "name": "Yvan Soudy",
-            "alternateName": "Staark"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Saturday Wars",
-          "author": [
-            {
-              "@type": "Person",
-              "name": "Frederick L. Jones"
+              "@type": "CreativeWorkSeries",
+              "name": "Oblivion Rouge",
+              "url": "https://www.mangahype.com/series/oblivion-rouge",
+              "author": { "@type": "Person", "name": "Pap Souleye Fall" }
             },
             {
-              "@type": "Person",
-              "name": "Eddy Frye"
-            }
-          ]
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Soul Beat",
-          "author": {
-            "@type": "Person",
-            "name": "Morganne Walker"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "The Massively Multiplayer World of Ghosts (MMWOG)",
-          "author": [
-            {
-              "@type": "Person",
-              "name": "Oscar Fong"
+              "@type": "CreativeWorkSeries",
+              "name": "Orisha",
+              "url": "https://www.mangahype.com/series/orisha",
+              "author": { "@type": "Person", "name": "Huzayfa Umar", "alternateName": "Zayf" }
             },
             {
-              "@type": "Person",
-              "name": "Frederick L. Jones"
-            }
-          ]
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Titan King",
-          "author": {
-            "@type": "Person",
-            "name": "Tony Dawkins"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Underground",
-          "author": {
-            "@type": "Person",
-            "name": "JR De Bard"
-          }
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Yellow Stringer",
-          "author": [
-            {
-              "@type": "Person",
-              "name": "Goeffrey Jean-Louis"
+              "@type": "CreativeWorkSeries",
+              "name": "Gun+Bone",
+              "url": "https://www.mangahype.com/series/gun-bone",
+              "author": { "@type": "Person", "name": "Erick Pedrucci" }
             },
             {
-              "@type": "Person",
-              "name": "Frederick L. Jones"
-            }
-          ]
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Yellow Stringer: Annual One-Shot",
-          "author": [
-            {
-              "@type": "Person",
-              "name": "Angélica Rosales"
+              "@type": "CreativeWorkSeries",
+              "name": "The Massively Multiplayer World of Ghosts (MMWOG)",
+              "url": "https://www.mangahype.com/series/mmwog",
+              "author": [
+                { "@type": "Person", "name": "Oscar Fong" },
+                { "@type": "Person", "name": "Frederick L. Jones" }
+              ]
             },
             {
-              "@type": "Person",
-              "name": "Frederick L. Jones"
-            }
-          ]
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Zarqa",
-          "author": [
-            {
-              "@type": "Person",
-              "name": "Austin Harvey-Younis"
+              "@type": "CreativeWorkSeries",
+              "name": "Redskin",
+              "url": "https://www.mangahype.com/series/redskin",
+              "author": { "@type": "Person", "name": "Yvan Soudy", "alternateName": "Staark" }
             },
             {
-              "@type": "Person",
-              "name": "Vee"
+              "@type": "CreativeWorkSeries",
+              "name": "Titan King",
+              "url": "https://www.mangahype.com/series/titan-king",
+              "author": { "@type": "Person", "name": "Tony Dawkins" }
+            },
+            {
+              "@type": "CreativeWorkSeries",
+              "name": "Soul Beat",
+              "url": "https://www.mangahype.com/series/soul-beat",
+              "author": { "@type": "Person", "name": "Morganne Walker" }
+            },
+            {
+              "@type": "CreativeWorkSeries",
+              "name": "Yellow Stringer",
+              "url": "https://www.mangahype.com/series/yellow-stringer",
+              "author": [
+                { "@type": "Person", "name": "Goeffrey Jean-Louis" },
+                { "@type": "Person", "name": "Frederick L. Jones" }
+              ]
+            },
+            {
+              "@type": "CreativeWorkSeries",
+              "name": "Fan-X-Boy",
+              "url": "https://www.mangahype.com/series/fan-x-boy",
+              "author": [
+                { "@type": "Person", "name": "Frank Simmonds" },
+                { "@type": "Person", "name": "Frederick L. Jones" }
+              ]
+            },
+            {
+              "@type": "CreativeWorkSeries",
+              "name": "Grimmheim",
+              "url": "https://www.mangahype.com/series/grimmheim",
+              "author": { "@type": "Person", "name": "Kristina Andabak" }
+            },
+            {
+              "@type": "CreativeWorkSeries",
+              "name": "Gunhild",
+              "url": "https://www.mangahype.com/series/gunhild",
+              "author": { "@type": "Person", "name": "Fred Tornager" }
+            },
+            {
+              "@type": "CreativeWorkSeries",
+              "name": "Henshin!",
+              "url": "https://www.mangahype.com/series/henshin",
+              "author": { "@type": "Person", "name": "Bon Idle" }
+            },
+            {
+              "@type": "CreativeWorkSeries",
+              "name": "Maximo: World Warrior",
+              "url": "https://www.mangahype.com/series/maximo",
+              "author": { "@type": "Person", "name": "Stefano Romano" }
+            },
+            {
+              "@type": "CreativeWorkSeries",
+              "name": "Zephyr",
+              "url": "https://www.mangahype.com/series/zephyr",
+              "author": { "@type": "Person", "name": "Staniel Russell" }
             }
           ]
-        },
-        {
-          "@type": "CreativeWorkSeries",
-          "name": "Zephyr",
-          "author": {
-            "@type": "Person",
-            "name": "Staniel Russell"
-          }
         }
       ]
     }

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSeriesData } from '../userSeriesData';
 import { supabase } from '../supabase';
 import { Search, Library, ArrowUpDown, Clock, Zap } from 'lucide-react';
@@ -43,9 +43,28 @@ const isNewSeriesRelease = (publishAt?: string | null, createdAt?: string | null
   return false;
 };
 
+const buildSeriesHref = (slug?: string): string => {
+  if (!slug) return '/';
+  const base = `/series/${encodeURIComponent(slug)}`;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref') || params.get('referral') || params.get('vip');
+    if (ref) return `${base}?ref=${encodeURIComponent(ref)}`;
+  } catch {
+    // ignore
+  }
+  return base;
+};
+
 export const Browse = ({ onNavigate, userTier = 'visitor' }: any) => {
   const { seriesList = [] } = useSeriesData();
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('q') || '';
+    } catch {
+      return '';
+    }
+  });
   const [sortBy, setSortBy] = useState<'title-asc' | 'title-desc' | 'creator-asc'>('title-asc');
   const [creatorsMap, setCreatorsMap] = useState<Record<string, string[]>>({});
 
@@ -117,6 +136,15 @@ export const Browse = ({ onNavigate, userTier = 'visitor' }: any) => {
     });
   }, [seriesList, searchQuery, creatorsMap, sortBy]);
 
+  const handleCardClick = (e: React.MouseEvent<HTMLAnchorElement>, item: any) => {
+    // Allow Ctrl/Cmd-click, Shift-click, or middle-click to open natively in a new tab
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) {
+      return;
+    }
+    e.preventDefault();
+    onNavigate(item);
+  };
+
   return (
     <div className="min-h-screen bg-transparent text-white pb-24 relative px-4 pt-6">
       <div className="sticky top-0 z-40 bg-black/85 backdrop-blur-xl pb-4 pt-2 mb-4 border-b border-zinc-800 rounded-b-2xl px-2">
@@ -173,12 +201,14 @@ export const Browse = ({ onNavigate, userTier = 'visitor' }: any) => {
             const showPlusVaultTag = !isPlusSubscriber && isCompleted && !showFreeWednesdayCue;
             const freeCountdown = showFreeWednesdayCue ? getOneShotFreeCountdown(item, seriesList) : null;
             const showNewBadge = isNewSeriesRelease(item.publish_at, item.created_at);
+            const href = buildSeriesHref(item.slug);
 
             return (
-              <div
+              <a
                 key={item.id || item.slug}
-                className="flex-shrink-0 cursor-pointer group/card"
-                onClick={() => onNavigate(item)}
+                href={href}
+                onClick={e => handleCardClick(e, item)}
+                className="flex-shrink-0 cursor-pointer group/card block no-underline text-inherit"
               >
                 <div
                   className="relative overflow-hidden rounded-lg aspect-[2/3] border border-white shadow-[5px_5px_0px_0px_#fe9a00] group-hover/card:shadow-[8px_8px_0px_0px_#fe9a00] group-hover/card:-translate-y-1 group-hover/card:-translate-x-1 transition-all duration-300 mb-3"
@@ -187,7 +217,7 @@ export const Browse = ({ onNavigate, userTier = 'visitor' }: any) => {
                   <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/60 z-0" />
                   <img
                     src={item.character_url || item.cover_url}
-                    alt={`${item.title} Character`}
+                    alt={`${item.title} Manga by ${item.creator_name || 'Saturday AM'}`}
                     loading="lazy"
                     decoding="async"
                     className={`absolute left-1/2 -translate-x-1/2 max-w-none object-contain transform transition-transform duration-500 ease-out group-hover/card:scale-[1.15] z-10 ${
@@ -242,7 +272,7 @@ export const Browse = ({ onNavigate, userTier = 'visitor' }: any) => {
                     </p>
                   )}
                 </div>
-              </div>
+              </a>
             );
           })}
         </div>

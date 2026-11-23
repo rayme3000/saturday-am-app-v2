@@ -7,7 +7,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg', 'ads.txt'],
+      includeAssets: [
+        'favicon.ico',
+        'apple-touch-icon.png',
+        'masked-icon.svg',
+        'ads.txt',
+        'robots.txt'
+      ],
       manifest: {
         name: 'Saturday AM - Manga Hype',
         short_name: 'Saturday AM',
@@ -37,10 +43,17 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webp}'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/share/, /^\/api/, /^\/ads\.txt$/],
+        navigateFallbackDenylist: [
+          /^\/share/,
+          /^\/api/,
+          /^\/ads\.txt$/,
+          /^\/robots\.txt$/,
+          /^\/sitemap\.xml$/
+        ],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/pub-180171f859f64aa7aadb7001a6b96e65\.r2\.dev\/.*\.(?:png|jpg|jpeg|webp|svg|gif)$/i,
+            urlPattern:
+              /^https:\/\/pub-180171f859f64aa7aadb7001a6b96e65\.r2\.dev\/.*\.(?:png|jpg|jpeg|webp|svg|gif)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'saturday-am-r2-images',

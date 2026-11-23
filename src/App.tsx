@@ -82,6 +82,67 @@ export const getOrCreateVisitorId = (): string => {
   }
 };
 
+const CLEAN_VIEW_ROUTES = [
+  'browse',
+  'creators',
+  'characters',
+  'leaderboard',
+  'news',
+  'shop',
+  'sub',
+  'legal',
+  'bingobook'
+];
+
+// Preserves active referral, item, search, chapter, or Stripe return params during history sync
+const buildCrawlableUrl = (view: string, seriesObj: any): string => {
+  let basePath = '/';
+  if (view === 'series' && seriesObj?.slug) {
+    basePath = `/series/${encodeURIComponent(seriesObj.slug)}`;
+  } else if (CLEAN_VIEW_ROUTES.includes(view)) {
+    basePath = `/${encodeURIComponent(view)}`;
+  }
+
+  try {
+    const currentParams = new URLSearchParams(window.location.search);
+    const preserved = new URLSearchParams();
+    const preservedKeys = [
+      'ref',
+      'referral',
+      'vip',
+      'invited_by',
+      'donation_status',
+      'amount',
+      'stripe_connected',
+      'acct',
+      'stripe_connect_error'
+    ];
+
+    preservedKeys.forEach(k => {
+      const val = currentParams.get(k);
+      if (val) preserved.set(k, val);
+    });
+
+    if (view === 'creators' && currentParams.get('creator')) {
+      preserved.set('creator', currentParams.get('creator')!);
+    }
+    if (view === 'shop' && currentParams.get('item')) {
+      preserved.set('item', currentParams.get('item')!);
+    }
+    if (view === 'browse' && currentParams.get('q')) {
+      preserved.set('q', currentParams.get('q')!);
+    }
+    if (view === 'series' && currentParams.get('chapter')) {
+      preserved.set('chapter', currentParams.get('chapter')!);
+    }
+
+    const qs = preserved.toString();
+    return qs ? `${basePath}?${qs}` : basePath;
+  } catch {
+    return basePath;
+  }
+};
+
 class AppErrorBoundary extends React.Component<any, any> {
   constructor(props: any) {
     super(props);
@@ -196,7 +257,15 @@ export default function App() {
   }, []);
 
   const [currentView, setCurrentView] = useState(() => {
+    const pathname = window.location.pathname;
+    if (/^\/series\/[^/?#]+/i.test(pathname)) return 'series';
+    const cleanViewMatch = pathname.match(/^\/([a-z0-9-]+)\/?$/i);
+    if (cleanViewMatch && CLEAN_VIEW_ROUTES.includes(cleanViewMatch[1].toLowerCase())) {
+      return cleanViewMatch[1].toLowerCase();
+    }
     const params = new URLSearchParams(window.location.search);
+    if (params.get('series') || params.get('slug')) return 'series';
+    if (params.get('creator') && !params.has('donation_status')) return 'creators';
     const urlView = params.get('view');
     if (urlView) return urlView.toLowerCase();
     const saved = sessionStorage.getItem('currentView');
@@ -211,11 +280,16 @@ export default function App() {
 
   const [showIntro, setShowIntro] = useState(() => {
     const params = new URLSearchParams(window.location.search);
+    const pathname = window.location.pathname;
     if (
       params.has('series') ||
+      params.has('slug') ||
       params.has('creator') ||
-      window.location.pathname.startsWith('/series/') ||
-      /bot|googlebot|crawler|spider|robot|crawling/i.test(navigator.userAgent)
+      params.has('view') ||
+      (pathname !== '/' && pathname !== '/index.html') ||
+      /bot|googlebot|bingbot|crawler|spider|robot|crawling|discordbot|twitterbot|facebookexternalhit|bluesky/i.test(
+        navigator.userAgent
+      )
     ) {
       return false;
     }
@@ -265,7 +339,7 @@ export default function App() {
 
   const isUserAdmin = checkIsAdminUser(currentUser);
 
-  // --- DYNAMIC SEO ENGINE ---
+  // --- DYNAMIC SEO ENGINE (SYNCED WITH CLEAN EDGE CANONICAL PATHS) ---
   useEffect(() => {
     const setMetaContent = (selector: string, content: string) => {
       const el = document.querySelector(selector);
@@ -309,7 +383,7 @@ export default function App() {
         selectedSeries.cover_url ||
         selectedSeries.character_url ||
         'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/homepage-graphic-assets/AM%20App%20load%20screen.jpg';
-      const canonicalUrl = `https://www.mangahype.com/?series=${encodeURIComponent(selectedSeries.slug)}`;
+      const canonicalUrl = `https://www.mangahype.com/series/${encodeURIComponent(selectedSeries.slug)}`;
 
       const fullTitle = `${sTitle} Manga by ${sCreator} | Read Online on Saturday AM`;
       document.title = fullTitle;
@@ -318,6 +392,8 @@ export default function App() {
       setMetaContent('meta[property="og:description"]', sSynopsis.slice(0, 200));
       setMetaContent('meta[property="og:image"]', sImage);
       setMetaContent('meta[property="og:url"]', canonicalUrl);
+      setMetaContent('meta[name="twitter:title"]', fullTitle);
+      setMetaContent('meta[name="twitter:description"]', sSynopsis.slice(0, 200));
       setMetaContent('meta[name="twitter:image"]', sImage);
       setCanonicalHref(canonicalUrl);
 
@@ -341,52 +417,54 @@ export default function App() {
       return;
     }
 
-    const viewMetaMap: Record<string, { title: string; desc: string; query: string }> = {
+    const viewMetaMap: Record<string, { title: string; desc: string; path: string }> = {
       creators: {
         title: 'Manga Creators Roster | Saturday AM Manga Hype',
         desc: 'Meet the global manga creators behind Apple Black, Clock Striker, Bully Eater, Hammer, Orisha, Oblivion Rouge, and more on Saturday AM.',
-        query: '?view=creators'
+        path: '/creators'
       },
       browse: {
         title: 'Browse Diverse Manga Series & One-Shots | Saturday AM',
         desc: 'Browse the complete Saturday AM manga vault. Read shonen action, fantasy, sci-fi, and exclusive One-Shot Wednesdays online.',
-        query: '?view=browse'
+        path: '/browse'
       },
       characters: {
         title: 'Manga Character Roster & Combat Files | Saturday AM',
         desc: 'Explore official character bios, stats, and combat files from Saturday AM flagship manga series.',
-        query: '?view=characters'
+        path: '/characters'
       },
       leaderboard: {
         title: 'Global Manga Hype Leaderboards | Saturday AM',
         desc: 'See the top-ranked manga series, chapters, characters, creators, and Super Fans on the Saturday AM Hype Leaderboards.',
-        query: '?view=leaderboard'
+        path: '/leaderboard'
       },
       news: {
         title: 'Saturday AM News & Manga Announcements | Manga Hype',
         desc: 'Stay updated with the latest Saturday AM manga releases, creator interviews, convention appearances, and anime/game news.',
-        query: '?view=news'
+        path: '/news'
       },
       shop: {
         title: 'AM Shop - Official Manga Volumes & Merch | Saturday AM',
         desc: 'Shop official Saturday AM graphic novels, manga volumes, apparel, and collectibles while earning bonus Hypes.',
-        query: '?view=shop'
+        path: '/shop'
       },
       sub: {
         title: 'Saturday AM+ PLUS Membership - Read Manga Without Limits',
         desc: 'Upgrade to Saturday AM+ PLUS for $1.99/mo or $20/yr to unlock the entire manga vault, 12-hour early access, and Super Hypes.',
-        query: '?view=sub'
+        path: '/sub'
       }
     };
 
     const matchedView = viewMetaMap[currentView];
     if (matchedView) {
-      const canonicalUrl = `https://www.mangahype.com/${matchedView.query}`;
+      const canonicalUrl = `https://www.mangahype.com${matchedView.path}`;
       document.title = matchedView.title;
       setMetaContent('meta[name="description"]', matchedView.desc);
       setMetaContent('meta[property="og:title"]', matchedView.title);
       setMetaContent('meta[property="og:description"]', matchedView.desc);
       setMetaContent('meta[property="og:url"]', canonicalUrl);
+      setMetaContent('meta[name="twitter:title"]', matchedView.title);
+      setMetaContent('meta[name="twitter:description"]', matchedView.desc);
       setCanonicalHref(canonicalUrl);
       setDynamicJsonLd(null);
     } else {
@@ -398,6 +476,8 @@ export default function App() {
       setMetaContent('meta[property="og:title"]', 'Saturday AM - Manga Hype');
       setMetaContent('meta[property="og:description"]', defaultDesc);
       setMetaContent('meta[property="og:url"]', 'https://www.mangahype.com/');
+      setMetaContent('meta[name="twitter:title"]', 'Saturday AM - Manga Hype');
+      setMetaContent('meta[name="twitter:description"]', defaultDesc);
       setCanonicalHref('https://www.mangahype.com/');
       setDynamicJsonLd(null);
     }
@@ -516,9 +596,10 @@ export default function App() {
     }
   }, [userTier, currentUser?.is_premium]);
 
-  // --- AUTO-CAPTURE DEEP LINKS (INCLUDING 365-DAY LAST-CLICK REFERRAL ATTRIBUTION) ---
+  // --- AUTO-CAPTURE DEEP LINKS (CLEAN PATHS + LEGACY QUERY PARAMS + 365-DAY REFERRALS) ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const pathname = window.location.pathname;
     const creatorInviteParam = params.get('creator_invite');
     const magicPromo = params.get('promo') || params.get('code');
     const stripeConnected = params.get('stripe_connected');
@@ -527,7 +608,6 @@ export default function App() {
     const refParam = params.get('ref') || params.get('referral') || params.get('vip');
     if (refParam && refParam.trim().toUpperCase().startsWith('VIP-')) {
       const freshRefCode = recordReferralClick(refParam);
-      // If a logged-in non-PLUS user clicks a newer creator link, overwrite their active referral code & reset the 365-day clock!
       supabase.auth.getSession().then(async ({ data: { session } }) => {
         if (session?.user && freshRefCode) {
           const { data: prof } = await supabase
@@ -548,9 +628,13 @@ export default function App() {
       });
     }
 
-    const pathMatch = window.location.pathname.match(/^\/series\/([^/?#]+)/i);
+    const pathSeriesMatch = pathname.match(/^\/series\/([^/?#]+)/i);
+    const pathViewMatch = pathname.match(/^\/([a-z0-9-]+)\/?$/i);
+
     const seriesSlugParam =
-      params.get('series') || params.get('slug') || (pathMatch ? decodeURIComponent(pathMatch[1]) : null);
+      params.get('series') ||
+      params.get('slug') ||
+      (pathSeriesMatch ? decodeURIComponent(pathSeriesMatch[1]) : null);
     const chapterParam = params.get('chapter');
 
     if (seriesSlugParam && seriesSlugParam !== 'app') {
@@ -577,12 +661,16 @@ export default function App() {
       setCurrentView('creators');
     }
 
-    const viewParam = params.get('view');
+    const viewParam =
+      params.get('view') ||
+      (pathViewMatch && CLEAN_VIEW_ROUTES.includes(pathViewMatch[1].toLowerCase())
+        ? pathViewMatch[1]
+        : null);
+
     if (
       viewParam &&
-      ['home', 'browse', 'creators', 'characters', 'leaderboard', 'news', 'shop', 'sub', 'legal', 'bingobook'].includes(
-        viewParam.toLowerCase()
-      )
+      ['home', ...CLEAN_VIEW_ROUTES].includes(viewParam.toLowerCase()) &&
+      !seriesSlugParam
     ) {
       setCurrentView(viewParam.toLowerCase());
     }
@@ -638,16 +726,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const buildCrawlableUrl = (view: string, seriesObj: any) => {
-      if (view === 'series' && seriesObj?.slug) {
-        return `/?series=${encodeURIComponent(seriesObj.slug)}`;
-      }
-      if (['browse', 'creators', 'characters', 'leaderboard', 'news', 'shop', 'sub'].includes(view)) {
-        return `/?view=${encodeURIComponent(view)}`;
-      }
-      return '/';
-    };
-
     window.history.replaceState(
       { view: currentView, series: selectedSeries },
       '',
@@ -655,13 +733,21 @@ export default function App() {
     );
 
     const handlePopState = (e: PopStateEvent) => {
-      isPopState.current = true; 
-      
+      isPopState.current = true;
+
       if (e.state && e.state.view) {
         setSelectedSeries(e.state.series || null);
         setCurrentView(e.state.view);
+        return;
+      }
+
+      const pName = window.location.pathname;
+      const pMatch = pName.match(/^\/([a-z0-9-]+)\/?$/i);
+      if (pMatch && CLEAN_VIEW_ROUTES.includes(pMatch[1].toLowerCase())) {
+        setCurrentView(pMatch[1].toLowerCase());
       } else {
-        setCurrentView('home');
+        const qView = new URLSearchParams(window.location.search).get('view');
+        setCurrentView(qView ? qView.toLowerCase() : 'home');
       }
     };
 
@@ -671,24 +757,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const buildCrawlableUrl = (view: string, seriesObj: any) => {
-      if (view === 'series' && seriesObj?.slug) {
-        return `/?series=${encodeURIComponent(seriesObj.slug)}`;
-      }
-      if (['browse', 'creators', 'characters', 'leaderboard', 'news', 'shop', 'sub'].includes(view)) {
-        return `/?view=${encodeURIComponent(view)}`;
-      }
-      return '/';
-    };
-
     if (isPopState.current) {
-      isPopState.current = false; 
+      isPopState.current = false;
     } else {
-      window.history.pushState(
-        { view: currentView, series: selectedSeries },
-        '',
-        buildCrawlableUrl(currentView, selectedSeries)
-      );
+      const nextUrl = buildCrawlableUrl(currentView, selectedSeries);
+      if (`${window.location.pathname}${window.location.search}` !== nextUrl) {
+        window.history.pushState(
+          { view: currentView, series: selectedSeries },
+          '',
+          nextUrl
+        );
+      }
     }
   }, [currentView, selectedSeries]);
 
