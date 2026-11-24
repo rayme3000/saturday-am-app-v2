@@ -34,6 +34,7 @@ const resolveLazyModule = (mod: any, preferredName?: string) => {
 const HomePage = lazy<React.ComponentType<any>>(() => import('./MainViews/HomePage').then(mod => resolveLazyModule(mod, 'HomePage')));
 const SeriesDetailPage = lazy<React.ComponentType<any>>(() => import('./MainViews/SeriesDetailPage').then(mod => resolveLazyModule(mod, 'SeriesDetailPage')));
 const AdminDashboard = lazy<React.ComponentType<any>>(() => import('./AmCommandCenter/AdminDashboard').then(mod => resolveLazyModule(mod, 'AdminDashboard')));
+const ShopifyAssetGen = lazy<React.ComponentType<any>>(() => import('./AmCommandCenter/ShopifyAssetGen').then(mod => resolveLazyModule(mod, 'ShopifyAssetGen')));
 const UserProfile = lazy<React.ComponentType<any>>(() => import('./VirtualProfile/UserProfile').then(mod => resolveLazyModule(mod, 'UserProfile')));
 const SubscriptionPage = lazy<React.ComponentType<any>>(() => import('./MainViews/Subscription.tsx').then(mod => resolveLazyModule(mod)));
 const AMNewsPage = lazy<React.ComponentType<any>>(() => import('./MainViews/AMNewsPage').then(mod => resolveLazyModule(mod, 'AMNewsPage')));
@@ -226,7 +227,8 @@ const CLEAN_VIEW_ROUTES = [
   'shop',
   'sub',
   'legal',
-  'bingobook'
+  'bingobook',
+  'ad-studio'
 ];
 
 // Preserves active referral, item, search, chapter, or Stripe return params during history sync
@@ -952,7 +954,7 @@ export default function App() {
     }
 
     if (
-      ['sub', 'admin', 'settings', 'legal', 'creator-studio'].includes(currentView) ||
+      ['sub', 'admin', 'ad-studio', 'settings', 'legal', 'creator-studio'].includes(currentView) ||
       showLogin ||
       Boolean(pendingCreatorInvite)
     ) {
@@ -1598,11 +1600,12 @@ export default function App() {
             {currentView === 'shop' && (<Shop userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
             {currentView === 'legal' && (<LegalPages onBack={() => setCurrentView('home')} />)}
             {currentView === 'characters' && (<CharacterRoster currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
+            {currentView === 'ad-studio' && (<ShopifyAssetGen isStandalonePortal={true} onExitStandalone={() => setCurrentView('home')} />)}
           </div>
         </Suspense>
       </AppErrorBoundary>
 
-      {!['settings', 'admin', 'sub'].includes(currentView) && (
+      {!['settings', 'admin', 'ad-studio', 'sub'].includes(currentView) && (
         <FloatingPillNav 
           currentView={currentView} 
           onNavigate={handleNavigate} 
@@ -1613,11 +1616,11 @@ export default function App() {
         />
       )}
 
-      {!['admin', 'sub', 'settings', 'legal'].includes(currentView) && currentUser && userTier !== 'visitor' && (
+      {!['admin', 'ad-studio', 'sub', 'settings', 'legal'].includes(currentView) && currentUser && userTier !== 'visitor' && (
         <GlobalHypeTracker currentUser={currentUser} /> 
       )}
 
-      {!['home', 'settings', 'admin', 'sub', 'shop', 'legal'].includes(currentView) && (
+      {!['home', 'settings', 'admin', 'ad-studio', 'sub', 'shop', 'legal'].includes(currentView) && (
         <button 
           onClick={() => setIsMenuOpen(true)}
           className="fixed top-4 sm:top-6 right-4 sm:right-6 z-[150] p-3 bg-black/60 backdrop-blur-md border border-zinc-800 rounded-full text-white hover:text-[#fe9a00] hover:border-[#fe9a00] shadow-lg transition-all group cursor-pointer"
@@ -1627,7 +1630,7 @@ export default function App() {
         </button>
       )}
 
-      {showInstallPrompt && !isAppInstalled && !showIosPrompt && currentView !== 'admin' && (
+      {showInstallPrompt && !isAppInstalled && !showIosPrompt && currentView !== 'admin' && currentView !== 'ad-studio' && (
         <div className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[6000] bg-zinc-950/95 border border-[#fe9a00]/70 p-2.5 sm:p-3 rounded-xl shadow-[0_10px_35px_rgba(0,0,0,0.9)] flex flex-col gap-2 animate-fade-in backdrop-blur-xl">
           <div className="flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -1668,7 +1671,7 @@ export default function App() {
         </div>
       )}
 
-      {showIosPrompt && !isAppInstalled && currentView !== 'admin' && (
+      {showIosPrompt && !isAppInstalled && currentView !== 'admin' && currentView !== 'ad-studio' && (
         <div className="fixed bottom-0 left-0 w-full z-[6000] bg-zinc-950 border-t border-zinc-800 p-4 sm:p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] flex flex-col gap-3 animate-fade-in-up pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-2.5">
