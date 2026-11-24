@@ -1600,7 +1600,19 @@ export default function App() {
             {currentView === 'shop' && (<Shop userTier={userTier} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
             {currentView === 'legal' && (<LegalPages onBack={() => setCurrentView('home')} />)}
             {currentView === 'characters' && (<CharacterRoster currentUser={currentUser} onBack={() => setCurrentView('home')} onNavigate={handleNavigate} />)}
-            {currentView === 'ad-studio' && (<ShopifyAssetGen isStandalonePortal={true} onExitStandalone={() => setCurrentView('home')} />)}
+            {currentView === 'ad-studio' && (
+              ['rayme3000@gmail.com', 'publisher@saturday-am.com', 'dbillups1632@gmail.com'].includes(
+                String(currentUser?.email || '').trim().toLowerCase()
+              ) ? (
+                <ShopifyAssetGen isStandalonePortal={true} onExitStandalone={() => setCurrentView('home')} />
+              ) : (
+                <div className="min-h-screen bg-black/95 text-white flex flex-col items-center justify-center p-6 text-center">
+                  <ShieldAlert className="w-10 h-10 text-red-500 mb-4" />
+                  <h2 className="text-2xl font-black italic uppercase text-white mb-4">Authorized Admin Access Required</h2>
+                  <button onClick={() => setCurrentView('home')} className="px-6 py-3 bg-[#fe9a00] text-black font-black uppercase text-xs rounded-xl cursor-pointer">Return Home</button>
+                </div>
+              )
+            )}
           </div>
         </Suspense>
       </AppErrorBoundary>

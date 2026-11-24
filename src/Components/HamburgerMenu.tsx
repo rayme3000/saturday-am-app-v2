@@ -12,9 +12,16 @@ import {
   Share2,
   ChevronDown,
   ChevronUp,
-  Sparkles
+  Sparkles,
+  Layout
 } from 'lucide-react';
 import { supabase } from '../supabase';
+
+const AD_STUDIO_ALLOWED_EMAILS = new Set([
+  'rayme3000@gmail.com',
+  'publisher@saturday-am.com',
+  'dbillups1632@gmail.com'
+]);
 
 const KNOWN_CREATOR_EMAILS = new Set([
   'rayme3000@gmail.com',
@@ -55,7 +62,6 @@ export const HamburgerMenu = memo(
     const [showHelpModal, setShowHelpModal] = useState(false);
     const [showMore, setShowMore] = useState(false);
 
-    // Dispatch event to completely hide underlying pulsing elements (solves blur lag and overlaps)
     useEffect(() => {
       if (!isOpen) return;
       window.dispatchEvent(new CustomEvent('appOverlayActive', { detail: true }));
@@ -102,7 +108,6 @@ export const HamburgerMenu = memo(
       },
       { name: 'My Bookshelf', action: 'faves', prefetch: () => import('../MainViews/MyFaves.tsx') },
       { name: 'Subscription', action: 'sub', prefetch: null },
-      // --- Hidden behind "See More" ---
       { name: 'Bingo Book', action: 'bingobook', prefetch: () => import('../VirtualProfile/BingoBook') },
       { name: 'AM News', action: 'news', prefetch: () => import('../MainViews/AMNewsPage').then(mod => mod.AMNewsPage) },
       { name: 'Leaderboards', action: 'leaderboard', prefetch: () => import('../MainViews/Leaderboard.tsx') },
@@ -193,7 +198,6 @@ export const HamburgerMenu = memo(
           )}
 
           <div className="flex flex-wrap items-center gap-4 mb-8">
-            {/* HYPE CARD: UNLOCKED FOR ALL FREE & PLUS ACCOUNT HOLDERS */}
             {isRegisteredUser && (
               <button
                 onClick={() => {
@@ -270,6 +274,17 @@ export const HamburgerMenu = memo(
               className="flex items-center gap-4 text-2xl sm:text-3xl font-black uppercase italic tracking-tighter text-red-600 hover:text-red-400 text-left transition-colors mt-6 cursor-pointer"
             >
               Command Center <ShieldAlert className="w-5 h-5 sm:w-6 sm:h-6" />
+            </button>
+          )}
+          {AD_STUDIO_ALLOWED_EMAILS.has(cleanEmail) && (
+            <button
+              onClick={() => {
+                onNavigate({ action: 'ad-studio' });
+                onClose();
+              }}
+              className="flex items-center gap-4 text-2xl sm:text-3xl font-black uppercase italic tracking-tighter text-[#fe9a00] hover:text-white text-left transition-colors mt-4 cursor-pointer"
+            >
+              Shopify Ad Studio <Layout className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
           )}
         </div>
