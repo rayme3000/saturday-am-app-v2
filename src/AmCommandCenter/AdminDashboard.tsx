@@ -12,6 +12,7 @@ import { FrameMaker } from './FrameMaker';
 import { ModerationDashboard } from './ModerationDashboard';
 import { UserManager } from './UserManager';
 import { StoreManager } from './StoreManager';
+import { ShopifyAssetGen } from './ShopifyAssetGen';
 import { CreatorPayoutTracker } from './CreatorPayoutTracker';
 import { resolveCreatorStripeAccountId } from '../MainViews/CreatorsPage';
 import { supabase } from '../supabase';
@@ -3438,7 +3439,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   >('avatars');
   const [usersSubTab, setUsersSubTab] = useState<'users' | 'moderation' | 'accesskeys'>('users');
   const [marketingSubTab, setMarketingSubTab] = useState<
-    'store' | 'accesskeys' | 'adstudio' | 'upsells' | 'hype' | 'notifications'
+    'store' | 'shopify_assets' | 'accesskeys' | 'adstudio' | 'upsells' | 'hype' | 'notifications'
   >('store');
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedWarning(isDirty);
@@ -3704,6 +3705,17 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
                 </button>
                 <button
                   type="button"
+                  onClick={() => setMarketingSubTab('shopify_assets')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    marketingSubTab === 'shopify_assets'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-emerald-400 hover:text-white border border-emerald-500/40'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" /> Shopify Banner & Mockup Maker
+                </button>
+                <button
+                  type="button"
                   onClick={() => setMarketingSubTab('accesskeys')}
                   className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
                     marketingSubTab === 'accesskeys'
@@ -3760,6 +3772,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
               </div>
 
               {marketingSubTab === 'store' && <StoreManager setIsDirty={setIsDirty} />}
+              {marketingSubTab === 'shopify_assets' && <ShopifyAssetGen />}
               {marketingSubTab === 'accesskeys' && <PromoCodeManager />}
               {marketingSubTab === 'adstudio' && (
                 <HouseAdBuilder Dropzone={Dropzone} setIsDirty={setIsDirty} />
