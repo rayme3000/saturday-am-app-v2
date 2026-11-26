@@ -25,6 +25,18 @@ import {
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+import { invalidateHomeHeroCache } from '../MainViews/HomePage';
+
+const normalizeSlideLinkTarget = (linkType: string, rawTarget: string): string => {
+  const trimmed = String(rawTarget || '').trim();
+  if (!trimmed) return '';
+  const cleanType = linkType.includes('::') ? linkType.split('::')[1] : linkType;
+  if (cleanType !== 'external') return trimmed;
+  if (trimmed.startsWith('/') || trimmed.startsWith('?') || /^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed.replace(/^\/+/, '')}`;
+};
 
 const CREATOR_ALIAS_GROUPS: string[][] = [
   ['odunze oguguo', 'whyt manga', 'whyt', 'odunze oguguo (whyt manga)'],
@@ -979,14 +991,17 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
 
       const validSlides = slides
         .filter((s: any) => s.desktop_url || s.mobile_url)
-        .map((slide: any) => ({
-          desktop_url: slide.desktop_url,
-          mobile_url: slide.mobile_url,
-          link_type: slide.linkType || 'series',
-          link_target: slide.linkTarget || '',
-          starts_at: slide.startsAt ? new Date(slide.startsAt).toISOString() : null,
-          ends_at: slide.endsAt ? new Date(slide.endsAt).toISOString() : null
-        }));
+        .map((slide: any) => {
+          const lType = slide.linkType || 'series';
+          return {
+            desktop_url: slide.desktop_url,
+            mobile_url: slide.mobile_url,
+            link_type: lType,
+            link_target: normalizeSlideLinkTarget(lType, slide.linkTarget || ''),
+            starts_at: slide.startsAt ? new Date(slide.startsAt).toISOString() : null,
+            ends_at: slide.endsAt ? new Date(slide.endsAt).toISOString() : null
+          };
+        });
 
       if (validSlides.length > 0) {
         let { error: slideInsErr } = await supabase.from('hero_slides').insert(validSlides);
@@ -1058,6 +1073,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
         if (failed?.error) throw failed.error;
       }
 
+      invalidateHomeHeroCache();
       window.dispatchEvent(new Event('seriesUpdated'));
       window.dispatchEvent(new Event('vaultUpdated'));
       await fetchLayoutData();

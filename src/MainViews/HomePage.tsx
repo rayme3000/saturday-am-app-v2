@@ -91,6 +91,12 @@ let memRecentCreators: any = null;
 let memRecentCharacters: any = null;
 let lastHomeFetchTime = 0;
 
+export const invalidateHomeHeroCache = () => {
+  memHeroSlides = null;
+  memHomeSections = null;
+  lastHomeFetchTime = 0;
+};
+
 const homeTutorialSlides = [
   {
     id: 'am-console',
@@ -945,12 +951,38 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const handleSlideClick = (slide: any) => {
     const rawType = String(slide.link_type || 'series');
     const actualType = rawType.includes('::') ? rawType.split('::')[1] : rawType;
-    trackEvent('banner_click', { target: slide.link_target, link_type: actualType });
-    if (!slide.link_target) return;
+    const rawTarget = String(slide.link_target || '').trim();
+    trackEvent('banner_click', { target: rawTarget, link_type: actualType });
+    if (!rawTarget) return;
+
     if (actualType === 'external') {
-      window.open(slide.link_target, '_blank', 'noopener,noreferrer');
+      // Handle internal app store deep links cleanly without spawning a duplicate tab
+      if (rawTarget.startsWith('/') || rawTarget.startsWith('?')) {
+        const cleanQuery = rawTarget.replace(/^\/\?/, '?');
+        const params = new URLSearchParams(cleanQuery.startsWith('?') ? cleanQuery : '');
+        const itemSlug = params.get('item');
+        const viewTarget = params.get('view') || (rawTarget.replace(/^\//, '').split('?')[0]);
+        if (itemSlug) sessionStorage.setItem('am_target_store_item', itemSlug);
+        if (viewTarget) {
+          onNavigate({ action: viewTarget });
+          return;
+        }
+      }
+
+      // Guarantee full https:// protocol so bare domains (e.g. www.shopsaturdayam.com) never resolve as relative paths on mangahype.com
+      const normalizedExternalUrl = /^https?:\/\//i.test(rawTarget)
+        ? rawTarget
+        : `https://${rawTarget.replace(/^\/+/, '')}`;
+
+      const anchor = document.createElement('a');
+      anchor.href = normalizedExternalUrl;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
     } else if (actualType === 'series') {
-      const matchedSeries = seriesList.find((s: any) => s.slug === slide.link_target);
+      const matchedSeries = seriesList.find((s: any) => s.slug === rawTarget);
       if (matchedSeries && !matchedSeries.is_hidden) onNavigate(matchedSeries);
     }
   };
