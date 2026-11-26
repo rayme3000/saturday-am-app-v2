@@ -30,6 +30,27 @@ interface AssetPreset {
 
 const PRESETS: AssetPreset[] = [
   {
+    id: 'app_hero_desktop_3_1',
+    name: 'App Homepage Hero — Desktop (3:1)',
+    width: 1800,
+    height: 600,
+    desc: 'Exact zero-crop fit for Saturday AM App PC Hero Carousel (1800×600)'
+  },
+  {
+    id: 'app_hero_mobile_2_3',
+    name: 'App Homepage Hero — Mobile (2:3)',
+    width: 900,
+    height: 1350,
+    desc: 'Exact zero-crop fit for Saturday AM App Mobile Hero Carousel (900×1350)'
+  },
+  {
+    id: 'promo_16_9',
+    name: 'App Upsell Popup / Social Spotlight (16:9)',
+    width: 1200,
+    height: 675,
+    desc: 'Exact 16:9 header fit for App Upsell Popups & social cards (1200×675)'
+  },
+  {
     id: 'listing_4_3',
     name: 'Shopify Product Shot (4:3)',
     width: 1200,
@@ -38,24 +59,17 @@ const PRESETS: AssetPreset[] = [
   },
   {
     id: 'listing_square',
-    name: 'Shopify Square Listing / Mobile Hero (1:1)',
+    name: 'Shopify Square Listing / IG Feed (1:1)',
     width: 1200,
     height: 1200,
-    desc: 'Square product shot, IG feed, or mobile banner (1200×1200)'
+    desc: 'Square product shot or Instagram feed post (1200×1200)'
   },
   {
     id: 'banner_desktop',
     name: 'Shopify Wide Collection Hero Banner',
     width: 1920,
     height: 720,
-    desc: 'Split left/right storefront hero & collection banner (1920×720)'
-  },
-  {
-    id: 'promo_16_9',
-    name: 'App Upsell / Social Spotlight (16:9)',
-    width: 1200,
-    height: 675,
-    desc: 'Wide split layout for Upsell Popups & social cards (1200×675)'
+    desc: 'Split left/right Shopify storefront & collection banner (1920×720)'
   },
   {
     id: 'promo_story',
@@ -176,9 +190,33 @@ const LAYER_LABELS: Record<LayerKey, string> = {
 };
 
 const buildDefaultTransforms = (preset: AssetPreset, mode: LayoutMode): LayerTransformMap => {
-  const isWide = preset.width / preset.height >= 1.55;
-  if (isWide) {
-    const isMulti = mode === 'bundle_3' || mode === 'bundle_5';
+  const ratio = preset.width / preset.height;
+  const isMulti = mode === 'bundle_3' || mode === 'bundle_5';
+
+  // Ultra-wide 3:1 App Desktop Hero (1800x600)
+  if (preset.id === 'app_hero_desktop_3_1' || ratio >= 2.8) {
+    return {
+      art: { x: isMulti ? 0.28 : 0.22, y: 0.5, scale: 0.96 },
+      headline: { x: isMulti ? 0.65 : 0.57, y: 0.42, scale: 1.0 },
+      subtext: { x: isMulti ? 0.65 : 0.57, y: 0.73, scale: 1.0 },
+      badge: { x: 0.89, y: 0.36, scale: 0.95 },
+      flame: { x: 0.5, y: 0.5, scale: 1.0 }
+    };
+  }
+
+  // 16:9 App Upsell Popup Header (1200x675) — keeps clear of top badge, top-right X, and bottom gradient
+  if (preset.id === 'promo_16_9') {
+    return {
+      art: { x: isMulti ? 0.29 : 0.22, y: 0.5, scale: 0.9 },
+      headline: { x: isMulti ? 0.66 : 0.58, y: 0.44, scale: 0.92 },
+      subtext: { x: isMulti ? 0.66 : 0.58, y: 0.7, scale: 0.92 },
+      badge: { x: 0.86, y: 0.38, scale: 0.88 },
+      flame: { x: 0.5, y: 0.48, scale: 0.95 }
+    };
+  }
+
+  // Standard Wide (1920x720)
+  if (ratio >= 1.55) {
     return {
       art: { x: isMulti ? 0.27 : 0.19, y: 0.5, scale: 1.0 },
       headline: { x: isMulti ? 0.66 : 0.56, y: 0.43, scale: 1.0 },
@@ -188,13 +226,28 @@ const buildDefaultTransforms = (preset: AssetPreset, mode: LayoutMode): LayerTra
     };
   }
 
+  // 2:3 App Mobile Hero (900x1350) — pulls headline/subtext inside mobile top/bottom UI safe zones
+  if (preset.id === 'app_hero_mobile_2_3') {
+    return {
+      art: { x: 0.5, y: 0.47, scale: 0.95 },
+      headline: { x: 0.5, y: 0.16, scale: 1.0 },
+      subtext: { x: 0.5, y: 0.82, scale: 1.0 },
+      badge: {
+        x: isMulti ? 0.82 : 0.79,
+        y: isMulti ? 0.69 : 0.62,
+        scale: 0.95
+      },
+      flame: { x: 0.25, y: 0.46, scale: 1.0 }
+    };
+  }
+
   return {
     art: { x: 0.5, y: 0.51, scale: 1.0 },
     headline: { x: 0.5, y: 0.085, scale: 1.0 },
     subtext: { x: 0.5, y: 0.93, scale: 1.0 },
     badge: {
-      x: mode === 'bundle_3' || mode === 'bundle_5' ? 0.84 : 0.8,
-      y: mode === 'bundle_3' || mode === 'bundle_5' ? 0.73 : 0.63,
+      x: isMulti ? 0.84 : 0.8,
+      y: isMulti ? 0.73 : 0.63,
       scale: 1.0
     },
     flame: { x: 0.22, y: 0.44, scale: 1.0 }
