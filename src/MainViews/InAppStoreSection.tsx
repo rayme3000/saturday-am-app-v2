@@ -170,7 +170,11 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
         const matched = prodRows.find(
           (p: any) => p.slug === targetItem || String(p.id) === targetItem
         );
-        if (matched) setInspectedProduct(matched);
+        if (matched && isItemWithinSchedule(matched)) {
+          setInspectedProduct(matched);
+        } else if (matched) {
+          setStoreToast(`⏰ "${matched.title}" is no longer available.`);
+        }
       }
     }
 
@@ -560,6 +564,12 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
 
   const handleUnlockOrClaimProduct = async (prod: any, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (!isItemWithinSchedule(prod)) {
+      setInspectedProduct(null);
+      setStoreToast(`⏰ "${prod?.title || 'This drop'}" has ended and is no longer available.`);
+      fetchStoreData();
+      return;
+    }
     const {
       data: { user }
     } = await supabase.auth.getUser();

@@ -1218,15 +1218,40 @@ export const StoreManager: React.FC<{ setIsDirty?: (v: boolean) => void }> = ({ 
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${
-                          prod.is_active
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                        }`}
-                      >
-                        {prod.is_active ? 'Published (Live)' : 'Draft (Hidden)'}
-                      </span>
+                      {(() => {
+                        const nowMs = Date.now();
+                        const startMs = prod.available_from ? new Date(prod.available_from).getTime() : null;
+                        const endMs = prod.available_until ? new Date(prod.available_until).getTime() : null;
+                        const isExpired = Boolean(prod.is_active && endMs && !isNaN(endMs) && nowMs > endMs);
+                        const isScheduled = Boolean(prod.is_active && startMs && !isNaN(startMs) && nowMs < startMs);
+
+                        if (!prod.is_active) {
+                          return (
+                            <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                              Draft (Hidden)
+                            </span>
+                          );
+                        }
+                        if (isExpired) {
+                          return (
+                            <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/40">
+                              Ended (Expired {new Date(prod.available_until).toLocaleDateString()})
+                            </span>
+                          );
+                        }
+                        if (isScheduled) {
+                          return (
+                            <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                              Scheduled ({new Date(prod.available_from).toLocaleDateString()})
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className="text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                            Published (Live)
+                          </span>
+                        );
+                      })()}
                       <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-300">
                         {prod.product_type === 'bundle'
                           ? 'Subscription Bundle'
