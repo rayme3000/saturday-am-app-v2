@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
 import { X, Eye, EyeOff, CheckCircle, Key } from 'lucide-react';
 import { containsProfanity } from '../profanityFilter';
+import { getActiveReferralAttribution } from '../referralAttribution';
 
 const isPoBoxAddress = (address: string): boolean => {
   const poBoxRegex = /\b(?:p\.?\s*o\.?\s*box|post\s*office\s*box|postal\s*box|pobox)\b/i;
@@ -161,8 +162,6 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
         }
 
         // --- VALIDATE PROMO / 1-YEAR PREMIUM CODE BEFORE SIGNUP ---
-        // Note: If it's a Creator Onboarding Invite (SAM-CR-...), do NOT consume it here —
-        // CreatorOnboardingModal consumes it ONLY after they sign the mandatory Creator Terms!
         let codeType: 'none' | 'creator_invite' | 'annual_premium' | 'standard_rpc' | 'standard_table' = 'none';
         let grantsPremium = false;
         let standardPromoRow: any = null;
@@ -267,10 +266,11 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
           }
         }
 
-        // Preserve Creator Invite across mobile email confirmation browsers via both user_metadata AND emailRedirectTo!
         const redirectUrl = effectiveCreatorInvite
           ? `${window.location.origin}/?creator_invite=${encodeURIComponent(effectiveCreatorInvite)}`
           : `${window.location.origin}/?action=login`;
+
+        const activeRef = getActiveReferralAttribution();
 
         // --- CREATE SUPABASE AUTH ACCOUNT ---
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -288,7 +288,8 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
               phone_number: submittedPhone,
               referral_source: submittedReferral,
               is_premium: grantsPremium,
-              pending_creator_invite: effectiveCreatorInvite || null
+              pending_creator_invite: effectiveCreatorInvite || null,
+              ...(activeRef ? { referred_by_code: activeRef.code } : {})
             },
             emailRedirectTo: redirectUrl
           }
@@ -300,7 +301,7 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
           return;
         }
 
-        // --- CREATE PROFILE & REDEEM STANDARD CODE (IF NOT A CREATOR INVITE) ---
+        // --- CREATE PROFILE & REDEEM CODE ---
         if (authData?.user) {
           await supabase.from('profiles').upsert({
             id: authData.user.id,
@@ -314,6 +315,13 @@ const LoginModal = ({ onClose, onBack, onSuccess, onLogin, initialMode = 'signup
             date_of_birth: submittedDob || null,
             phone_number: submittedPhone || null,
             referral_source: submittedReferral,
+            ...(activeRef
+              ? {
+                  signup_referred_by: activeRef.code,
+                  referred_by_code: activeRef.code,
+                  referred_at: activeRef.clickedAt
+                }
+              : {}),
             is_premium: grantsPremium,
             super_hypes_left: grantsPremium ? 3 : 1,
             tos_accepted: true,

@@ -20,7 +20,8 @@ import {
   Crown,
   Flame,
   CreditCard,
-  Layers
+  Layers,
+  Calendar
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
@@ -92,6 +93,14 @@ const drawRoundedRect = (
   ctx.arcTo(x, y + h, x, y, radius);
   ctx.arcTo(x, y, x + w, y, radius);
   ctx.closePath();
+};
+
+const toSlideLocalInput = (iso?: string | null): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
 export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
@@ -205,7 +214,9 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
             desktop_url: s.desktop_url || '',
             mobile_url: s.mobile_url || '',
             linkType: s.link_type || 'series',
-            linkTarget: s.link_target || ''
+            linkTarget: s.link_target || '',
+            startsAt: toSlideLocalInput(s.starts_at),
+            endsAt: toSlideLocalInput(s.ends_at)
           }))
         );
       } else {
@@ -215,7 +226,9 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
             linkType: 'series',
             linkTarget: '',
             desktop_url: '',
-            mobile_url: ''
+            mobile_url: '',
+            startsAt: '',
+            endsAt: ''
           }
         ]);
       }
@@ -738,6 +751,14 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
           )}`
         : `/?view=shop`;
 
+      // Automatically pre-fill slide schedule from the selected Store Drop's schedule if available!
+      const autoStartsAt = selectedStudioProduct?.available_from
+        ? toSlideLocalInput(selectedStudioProduct.available_from)
+        : undefined;
+      const autoEndsAt = selectedStudioProduct?.available_until
+        ? toSlideLocalInput(selectedStudioProduct.available_until)
+        : undefined;
+
       setSlides(prev =>
         prev.map((s: any) =>
           s.id === slideId
@@ -746,7 +767,9 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
                 desktop_url: desktopFinalUrl,
                 mobile_url: mobileFinalUrl,
                 linkType: 'external',
-                linkTarget: storeLink
+                linkTarget: storeLink,
+                startsAt: autoStartsAt || s.startsAt || '',
+                endsAt: autoEndsAt || s.endsAt || ''
               }
             : s
         )
@@ -769,7 +792,9 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
         linkType: 'series',
         linkTarget: '',
         desktop_url: '',
-        mobile_url: ''
+        mobile_url: '',
+        startsAt: '',
+        endsAt: ''
       }
     ]);
     markDirty();
@@ -958,11 +983,18 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
           desktop_url: slide.desktop_url,
           mobile_url: slide.mobile_url,
           link_type: slide.linkType || 'series',
-          link_target: slide.linkTarget || ''
+          link_target: slide.linkTarget || '',
+          starts_at: slide.startsAt ? new Date(slide.startsAt).toISOString() : null,
+          ends_at: slide.endsAt ? new Date(slide.endsAt).toISOString() : null
         }));
 
       if (validSlides.length > 0) {
-        const { error: slideInsErr } = await supabase.from('hero_slides').insert(validSlides);
+        let { error: slideInsErr } = await supabase.from('hero_slides').insert(validSlides);
+        if (slideInsErr && String(slideInsErr.message || '').includes('starts_at')) {
+          const fallbackSlides = validSlides.map(({ starts_at, ends_at, ...rest }: any) => rest);
+          const retry = await supabase.from('hero_slides').insert(fallbackSlides);
+          slideInsErr = retry.error;
+        }
         if (slideInsErr) throw slideInsErr;
       }
 
@@ -1234,7 +1266,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
             <LayoutGrid className="w-4 h-4 text-[#fe9a00]" /> Home Page Layout &amp; Hero Editor
           </h2>
           <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mt-0.5">
-            Upload custom banners or auto-generate edge-to-edge PC &amp; Mobile WebP banners from any Store Drop in 1 click!
+            Upload custom banners, schedule automatic start/end swaps, or auto-generate PC &amp; Mobile WebP banners from any Store Drop!
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -1268,7 +1300,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
                 Hero Banner Slideshow ({slides.length} Slides)
               </h3>
               <p className="text-[10px] text-zinc-400 font-bold">
-                Upload custom banners OR click &ldquo;Auto-Build from Store Drop&rdquo; on any slide to frame PC (3:1) &amp; Mobile (2:3) banners!
+                Upload custom banners OR click &ldquo;Auto-Build from Store Drop&rdquo; on any slide — plus set optional Go Live / Auto-End swap times!
               </p>
             </div>
           </div>
@@ -1284,6 +1316,11 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
         <div className="space-y-5">
           {slides.map((slide: any, index: number) => {
             const isStudioOpen = activeStudioSlideId === slide.id;
+            const nowMs = Date.now();
+            const startMs = slide.startsAt ? new Date(slide.startsAt).getTime() : null;
+            const endMs = slide.endsAt ? new Date(slide.endsAt).getTime() : null;
+            const isScheduledFuture = Boolean(startMs && !isNaN(startMs) && startMs > nowMs);
+            const isExpiredSlide = Boolean(endMs && !isNaN(endMs) && endMs <= nowMs);
 
             return (
               <div
@@ -1291,10 +1328,21 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
                 className="bg-black border border-zinc-800 p-4 rounded-xl relative group space-y-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[10px] font-black text-[#fe9a00] uppercase tracking-widest bg-[#fe9a00]/10 border border-[#fe9a00]/30 px-2.5 py-1 rounded">
                       Slide #{index + 1}
                     </span>
+
+                    {isScheduledFuture && (
+                      <span className="text-[9px] font-black uppercase tracking-widest bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-2.5 py-1 rounded">
+                        🗓️ Scheduled ({new Date(slide.startsAt).toLocaleString()})
+                      </span>
+                    )}
+                    {isExpiredSlide && (
+                      <span className="text-[9px] font-black uppercase tracking-widest bg-zinc-900 text-zinc-400 border border-zinc-700 px-2.5 py-1 rounded">
+                        Ended ({new Date(slide.endsAt).toLocaleString()})
+                      </span>
+                    )}
 
                     <button
                       type="button"
@@ -1469,7 +1517,6 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
                     {/* SEPARATE PC (3:1) & MOBILE (2:3) CROP SLIDERS + SIDE-BY-SIDE PREVIEWS */}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start pt-2 border-t border-zinc-800">
                       <div className="lg:col-span-5 bg-black/70 border border-zinc-800 rounded-xl p-4 space-y-4">
-                        {/* Device Switcher Tabs for Crop Sliders */}
                         <div className="grid grid-cols-2 gap-1.5 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
                           <button
                             type="button"
@@ -1729,7 +1776,7 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
                         </button>
                       </div>
 
-                      {/* LIVE PREVIEWS (CLICK EITHER PREVIEW TO SWITCH ACTIVE SLIDERS) */}
+                      {/* LIVE PREVIEWS */}
                       <div className="lg:col-span-7 space-y-4">
                         <div className="space-y-1.5">
                           <div className="flex items-center justify-between">
@@ -1835,6 +1882,32 @@ export const HomeEditor = ({ Dropzone, setIsDirty, onDirty, onClean }: any) => {
                         ))}
                       </select>
                     )}
+                  </div>
+                </div>
+
+                {/* OPTIONAL SCHEDULE START / AUTO-END TIMERS */}
+                <div className="border-t border-zinc-800 pt-3 mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[9px] font-black uppercase tracking-widest text-emerald-400 mb-1">
+                      <Calendar className="w-3 h-3 inline mr-1" /> Go Live At (Optional Auto-Start)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={slide.startsAt || ''}
+                      onChange={e => updateSlide(slide.id, 'startsAt', e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-white text-xs font-bold focus:border-[#fe9a00]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-black uppercase tracking-widest text-amber-400 mb-1">
+                      <Calendar className="w-3 h-3 inline mr-1" /> Auto-End At (Optional Expiry)
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={slide.endsAt || ''}
+                      onChange={e => updateSlide(slide.id, 'endsAt', e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-white text-xs font-bold focus:border-[#fe9a00]"
+                    />
                   </div>
                 </div>
               </div>

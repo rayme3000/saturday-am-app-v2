@@ -13,6 +13,7 @@ import { ModerationDashboard } from './ModerationDashboard';
 import { UserManager } from './UserManager';
 import { StoreManager } from './StoreManager';
 import { ShopifyAssetGen } from './ShopifyAssetGen';
+import { LeaderboardPrizeManager } from './LeaderboardPrizeManager';
 import { CreatorPayoutTracker } from './CreatorPayoutTracker';
 import { resolveCreatorStripeAccountId } from '../MainViews/CreatorsPage';
 import { supabase } from '../supabase';
@@ -3439,7 +3440,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
   >('avatars');
   const [usersSubTab, setUsersSubTab] = useState<'users' | 'moderation' | 'accesskeys'>('users');
   const [marketingSubTab, setMarketingSubTab] = useState<
-    'store' | 'shopify_assets' | 'accesskeys' | 'adstudio' | 'upsells' | 'hype' | 'notifications'
+    'store' | 'prizes' | 'shopify_assets' | 'accesskeys' | 'adstudio' | 'upsells' | 'hype' | 'notifications'
   >('store');
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedWarning(isDirty);
@@ -3705,6 +3706,17 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
                 </button>
                 <button
                   type="button"
+                  onClick={() => setMarketingSubTab('prizes')}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
+                    marketingSubTab === 'prizes'
+                      ? 'bg-[#fe9a00] text-black shadow-[0_0_15px_rgba(254,154,0,0.3)]'
+                      : 'bg-black text-emerald-400 hover:text-white border border-emerald-500/40'
+                  }`}
+                >
+                  <Gift className="w-3.5 h-3.5" /> Banner &amp; Contest Studio
+                </button>
+                <button
+                  type="button"
                   onClick={() => setMarketingSubTab('shopify_assets')}
                   className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all cursor-pointer ${
                     marketingSubTab === 'shopify_assets'
@@ -3712,7 +3724,7 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
                       : 'bg-black text-emerald-400 hover:text-white border border-emerald-500/40'
                   }`}
                 >
-                  <Layers className="w-3.5 h-3.5" /> Shopify Banner & Mockup Maker
+                  <Layers className="w-3.5 h-3.5" /> Shopify Banner &amp; Mockup Maker
                 </button>
                 <button
                   type="button"
@@ -3772,6 +3784,9 @@ export const AdminDashboard = ({ onBack, Dropzone, ThumbnailCropperModal }: any)
               </div>
 
               {marketingSubTab === 'store' && <StoreManager setIsDirty={setIsDirty} />}
+              {marketingSubTab === 'prizes' && (
+           <LeaderboardPrizeManager Dropzone={Dropzone} setIsDirty={setIsDirty} />
+         )}
               {marketingSubTab === 'shopify_assets' && <ShopifyAssetGen />}
               {marketingSubTab === 'accesskeys' && <PromoCodeManager />}
               {marketingSubTab === 'adstudio' && (

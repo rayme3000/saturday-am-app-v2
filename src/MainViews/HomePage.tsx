@@ -128,6 +128,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   const [notifications, setNotifications] = useState<any[]>(memNotifications || []);
   const [showNotifications, setShowNotifications] = useState(false);
   const [dismissedNotifs, setDismissedNotifs] = useState<string[]>([]);
+  const [personalWinnerNotifs, setPersonalWinnerNotifs] = useState<any[]>([]);
 
   const [forceTutorial, setForceTutorial] = useState(false);
   const [isRefreshingApp, setIsRefreshingApp] = useState(false);
@@ -192,6 +193,49 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
       document.removeEventListener('visibilitychange', handleFocusOrVisibility);
     };
   }, [currentUser?.id, nowTick]);
+
+  // Check if currentUser won a Top 5 Monthly Contest spot to trigger the Gold Notification Dot
+  useEffect(() => {
+    if (!currentUser?.id) {
+      setPersonalWinnerNotifs([]);
+      return;
+    }
+
+    supabase
+      .from('app_settings')
+      .select('leaderboard_prizes_config')
+      .eq('id', 1)
+      .maybeSingle()
+      .then(({ data }) => {
+        const history = data?.leaderboard_prizes_config?.pastWinnersHistory;
+        if (!Array.isArray(history)) return;
+
+        const myWins: any[] = [];
+        history.slice(0, 6).forEach((monthEntry: any) => {
+          const winners = Array.isArray(monthEntry?.winners) ? monthEntry.winners : [];
+          const foundMe = winners.find(
+            (w: any) => String(w.user_id || w.id) === String(currentUser.id)
+          );
+          if (foundMe) {
+            const winKey = `contest_win_${monthEntry.monthKey}_${currentUser.id}`;
+            myWins.push({
+              id: winKey,
+              dedupeKey: winKey,
+              isContestWinnerNotif: true,
+              title: `🏆 Congrats! Rank #${foundMe.rank} in ${monthEntry.monthLabel}!`,
+              message: `You finished #${foundMe.rank} in the ${monthEntry.monthLabel} Monthly Fandom Prize Pool (${foundMe.prizeTitle || 'Top 5 Winner'})! Your digital rewards have been unlocked in your Profile & Bingo Book!`,
+              thumbnail_url:
+                foundMe.avatar_url ||
+                'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/other%20icons/AM%20Hype%20icon%20full.png',
+              navPayload: { action: 'profile', openLoadoutTab: 'card' },
+              publish_at: monthEntry.finalizedAt || new Date().toISOString(),
+              created_at: monthEntry.finalizedAt || new Date().toISOString()
+            });
+          }
+        });
+        setPersonalWinnerNotifs(myWins);
+      });
+  }, [currentUser?.id]);
 
   // --- UNIFIED CODE & PIN REDEEMER ---
   const handleUniversalCodeSubmit = async (e: React.FormEvent) => {
@@ -277,7 +321,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     return () => clearInterval(interval);
   }, []);
 
-  // Tick every second for ALL users whenever any One-Shot Wednesday story is unlocked so the timer badge counts down live and removes the story the instant the window ends
   useEffect(() => {
     const hasActiveFreeOneshot = seriesList.some((s: any) => isActiveOneShotWednesday(s, seriesList));
     if (!hasActiveFreeOneshot) return;
@@ -445,10 +488,30 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     const unifiedMap = new Map<string, any>();
     const isDismissed = (key: string) => dismissedNotifs.includes(key);
 
+    // 1. Personal Monthly Contest Winner Notifications (Gold Dot!)
+    personalWinnerNotifs.forEach((wn: any) => {
+      if (!isDismissed(String(wn.id)) && !isDismissed(String(wn.dedupeKey))) {
+        unifiedMap.set(wn.dedupeKey, wn);
+      }
+    });
+
     notifications.forEach((n: any) => {
       if (!n || !n.id || !n.title) return;
       const sourceKey = String(n.source_key || '');
-      if (sourceKey.startsWith('chapter_')) {
+      if (sourceKey.startsWith('winner_')) {
+        const parts = sourceKey.split('_');
+        const targetUid = parts.slice(2).join('_');
+        if (!currentUser?.id || String(currentUser.id) !== targetUid) return;
+        const dedupeKey = `custom_${n.id}`;
+        if (isDismissed(String(n.id)) || isDismissed(dedupeKey)) return;
+        unifiedMap.set(dedupeKey, {
+          ...n,
+          id: String(n.id),
+          dedupeKey,
+          isContestWinnerNotif: true,
+          navPayload: { action: 'profile', openLoadoutTab: 'card' }
+        });
+      } else if (sourceKey.startsWith('chapter_')) {
         const chapId = sourceKey.replace('chapter_', '');
         const matchedChap = chaptersById.get(chapId);
         if (!matchedChap || !matchedChap.is_published) return;
@@ -596,10 +659,19 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     });
 
     return Array.from(unifiedMap.values())
-      .sort((a, b) => new Date(b.publish_at || b.created_at || 0).getTime() - new Date(a.publish_at || a.created_at || 0).getTime())
+      .sort((a, b) => {
+        if (a.isContestWinnerNotif && !b.isContestWinnerNotif) return -1;
+        if (!a.isContestWinnerNotif && b.isContestWinnerNotif) return 1;
+        return new Date(b.publish_at || b.created_at || 0).getTime() - new Date(a.publish_at || a.created_at || 0).getTime();
+      })
       .slice(0, 20);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notifications, visibleLatestChapters, latestChapters, recentCreators, recentCharacters, cardSkins, vaultAvatars, vaultFrames, seriesList, dismissedNotifs, nowTick, isPlusSubscriber]);
+  }, [notifications, personalWinnerNotifs, visibleLatestChapters, latestChapters, recentCreators, recentCharacters, cardSkins, vaultAvatars, vaultFrames, seriesList, dismissedNotifs, nowTick, isPlusSubscriber, currentUser?.id]);
+
+  const hasUnreadWinnerGoldNotif = useMemo(
+    () => visibleNotifications.some((n: any) => Boolean(n.isContestWinnerNotif)),
+    [visibleNotifications]
+  );
 
   const fetchGlobalNotifications = async () => {
     try {
@@ -633,7 +705,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           { data: creatorsData },
           { data: charsData }
         ] = await Promise.all([
-          supabase.from('hero_slides').select('id, desktop_url, mobile_url, link_type, link_target').order('id', { ascending: true }),
+          supabase.from('hero_slides').select('*').order('id', { ascending: true }),
           supabase.from('home_sections').select('title, display_order').order('display_order', { ascending: true }),
           supabase
             .from('chapters')
@@ -646,7 +718,15 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           fetchGlobalNotifications()
         ]);
 
-        if (slideData) { setHeroSlides(slideData); memHeroSlides = slideData; }
+        if (slideData) {
+          // Only show Home slides on the Home Page (keeps `leaderboard::` contest banners exclusively on Leaderboard!)
+          const homeOnlySlides = slideData.filter((s: any) => {
+            const lt = String(s.link_type || 'series');
+            return !lt.includes('::') || lt.startsWith('home::');
+          });
+          setHeroSlides(homeOnlySlides);
+          memHeroSlides = homeOnlySlides;
+        }
         if (sectionData) { setHomeSections(sectionData); memHomeSections = sectionData; }
         if (chapData) { setLatestChapters(chapData); memLatestChapters = chapData; }
         if (creatorsData) { setRecentCreators(creatorsData); memRecentCreators = creatorsData; }
@@ -756,8 +836,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           if (chapterData) chapters = chapterData;
         }
 
-        // Since `history` is ordered by `updated_at DESC`, the first entry we see for each `series_slug`
-        // is the latest chapter and page the user was reading in that series.
         const seenSeriesSlugs = new Set<string>();
         const combined: any[] = [];
 
@@ -777,10 +855,8 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
             continue;
           }
 
-          // Mark this series as seen so older chapters of the same series never repeat in Jump Back In
           seenSeriesSlugs.add(slug);
 
-          // If the user's most recent chapter in this series was completed, hide the series from Jump Back In
           if (compSet.has(chapIdStr)) continue;
           const totalPages = Number(chap.page_count || 0);
           if (totalPages > 1 && Number(h.page_index || 0) >= totalPages - 1) {
@@ -820,10 +896,40 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
     };
   }, [seriesList, isLoading, currentUser, isPlusSubscriber]);
 
+  // Automatically filter Home Hero Slides by optional `starts_at` & `ends_at` schedule timestamps!
+  const activeHeroSlides = useMemo(() => {
+    const now = Date.now();
+    const filtered = heroSlides.filter((s: any) => {
+      if (s.starts_at) {
+        const startMs = new Date(s.starts_at).getTime();
+        if (!isNaN(startMs) && now < startMs) return false;
+      }
+      if (s.ends_at) {
+        const endMs = new Date(s.ends_at).getTime();
+        if (!isNaN(endMs) && now > endMs) return false;
+      }
+      return true;
+    });
+    return filtered.length > 0 ? filtered : heroSlides.filter((s: any) => !s.starts_at);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heroSlides, nowTick]);
+
   useEffect(() => {
-    const timer = setInterval(() => setCurrentSlide(prev => (heroSlides.length > 0 ? (prev + 1) % heroSlides.length : 0)), 9000);
+    if (currentSlide >= activeHeroSlides.length && activeHeroSlides.length > 0) {
+      setCurrentSlide(0);
+    }
+  }, [activeHeroSlides.length, currentSlide]);
+
+  useEffect(() => {
+    const timer = setInterval(
+      () =>
+        setCurrentSlide(prev =>
+          activeHeroSlides.length > 0 ? (prev + 1) % activeHeroSlides.length : 0
+        ),
+      9000
+    );
     return () => clearInterval(timer);
-  }, [heroSlides.length]);
+  }, [activeHeroSlides.length]);
 
   useEffect(() => {
     const handleInstantLogout = () => {
@@ -837,10 +943,13 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
   }, []);
 
   const handleSlideClick = (slide: any) => {
-    trackEvent('banner_click', { target: slide.link_target, link_type: slide.link_type });
+    const rawType = String(slide.link_type || 'series');
+    const actualType = rawType.includes('::') ? rawType.split('::')[1] : rawType;
+    trackEvent('banner_click', { target: slide.link_target, link_type: actualType });
     if (!slide.link_target) return;
-    if (slide.link_type === 'external') window.open(slide.link_target, '_blank', 'noopener,noreferrer');
-    else if (slide.link_type === 'series') {
+    if (actualType === 'external') {
+      window.open(slide.link_target, '_blank', 'noopener,noreferrer');
+    } else if (actualType === 'series') {
       const matchedSeries = seriesList.find((s: any) => s.slug === slide.link_target);
       if (matchedSeries && !matchedSeries.is_hidden) onNavigate(matchedSeries);
     }
@@ -1068,7 +1177,16 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           <div className="relative">
             <button onClick={() => setShowNotifications(!showNotifications)} className="p-2 bg-zinc-900 border border-zinc-700 rounded-full hover:bg-[#fe9a00] hover:border-[#fe9a00] group transition-all relative cursor-pointer">
               <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 group-hover:text-black transition-colors" />
-              {visibleNotifications.length > 0 && <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-zinc-900 animate-pulse" />}
+              {visibleNotifications.length > 0 && (
+                hasUnreadWinnerGoldNotif ? (
+                  <span
+                    title="You won a Monthly Leaderboard Prize!"
+                    className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-gradient-to-tr from-yellow-300 via-[#fe9a00] to-amber-500 rounded-full border-2 border-black shadow-[0_0_12px_rgba(254,154,0,1)] animate-bounce"
+                  />
+                ) : (
+                  <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-zinc-900 animate-pulse" />
+                )
+              )}
             </button>
             {showNotifications && (
               <>
@@ -1089,12 +1207,36 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                       </div>
                     ) : (
                       visibleNotifications.map(n => (
-                        <div key={n.id} onClick={() => handleNotificationClick(n)} className="relative group p-4 border-b border-zinc-800/50 hover:bg-zinc-800 cursor-pointer flex gap-3.5 transition-colors pr-10">
+                        <div
+                          key={n.id}
+                          onClick={() => handleNotificationClick(n)}
+                          className={`relative group p-4 border-b cursor-pointer flex gap-3.5 transition-colors pr-10 ${
+                            n.isContestWinnerNotif
+                              ? 'bg-gradient-to-r from-amber-950/80 via-zinc-900 to-black border-[#fe9a00] hover:from-amber-900/80 shadow-[inset_0_0_20px_rgba(254,154,0,0.25)]'
+                              : 'border-zinc-800/50 hover:bg-zinc-800'
+                          }`}
+                        >
                           <button onClick={e => handleDismissNotif(e, n)} className="absolute top-2 right-2 p-1.5 text-zinc-600 hover:text-red-500 opacity-0 group-hover:opacity-100 rounded-full z-10 cursor-pointer"><X className="w-4 h-4" /></button>
-                          {n.thumbnail_url && <img src={n.thumbnail_url} className="w-12 h-12 rounded object-cover flex-shrink-0 border border-zinc-700 bg-black" alt="Notification" />}
+                          {n.thumbnail_url && (
+                            <img
+                              src={n.thumbnail_url}
+                              className={`w-12 h-12 rounded object-cover flex-shrink-0 border bg-black ${
+                                n.isContestWinnerNotif ? 'border-2 border-[#fe9a00] shadow-[0_0_10px_rgba(254,154,0,0.7)]' : 'border-zinc-700'
+                              }`}
+                              alt="Notification"
+                            />
+                          )}
                           <div className="flex flex-col justify-center w-full min-w-0">
-                            <span className="text-white font-black text-xs uppercase tracking-wider truncate">{n.title}</span>
-                            <span className="text-zinc-300 text-[10px] font-bold mt-1 line-clamp-2">{n.message}</span>
+                            <span
+                              className={`font-black text-xs uppercase tracking-wider truncate ${
+                                n.isContestWinnerNotif ? 'text-[#fe9a00]' : 'text-white'
+                              }`}
+                            >
+                              {n.title}
+                            </span>
+                            <span className="text-zinc-200 text-[10px] font-bold mt-1 line-clamp-3">
+                              {n.message}
+                            </span>
                           </div>
                         </div>
                       ))
@@ -1117,23 +1259,23 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
           <TutorialHelpButton onClick={() => setForceTutorial(true)} />
         </div>
 
-        {/* Hero Banner Carousel with Left/Right Arrows */}
+        {/* Hero Banner Carousel with Left/Right Arrows & Scheduled Auto-Swaps */}
         <div className="mb-8 w-full flex flex-col items-center">
           <div className="w-full relative overflow-hidden rounded-lg mb-4 aspect-[2/3] md:aspect-[3/1] bg-zinc-900/80 border border-zinc-800/50 shadow-xl group">
-            {heroSlides.map((slide, index) => (
+            {activeHeroSlides.map((slide, index) => (
               <div key={slide.id} onClick={() => handleSlideClick(slide)} className={`absolute inset-0 transition-opacity duration-1000 ease-in-out cursor-pointer ${index === currentSlide ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}>
                 <img src={slide.mobile_url} alt={`Slide ${index}`} className="md:hidden w-full h-full object-cover" />
                 <img src={slide.desktop_url} alt={`Slide ${index}`} className="hidden md:block w-full h-full object-cover" />
               </div>
             ))}
 
-            {heroSlides.length > 1 && (
+            {activeHeroSlides.length > 1 && (
               <>
                 <button
                   type="button"
                   onClick={e => {
                     e.stopPropagation();
-                    setCurrentSlide(prev => (prev - 1 + heroSlides.length) % heroSlides.length);
+                    setCurrentSlide(prev => (prev - 1 + activeHeroSlides.length) % activeHeroSlides.length);
                   }}
                   aria-label="Previous slide"
                   className="absolute left-3 top-1/2 -translate-y-1/2 z-30 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/75 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center transition-all shadow-lg cursor-pointer"
@@ -1144,7 +1286,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                   type="button"
                   onClick={e => {
                     e.stopPropagation();
-                    setCurrentSlide(prev => (prev + 1) % heroSlides.length);
+                    setCurrentSlide(prev => (prev + 1) % activeHeroSlides.length);
                   }}
                   aria-label="Next slide"
                   className="absolute right-3 top-1/2 -translate-y-1/2 z-30 w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-black/75 hover:bg-[#fe9a00] text-white hover:text-black border border-zinc-700 hover:border-[#fe9a00] flex items-center justify-center transition-all shadow-lg cursor-pointer"
@@ -1153,7 +1295,7 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
                 </button>
 
                 <div className="absolute bottom-4 left-0 right-0 z-20 flex justify-center gap-2">
-                  {heroSlides.map((_, index) => (
+                  {activeHeroSlides.map((_, index) => (
                     <button key={index} onClick={e => { e.stopPropagation(); setCurrentSlide(index); }} className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${index === currentSlide ? 'bg-[#fe9a00] w-6' : 'bg-white/50 w-1.5 hover:bg-white'}`} />
                   ))}
                 </div>
@@ -1306,7 +1448,6 @@ export const HomePage = ({ onNavigate, onLoginClick, onMenuToggle, currentUser, 
         )}
 
         {(() => {
-          // Detect if today in Eastern Time (America/New_York) is Monday (1), Wednesday (3), or Saturday (6)
           const getEstCalendarInfo = (d: Date) => {
             try {
               const parts = new Intl.DateTimeFormat('en-US', {
