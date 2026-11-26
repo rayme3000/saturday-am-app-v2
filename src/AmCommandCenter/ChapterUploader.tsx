@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BookOpen,
   X,
@@ -50,7 +51,13 @@ const navigateToReleaseSchedulerTab = () => {
   }
 };
 
-export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, onDirty, onClean }: any) => {
+export const ChapterUploader = ({
+  Dropzone,
+  ThumbnailCropperModal,
+  setIsDirty,
+  onDirty,
+  onClean
+}: any) => {
   const { seriesList = [] } = useSeriesData();
   const [targetSeries, setTargetSeries] = useState('');
   const [targetChapter, setTargetChapter] = useState('new');
@@ -59,6 +66,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const loadedChapterIdRef = useRef<string>('new');
+  const autoSelectedSeriesRef = useRef<string>('');
 
   const [cropSourceImage, setCropSourceImage] = useState<string | null>(null);
   const [cropTarget, setCropTarget] = useState<'thumbnail' | 'shareZone'>('thumbnail');
@@ -134,7 +142,18 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
         .select('*')
         .eq('series_slug', targetSeries)
         .order('chapter_number', { ascending: false });
-      if (data) setExistingChapters(data);
+      if (data) {
+        setExistingChapters(data);
+        // Auto-select single-chapter series (like One-Shots) on initial series selection
+        if (
+          data.length === 1 &&
+          autoSelectedSeriesRef.current !== targetSeries
+        ) {
+          autoSelectedSeriesRef.current = targetSeries;
+          loadedChapterIdRef.current = '';
+          setTargetChapter(String(data[0].id));
+        }
+      }
     };
     fetchChapters();
   }, [targetSeries, refreshKey]);
@@ -197,11 +216,11 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
   }, [targetChapter, existingChapters, targetSeries]);
 
   useEffect(() => {
+    autoSelectedSeriesRef.current = '';
     loadedChapterIdRef.current = 'new';
     setTargetChapter('new');
   }, [targetSeries]);
 
-  // Safely appends a newly uploaded chapter onto the end of the series' existing schedule without touching other chapters!
   const computeNextScheduledIsoForNewChapter = (): string => {
     const assignedTrack = getAssignedTrackForSeries(targetSeries);
     const now = Date.now();
@@ -641,160 +660,171 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
 
   return (
     <div className="space-y-6 animate-fade-in-up relative">
-      {replacingPageIndex !== null && (
-        <div
-          className="fixed inset-0 z-[7500] bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
-          onClick={() => setReplacingPageIndex(null)}
-        >
+      {replacingPageIndex !== null &&
+        typeof document !== 'undefined' &&
+        createPortal(
           <div
-            className="bg-zinc-900 border border-[#fe9a00] rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4"
-            onClick={e => e.stopPropagation()}
+            className="fixed inset-0 z-[99980] bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
+            onClick={() => setReplacingPageIndex(null)}
           >
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <h3 className="text-sm font-black uppercase tracking-widest text-[#fe9a00]">
-                Replace Page {replacingPageIndex + 1} Image
-              </h3>
-              <button
-                type="button"
-                onClick={() => setReplacingPageIndex(null)}
-                className="text-zinc-400 hover:text-white cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <p className="text-xs text-zinc-300 font-bold leading-relaxed">
-              Upload a replacement file for <strong className="text-white">Page {replacingPageIndex + 1}</strong>. It will swap right into slot #{replacingPageIndex + 1} without changing your other pages.
-            </p>
-            <Dropzone
-              label={`+ Upload Replacement for Page ${replacingPageIndex + 1}`}
-              height="p-8"
-              folderPath="manga-pages"
-              onUploadComplete={(urlOrUrls: any) =>
-                handleReplaceSinglePageUrl(replacingPageIndex, urlOrUrls)
-              }
-            />
-          </div>
-        </div>
-      )}
-
-      {activeHotspotPage !== null && (
-        <div
-          className={`fixed inset-0 z-[7000] bg-black/95 p-4 sm:p-6 animate-fade-in backdrop-blur-md ${
-            cropSourceImage ? 'hidden' : 'flex'
-          }`}
-        >
-          <div className="flex-1 flex justify-center items-center relative overflow-hidden bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 shadow-inner">
-            <div className="relative inline-block max-h-full max-w-full">
-              <img
-                src={formData.pages[activeHotspotPage]}
-                className="max-h-[85vh] object-contain cursor-crosshair border border-white/10"
-                onClick={handleImageClick}
-                draggable={false}
-                alt="Hotspot Target"
+            <div
+              className="bg-zinc-900 border border-[#fe9a00] rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                <h3 className="text-sm font-black uppercase tracking-widest text-[#fe9a00]">
+                  Replace Page {replacingPageIndex + 1} Image
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setReplacingPageIndex(null)}
+                  className="text-zinc-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-xs text-zinc-300 font-bold leading-relaxed">
+                Upload a replacement file for <strong className="text-white">Page {replacingPageIndex + 1}</strong>. It will swap right into slot #{replacingPageIndex + 1} without changing your other pages.
+              </p>
+              <Dropzone
+                label={`+ Upload Replacement for Page ${replacingPageIndex + 1}`}
+                height="p-8"
+                folderPath="manga-pages"
+                onUploadComplete={(urlOrUrls: any) =>
+                  handleReplaceSinglePageUrl(replacingPageIndex, urlOrUrls)
+                }
               />
-              {hotspots
-                .filter(h => h.page_index === activeHotspotPage && h.id !== hotspotDraft?.id)
-                .map(h => {
-                  const isShare = h.icon_type === 'share';
-                  return (
-                    <div
-                      key={h.id}
-                      onClick={e => {
-                        e.stopPropagation();
-                        setHotspotMode(h.icon_type || 'info');
-                        setHotspotDraft({ x: h.x_percent, y: h.y_percent, id: h.id });
-                        setHotspotForm({ content: h.content });
-                      }}
-                      style={{ top: `${h.y_percent}%`, left: `${h.x_percent}%` }}
-                      className={`absolute -ml-3 -mt-3 w-6 h-6 rounded-full flex items-center justify-center p-1 shadow-[0_0_15px_rgba(254,154,0,0.8)] group transition-transform hover:scale-110 cursor-pointer ${
-                        isShare
-                          ? 'bg-black border-2 border-red-500'
-                          : 'bg-black/80 backdrop-blur-md border border-[#fe9a00]'
-                      }`}
-                    >
-                      {isShare ? (
-                        <Share2 className="w-3 h-3 text-red-500" />
-                      ) : (
-                        <MapPin className="w-3.5 h-3.5 text-[#fe9a00]" />
-                      )}
-                      <button
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {activeHotspotPage !== null &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className={`fixed inset-0 z-[99970] bg-black/95 p-4 sm:p-6 animate-fade-in backdrop-blur-md ${
+              cropSourceImage ? 'hidden' : 'flex'
+            }`}
+          >
+            <div className="flex-1 flex justify-center items-center relative overflow-hidden bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 shadow-inner">
+              <div className="relative inline-block max-h-full max-w-full">
+                <img
+                  src={normalizeMangaPageUrl(formData.pages[activeHotspotPage])}
+                  className="max-h-[85vh] object-contain cursor-crosshair border border-white/10"
+                  onClick={handleImageClick}
+                  draggable={false}
+                  alt="Hotspot Target"
+                />
+                {hotspots
+                  .filter(h => h.page_index === activeHotspotPage && h.id !== hotspotDraft?.id)
+                  .map(h => {
+                    const isShare = h.icon_type === 'share';
+                    return (
+                      <div
+                        key={h.id}
                         onClick={e => {
-                          e.preventDefault();
                           e.stopPropagation();
-                          deleteHotspot(h.id);
+                          setHotspotMode(h.icon_type || 'info');
+                          setHotspotDraft({ x: h.x_percent, y: h.y_percent, id: h.id });
+                          setHotspotForm({ content: h.content });
                         }}
-                        className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg cursor-pointer"
+                        style={{ top: `${h.y_percent}%`, left: `${h.x_percent}%` }}
+                        className={`absolute -ml-3 -mt-3 w-6 h-6 rounded-full flex items-center justify-center p-1 shadow-[0_0_15px_rgba(254,154,0,0.8)] group transition-transform hover:scale-110 cursor-pointer ${
+                          isShare
+                            ? 'bg-black border-2 border-red-500'
+                            : 'bg-black/80 backdrop-blur-md border border-[#fe9a00]'
+                        }`}
                       >
-                        <X className="w-3 h-3" />
+                        {isShare ? (
+                          <Share2 className="w-3 h-3 text-red-500" />
+                        ) : (
+                          <MapPin className="w-3.5 h-3.5 text-[#fe9a00]" />
+                        )}
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            deleteHotspot(h.id);
+                          }}
+                          className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-lg cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+            <div className="w-80 ml-4 sm:ml-6 bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col shadow-2xl overflow-hidden shrink-0">
+              <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-black/50">
+                <h3 className="font-black uppercase tracking-widest text-[#fe9a00] text-xs">
+                  {hotspotMode === 'share' ? 'Hype Share Zone' : 'Author Comments'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveHotspotPage(null);
+                    setHotspotDraft(null);
+                  }}
+                  className="text-zinc-500 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-5 flex-1 flex flex-col overflow-y-auto">
+                {hotspotDraft ? (
+                  <div className="flex flex-col gap-4">
+                    {hotspotMode === 'info' ? (
+                      <textarea
+                        rows={8}
+                        value={hotspotForm.content}
+                        onChange={e => setHotspotForm({ content: e.target.value })}
+                        className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-xs"
+                        placeholder="Enter author notes..."
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCropTarget('shareZone');
+                          setCropSourceImage(normalizeMangaPageUrl(formData.pages[activeHotspotPage!]));
+                        }}
+                        className="w-full aspect-square flex flex-col items-center justify-center border-2 border-dashed border-zinc-700 bg-black/50 rounded-xl text-zinc-500 hover:text-[#fe9a00] cursor-pointer"
+                      >
+                        <Crop className="w-8 h-8 mb-2" />
+                        <span className="text-[10px] font-black uppercase">Crop Panel</span>
+                      </button>
+                    )}
+                    <div className="flex gap-2 mt-4">
+                      <button
+                        type="button"
+                        onClick={() => setHotspotDraft(null)}
+                        className="flex-1 bg-zinc-800 text-white font-black uppercase py-3 rounded text-[10px] cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveHotspot}
+                        disabled={isSaving}
+                        className="flex-1 bg-[#fe9a00] text-black font-black uppercase py-3 rounded text-[10px] cursor-pointer"
+                      >
+                        Save
                       </button>
                     </div>
-                  );
-                })}
-            </div>
-          </div>
-          <div className="w-80 ml-4 sm:ml-6 bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col shadow-2xl overflow-hidden shrink-0">
-            <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-black/50">
-              <h3 className="font-black uppercase tracking-widest text-[#fe9a00] text-xs">
-                {hotspotMode === 'share' ? 'Hype Share Zone' : 'Author Comments'}
-              </h3>
-              <button
-                onClick={() => {
-                  setActiveHotspotPage(null);
-                  setHotspotDraft(null);
-                }}
-                className="text-zinc-500 hover:text-white cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-5 flex-1 flex flex-col overflow-y-auto">
-              {hotspotDraft ? (
-                <div className="flex flex-col gap-4">
-                  {hotspotMode === 'info' ? (
-                    <textarea
-                      rows={8}
-                      value={hotspotForm.content}
-                      onChange={e => setHotspotForm({ content: e.target.value })}
-                      className="w-full bg-black border border-zinc-700 rounded p-3 text-white text-xs"
-                      placeholder="Enter author notes..."
-                    />
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setCropTarget('shareZone');
-                        setCropSourceImage(formData.pages[activeHotspotPage!]);
-                      }}
-                      className="w-full aspect-square flex flex-col items-center justify-center border-2 border-dashed border-zinc-700 bg-black/50 rounded-xl text-zinc-500 hover:text-[#fe9a00] cursor-pointer"
-                    >
-                      <Crop className="w-8 h-8 mb-2" />
-                      <span className="text-[10px] font-black uppercase">Crop Panel</span>
-                    </button>
-                  )}
-                  <div className="flex gap-2 mt-4">
-                    <button
-                      onClick={() => setHotspotDraft(null)}
-                      className="flex-1 bg-zinc-800 text-white font-black uppercase py-3 rounded text-[10px] cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={saveHotspot}
-                      disabled={isSaving}
-                      className="flex-1 bg-[#fe9a00] text-black font-black uppercase py-3 rounded text-[10px] cursor-pointer"
-                    >
-                      Save
-                    </button>
                   </div>
-                </div>
-              ) : (
-                <div className="flex-1 flex items-center justify-center border-2 border-dashed border-zinc-800 rounded-xl p-6 text-center text-[10px] font-black text-zinc-600 uppercase">
-                  Click page to place marker
-                </div>
-              )}
+                ) : (
+                  <div className="flex-1 flex items-center justify-center border-2 border-dashed border-zinc-800 rounded-xl p-6 text-center text-[10px] font-black text-zinc-600 uppercase">
+                    Click page to place marker
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
       {isPreviewOpen && (
         <MangaReader
@@ -805,63 +835,95 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
       )}
 
       {cropSourceImage && (
-        <div className="fixed inset-0 z-[9999]">
-          <ThumbnailCropperModal
-            imageUrl={cropSourceImage}
-            onCropComplete={(newUrl: any) => {
-              if (cropTarget === 'thumbnail') {
-                setFormData(prev => ({ ...prev, thumbnailUrl: newUrl }));
-                if (setIsDirty) setIsDirty(true);
-                if (onDirty) onDirty();
-              } else setHotspotForm({ content: newUrl });
-              setCropSourceImage(null);
-            }}
-            onCancel={() => setCropSourceImage(null)}
-          />
-        </div>
+        <ThumbnailCropperModal
+          imageUrl={normalizeMangaPageUrl(cropSourceImage)}
+          uploadFolder={cropTarget === 'thumbnail' ? 'chapter-thumbnails' : 'share-panels'}
+          onCropComplete={(newUrl: any) => {
+            if (cropTarget === 'thumbnail') {
+              setFormData(prev => ({
+                ...prev,
+                thumbnailUrl: newUrl,
+                thumbnailScale: 100,
+                thumbnailPosition: '50% 50%'
+              }));
+              if (setIsDirty) setIsDirty(true);
+              if (onDirty) onDirty();
+            } else {
+              setHotspotForm({ content: newUrl });
+            }
+            setCropSourceImage(null);
+          }}
+          onCancel={() => setCropSourceImage(null)}
+        />
       )}
 
-      {showPageSelector && (
-        <div
-          className="fixed inset-0 z-[6000] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-6"
-          onClick={() => setShowPageSelector(false)}
-        >
+      {showPageSelector &&
+        typeof document !== 'undefined' &&
+        createPortal(
           <div
-            className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl w-full max-w-5xl flex flex-col shadow-2xl"
-            onClick={e => e.stopPropagation()}
+            className="fixed inset-0 z-[99990] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 sm:p-6"
+            onClick={() => setShowPageSelector(false)}
           >
-            <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-4">
-              <div className="flex items-center gap-3">
-                <ImageIcon className="w-6 h-6 text-[#fe9a00]" />
-                <h3 className="text-lg font-black uppercase text-white tracking-widest">
-                  Select Thumbnail Source
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowPageSelector(false)}
-                className="text-zinc-500 hover:text-white p-2 cursor-pointer"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-4 overflow-y-auto max-h-[60vh] p-2">
-              {formData.pages.map((url, i) => (
-                <div
-                  key={i}
-                  onClick={() => {
-                    setCropTarget('thumbnail');
-                    setCropSourceImage(url);
-                    setShowPageSelector(false);
-                  }}
-                  className="relative aspect-[2/3] rounded-lg overflow-hidden cursor-pointer border-2 border-zinc-800 hover:border-[#fe9a00]"
-                >
-                  <img src={url} className="w-full h-full object-cover" alt={`Pg ${i + 1}`} />
+            <div
+              className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl w-full max-w-5xl flex flex-col shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-6 border-b border-zinc-800 pb-4">
+                <div className="flex items-center gap-3">
+                  <ImageIcon className="w-6 h-6 text-[#fe9a00]" />
+                  <h3 className="text-lg font-black uppercase text-white tracking-widest">
+                    Select Thumbnail Source
+                  </h3>
                 </div>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => setShowPageSelector(false)}
+                  className="text-zinc-500 hover:text-white p-2 cursor-pointer"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {formData.pages.length === 0 ? (
+                <div className="py-16 text-center space-y-2">
+                  <p className="text-xs font-black uppercase tracking-widest text-[#fe9a00]">
+                    No Pages Loaded Yet
+                  </p>
+                  <p className="text-xs font-bold text-zinc-400">
+                    Click an uploaded chapter in the right-hand list first (or upload pages to this new chapter) to crop a thumbnail from pages.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-4 overflow-y-auto max-h-[60vh] p-2 custom-scrollbar">
+                  {formData.pages.map((url, i) => {
+                    const normalizedUrl = normalizeMangaPageUrl(url);
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => {
+                          setCropTarget('thumbnail');
+                          setCropSourceImage(normalizedUrl);
+                          setShowPageSelector(false);
+                        }}
+                        className="relative aspect-[2/3] rounded-lg overflow-hidden cursor-pointer border-2 border-zinc-800 hover:border-[#fe9a00] group"
+                      >
+                        <img
+                          src={normalizedUrl}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          alt={`Pg ${i + 1}`}
+                        />
+                        <span className="absolute bottom-1.5 left-1.5 px-2 py-0.5 rounded bg-black/85 border border-zinc-700 text-white text-[9px] font-black">
+                          PG {i + 1}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
       <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl shadow-md flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div className="flex-1">
@@ -1001,7 +1063,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
                   {formData.thumbnailUrl && (
                     <div className="relative group/thumb mb-4 rounded-lg overflow-hidden border border-zinc-700 aspect-square bg-black">
                       <img
-                        src={formData.thumbnailUrl}
+                        src={normalizeMangaPageUrl(formData.thumbnailUrl)}
                         className="w-full h-full object-cover"
                         style={{
                           objectPosition: formData.thumbnailPosition,
@@ -1014,7 +1076,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
                           type="button"
                           onClick={() => {
                             setCropTarget('thumbnail');
-                            setCropSourceImage(formData.thumbnailUrl);
+                            setCropSourceImage(normalizeMangaPageUrl(formData.thumbnailUrl));
                           }}
                           className="p-3 bg-black border border-zinc-700 text-[#fe9a00] rounded-full cursor-pointer"
                         >
@@ -1030,7 +1092,12 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
                         height="p-4"
                         folderPath="chapter-thumbnails"
                         onUploadComplete={(url: any) => {
-                          setFormData(prev => ({ ...prev, thumbnailUrl: url }));
+                          setFormData(prev => ({
+                            ...prev,
+                            thumbnailUrl: url,
+                            thumbnailScale: 100,
+                            thumbnailPosition: '50% 50%'
+                          }));
                           if (setIsDirty) setIsDirty(true);
                           if (onDirty) onDirty();
                         }}
@@ -1039,7 +1106,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
                     <button
                       type="button"
                       onClick={() => setShowPageSelector(true)}
-                      className="flex-shrink-0 flex flex-col items-center justify-center px-3 bg-black border border-zinc-700 text-zinc-400 rounded-lg hover:text-[#fe9a00] cursor-pointer"
+                      className="flex-shrink-0 flex flex-col items-center justify-center px-3 bg-black border border-zinc-700 text-zinc-400 rounded-lg hover:text-[#fe9a00] hover:border-[#fe9a00] cursor-pointer transition-colors"
                     >
                       <BookOpen className="w-4 h-4 mb-1" />
                       <span className="text-[8px] font-black uppercase text-center leading-tight">
@@ -1332,7 +1399,7 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
                                     onClick={e => {
                                       e.stopPropagation();
                                       setCropTarget('thumbnail');
-                                      setCropSourceImage(url);
+                                      setCropSourceImage(normalizeMangaPageUrl(url));
                                     }}
                                     className="p-1 bg-black/80 rounded text-zinc-300 hover:text-[#fe9a00] cursor-pointer"
                                     title="Crop as Chapter Thumbnail"
@@ -1456,8 +1523,9 @@ export const ChapterUploader = ({ Dropzone, ThumbnailCropperModal, setIsDirty, o
                     <div className="w-12 h-12 rounded-lg bg-zinc-800 overflow-hidden shrink-0">
                       <img
                         src={
-                          ch.thumbnail_url ||
-                          'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'
+                          ch.thumbnail_url
+                            ? normalizeMangaPageUrl(ch.thumbnail_url)
+                            : 'https://pub-180171f859f64aa7aadb7001a6b96e65.r2.dev/assets/placeholder-thumb.jpg'
                         }
                         className={`w-full h-full object-cover ${isPulled ? 'grayscale opacity-40' : ''}`}
                         alt="Thumb"
