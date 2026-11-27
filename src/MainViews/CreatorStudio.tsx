@@ -8,6 +8,7 @@ import {
 import { resolveCreatorStripeAccountId, normalizeCreatorKey } from './CreatorsPage';
 import { ThumbnailCropperModal } from '../Components/UploadTools';
 import { MangaReader, normalizeMangaPageUrl } from './MangaReader';
+import { analyzeCommentText } from '../Components/commentSafeguard';
 
 const MAX_AUTHOR_NOTES_PER_PAGE = 3;
 const MAX_SHARE_NODES_PER_PAGE = 1;
@@ -185,8 +186,20 @@ export const CREATOR_EXACT_SERIES_MAP: Record<string, string[]> = {
   'angelica rosales': ['yellow-stringer-annual-oneshot', 'yellow-stringer-annual-one-shot'],
   'austin harvey-younis': ['zarqa'],
   'vee': ['zarqa'],
-  'staniel russell': ['zephyr']
+  'staniel russell': ['zephyr'],
+  'david yoon': ['spoon', 'spoon-remastered', 'spoon-zero']
 };
+
+const GENERIC_PLACEHOLDER_AUTHORS = new Set([
+  'saturday am',
+  'saturdayam',
+  'unknown',
+  'tba',
+  'tbd',
+  'unassigned',
+  'creator',
+  'staff'
+]);
 
 const doesSeriesAuthorMatchCreator = (seriesAuthorRaw: string, creatorParts: string[]): boolean => {
   if (!seriesAuthorRaw) return false;
@@ -194,12 +207,18 @@ const doesSeriesAuthorMatchCreator = (seriesAuthorRaw: string, creatorParts: str
     .toLowerCase()
     .split(/[,&/•|]+|\band\b/i)
     .map(seg => normalizeCreatorKey(seg))
-    .filter(Boolean);
+    .filter(seg => seg && seg.length >= 3 && !GENERIC_PLACEHOLDER_AUTHORS.has(seg));
+
+  if (authorSegments.length === 0) return false;
 
   return creatorParts.some(part => {
     const cleanPart = normalizeCreatorKey(part);
-    if (!cleanPart || cleanPart.length < 3) return false;
-    return authorSegments.some(seg => seg === cleanPart || seg.includes(cleanPart) || cleanPart.includes(seg));
+    if (!cleanPart || cleanPart.length < 3 || GENERIC_PLACEHOLDER_AUTHORS.has(cleanPart)) {
+      return false;
+    }
+    return authorSegments.some(
+      seg => seg === cleanPart || seg.includes(cleanPart) || cleanPart.includes(seg)
+    );
   });
 };
 
@@ -212,6 +231,7 @@ interface StudioActivityItem {
   userName: string;
   avatarUrl?: string;
   seriesTitle: string;
+  seriesSlug?: string;
   seriesObj?: any;
   chapterId?: string;
   chapterNumber?: number;
@@ -220,6 +240,15 @@ interface StudioActivityItem {
   characterHeadshot?: string;
   text?: string;
   createdAt: string;
+  rawCommentId?: string;
+  commentSourceTable?: 'comments' | 'series_comments';
+  creatorLikedBy?: string | null;
+  existingReplies?: {
+    id: string;
+    authorName: string;
+    content: string;
+    createdAt: string;
+  }[];
 }
 
 const DEFAULT_VISIBLE_CHAPTERS = 10;
@@ -234,6 +263,155 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
   const [myCharacters, setMyCharacters] = useState<any[]>([]);
   const [rightPanelTab, setRightPanelTab] = useState<'activity' | 'tips'>('activity');
   const [activityFilter, setActivityFilter] = useState<ActivityFilterType>('all');
+  const [replyingPulseId, setReplyingPulseId] = useState<string | null>(null);
+  const [studioReplyText, setStudioReplyText] = useState<string>('');
+  const [submittingStudioReply, setSubmittingStudioReply] = useState<boolean>(false);
+  const [likingPulseId, setLikingPulseId] = useState<string | null>(null);
+
+  const handleStudioReplySubmit = async (item: StudioActivityItem) => {
+    if (!item.rawCommentId || !item.seriesSlug) return;
+    const cleanReply = studioReplyText.trim();
+    if (!cleanReply || submittingStudioReply) return;
+
+    const safeguard = analyzeCommentText(cleanReply);
+    if (safeguard.isBlocked) {
+      alert(safeguard.matches[0]?.reason || 'Please revise blocked phrasing before posting.');
+      return;
+    }
+
+    setSubmittingStudioReply(true);
+    try {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      const activeUid = currentUser?.id || user?.id;
+      if (!activeUid) throw new Error('Please sign in to reply.');
+
+      const authorLabel =
+        selectedCreatorName ||
+        currentUser?.linked_creator_name ||
+        currentUser?.username ||
+        'Official Creator';
+      const authorAvatar = creatorProfile?.avatar_url || currentUser?.avatar_url || '';
+
+      let savedReplyId = `reply_${Date.now()}`;
+      const { data: inserted, error: insErr } = await supabase
+        .from('comments')
+        .insert([
+          {
+            user_id: activeUid,
+            series_slug: item.seriesSlug,
+            chapter_id: item.chapterId || null,
+            parent_id: item.rawCommentId,
+            content: cleanReply,
+            status: 'approved',
+            flagged_reasons: []
+          }
+        ])
+        .select('id, created_at')
+        .single();
+
+      if (insErr) {
+        // Fallback for older legacy series_comments rows
+        const { data: legIns, error: legErr } = await supabase
+          .from('series_comments')
+          .insert([
+            {
+              series_slug: item.seriesSlug,
+              user_id: activeUid,
+              user_name: authorLabel,
+              avatar_url: authorAvatar,
+              text: cleanReply,
+              parent_id: item.rawCommentId,
+              is_flagged: false
+            }
+          ])
+          .select('id, created_at')
+          .single();
+        if (legErr) throw legErr;
+        if (legIns?.id) savedReplyId = String(legIns.id);
+      } else if (inserted?.id) {
+        savedReplyId = String(inserted.id);
+      }
+
+      setActivityFeed(prev =>
+        prev.map(ev =>
+          ev.id === item.id
+            ? {
+                ...ev,
+                existingReplies: [
+                  ...(ev.existingReplies || []),
+                  {
+                    id: savedReplyId,
+                    authorName: authorLabel,
+                    content: cleanReply,
+                    createdAt: new Date().toISOString()
+                  }
+                ]
+              }
+            : ev
+        )
+      );
+
+      setStudioReplyText('');
+      setReplyingPulseId(null);
+    } catch (err: any) {
+      alert('Unable to post reply: ' + (err.message || 'Please try again.'));
+    } finally {
+      setSubmittingStudioReply(false);
+    }
+  };
+
+  const handleStudioCreatorLike = async (item: StudioActivityItem) => {
+    if (!item.rawCommentId || likingPulseId) return;
+    setLikingPulseId(item.id);
+    try {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      const activeUid = currentUser?.id || user?.id;
+      if (!activeUid) return;
+
+      const creatorDisplayName =
+        selectedCreatorName ||
+        currentUser?.linked_creator_name ||
+        currentUser?.username ||
+        'Creator';
+      const creatorAvatar = creatorProfile?.avatar_url || currentUser?.avatar_url || '';
+      const alreadyLiked = Boolean(item.creatorLikedBy);
+      const delta = alreadyLiked ? -1 : 1;
+
+      if (item.commentSourceTable === 'comments') {
+        await supabase.rpc('toggle_comment_like', {
+          p_comment_id: item.rawCommentId,
+          p_delta: delta,
+          p_is_creator_or_staff: true,
+          p_creator_name: delta > 0 ? creatorDisplayName : null,
+          p_creator_avatar: delta > 0 ? creatorAvatar : null
+        });
+      } else {
+        await supabase
+          .from('series_comments')
+          .update({
+            creator_liked_by: delta > 0 ? creatorDisplayName : null,
+            creator_liked_avatar: delta > 0 ? creatorAvatar : null
+          })
+          .eq('id', item.rawCommentId);
+      }
+
+      setActivityFeed(prev =>
+        prev.map(ev =>
+          ev.id === item.id
+            ? { ...ev, creatorLikedBy: delta > 0 ? creatorDisplayName : null }
+            : ev
+        )
+      );
+    } catch (err) {
+      console.warn('Creator like note:', err);
+    } finally {
+      setLikingPulseId(null);
+    }
+  };
   const [referredAnnualCount, setReferredAnnualCount] = useState<number>(0);
 
   const [bingoPin, setBingoPin] = useState<string>('');
@@ -814,12 +992,22 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
 
       const cRows = (allCreatorRows || []).filter((r: any) => {
         const rRaw = String(r.name || r.creator_name || '').trim();
+        if (!rRaw) return false;
         const rKey = normalizeCreatorKey(rRaw);
         const rParen = rRaw.match(/^(.+?)\s*\((.+?)\)$/);
-        const rParts = rParen
-          ? [rKey, normalizeCreatorKey(rParen[1]), normalizeCreatorKey(rParen[2])]
-          : [rKey];
-        return nameParts.some(part => part && rParts.some(rp => rp === part || rp.includes(part) || part.includes(rp)));
+        const rParts = (
+          rParen
+            ? [rKey, normalizeCreatorKey(rParen[1]), normalizeCreatorKey(rParen[2])]
+            : [rKey]
+        ).filter(rp => rp && rp.length >= 3 && !GENERIC_PLACEHOLDER_AUTHORS.has(rp));
+
+        if (rParts.length === 0) return false;
+        return nameParts.some(
+          part =>
+            part &&
+            part.length >= 3 &&
+            rParts.some(rp => rp === part || rp.includes(part) || part.includes(rp))
+        );
       });
 
       const dbStripe = cRows.find((r: any) => r.stripe_account_id)?.stripe_account_id || '';
@@ -913,6 +1101,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
       const isErickCreator = nameParts.some(p => p.includes('erick') || p.includes('pedrucci') || p.includes('perducci'));
 
       const filteredSeries = (allSeries || []).filter((s: any) => {
+        if (s.is_hidden) return false;
         const sKeys = [
           ...getNormalizedSeriesKeys(s.slug),
           ...getNormalizedSeriesKeys(s.title)
@@ -962,19 +1151,31 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
           if (s.slug) seriesBySlugLower.set(String(s.slug).trim().toLowerCase(), s);
         });
 
-        const [{ data: chData }, { data: commData }, { data: charsData }] = await Promise.all([
+        const [
+          { data: chData },
+          { data: newTableCommData },
+          { data: commData },
+          { data: charsData }
+        ] = await Promise.all([
           supabase
             .from('chapters')
             .select('*')
             .in('series_slug', mySlugs)
             .order('chapter_number', { ascending: true }),
           supabase
+            .from('comments')
+            .select('*')
+            .in('series_slug', mySlugs)
+            .neq('status', 'rejected')
+            .order('created_at', { ascending: false })
+            .limit(80),
+          supabase
             .from('series_comments')
             .select('*')
             .in('series_slug', mySlugs)
             .eq('is_flagged', false)
             .order('created_at', { ascending: false })
-            .limit(35),
+            .limit(45),
           supabase
             .from('series_characters')
             .select('*')
@@ -1075,6 +1276,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
         const getResData = (res: PromiseSettledResult<any>): any[] =>
           res.status === 'fulfilled' && Array.isArray(res.value?.data) ? res.value.data : [];
 
+        const rawNewComments = newTableCommData || [];
         const rawSeriesComments = commData || [];
         const rawPageComments = getResData(pageCommentsRes);
         const rawSeriesHypes = getResData(seriesHypesRes);
@@ -1100,6 +1302,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
         const allUserIds = Array.from(
           new Set(
             [
+              ...rawNewComments.map((r: any) => r.user_id),
               ...rawSeriesComments.map((r: any) => r.user_id),
               ...rawPageComments.map((r: any) => r.user_id),
               ...rawSeriesHypes.map((r: any) => r.user_id),
@@ -1115,7 +1318,7 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
         if (allUserIds.length > 0) {
           const { data: uProfiles } = await supabase
             .from('profiles')
-            .select('id, username, first_name, last_name, email, avatar_url')
+            .select('id, username, first_name, last_name, email, avatar_url, linked_creator_name')
             .in('id', allUserIds);
           (uProfiles || []).forEach((p: any) => {
             profByUserId[p.id] = p;
@@ -1123,11 +1326,12 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
         }
 
         const resolveActorName = (userId?: string, savedName?: string) => {
+          const p = userId ? profByUserId[userId] : null;
+          if (p?.linked_creator_name) return String(p.linked_creator_name).trim();
           const cleanSaved = String(savedName || '').trim();
           if (cleanSaved && !['reader', 'user', 'anonymous'].includes(cleanSaved.toLowerCase())) {
             return cleanSaved;
           }
-          const p = userId ? profByUserId[userId] : null;
           if (p?.username && !['reader', 'user'].includes(String(p.username).toLowerCase())) {
             return p.username;
           }
@@ -1137,22 +1341,94 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
           return 'Saturday AM Fan';
         };
 
-        const unifiedItems: StudioActivityItem[] = [];
+        // Deduplicate & thread `comments` + legacy `series_comments` identically to SeriesCommentsSection
+        const seenCommentSigs = new Set<string>();
+        const mergedCommentsList: any[] = [];
 
-        rawSeriesComments.forEach((c: any) => {
-          const sObj = seriesBySlugLower.get(String(c.series_slug || '').toLowerCase());
-          unifiedItems.push({
-            id: `scomm_${c.id}`,
-            category: 'comments',
-            typeLabel: c.parent_id ? 'Replied in Discussion' : 'Commented on Series',
-            userName: resolveActorName(c.user_id, c.user_name),
-            avatarUrl: c.avatar_url || profByUserId[c.user_id]?.avatar_url,
-            seriesTitle: sObj?.title || c.series_slug,
-            seriesObj: sObj || { slug: c.series_slug, title: c.series_slug },
-            text: c.text,
-            createdAt: c.created_at || new Date().toISOString()
+        rawNewComments.forEach((nc: any) => {
+          const txt = String(nc.content || nc.text || '');
+          const sig = `${nc.user_id}_${txt.trim().slice(0, 60)}`;
+          if (!nc.parent_id) seenCommentSigs.add(sig);
+          mergedCommentsList.push({
+            id: String(nc.id),
+            user_id: nc.user_id,
+            series_slug: nc.series_slug,
+            chapter_id: nc.chapter_id ? String(nc.chapter_id) : undefined,
+            parent_id: nc.parent_id ? String(nc.parent_id) : null,
+            text: txt,
+            creator_liked_by: nc.creator_liked_by || null,
+            created_at: nc.created_at || new Date().toISOString(),
+            source_table: 'comments' as const
           });
         });
+
+        rawSeriesComments.forEach((lc: any) => {
+          const txt = String(lc.text || lc.content || '');
+          const sig = `${lc.user_id}_${txt.trim().slice(0, 60)}`;
+          if (!lc.parent_id && seenCommentSigs.has(sig)) return;
+          seenCommentSigs.add(sig);
+          mergedCommentsList.push({
+            id: String(lc.id),
+            user_id: lc.user_id,
+            user_name: lc.user_name,
+            avatar_url: lc.avatar_url,
+            series_slug: lc.series_slug,
+            chapter_id: undefined,
+            parent_id: lc.parent_id ? String(lc.parent_id) : null,
+            text: txt,
+            creator_liked_by: lc.creator_liked_by || null,
+            created_at: lc.created_at || new Date().toISOString(),
+            source_table: 'series_comments' as const
+          });
+        });
+
+        const repliesByParentMap = new Map<
+          string,
+          { id: string; authorName: string; content: string; createdAt: string }[]
+        >();
+        mergedCommentsList
+          .filter(c => Boolean(c.parent_id))
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+          .forEach(rep => {
+            const pid = String(rep.parent_id);
+            const list = repliesByParentMap.get(pid) || [];
+            list.push({
+              id: rep.id,
+              authorName: resolveActorName(rep.user_id, rep.user_name),
+              content: rep.text,
+              createdAt: rep.created_at
+            });
+            repliesByParentMap.set(pid, list);
+          });
+
+        const unifiedItems: StudioActivityItem[] = [];
+
+        mergedCommentsList
+          .filter(c => !c.parent_id)
+          .forEach((c: any) => {
+            const sObj = seriesBySlugLower.get(String(c.series_slug || '').toLowerCase());
+            const ch = c.chapter_id ? chapterByIdMap.get(String(c.chapter_id)) : null;
+            unifiedItems.push({
+              id: `comm_${c.source_table}_${c.id}`,
+              category: 'comments',
+              typeLabel: ch
+                ? `Commented on Ch. ${ch.chapter_number}`
+                : 'Commented on Series',
+              userName: resolveActorName(c.user_id, c.user_name),
+              avatarUrl: c.avatar_url || profByUserId[c.user_id]?.avatar_url,
+              seriesTitle: sObj?.title || c.series_slug,
+              seriesSlug: c.series_slug,
+              seriesObj: sObj || { slug: c.series_slug, title: c.series_slug },
+              chapterId: c.chapter_id,
+              chapterNumber: ch?.chapter_number,
+              text: c.text,
+              createdAt: c.created_at,
+              rawCommentId: String(c.id),
+              commentSourceTable: c.source_table,
+              creatorLikedBy: c.creator_liked_by || null,
+              existingReplies: repliesByParentMap.get(String(c.id)) || []
+            });
+          });
 
         rawPageComments.forEach((pc: any) => {
           const ch = chapterByIdMap.get(String(pc.chapter_id));
@@ -3200,32 +3476,126 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
                           </p>
                         )}
 
-                        <div className="flex items-center justify-between gap-2 pt-1">
+                        {item.existingReplies && item.existingReplies.length > 0 && (
+                          <div className="space-y-1.5 pl-2.5 border-l-2 border-[#fe9a00]/60 pt-0.5">
+                            {item.existingReplies.map(rep => (
+                              <div
+                                key={rep.id}
+                                className="bg-[#fe9a00]/10 border border-[#fe9a00]/30 rounded-lg px-2.5 py-1.5 text-[11px]"
+                              >
+                                <span className="font-black uppercase text-[#fe9a00] text-[9px] mr-1.5">
+                                  {rep.authorName}:
+                                </span>
+                                <span className="text-zinc-100 font-medium break-words">
+                                  {rep.content}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                           <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 truncate">
                             Series: <strong className="text-white">{item.seriesTitle}</strong>
                           </span>
 
-                          {item.seriesObj && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (item.chapterId) {
-                                  onNavigate({
-                                    ...item.seriesObj,
-                                    autoOpenChapterId: item.chapterId,
-                                    autoOpenPage: item.pageIndex || 0
-                                  });
-                                } else {
-                                  onNavigate(item.seriesObj);
-                                }
-                              }}
-                              className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] hover:text-white flex items-center gap-1 shrink-0 cursor-pointer"
-                            >
-                              <span>{item.chapterId ? 'Open Page' : 'Open Series'}</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </button>
-                          )}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {item.category === 'comments' && item.rawCommentId && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={likingPulseId === item.id}
+                                  onClick={() => handleStudioCreatorLike(item)}
+                                  className={`px-2 py-1 rounded-md border text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors cursor-pointer ${
+                                    item.creatorLikedBy
+                                      ? 'bg-red-500/20 border-red-500/50 text-red-300'
+                                      : 'bg-black hover:bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white'
+                                  }`}
+                                  title="Stamp 'Liked by Creator' on Series Page"
+                                >
+                                  <Heart
+                                    className={`w-2.5 h-2.5 ${
+                                      item.creatorLikedBy ? 'fill-red-500 text-red-500' : ''
+                                    }`}
+                                  />
+                                  <span>{item.creatorLikedBy ? 'Liked' : 'Like'}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (replyingPulseId === item.id) {
+                                      setReplyingPulseId(null);
+                                      setStudioReplyText('');
+                                    } else {
+                                      setReplyingPulseId(item.id);
+                                      setStudioReplyText('');
+                                    }
+                                  }}
+                                  className={`px-2.5 py-1 rounded-md border text-[8px] font-black uppercase tracking-wider flex items-center gap-1 transition-colors cursor-pointer ${
+                                    replyingPulseId === item.id
+                                      ? 'bg-[#fe9a00] text-black border-[#fe9a00]'
+                                      : 'bg-black hover:bg-[#fe9a00] text-[#fe9a00] hover:text-black border-[#fe9a00]/50'
+                                  }`}
+                                >
+                                  <MessageSquare className="w-2.5 h-2.5" />
+                                  <span>{replyingPulseId === item.id ? 'Cancel' : 'Reply'}</span>
+                                </button>
+                              </>
+                            )}
+
+                            {item.seriesObj && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (item.chapterId && item.category !== 'comments') {
+                                    onNavigate({
+                                      ...item.seriesObj,
+                                      autoOpenChapterId: item.chapterId,
+                                      autoOpenPage: item.pageIndex || 0
+                                    });
+                                  } else {
+                                    onNavigate(item.seriesObj);
+                                  }
+                                }}
+                                className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] hover:text-white flex items-center gap-1 shrink-0 cursor-pointer"
+                              >
+                                <span>
+                                  {item.chapterId && item.category !== 'comments'
+                                    ? 'Open Page'
+                                    : 'Open Series'}
+                                </span>
+                                <ExternalLink className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
+
+                        {replyingPulseId === item.id && (
+                          <div className="pt-2 space-y-2 border-t border-zinc-800/80 animate-fade-in">
+                            <textarea
+                              rows={2}
+                              autoFocus
+                              value={studioReplyText}
+                              onChange={e => setStudioReplyText(e.target.value)}
+                              placeholder={`Reply officially to @${item.userName}...`}
+                              className="w-full bg-black border border-[#fe9a00]/60 focus:border-[#fe9a00] rounded-lg px-2.5 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none resize-none"
+                            />
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[8px] font-black uppercase tracking-wider text-[#fe9a00]">
+                                ⚡ Posts with Official Creator Badge
+                              </span>
+                              <button
+                                type="button"
+                                disabled={!studioReplyText.trim() || submittingStudioReply}
+                                onClick={() => handleStudioReplySubmit(item)}
+                                className="px-3 py-1.5 rounded-lg bg-[#fe9a00] hover:bg-white text-black text-[9px] font-black uppercase tracking-widest transition-colors cursor-pointer disabled:opacity-40"
+                              >
+                                {submittingStudioReply ? 'Posting...' : 'Post Reply'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })

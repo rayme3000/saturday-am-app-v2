@@ -151,25 +151,25 @@ export const doesWeekMatchCadence = (
   cadence: CadencePattern,
   startWeekOffset: number
 ): boolean => {
-  if (weekNum < startWeekOffset) return false;
+  const offset = Math.max(1, startWeekOffset || 1);
+  if (weekNum < offset) return false;
+  const rel = weekNum - offset;
 
   switch (cadence) {
     case 'weekly':
       return true;
     case 'odd_weeks':
-      return weekNum % 2 === 1;
     case 'even_weeks':
-      return weekNum % 2 === 0;
-    case 'launch_then_even':
-      return weekNum === 1 || weekNum % 2 === 0;
     case 'launch_then_odd':
-      return weekNum % 2 === 1;
+      // Always start on the chosen Next Start Slot, then space every 2 weeks
+      return rel % 2 === 0;
+    case 'launch_then_even':
+      return rel === 0 || (rel >= 1 && (rel - 1) % 2 === 0);
     case 'first_3_then_monthly':
-      return weekNum <= 3 || (weekNum > 3 && (weekNum - 3) % 4 === 0);
+      return rel < 3 || (rel > 2 && (rel - 2) % 4 === 0);
     case 'monthly_w1':
-      return (weekNum - 1) % 4 === 0;
     case 'monthly_w4':
-      return weekNum % 4 === 0;
+      return rel % 4 === 0;
     default:
       return true;
   }
@@ -181,10 +181,26 @@ export const getUpcomingDatesForDay = (
 ): { weekNum: number; dateStr: string; label: string }[] => {
   const targetDow = dayType === 'MONDAY' ? 1 : dayType === 'WEDNESDAY' ? 3 : 6;
   const now = new Date();
-  const cursor = new Date();
-  cursor.setHours(0, 0, 0, 0);
 
-  if (cursor.getDay() === targetDow && now.getHours() >= 9) {
+  const estDateStr = formatDateInput(now);
+  const [ey, em, ed] = estDateStr.split('-').map(Number);
+  let estHour = now.getHours();
+  try {
+    const hrPart = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      hour12: false
+    })
+      .formatToParts(now)
+      .find(p => p.type === 'hour')?.value;
+    if (hrPart !== undefined) estHour = Number(hrPart) % 24;
+  } catch {
+    // fallback to local hour
+  }
+
+  const cursor = new Date(ey, em - 1, ed, 12, 0, 0, 0);
+
+  if (cursor.getDay() === targetDow && estHour >= 9) {
     cursor.setDate(cursor.getDate() + 1);
   }
 
@@ -206,6 +222,26 @@ export const getUpcomingDatesForDay = (
     });
   }
   return results;
+};
+
+const inferStartWeekOffsetFromDb = (
+  dayType: TrackDayType,
+  firstPublishIso?: string | null
+): number => {
+  if (!firstPublishIso) return 1;
+  const targetDateStr = formatDateInput(new Date(firstPublishIso));
+  const upcoming = getUpcomingDatesForDay(dayType, 16);
+  const exactMatch = upcoming.find(u => u.dateStr === targetDateStr);
+  if (exactMatch) return exactMatch.weekNum;
+
+  const targetMs = new Date(`${targetDateStr}T12:00:00`).getTime();
+  for (const u of upcoming) {
+    const uMs = new Date(`${u.dateStr}T12:00:00`).getTime();
+    if (uMs >= targetMs - 3 * 24 * 60 * 60 * 1000) {
+      return u.weekNum;
+    }
+  }
+  return 1;
 };
 
 export const getMatchingDropDatesForTrack = (
@@ -444,25 +480,27 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
 
             const existing = bySlug.get(slug);
             const canonical = CANONICAL_SERIES_TRACK_DEFAULTS[slug.toLowerCase()];
+            const resolvedDay = dbDayType || existing?.dayType || canonical?.dayType || 'SATURDAY';
+            const resolvedCadence = detectCadenceFromDbChapters(sorted, slug);
+            const resolvedOffset = firstWithDate?.publish_at
+              ? inferStartWeekOffsetFromDb(resolvedDay, firstWithDate.publish_at)
+              : existing?.startWeekOffset || 1;
 
             if (existing) {
-              if (dbDayType && existing.dayType !== dbDayType) {
-                bySlug.set(slug, {
-                  ...existing,
-                  dayType: dbDayType,
-                  cadence: detectCadenceFromDbChapters(sorted, slug)
-                });
-              }
+              bySlug.set(slug, {
+                ...existing,
+                dayType: resolvedDay,
+                cadence: sorted.length >= 2 ? resolvedCadence : existing.cadence,
+                startWeekOffset: resolvedOffset
+              });
             } else {
-              const resolvedDay = dbDayType || canonical?.dayType || 'SATURDAY';
-              const resolvedCadence = detectCadenceFromDbChapters(sorted, slug);
               bySlug.set(slug, {
                 id: `${resolvedDay}_${slug}`,
                 seriesSlug: slug,
                 dayType: resolvedDay,
                 cadence: resolvedCadence,
                 chaptersPerDrop: canonical?.chaptersPerDrop || 1,
-                startWeekOffset: 1,
+                startWeekOffset: resolvedOffset,
                 paused: false
               });
             }
@@ -1254,36 +1292,72 @@ export const ReleaseScheduler = ({ setIsDirty }: any) => {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-1 text-[9px]">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-zinc-500 uppercase">Next Start Slot:</span>
-                      <select
-                        value={item.startWeekOffset || 1}
-                        onChange={e =>
-                          handleUpdateTrackItem(item.id, {
-                            startWeekOffset: Number(e.target.value)
-                          })
-                        }
-                        className="bg-black border border-zinc-800 rounded px-2 py-0.5 text-zinc-300 font-bold cursor-pointer"
-                      >
-                        <option value={1}>Next {dayHeading.slice(0, -1)} ({previewDates[0]?.label})</option>
-                        <option value={2}>In 2 Weeks ({previewDates[1]?.label})</option>
-                        <option value={3}>In 3 Weeks ({previewDates[2]?.label})</option>
-                        <option value={4}>In 4 Weeks ({previewDates[3]?.label})</option>
-                      </select>
-                    </div>
+                  {(() => {
+                    const activeOffset = Math.max(1, item.startWeekOffset || 1);
+                    const slotDates =
+                      activeOffset > previewDates.length
+                        ? getUpcomingDatesForDay(dayType, activeOffset + 2)
+                        : previewDates;
+                    const expectedFirstDate = slotDates[activeOffset - 1]?.dateStr;
+                    const actualFirstDate = unreleasedChaps[0]?.publish_at
+                      ? formatDateInput(new Date(unreleasedChaps[0].publish_at))
+                      : '';
+                    const isOutOfSync =
+                      !item.paused &&
+                      unreleasedChaps.length > 0 &&
+                      expectedFirstDate &&
+                      actualFirstDate !== expectedFirstDate;
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedSeriesSlug(item.seriesSlug);
-                        setActiveSubTab('chapters');
-                      }}
-                      className="text-[9px] font-black uppercase text-zinc-400 hover:text-[#fe9a00] cursor-pointer"
-                    >
-                      Edit Chapters →
-                    </button>
-                  </div>
+                    return (
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 text-[9px]">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-zinc-500 uppercase">Next Start Slot:</span>
+                          <select
+                            value={activeOffset}
+                            onChange={e =>
+                              handleUpdateTrackItem(item.id, {
+                                startWeekOffset: Number(e.target.value)
+                              })
+                            }
+                            className="bg-black border border-zinc-800 rounded px-2 py-0.5 text-zinc-300 font-bold cursor-pointer"
+                          >
+                            {slotDates.slice(0, Math.max(6, activeOffset)).map(sd => (
+                              <option key={sd.weekNum} value={sd.weekNum}>
+                                {sd.weekNum === 1
+                                  ? `Next ${dayHeading.slice(0, -1)} (${sd.label})`
+                                  : `In ${sd.weekNum} Weeks (${sd.label})`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isOutOfSync && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleUpdateTrackItem(item.id, { startWeekOffset: activeOffset })
+                              }
+                              className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-[#fe9a00]/20 text-[#fe9a00] border border-[#fe9a00]/50 hover:bg-[#fe9a00] hover:text-black cursor-pointer"
+                              title="Align queued chapter dates to this exact start slot"
+                            >
+                              ⚡ Sync Queue
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedSeriesSlug(item.seriesSlug);
+                              setActiveSubTab('chapters');
+                            }}
+                            className="text-[9px] font-black uppercase text-zinc-400 hover:text-[#fe9a00] cursor-pointer"
+                          >
+                            Edit Chapters →
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })
