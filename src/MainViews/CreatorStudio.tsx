@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import {
   ArrowLeft, DollarSign, Sparkles, Flame, BookOpen, KeyRound, Copy, Check,
-  ExternalLink, Heart, RefreshCw, Award, Eye, QrCode, Download, X, Link2, Gift, Plus, Trash2, MessageSquare, Zap, Users, ChevronDown, ChevronUp, Crown, Calendar, MapPin, Share2, Crop
+  ExternalLink, Heart, RefreshCw, Award, Eye, QrCode, Download, X, Link2, Gift, Plus, Trash2, MessageSquare, Zap, Users, ChevronDown, ChevronUp, Crown, Calendar, MapPin, Share2, Crop, Code2, Clock
 } from 'lucide-react';
 import { resolveCreatorStripeAccountId, normalizeCreatorKey } from './CreatorsPage';
 import { ThumbnailCropperModal } from '../Components/UploadTools';
@@ -458,6 +458,199 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
   }, [userEmail, rawRole]);
 
   const commissionPerSale = effectiveRole === 'influencer' ? 2 : 5;
+
+  // Strictly private to Raymond Brown's logged-in account AND hidden when peeking at other creators
+  const isRayDevOwner = useMemo(() => {
+    const uname = String(currentUser?.username || '').trim().toLowerCase();
+    const isLoggedInAsRay = userEmail === 'rayme3000@gmail.com' || uname === 'rayme3000';
+    if (!isLoggedInAsRay) return false;
+
+    const cleanSelected = normalizeCreatorKey(selectedCreatorName || '');
+    return (
+      !cleanSelected ||
+      cleanSelected === 'raymond brown' ||
+      cleanSelected === 'rayme3000'
+    );
+  }, [userEmail, currentUser?.username, selectedCreatorName]);
+
+  const [devPeriod, setDevPeriod] = useState<'day' | 'week' | 'month' | 'all'>('month');
+  const [devLedgerRows, setDevLedgerRows] = useState<any[]>([]);
+  const [devSubProfiles, setDevSubProfiles] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!isRayDevOwner) {
+      setDevLedgerRows([]);
+      setDevSubProfiles([]);
+      return;
+    }
+    let active = true;
+    Promise.all([
+      supabase
+        .from('store_payout_ledger')
+        .select('*')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('profiles')
+        .select(
+          'id, username, email, role, is_admin, is_premium, subscription_tier, referred_plan, stripe_subscription_id, subscribed_at, created_at'
+        )
+        .eq('is_premium', true)
+    ]).then(([ledgerRes, profsRes]) => {
+      if (!active) return;
+      if (ledgerRes.data) setDevLedgerRows(ledgerRes.data);
+      if (profsRes.data) setDevSubProfiles(profsRes.data);
+    });
+    return () => {
+      active = false;
+    };
+  }, [isRayDevOwner, loading]);
+
+  const devCutMetrics = useMemo(() => {
+    if (!isRayDevOwner) return null;
+
+    // Anchor period windows to the latest server DB timestamp if the local PC clock is ahead of real-world UTC
+    const allServerTimes = [
+      ...devLedgerRows.map((r: any) => (r.created_at ? new Date(r.created_at).getTime() : 0)),
+      ...devSubProfiles.map((p: any) => {
+        const d = p.subscribed_at || p.created_at;
+        return d ? new Date(d).getTime() : 0;
+      })
+    ].filter(t => !isNaN(t) && t > 0);
+    const latestServerMs = allServerTimes.length > 0 ? Math.max(...allServerTimes) : Date.now();
+    const refNow =
+      Date.now() - latestServerMs > 48 * 60 * 60 * 1000 ? new Date(latestServerMs) : new Date();
+
+    const startOfDay = new Date(
+      refNow.getFullYear(),
+      refNow.getMonth(),
+      refNow.getDate()
+    ).getTime();
+    const startOfWeek = startOfDay - 7 * 24 * 60 * 60 * 1000;
+    const startOfMonth = startOfDay - 30 * 24 * 60 * 60 * 1000;
+
+    const bundleBuyerIds = new Set<string>();
+    const bundleBuyerEmails = new Set<string>();
+
+    interface DevCutEvent {
+      id: string;
+      source: 'Store / Bundle' | 'PLUS Subscription';
+      label: string;
+      buyer: string;
+      grossDollars: number;
+      devCutDollars: number;
+      timestampMs: number;
+      isoDate: string;
+    }
+
+    const events: DevCutEvent[] = [];
+
+    devLedgerRows.forEach((row: any) => {
+      if (row.user_id) bundleBuyerIds.add(String(row.user_id));
+      if (row.user_email) bundleBuyerEmails.add(String(row.user_email).trim().toLowerCase());
+
+      const gross = Number(row.gross_amount_dollars || 0);
+      const devCut =
+        row.dev_allocation_dollars !== null && row.dev_allocation_dollars !== undefined
+          ? Number(row.dev_allocation_dollars)
+          : Number((gross * 0.075).toFixed(2));
+      if (devCut <= 0) return;
+
+      const ts = row.created_at ? new Date(row.created_at).getTime() : 0;
+      events.push({
+        id: `store_${row.id}`,
+        source: 'Store / Bundle',
+        label: row.product_title || 'Store Drop',
+        buyer: row.user_email || 'Fan Purchase',
+        grossDollars: gross,
+        devCutDollars: devCut,
+        timestampMs: isNaN(ts) ? 0 : ts,
+        isoDate: row.created_at || ''
+      });
+    });
+
+    const staffEmails = new Set([
+      'odunze.oguguo@yahoo.com',
+      'saturday.editorial@gmail.com',
+      'demetrene.billups@gmail.com',
+      'publisher@saturday-am.com',
+      'rayme3000@gmail.com',
+      'saturdayam.writer@gmail.com',
+      'dropkickanimation@gmail.com',
+      'fsimmonds4@gmail.com'
+    ]);
+
+    devSubProfiles.forEach((p: any) => {
+      const uid = String(p.id || '');
+      const em = String(p.email || '').trim().toLowerCase();
+      const uname = String(p.username || '').trim().toLowerCase();
+      const role = String(p.role || 'reader').trim().toLowerCase();
+
+      // Skip staff/test accounts and avoid double-counting users whose PLUS sub came from a Store Bundle
+      if (
+        Boolean(p.is_admin) ||
+        ['creator', 'core_creator', 'staff', 'influencer', 'admin', 'moderator'].includes(role) ||
+        staffEmails.has(em) ||
+        uname.includes('test') ||
+        em.includes('test')
+      ) {
+        return;
+      }
+      if (bundleBuyerIds.has(uid) || (em && bundleBuyerEmails.has(em))) {
+        return;
+      }
+
+      const planRaw = String(p.subscription_tier || p.referred_plan || 'monthly').toLowerCase();
+      const isAnnual = planRaw === 'annual' || planRaw === 'yearly';
+      const gross = isAnnual ? 20.0 : 1.99;
+      const devCut = Number((gross * 0.075).toFixed(2));
+      const rawDate = p.subscribed_at || p.created_at || '';
+      const ts = rawDate ? new Date(rawDate).getTime() : 0;
+
+      events.push({
+        id: `sub_${uid}`,
+        source: 'PLUS Subscription',
+        label: isAnnual ? 'Annual PLUS ($20/yr)' : 'Monthly PLUS ($1.99/mo)',
+        buyer: p.username || em || 'PLUS Subscriber',
+        grossDollars: gross,
+        devCutDollars: devCut,
+        timestampMs: isNaN(ts) ? 0 : ts,
+        isoDate: rawDate
+      });
+    });
+
+    events.sort((a, b) => b.timestampMs - a.timestampMs);
+
+    const calcTotals = (minTimeMs: number) => {
+      const matching = minTimeMs > 0 ? events.filter(e => e.timestampMs >= minTimeMs) : events;
+      const storeCut = matching
+        .filter(e => e.source === 'Store / Bundle')
+        .reduce((s, e) => s + e.devCutDollars, 0);
+      const subCut = matching
+        .filter(e => e.source === 'PLUS Subscription')
+        .reduce((s, e) => s + e.devCutDollars, 0);
+      const grossVol = matching.reduce((s, e) => s + e.grossDollars, 0);
+      return {
+        totalCut: storeCut + subCut,
+        storeCut,
+        subCut,
+        grossVol,
+        count: matching.length,
+        items: matching
+      };
+    };
+
+    const byPeriod = {
+      day: calcTotals(startOfDay),
+      week: calcTotals(startOfWeek),
+      month: calcTotals(startOfMonth),
+      all: calcTotals(0)
+    };
+
+    return {
+      byPeriod,
+      active: byPeriod[devPeriod]
+    };
+  }, [isRayDevOwner, devLedgerRows, devSubProfiles, devPeriod]);
 
   const { monthKey: currentMonthKey, monthLabel: currentMonthLabel } = useMemo(
     () => getCurrentMonthKeyAndExpiry(),
@@ -1500,6 +1693,177 @@ export const CreatorStudio: React.FC<CreatorStudioProps> = ({ currentUser, onBac
           </div>
         </div>
       </div>
+
+      {/* =========================================================================
+          PRIVATE 7.5% DEVELOPER CUT TRACKER (VISIBLE ONLY TO RAYME3000)
+      ========================================================================= */}
+      {isRayDevOwner && devCutMetrics && (
+        <div className="bg-gradient-to-r from-zinc-950 via-black to-emerald-950/25 border-2 border-emerald-500/50 rounded-2xl p-5 sm:p-6 mb-6 shadow-[0_0_30px_rgba(16,185,129,0.12)] space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0 mt-0.5">
+                <Code2 className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-sm sm:text-base font-black italic uppercase tracking-wider text-white">
+                    Private Developer Cut Ledger <span className="text-emerald-400">(7.5% Locked)</span>
+                  </h3>
+                  <span className="text-[8px] font-black uppercase tracking-widest bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full">
+                    Private • Only Visible to You
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 font-bold mt-0.5">
+                  Tracks your 7.5% developer allocation across Store Bundles, Card Skins/Packs, and PLUS Subscriptions (`acct_1US3pv2d62PnIfST`).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 bg-black p-1 rounded-xl border border-zinc-800 self-start md:self-center shrink-0">
+              {(
+                [
+                  { id: 'day', label: 'Today' },
+                  { id: 'week', label: '7d Week' },
+                  { id: 'month', label: '30d Month' },
+                  { id: 'all', label: 'All-Time' }
+                ] as const
+              ).map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setDevPeriod(tab.id)}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                    devPeriod === tab.id
+                      ? 'bg-emerald-400 text-black shadow-[0_0_15px_rgba(52,211,153,0.35)]'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-black border border-emerald-500/40 rounded-xl p-4">
+              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400 block">
+                {devPeriod === 'day'
+                  ? "Today's 7.5% Dev Cut"
+                  : devPeriod === 'week'
+                  ? 'Last 7 Days Dev Cut'
+                  : devPeriod === 'month'
+                  ? 'Last 30 Days Dev Cut'
+                  : 'All-Time Dev Cut'}
+              </span>
+              <div className="text-2xl sm:text-3xl font-black italic text-white mt-1">
+                ${devCutMetrics.active.totalCut.toFixed(2)}
+              </div>
+              <span className="text-[10px] font-bold text-zinc-400 mt-1 block">
+                {devCutMetrics.active.count} Qualifying Sale{devCutMetrics.active.count === 1 ? '' : 's'} (${devCutMetrics.active.grossVol.toFixed(2)} Gross)
+              </span>
+            </div>
+
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <span className="text-[9px] font-black uppercase tracking-widest text-[#fe9a00] block">
+                Store &amp; Bundles (7.5%)
+              </span>
+              <div className="text-xl sm:text-2xl font-black italic text-[#fe9a00] mt-1">
+                ${devCutMetrics.active.storeCut.toFixed(2)}
+              </div>
+              <span className="text-[10px] font-bold text-zinc-500 mt-1 block">
+                From `store_payout_ledger`
+              </span>
+            </div>
+
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <span className="text-[9px] font-black uppercase tracking-widest text-purple-400 block">
+                Standalone PLUS Subs (7.5%)
+              </span>
+              <div className="text-xl sm:text-2xl font-black italic text-purple-300 mt-1">
+                ${devCutMetrics.active.subCut.toFixed(2)}
+              </div>
+              <span className="text-[10px] font-bold text-zinc-500 mt-1 block">
+                $0.15/mo Monthly • $1.50/yr Annual
+              </span>
+            </div>
+
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 flex flex-col justify-between">
+              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block">
+                Quick Period Snapshot
+              </span>
+              <div className="space-y-1 text-[10px] font-bold mt-1.5">
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Today:</span>
+                  <span className="text-white font-black">${devCutMetrics.byPeriod.day.totalCut.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">7d Week:</span>
+                  <span className="text-white font-black">${devCutMetrics.byPeriod.week.totalCut.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">30d Month:</span>
+                  <span className="text-emerald-400 font-black">${devCutMetrics.byPeriod.month.totalCut.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between border-t border-zinc-800 pt-1">
+                  <span className="text-zinc-400">All-Time:</span>
+                  <span className="text-[#fe9a00] font-black">${devCutMetrics.byPeriod.all.totalCut.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {devCutMetrics.active.items.length > 0 && (
+            <div className="bg-black/80 border border-zinc-800 rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-zinc-900/70 border-b border-zinc-800 flex items-center justify-between text-[9px] font-black uppercase tracking-widest text-zinc-400">
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-3 h-3 text-emerald-400" /> Recent Dev Cut Transactions ({devCutMetrics.active.items.length})
+                </span>
+                <span>Gross → 7.5% Cut</span>
+              </div>
+              <div className="divide-y divide-zinc-800/60 max-h-48 overflow-y-auto custom-scrollbar">
+                {devCutMetrics.active.items.slice(0, 15).map(ev => (
+                  <div
+                    key={ev.id}
+                    className="px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs hover:bg-zinc-900/40"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <span
+                        className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded border shrink-0 ${
+                          ev.source === 'Store / Bundle'
+                            ? 'bg-[#fe9a00]/15 text-[#fe9a00] border-[#fe9a00]/40'
+                            : 'bg-purple-500/15 text-purple-300 border-purple-500/40'
+                        }`}
+                      >
+                        {ev.source}
+                      </span>
+                      <span className="font-black text-white truncate">{ev.label}</span>
+                      <span className="text-[10px] text-zinc-400 font-bold truncate">• {ev.buyer}</span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 justify-between sm:justify-end">
+                      <span className="text-[10px] font-mono text-zinc-500">
+                        {ev.isoDate
+                          ? new Date(ev.isoDate).toLocaleString([], {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit'
+                            })
+                          : '—'}
+                      </span>
+                      <span className="text-[11px] font-bold text-zinc-400">
+                        ${ev.grossDollars.toFixed(2)}
+                      </span>
+                      <span className="text-xs font-black text-emerald-400 min-w-[56px] text-right">
+                        +${ev.devCutDollars.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* =========================================================================
           MONTHLY 1-YEAR PLUS GIFT SUB CODE GENERATOR (1 PER MONTH • NON-STACKING)
