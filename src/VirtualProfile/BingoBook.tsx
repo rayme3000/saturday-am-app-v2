@@ -64,6 +64,24 @@ export const CREATOR_SIGNATURE_ALIAS_GROUPS: string[][] = [
   ['stephanie williams', 'steffany williams']
 ];
 
+const extractCreatorWords = (val: string): string[] =>
+  String(val || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(w => w.length > 1);
+
+const areWholeWordCreatorMatch = (a: string, b: string): boolean => {
+  if (a === b) return true;
+  const wordsA = extractCreatorWords(a);
+  const wordsB = extractCreatorWords(b);
+  if (wordsA.length === 0 || wordsB.length === 0) return false;
+  const shorter = wordsA.length <= wordsB.length ? wordsA : wordsB;
+  const longerSet = new Set(wordsA.length <= wordsB.length ? wordsB : wordsA);
+  return shorter.every(w => longerSet.has(w));
+};
+
 export const getCreatorMatchTokens = (rawName?: string): string[] => {
   if (!rawName) return [];
   const clean = String(rawName).trim().toLowerCase().replace(/\s+/g, ' ');
@@ -78,7 +96,11 @@ export const getCreatorMatchTokens = (rawName?: string): string[] => {
   }
 
   for (const group of CREATOR_SIGNATURE_ALIAS_GROUPS) {
-    if (group.some(alias => tokens.has(alias) || clean.includes(alias) || alias.includes(clean))) {
+    if (
+      group.some(alias =>
+        Array.from(tokens).some(tk => tk === alias || areWholeWordCreatorMatch(tk, alias))
+      )
+    ) {
       group.forEach(alias => tokens.add(alias));
     }
   }
@@ -91,11 +113,7 @@ export const doCreatorNamesMatch = (nameA?: string, nameB?: string): boolean => 
   const tokensB = getCreatorMatchTokens(nameB);
   if (tokensA.length === 0 || tokensB.length === 0) return false;
 
-  return tokensA.some(a =>
-    tokensB.some(
-      b => a === b || (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a)))
-    )
-  );
+  return tokensA.some(a => tokensB.some(b => areWholeWordCreatorMatch(a, b)));
 };
 
 export const BingoBook = ({ onBack, userTier, onNavigate }: any) => {

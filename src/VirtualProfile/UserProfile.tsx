@@ -353,7 +353,8 @@ export const UserProfile = ({ onBack, onNavigate, onLoginClick, onUpsell }: any)
       cardSkin: '',
       frameId: '',
       topFive: [null, null, null, null, null] as (string | null)[],
-      unlockedSkins: [] as string[]
+      unlockedSkins: [] as string[],
+      unlockedAvatars: [] as string[]
     }
   );
   const [tempProfile, setTempProfile] = useState({ ...userProfile });

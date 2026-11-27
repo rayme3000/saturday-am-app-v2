@@ -252,7 +252,12 @@ const buildCrawlableUrl = (view: string, seriesObj: any): string => {
       'amount',
       'stripe_connected',
       'acct',
-      'stripe_connect_error'
+      'stripe_connect_error',
+      'store_product_success',
+      'bundle_status',
+      'bundle_id',
+      'status',
+      'sub_status'
     ];
 
     preservedKeys.forEach(k => {

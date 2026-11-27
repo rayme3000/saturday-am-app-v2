@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { supabase, trackTelemetry, getOrCreatePersistentVisitorId } from '../supabase';
 import { useSeriesData } from '../userSeriesData';
+import { doCreatorNamesMatch } from '../VirtualProfile/BingoBook';
 import {
   isCompletedRunSeries,
   isActiveOneShotWednesday,
@@ -140,31 +141,9 @@ const ContentRatingBadge = ({ rating }: { rating: string }) => {
   );
 };
 
-// Strict whole-word creator matcher so "Frederick" NEVER falsely matches "Erick"
+// Alias-aware whole-word creator matcher ("Whyt Manga" <-> "Odunze Oguguo", while "Frederick" NEVER matches "Erick")
 const isStrictWholeWordCreatorMatch = (nameA: string, nameB: string): boolean => {
-  const cleanWords = (val: string) =>
-    String(val || '')
-      .toLowerCase()
-      .replace(/\([^)]*\)/g, ' ')
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim()
-      .split(/\s+/)
-      .filter(w => w.length > 1);
-
-  const aWords = cleanWords(nameA);
-  const bWords = cleanWords(nameB);
-  if (aWords.length === 0 || bWords.length === 0) return false;
-
-  if (
-    (aWords.includes('frederick') && !bWords.includes('frederick')) ||
-    (bWords.includes('frederick') && !aWords.includes('frederick'))
-  ) {
-    return false;
-  }
-
-  const shorter = aWords.length <= bWords.length ? aWords : bWords;
-  const longerSet = new Set(aWords.length <= bWords.length ? bWords : aWords);
-  return shorter.every(w => longerSet.has(w));
+  return doCreatorNamesMatch(nameA, nameB);
 };
 
 export const SeriesDetailPage = ({
@@ -1363,31 +1342,34 @@ export const SeriesDetailPage = ({
               ))}
           </div>
 
-          {isPlusActive && Object.keys(collectedSignatures).length > 0 && (
+          {(isPlusActive || Boolean(currentUserId)) && Object.keys(collectedSignatures).length > 0 && (
             <div className="flex flex-wrap justify-center gap-6 mt-8 w-full max-w-2xl">
               {Object.entries(collectedSignatures)
                 .filter(([sigName]) => {
                   const slugLower = String(localSeries?.slug || targetSeriesSlug || '')
                     .trim()
                     .toLowerCase();
-                  const sigWords = String(sigName || '')
-                    .toLowerCase()
-                    .replace(/\([^)]*\)/g, ' ')
-                    .replace(/[^a-z0-9]+/g, ' ')
-                    .trim()
-                    .split(/\s+/)
-                    .filter(w => w.length > 1);
-
-                  if (sigWords.length === 0) return false;
+                  if (!sigName) return false;
 
                   if (slugLower === 'gun-bone') {
-                    return sigWords.includes('erick') && !sigWords.includes('frederick');
+                    return doCreatorNamesMatch(sigName, 'Erick Pedrucci');
+                  }
+
+                  const hiddenCreators = creators.filter((c: any) => c.is_visible === false);
+                  if (hiddenCreators.some((hc: any) => doCreatorNamesMatch(hc.name || '', sigName))) {
+                    return false;
                   }
 
                   const visibleCreators = creators.filter((c: any) => c.is_visible !== false);
-                  return visibleCreators.some((c: any) =>
-                    isStrictWholeWordCreatorMatch(c.name || '', sigName)
-                  );
+                  if (visibleCreators.some((c: any) => doCreatorNamesMatch(c.name || '', sigName))) {
+                    return true;
+                  }
+
+                  const fallbackNames = String(localSeries?.creator_name || '')
+                    .split(/,|\s+&\s+|\s+and\s+|\s*\/\s*/i)
+                    .map(s => s.trim())
+                    .filter(Boolean);
+                  return fallbackNames.some(fn => doCreatorNamesMatch(fn, sigName));
                 })
                 .map(([sigName, sigUrl], i) => (
                   <div

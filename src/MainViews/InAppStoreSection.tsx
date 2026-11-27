@@ -322,17 +322,58 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
       const existingAutographs: string[] = Array.isArray(prof.unlocked_autographs)
         ? prof.unlocked_autographs.map(String)
         : [];
-      const prodAutographs: string[] = Array.isArray(prod.autograph_creators)
+      const explicitAutographs: string[] = Array.isArray(prod.autograph_creators)
         ? prod.autograph_creators.filter(Boolean)
         : [];
-      const nextAutographs = Array.from(new Set([...existingAutographs, ...prodAutographs]));
+      const stampedAutographs: string[] = resolvedSkins.flatMap((s: any) =>
+        Array.isArray(s?.signature_stamps)
+          ? s.signature_stamps.map((st: any) => String(st?.creator_name || '').trim()).filter(Boolean)
+          : []
+      );
+      const fallbackBundleAutographs: string[] =
+        explicitAutographs.length === 0 && stampedAutographs.length === 0 && prod.product_type === 'bundle'
+          ? (Array.isArray(prod.commission_creators) ? prod.commission_creators : []).filter((cName: string) =>
+              Object.keys(masterSignatures).some(sigName => doCreatorNamesMatch(cName, sigName))
+            )
+          : [];
+      const prodAutographs = Array.from(
+        new Set([...explicitAutographs, ...stampedAutographs, ...fallbackBundleAutographs].filter(Boolean))
+      );
+      const canonicalAutographs = prodAutographs.flatMap(cName => {
+        const matchedMaster = Object.keys(masterSignatures).find(k => doCreatorNamesMatch(cName, k));
+        return matchedMaster ? [cName, matchedMaster] : [cName];
+      });
+      const nextAutographs = Array.from(new Set([...existingAutographs, ...canonicalAutographs]));
+
+      if (canonicalAutographs.length > 0) {
+        const { data: existingLogs } = await supabase
+          .from('bingo_signatures_log')
+          .select('creator_name')
+          .eq('user_id', userId);
+
+        for (const cName of Array.from(new Set(canonicalAutographs))) {
+          const alreadyLogged = (existingLogs || []).some((row: any) =>
+            doCreatorNamesMatch(row.creator_name, cName)
+          );
+          if (!alreadyLogged) {
+            await supabase.from('bingo_signatures_log').insert([
+              {
+                user_id: userId,
+                creator_name: cName,
+                event_name: prod.title || 'Annual Collector Bundle',
+                signature_type: 'Standard'
+              }
+            ]);
+          }
+        }
+      }
 
       try {
-        if (prodAutographs.length > 0) {
+        if (canonicalAutographs.length > 0) {
           const savedHunts = JSON.parse(localStorage.getItem('am_bingo_hunts') || '[]');
           localStorage.setItem(
             'am_bingo_hunts',
-            JSON.stringify(Array.from(new Set([...savedHunts, ...prodAutographs])))
+            JSON.stringify(Array.from(new Set([...savedHunts, ...canonicalAutographs])))
           );
         }
         localStorage.setItem(`am_unlocked_skins_${userId}`, JSON.stringify(nextSkins));
@@ -341,23 +382,8 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
       }
 
       const bonusVaulted = Number(prod.bonus_vaulted_hypes || 0);
-
-      // If stripe-webhook already recorded & granted this purchase milliseconds earlier, show success toast without double-adding bonus hypes!
-      if (existingPurchase) {
-        setPurchasedProductIds(prev => Array.from(new Set([...prev, String(prod.id)])));
-        setUnlockedSkins(nextSkins);
-        setUnlockedAvatars(nextAvatars);
-        setStoreToast(
-          `🎉 Unlocked "${prod.title}"! ${
-            bonusVaulted > 0 ? `+${bonusVaulted} Gold Hypes & ` : ''
-          }Your new items are ready in your Profile Loadout!`
-        );
-        window.dispatchEvent(new Event('profileUpdated'));
-        return;
-      }
-
       const currentVaulted = Number(prof.vaulted_hypes || 0);
-      const nextVaulted = currentVaulted + bonusVaulted;
+      const nextVaulted = existingPurchase ? currentVaulted : currentVaulted + bonusVaulted;
 
       const patch: Record<string, any> = {
         unlocked_skins: nextSkins,
@@ -368,14 +394,13 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
 
       if (prod.include_1yr_sub) {
         patch.is_premium = true;
-        patch.subscription_tier = 'annual';
         const currentActive = Number(prof.hypes_remaining ?? prof.super_hypes_left ?? 3);
         const toppedActive = Math.min(10, Math.max(3, currentActive));
         patch.hypes_remaining = toppedActive;
         patch.super_hypes_left = toppedActive;
       }
 
-      if (skinUrls[0]) {
+      if (skinUrls[0] && (!existingPurchase || !prof.card_skin)) {
         patch.card_skin = skinUrls[0];
         setEquippedSkinUrl(skinUrls[0]);
       }
@@ -390,6 +415,8 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
 
       if (updateErr) {
         const fallbackPatch: Record<string, any> = {
+          unlocked_skins: nextSkins,
+          unlocked_avatars: nextAvatars,
           vaulted_hypes: nextVaulted
         };
         if (prod.include_1yr_sub) {
@@ -400,6 +427,24 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
         if (skinUrls[0]) fallbackPatch.card_skin = skinUrls[0];
         if (prodAvatars[0] && !prof.avatar_url) fallbackPatch.avatar_url = prodAvatars[0];
         await supabase.from('profiles').update(fallbackPatch).eq('id', userId);
+      }
+
+      if (typeof window !== 'undefined' && window.location.search.includes('store_product_success')) {
+        window.history.replaceState({}, '', '/shop');
+      }
+
+      if (existingPurchase) {
+        setPurchasedProductIds(prev => Array.from(new Set([...prev, String(prod.id)])));
+        setUnlockedSkins(nextSkins);
+        setUnlockedAvatars(nextAvatars);
+        setStoreToast(
+          `🎉 Unlocked "${prod.title}"! ${
+            bonusVaulted > 0 ? `+${bonusVaulted} Gold Hypes & ` : ''
+          }Your new items & autographs are ready in your Profile & Series Pages!`
+        );
+        window.dispatchEvent(new Event('profileUpdated'));
+        window.dispatchEvent(new Event('bingoUpdated'));
+        return;
       }
 
       // Fallback client-side ledger insert ONLY if stripe-webhook hasn't inserted yet (7.5% Dev Cut locked)
@@ -456,8 +501,9 @@ export const InAppStoreSection: React.FC<InAppStoreSectionProps> = ({
         }Your new items are ready in your Profile Loadout!`
       );
       window.dispatchEvent(new Event('profileUpdated'));
+      window.dispatchEvent(new Event('bingoUpdated'));
     },
-    [cardSkins]
+    [cardSkins, masterSignatures]
   );
 
   useEffect(() => {

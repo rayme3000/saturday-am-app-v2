@@ -801,12 +801,18 @@ Deno.serve(async (req: Request) => {
             ? prodRow.card_skin_ids.map(String)
             : [];
           let skinUrls: string[] = [];
+          let stampedAutos: string[] = [];
           if (skinIds.length > 0) {
             const { data: skinRows } = await supabase
               .from("card_skins")
-              .select("id, image_url")
+              .select("id, image_url, signature_stamps")
               .in("id", skinIds);
             skinUrls = (skinRows || []).map((s: any) => s.image_url).filter(Boolean);
+            stampedAutos = (skinRows || []).flatMap((s: any) =>
+              Array.isArray(s?.signature_stamps)
+                ? s.signature_stamps.map((st: any) => String(st?.creator_name || "").trim()).filter(Boolean)
+                : []
+            );
           }
 
           const existingSkins: string[] = Array.isArray(buyerProf.unlocked_skins)
@@ -827,10 +833,17 @@ Deno.serve(async (req: Request) => {
           const existingAutos: string[] = Array.isArray(buyerProf.unlocked_autographs)
             ? buyerProf.unlocked_autographs.map(String)
             : [];
-          const prodAutos: string[] = Array.isArray(prodRow.autograph_creators)
+          const explicitAutos: string[] = Array.isArray(prodRow.autograph_creators)
             ? prodRow.autograph_creators.filter(Boolean)
             : [];
-          const nextAutos = Array.from(new Set([...existingAutos, ...prodAutos]));
+          const fallbackCommAutos: string[] =
+            explicitAutos.length === 0 && stampedAutos.length === 0 && prodRow.product_type === "bundle"
+              ? (Array.isArray(prodRow.commission_creators) ? prodRow.commission_creators.filter(Boolean) : [])
+              : [];
+          const mergedBundleAutos = Array.from(
+            new Set([...explicitAutos, ...stampedAutos, ...fallbackCommAutos].filter(Boolean))
+          );
+          const nextAutos = Array.from(new Set([...existingAutos, ...mergedBundleAutos]));
 
           const bonusVaulted = !existingLedger ? Number(prodRow.bonus_vaulted_hypes || 0) : 0;
           const patch: Record<string, any> = {
@@ -842,7 +855,6 @@ Deno.serve(async (req: Request) => {
 
           if (prodRow.include_1yr_sub) {
             patch.is_premium = true;
-            patch.subscription_tier = "annual";
             const curActive = Number(
               buyerProf.hypes_remaining ?? buyerProf.super_hypes_left ?? 3
             );
@@ -852,7 +864,40 @@ Deno.serve(async (req: Request) => {
           if (skinUrls[0] && !buyerProf.card_skin) patch.card_skin = skinUrls[0];
           if (prodAvatars[0] && !buyerProf.avatar_url) patch.avatar_url = prodAvatars[0];
 
-          await supabase.from("profiles").update(patch).eq("id", buyerUserId);
+          const { error: profErr } = await supabase
+            .from("profiles")
+            .update(patch)
+            .eq("id", buyerUserId);
+
+          if (profErr) {
+            console.error("Bundle profile update fallback:", profErr.message);
+            const { unlocked_autographs: _ua, ...safePatch } = patch;
+            await supabase.from("profiles").update(safePatch).eq("id", buyerUserId);
+          }
+
+          if (mergedBundleAutos.length > 0) {
+            const { data: existingSigLogs } = await supabase
+              .from("bingo_signatures_log")
+              .select("creator_name")
+              .eq("user_id", buyerUserId);
+            const loggedLower = new Set(
+              (existingSigLogs || []).map((r: any) => String(r.creator_name || "").trim().toLowerCase())
+            );
+            for (const cName of mergedBundleAutos) {
+              const cleanC = String(cName).trim();
+              if (cleanC && !loggedLower.has(cleanC.toLowerCase())) {
+                loggedLower.add(cleanC.toLowerCase());
+                await supabase.from("bingo_signatures_log").insert([
+                  {
+                    user_id: buyerUserId,
+                    creator_name: cleanC,
+                    event_name: productTitle || "Annual Collector Bundle",
+                    signature_type: "Standard",
+                  },
+                ]);
+              }
+            }
+          }
         }
 
         if (!existingLedger && grossDollars > 0) {
